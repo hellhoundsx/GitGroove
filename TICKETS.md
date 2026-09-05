@@ -71,7 +71,7 @@ Ready-to-paste routine prompt:
 | --- | --- | --- | --- | --- | --- |
 | GC-001 | Initialise the git repository | infra | S | P0 | done |
 | GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | done |
-| GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | todo |
+| GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | in-progress |
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | todo |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | todo |
 | GC-006 | Resizable ref column | graph | M | P1 | todo |
@@ -178,7 +178,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-003 Replace native confirm() with the UI confirm modal
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-001
 - **Why:** Four destructive actions still use the browser `confirm()` dialog, which looks
@@ -196,6 +196,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   `tools/e2e/run.mjs`.
 - **Verify:** `npm run typecheck && npm run build && npm run e2e:setup && npm run e2e`.
 - **Log:**
+  - 2026-09-05 15:55 claimed
 
 ### GC-004 Confirm checkout when the working tree is dirty
 
