@@ -8,6 +8,9 @@
 // with `windowsHide` and sets GITCLIENT_STEALTH=1, which makes src/main/index.ts render the
 // window offscreen (no OS window at all). `--visible` opens the normal, focused window.
 //
+// Stopping is narrow too: `stopApp(child)` / `stopPort(port)` kill one process tree, never every
+// electron.exe on the machine (GC-035).
+//
 // Usage: node tools/launch-app.mjs [--port 9333] [--repo <path>] [--visible] [--keep-alive]
 // Exits 0 once the page target is up, 1 on timeout.
 import { execFileSync, spawn } from 'node:child_process';
@@ -27,15 +30,71 @@ export function electronBinary(appDir = APP_DIR) {
   return bin;
 }
 
-export function killElectron() {
+/**
+ * Kills one process tree by pid, and nothing else. Never `taskkill /IM electron.exe`: the hourly
+ * backlog reviewer runs its own build from a separate worktree, and Ricardo may have `npm run dev`
+ * open; a machine-wide kill takes both down with it (GC-035).
+ */
+export function killTree(pid) {
+  if (!pid) return false;
   try {
-    if (process.platform === 'win32') execFileSync('taskkill', ['/F', '/IM', 'electron.exe'], { stdio: 'ignore' });
-    else execFileSync('pkill', ['-f', 'electron'], { stdio: 'ignore' });
-  } catch {}
+    if (process.platform === 'win32') execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
+    else process.kill(-pid, 'SIGKILL');
+    return true;
+  } catch {
+    // POSIX: the child may not be its own group leader, so fall back to the pid itself.
+    try {
+      process.kill(pid, 'SIGKILL');
+      return true;
+    } catch {}
+    return false;
+  }
+}
+
+/** Stops an app launched by `launchApp`, and only that one. */
+export function stopApp(child) {
+  return killTree(child?.pid);
+}
+
+/** The pid listening on a TCP port, or null. Used to clear a stale DevTools port. */
+export function pidOnPort(port) {
+  try {
+    if (process.platform === 'win32') {
+      // netstat -ano rows are: proto, local address, foreign address, state, pid.
+      const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8' });
+      for (const line of out.split('\n')) {
+        const [proto, local, , state, pid] = line.trim().split(/ +/);
+        if (proto !== 'TCP' || state !== 'LISTENING') continue;
+        if (Number(local.slice(local.lastIndexOf(':') + 1)) === port) return Number(pid);
+      }
+      return null;
+    }
+    const out = execFileSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).trim();
+    return out ? Number(out.split('\n')[0]) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Spawns the built app and resolves with { child, target } once /json lists a page target.
+ * Frees a DevTools port a stale instance is still holding, by stopping that process tree only.
+ * Returns true when something was stopped. A port nobody holds is a no-op.
+ */
+export async function stopPort(port, timeoutMs = 10000) {
+  const pid = pidOnPort(port);
+  if (!pid) return false;
+  killTree(pid);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!pidOnPort(port)) return true;
+    await sleep(250);
+  }
+  return true;
+}
+
+/**
+ * Spawns the built app and resolves with { child, target, stop } once /json lists a page target.
+ * `stop()` kills that process tree and nothing else.
  * `visible: true` drops stealth mode and shows the usual window.
  */
 export async function launchApp({ port = 9333, repo = null, visible = false, appDir = APP_DIR, timeoutMs = 40000 } = {}) {
@@ -65,7 +124,7 @@ export async function launchApp({ port = 9333, repo = null, visible = false, app
   }
   if (!target) throw new Error(`app did not start: no page target on port ${port} after ${timeoutMs}ms`);
   if (repo) await setRepo(target, repo);
-  return { child, target };
+  return { child, target, stop: () => stopApp(child) };
 }
 
 /** Points the running app at a repository through localStorage and reloads it. */
@@ -97,7 +156,7 @@ if (invokedDirectly) {
   };
   const port = Number(value('--port', process.env.GITCLIENT_E2E_PORT ?? 9333));
   try {
-    if (!flag('--keep-running')) killElectron();
+    if (!flag('--keep-running')) await stopPort(port);
     const { target } = await launchApp({ port, repo: value('--repo', null), visible: flag('--visible') });
     console.log(`app ready on port ${port}${flag('--visible') ? '' : ' (stealth)'}: ${target.url}`);
     process.exit(0);

@@ -139,7 +139,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | done |
 | GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | done |
 | GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
-| GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | in-progress |
+| GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
@@ -158,6 +158,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | todo |
+| GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
+| GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
@@ -948,7 +950,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-035 Stop only the Electron the run started, never every electron.exe
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** infra | **Size:** S | **Priority:** P2
 - **Depends on:** GC-028
 - **Why:** `killElectron()` in `tools/launch-app.mjs` runs `taskkill /F /IM electron.exe`, which
@@ -966,8 +968,8 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - `CLAUDE.md` replaces the `taskkill //F //IM electron.exe` line with the narrow stop.
 - **Out of scope:** the reviewer routine's own isolation, which already does this.
 - **Acceptance:**
-  - [ ] A second Electron started on another port survives a full `npm run e2e`.
-  - [ ] `npm run e2e` still passes and leaves no electron process of its own behind.
+  - [x] A second Electron started on another port survives a full `npm run e2e`.
+  - [x] `npm run e2e` still passes and leaves no electron process of its own behind.
 - **Files:** `tools/launch-app.mjs`, `tools/e2e/run.mjs`, `CLAUDE.md`.
 - **Verify:** start a stealth app on port 9335, run `npm run e2e`, check the 9335 target still
   answers, then stop it.
@@ -975,6 +977,20 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-028 (this ticket): moving the launch into one module made the
     machine-wide kill it inherited obvious, and the reviewer routine documents it as a hazard.
   - 2026-09-05 18:13 claimed
+  - 2026-09-05 18:25 done. `tools/launch-app.mjs` lost `killElectron()` and gained three narrow
+    stops: `killTree(pid)` (`taskkill /F /T /PID` on Windows, the process group elsewhere with a
+    fallback to the pid), `stopApp(child)` over it, and `stopPort(port)`, which finds the pid
+    listening on a port through `netstat -ano` (`lsof` elsewhere) and stops only that tree.
+    `launchApp` now resolves with `stop()` as well as `{ child, target }`; the CLI frees the port
+    with `stopPort` instead of a machine-wide kill. `tools/e2e/run.mjs` calls `stopPort(PORT)` in
+    the prologue and the launch's own `stop()` in the epilogue. Verified: typecheck, build and the
+    30 unit tests pass; `pidOnPort` was checked against a real listening socket and against an
+    unused port. With a stealth app parked on port 9335 (pid 38708), a full `npm run e2e` passed
+    all 49 assertions and left 9335 answering on the same pid, and port 9333 free. The hourly
+    reviewer's own four Electron processes (running out of `gitclient-review/wt`) also survived
+    the run, which is the case the ticket was written for. `stopPort(9335)` then stopped the guard
+    and returned false on the second call. CLAUDE.md's stop paragraph now forbids the machine-wide
+    kill and documents the narrow ones.
 
 ### GC-036 The e2e prologue leaves the named stash a run that dies mid-scenario creates
 
@@ -1005,6 +1021,62 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-029 (this ticket): adding the unnamed-stash guard to the prologue
     made the same gap for `test stash` obvious; it is the only remaining stash the suite can
     strand.
+
+### GC-040 A crashed e2e run leaves its own Electron alive
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-035
+- **Why:** `tools/e2e/run.mjs` calls `stopApp()` on the last line only. Any earlier exit — an
+  assertion helper throwing, a CDP timeout, the `process.exit(1)` in the launch catch, Ctrl+C —
+  skips it and leaves a stealth Electron running with no window and no taskbar entry, so nothing
+  on screen says it is there. It survives until the next run's `stopPort(PORT)` clears the port,
+  which may be hours later, and a run interrupted often enough stacks one per crash on other
+  ports. GC-035 gave the run a narrow stopper; it is just not wired to the failure paths.
+- **Scope:**
+  - Register the stopper once, right after `launchApp` resolves, so every exit path runs it:
+    a `process.on('exit', ...)` hook (plus `SIGINT`) calling `stopApp()` at most once.
+  - Keep the explicit call at the end, or drop it if the hook makes it redundant; either way the
+    normal run must still stop exactly one process tree.
+- **Out of scope:** making the assertions themselves recoverable, and any change to what the run
+  asserts.
+- **Acceptance:**
+  - [ ] Killing the run mid-scenario (or forcing a throw) leaves no electron process from this
+        repository's `node_modules` behind.
+  - [ ] `npm run e2e` still passes and still stops only its own process tree.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** start the run, interrupt it after a few steps, then check
+  `Get-CimInstance Win32_Process -Filter "Name='electron.exe'"` lists nothing under this
+  repository's path; then a clean `npm run e2e` with a guard app on another port.
+- **Log:**
+  - 2026-09-05 proposed by GC-035 (this ticket): wiring the narrow stopper into the epilogue made
+    it obvious that no other exit path reaches it.
+
+### GC-041 The launcher documents --keep-alive but checks --keep-running
+
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** The usage line at the top of `tools/launch-app.mjs` reads
+  `[--port 9333] [--repo <path>] [--visible] [--keep-alive]`, but the CLI block tests
+  `flag('--keep-running')`. Passing the documented `--keep-alive` silently does the opposite of
+  what it says: the launcher frees the port anyway and stops whatever was already there. A caller
+  reading only the header has no way to find that out.
+- **Scope:**
+  - Settle on one name and make the header, the code and any caller agree. `--keep-running` is
+    the one that works today, so prefer it unless a caller depends on the other.
+  - Say in the header what the flag does now that it guards `stopPort`: skip freeing the port,
+    for attaching a second app alongside one that is already up.
+- **Out of scope:** new launcher flags.
+- **Acceptance:**
+  - [ ] The documented flag is the flag the code reads.
+  - [ ] Passing it against a busy port leaves the process on that port alone.
+- **Files:** `tools/launch-app.mjs`.
+- **Verify:** launch on a port, then launch again with the flag and confirm the first pid is still
+  the one on that port.
+- **Log:**
+  - 2026-09-05 proposed by GC-035 (this ticket): the CLI's `killElectron()` call became
+    `stopPort(port)` and the flag guarding it turned out not to be the one the header names.
 
 ## Adding a ticket
 

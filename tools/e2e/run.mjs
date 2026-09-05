@@ -2,14 +2,15 @@
 // Launches Electron with a DevTools port, drives the real UI over the Chrome DevTools Protocol and
 // verifies every step against git. Exits non-zero when an assertion fails.
 //
-// Requires Node 22+ (global WebSocket and fetch). Kills any running electron.exe first, then
-// launches through tools/launch-app.mjs, which keeps the run invisible (no window, no focus change).
+// Requires Node 22+ (global WebSocket and fetch). Frees the DevTools port a stale run may still
+// hold, then launches through tools/launch-app.mjs, which keeps the run invisible (no window, no
+// focus change). Both the prologue and the epilogue stop one process tree only (GC-035).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { killElectron, launchApp } from '../launch-app.mjs';
+import { launchApp, stopPort } from '../launch-app.mjs';
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const root = process.env.GITCLIENT_E2E_ROOT ?? join(tmpdir(), 'gitclient-e2e');
@@ -44,11 +45,14 @@ const log = (...a) => console.log('   ', ...a);
 
 // ---- launch the built app ---------------------------------------------------------------------
 // Stealth by default (see tools/launch-app.mjs): no window, no taskbar entry, no focus change,
-// so a run does not interrupt whoever is using the machine.
-killElectron();
+// so a run does not interrupt whoever is using the machine. Only a process still holding OUR
+// DevTools port is stopped: the backlog reviewer runs its own build on another port, and a
+// machine-wide kill used to take it (and any dev-mode window) down with this run (GC-035).
+await stopPort(PORT);
 let target;
+let stopApp;
 try {
-  ({ target } = await launchApp({ port: PORT, appDir: APP }));
+  ({ target, stop: stopApp } = await launchApp({ port: PORT, appDir: APP }));
 } catch (e) {
   console.error(String(e.message ?? e));
   process.exit(1);
@@ -499,6 +503,6 @@ check('origin survived', git(['remote']).split('\n').includes('origin'), git(['r
 await shot('final.png');
 
 ws.close();
-killElectron();
+stopApp();
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILED'} (screenshots in ${SHOTS})`);
 process.exit(failures === 0 ? 0 : 1);

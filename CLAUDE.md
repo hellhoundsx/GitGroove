@@ -113,8 +113,14 @@ or screenshot — those exist for the GitKraken study only. `tools/e2e/foregroun
 check that proves a launch was invisible: it prints the foreground window handle and every
 top-level window owned by an `electron` process, so run it before and after
 (`Get-Process electron | MainWindowTitle` is useless here, a frameless window reports an empty
-title even when it is on screen). Stop the app with
-`taskkill //F //IM electron.exe` (this kills every Electron process on the machine).
+title even when it is on screen). **Never stop the app with `taskkill //F //IM electron.exe`**: that
+kills every Electron process on the machine, including the hourly backlog reviewer's own build and
+any `npm run dev` Ricardo has open (GC-035). `tools/launch-app.mjs` exports the narrow stops
+instead: `launchApp` resolves with `stop()` (and `stopApp(child)` does the same from a child
+handle), which kills that process tree only; `stopPort(port)` frees a DevTools port a stale run is
+still holding by stopping the one process listening on it, and is what the launcher CLI and the
+e2e prologue use. By hand, look the pid up (`netstat -ano -p tcp | grep 9333`) and
+`taskkill //F //T //PID <pid>`.
 
 The app remembers the last repository in `localStorage` (`gitclient.lastRepo`), the ref
 column's width (`gitclient.refColW`, a number of pixels) and the branch pinned to the graph's
@@ -413,10 +419,11 @@ avatars, default pull mode, the dirty-checkout confirmation and the 72-character
 switchable (GC-007); commit search over the loaded commits from the toolbar button or Ctrl+F,
 dimming non-matches instead of hiding them (GC-009); one table of keyboard shortcuts behind
 `matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
-`tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); the stash
-prompt's "(optional)" message really being optional, on a per-prompt `required` flag (GC-029);
-Escape closing exactly one layer, decided once in `App.tsx`, for the dialogs (GC-034), the
-context menu (GC-037) and the toolbar's Pull popover (GC-038).
+`tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); every
+stop narrowed to one process tree, so a run no longer kills every Electron on the machine
+(GC-035); the stash prompt's "(optional)" message really being optional, on a per-prompt
+`required` flag (GC-029); Escape closing exactly one layer, decided once in `App.tsx`, for
+the dialogs (GC-034), the context menu (GC-037) and the toolbar's Pull popover (GC-038).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance
