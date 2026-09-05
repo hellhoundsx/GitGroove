@@ -199,8 +199,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | done |
 | GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | done |
 | GC-063 | Unit tests for the watcher's ignore and scope rules | tests | S | P1 | done |
-| GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | todo |
-| GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
+| GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | in-progress |
+| GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | in-progress |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
@@ -213,7 +213,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
-| GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
+| GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | in-progress |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | done |
@@ -232,7 +232,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
-| GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | todo |
+| GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | in-progress |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1351,7 +1351,7 @@ decision is missing.
 
 ### GC-023 Chip shrinking still assumes exactly two chips
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-006
 - **Why:** `.ref-chip:nth-child(2):not(.more)` gives the second chip `flex-shrink: 50` so the
@@ -1372,6 +1372,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-006 (this ticket): raising the fold budget above two made the
     two-chip assumption baked into the shrink rule visible.
+  - 2026-09-05 22:08 claimed
 
 ### GC-024 Unit tests for prefs.ts
 
@@ -2045,7 +2046,7 @@ decision is missing.
 
 ### GC-043 Context menu on file rows in the detail panel
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-003
 - **Why:** The study's file rows carry a context menu (`05-menus-shortcuts.md`, "File rows":
@@ -2092,6 +2093,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-002: dumping every context menu over CDP against the study showed
     the file rows as the only row type without one.
+  - 2026-09-05 22:08 claimed
 
 ### GC-044 Recently opened repositories from the repository breadcrumb
 
@@ -2931,7 +2933,7 @@ decision is missing.
 
 ### GC-065 Two of the study's screenshots show the desktop, not GitKraken
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `docs/reference/gitkraken/screenshots/09-repo-dropdown.png` and
@@ -2972,10 +2974,11 @@ decision is missing.
     made, because the file it names shows a Claude Code window and a browser rather than
     GitKraken's repository dropdown. `02-main-1080.png` and `11-pull-dropdown.png` were checked in
     the same pass and are genuine, which is what bounds this to an audit rather than a redo.
+  - 2026-09-05 22:08 claimed
 
 ### GC-066 A second click on the repository crumb cannot close its dropdown
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-044
 - **Why:** `ContextMenu` dismisses on a capture-phase `mousedown` anywhere outside itself
@@ -3005,6 +3008,7 @@ decision is missing.
   - 2026-09-05 22:01 proposed by GC-044 (this ticket): GC-044 added the first two menus in the app
     that are opened by the control's own left click, which is where the existing outside-mousedown
     dismissal turns into a menu that will not close.
+  - 2026-09-05 22:08 claimed
 
 
 ## Reviews
