@@ -113,7 +113,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | done |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | done |
 | GC-009 | Commit search | graph | M | P2 | done |
-| GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
+| GC-010 | Keyboard shortcuts overlay | ui | S | P2 | in-progress |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
@@ -523,7 +523,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-010 Keyboard shortcuts overlay
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-003
 - **Why:** Shortcuts exist (arrows, Escape, Ctrl+Enter) but are undocumented in the app.
@@ -538,6 +538,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Files:** new `src/renderer/src/shortcuts.ts`, `App.tsx`, `ui/Modal.tsx`, `app.css`.
 - **Verify:** build, screenshot.
 - **Log:**
+  - 2026-09-05 17:05 claimed
 
 ### GC-011 File-system watcher for automatic refresh
 
