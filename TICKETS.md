@@ -136,7 +136,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
 | GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | done |
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | done |
-| GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | todo |
+| GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | in-progress |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
@@ -1324,7 +1324,7 @@ decision is missing.
 
 ### GC-034 Escape inside a dialog also closes the diff behind it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `Preferences` and `Modal` handle Escape on their own backdrop, but the event keeps
@@ -1353,6 +1353,7 @@ decision is missing.
     GC-029 to GC-033 while this run was working): confirmed over CDP while checking the overlay's
     own Escape handling — with `README.md`'s diff open, opening Preferences and pressing Escape
     left `.modal.prefs` gone *and* `.diff-body` gone in the same keystroke.
+  - 2026-09-05 17:45 claimed
 
 ## Reviews
 
