@@ -193,13 +193,18 @@ Staging actions are exposed to the DetailPanel as `StagingActions`; menus are bu
 
 Keyboard: ArrowUp/Down move the selection across WIP + commits, Ctrl+F opens the graph's commit
 search (from anywhere, including the commit form) and `?` opens the shortcuts overlay.
-**Escape closes exactly one layer** (GC-034), decided in one place: `App.tsx` computes
-`dialogOpen = shortcutsOpen || prefsOpen || ui.dialogOpen`, and while a dialog is up its window
-handler closes the topmost one (the overlay also on `?`) and swallows every other key, so the
-graph does not move and the diff does not close behind it; with no dialog, Escape closes the
-search bar, then the file view. No dialog handles Escape itself — `Modal` and `Preferences`
-only keep `dialogConfirm`, and `UiProvider` exposes `dialogOpen`/`closeDialog()` so `App` can
-see and cancel the modal it owns. The context menu is still outside this (GC-037). The search
+**Escape closes exactly one layer** (GC-034, GC-037), decided in one place: `App.tsx` computes
+`layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen`, and while a layer is up
+its window handler closes the topmost one (the overlay also on `?`) and swallows every other
+window-level shortcut, so the graph does not move and the diff does not close behind it; with no
+layer, Escape closes the search bar, then the file view. That handler runs in the **capture
+phase** and calls `stopPropagation()` on the key it consumes, so no React handler underneath sees
+it — the find bar's input closes itself on Escape otherwise, and one Escape would again close two
+layers. Every other key still reaches the focused element, which is what keeps a modal's input
+and its Enter handler working. No layer handles Escape itself — `Modal` and `Preferences` only
+keep `dialogConfirm`, `ContextMenu` closes on an outside click, a scroll, a resize or a blur but
+never on a key, and `UiProvider` exposes `dialogOpen`/`closeDialog()` and `menuOpen`/`closeMenu()`
+so `App` can see and close the modal and the menu it owns. The search
 bar's open flag lives in `App.tsx` as `{ open, tick }`: `tick` changes on every request to open it so a
 second Ctrl+F refocuses a bar that is already showing. **No handler compares a key name of its
 own** (GC-010): every one asks `matches(id, event)` from `src/renderer/src/shortcuts.ts`.
@@ -212,9 +217,10 @@ pop, all inside one `run()`; the stash is popped back if the checkout itself fai
 ### UI layer (`src/renderer/src/ui`)
 
 `UiProvider` gives `useUi()` with `openMenu(event, items)` (DOM context menu, viewport-clamped,
-closes on outside click / Escape / wheel / resize), `prompt(options)` (modal with optional text
+closes on outside click / wheel / resize), `prompt(options)` (modal with optional text
 input and checkbox, resolves `{ value, checked, choice }` or null), `confirm(options)`, and the
-pair `dialogOpen` / `closeDialog()` that lets `App` own Escape for every layer (GC-034).
+pairs `dialogOpen` / `closeDialog()` and `menuOpen` / `closeMenu()` that let `App` own Escape for
+every layer (GC-034, GC-037).
 `PromptOptions.secondary` adds a third button between Cancel and OK which resolves with
 `choice: 'secondary'` (GC-004's "Stash and check out"); `PromptOptions.required` defaults to true and
 only the stash prompt sets it false, so a prompt whose label says "(optional)" keeps OK and Enter
@@ -405,7 +411,8 @@ dimming non-matches instead of hiding them (GC-009); one table of keyboard short
 `matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
 `tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); the stash
 prompt's "(optional)" message really being optional, on a per-prompt `required` flag (GC-029);
-Escape closing exactly one layer, decided once in `App.tsx` (GC-034).
+Escape closing exactly one layer, decided once in `App.tsx`, for the dialogs (GC-034) and for the
+context menu (GC-037).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

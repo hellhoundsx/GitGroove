@@ -455,20 +455,26 @@ export function App(): JSX.Element {
   const onMenu = useCallback((e: MouseEvent, items: MenuItem[]) => ui.openMenu(e, items), [ui]);
 
   // ---- keyboard ----------------------------------------------------------------------
-  // Every dialog is a layer on top of the app: the shortcuts overlay, Preferences and the
-  // prompt/confirm modal. Escape closes the topmost one and nothing else, which is why no
-  // dialog handles Escape itself.
-  const dialogOpen = shortcutsOpen || prefsOpen || ui.dialogOpen;
+  // Every layer on top of the app is closed here and nowhere else: the shortcuts overlay,
+  // Preferences, the prompt/confirm modal and the context menu. Escape closes the topmost one
+  // and nothing else, which is why no layer handles Escape itself. The listener runs in the
+  // capture phase so that when it does close a layer it can stop the event before any React
+  // handler underneath sees it — the find bar's input closes itself on Escape otherwise.
+  const layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      // A dialog owns the keyboard while it is up: it closes on Escape (and the overlay also on
-      // `?`), and every other key is swallowed so nothing moves or closes behind it.
-      if (dialogOpen) {
+      // The topmost layer owns the keyboard while it is up: it closes on Escape (and the overlay
+      // also on `?`), and every other window-level shortcut is swallowed so the graph does not
+      // move and the diff does not close behind it. Keys still reach the focused element, which
+      // is what lets a modal's own input and its Enter handler keep working.
+      if (layerOpen) {
         if (matches('dialogCancel', e) || (shortcutsOpen && matches('help', e))) {
           e.preventDefault();
+          e.stopPropagation();
           if (shortcutsOpen) setShortcutsOpen(false);
           else if (prefsOpen) setPrefsOpen(false);
-          else ui.closeDialog();
+          else if (ui.dialogOpen) ui.closeDialog();
+          else ui.closeMenu();
         }
         return;
       }
@@ -500,9 +506,9 @@ export function App(): JSX.Element {
       const sha = order[next];
       if (sha !== undefined) setSelected(sha);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [snapshot, selected, search.open, openSearch, closeSearch, dialogOpen, shortcutsOpen, prefsOpen, ui]);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [snapshot, selected, search.open, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, ui]);
 
   return (
     <div className="app">

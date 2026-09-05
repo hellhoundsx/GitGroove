@@ -17,6 +17,10 @@ export interface Ui {
   dialogOpen: boolean;
   /** Cancels the open modal, resolving it with `null`. A no-op when none is open. */
   closeDialog(): void;
+  /** True while a context menu is up: it is a layer like a dialog and owns Escape. */
+  menuOpen: boolean;
+  /** Closes the open context menu. A no-op when none is open. */
+  closeMenu(): void;
 }
 
 const noop: Ui = {
@@ -25,6 +29,8 @@ const noop: Ui = {
   confirm: async () => false,
   dialogOpen: false,
   closeDialog: () => undefined,
+  menuOpen: false,
+  closeMenu: () => undefined,
 };
 
 const UiContext = createContext<Ui>(noop);
@@ -63,14 +69,14 @@ export function UiProvider({ children }: { children: ReactNode }): JSX.Element {
     [prompt],
   );
 
-  // Escape is handled once, in `App`, for every layer; the modal only has to say it is there
-  // and offer a way to cancel it.
+  // Escape is handled once, in `App`, for every layer; the modal and the context menu only have
+  // to say they are there and offer a way to close them.
   const closeDialog = useCallback(() => modal?.resolve(null), [modal]);
-  const value = useMemo<Ui>(
-    () => ({ openMenu, prompt, confirm, dialogOpen: modal !== null, closeDialog }),
-    [openMenu, prompt, confirm, modal, closeDialog],
-  );
   const closeMenu = useCallback(() => setMenu(null), []);
+  const value = useMemo<Ui>(
+    () => ({ openMenu, prompt, confirm, dialogOpen: modal !== null, closeDialog, menuOpen: menu !== null, closeMenu }),
+    [openMenu, prompt, confirm, modal, closeDialog, menu, closeMenu],
+  );
 
   return (
     <UiContext.Provider value={value}>

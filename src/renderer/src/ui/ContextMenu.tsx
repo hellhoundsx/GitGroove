@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
-import { matches } from '../shortcuts';
 
 export interface MenuItem {
   label?: string;
@@ -21,7 +20,11 @@ interface Props {
   onClose(): void;
 }
 
-/** A DOM context menu positioned at the pointer and kept inside the viewport. */
+/**
+ * A DOM context menu positioned at the pointer and kept inside the viewport. It closes itself on
+ * a click outside, a scroll, a resize or a blur, but never on Escape: like the dialogs, the menu
+ * is a layer `App` closes (GC-034, GC-037), so one Escape can only ever close one of them.
+ */
 export function ContextMenu({ menu, onClose }: Props): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: menu.x, y: menu.y });
@@ -38,18 +41,13 @@ export function ContextMenu({ menu, onClose }: Props): JSX.Element {
       if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
       onClose();
     };
-    const onKey = (e: KeyboardEvent): void => {
-      if (matches('escape', e)) onClose();
-    };
     const close = (): void => onClose();
     window.addEventListener('mousedown', onDown, true);
-    window.addEventListener('keydown', onKey, true);
     window.addEventListener('blur', close);
     window.addEventListener('resize', close);
     window.addEventListener('wheel', close, { passive: true });
     return () => {
       window.removeEventListener('mousedown', onDown, true);
-      window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('blur', close);
       window.removeEventListener('resize', close);
       window.removeEventListener('wheel', close);

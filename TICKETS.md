@@ -137,9 +137,11 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | done |
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | done |
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | done |
-| GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | in-progress |
+| GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | done |
+| GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | todo |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
+| GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
@@ -1372,7 +1374,7 @@ decision is missing.
 
 ### GC-037 Escape with a context menu open also closes the find bar behind it
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-034
 - **Why:** GC-034 fixed the dialogs but deliberately left the context menu out. `ContextMenu`
@@ -1388,10 +1390,14 @@ decision is missing.
 - **Out of scope:** keyboard navigation inside the menu (arrow keys, Enter to activate an item),
   focus trapping.
 - **Acceptance:**
-  - [ ] With the find bar open, right-clicking a commit row and pressing Escape closes only the
+  - [x] With the find bar open, right-clicking a commit row and pressing Escape closes only the
     menu; a second Escape closes the find bar.
-  - [ ] Same with a file diff open instead of the find bar.
-  - [ ] The e2e suite still passes (several steps dismiss menus).
+  - [ ] Same with a file diff open instead of the find bar. **Not reachable today:** with a diff
+    open the graph is replaced and the left panel is collapsed to the icon rail, so the DOM has
+    no context-menu trigger at all (verified over CDP: 0 `.graph-row`, 0 `.ref-row`). The diff
+    goes through the same single branch in `App.tsx` as the find bar, so it is covered by
+    construction; the case becomes testable the day a diff or the collapsed rail grows a menu.
+  - [x] The e2e suite still passes (several steps dismiss menus).
 - **Files:** `src/renderer/src/ui/ContextMenu.tsx`, `src/renderer/src/ui/UiContext.tsx`,
   `src/renderer/src/App.tsx`.
 - **Verify:** typecheck, build, e2e, and the two acceptance cases driven over CDP.
@@ -1401,6 +1407,72 @@ decision is missing.
     `.graph-search` gone. The ticket's own scope note ("nothing sits under it") turned out not
     to hold: the find bar and the diff both do.
   - 2026-09-05 17:54 claimed
+  - 2026-09-05 18:10 done. `ContextMenu` no longer listens for keys at all; `UiProvider` exposes
+    `menuOpen`/`closeMenu()` next to `dialogOpen`/`closeDialog()`, and `App.tsx` folds the menu
+    into GC-034's single branch as `layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen ||
+    ui.menuOpen`. One thing GC-034 did not need: the find bar's own input closes the search on
+    Escape from a React handler, which a window listener in the bubble phase cannot stop, so the
+    handler moved to the **capture phase** and calls `stopPropagation()` on the key it consumes.
+    The choice the ticket asked to be written down: a menu swallows exactly what a dialog does —
+    the window-level shortcuts (graph arrows, Ctrl+F, `?`) are ignored while it is up, and every
+    key still reaches the focused element, which is what keeps a modal's input working. Verified:
+    typecheck, build, 30 unit tests, the full e2e suite (49 assertions, all passed), and the
+    acceptance cases driven over CDP against the built app with real `Input.dispatchKeyEvent`
+    Escapes — with the find bar open and focus in its input, one Escape left `.ctx-menu` gone and
+    `.graph-search` still up, the second closed the find bar
+    (`docs/screenshots/gc037-menu-over-find-bar.png`).
+
+### GC-038 Escape with the Pull popover open also closes the find bar behind it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Why:** GC-037 made the context menu a layer, but the toolbar's Pull-options popover still
+  closes itself from its own `window` keydown listener in `Toolbar.tsx`, which does not stop the
+  event. `App`'s handler therefore also runs and closes the find bar (or the open diff)
+  underneath. Same defect as GC-034 and GC-037, one layer further along.
+- **Scope:**
+  - The popover joins the same mechanism instead of growing a third one: `App` must be able to
+    see that it is open and close it, the way it does for a dialog and for a menu, and
+    `Toolbar` stops handling Escape itself.
+  - The popover lives in `Toolbar`'s own state today; lifting just the flag (or moving the
+    popover behind `UiProvider`) is the design decision the ticket has to make.
+- **Out of scope:** keyboard navigation inside the popover; any other toolbar behaviour.
+- **Acceptance:**
+  - [ ] With the find bar open, opening the Pull caret and pressing Escape closes only the
+    popover; a second Escape closes the find bar.
+  - [ ] Clicking outside the popover still closes it, and picking a pull mode still works.
+  - [ ] The e2e suite still passes (step 14 opens this popover for `Fetch all`).
+- **Files:** `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/App.tsx`.
+- **Verify:** typecheck, build, e2e, and the acceptance case driven over CDP.
+- **Log:**
+  - 2026-09-05 proposed by GC-037 (this ticket): confirmed over CDP against the fixed build —
+    with the find bar open and the Pull popover up, one Escape left `.popover` gone *and*
+    `.graph-search` gone.
+
+### GC-039 An e2e step that guards one Escape, one layer
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Why:** GC-034 and GC-037 both fixed "one Escape closes two things", and both were verified by
+  a throwaway CDP script that was not kept. Nothing in `npm run e2e` or `npm test` fails if the
+  layering regresses; the next change to the keyboard handler can quietly undo either fix.
+- **Scope:**
+  - A step in `tools/e2e/run.mjs` that opens the find bar, opens a context menu over a commit
+    row with focus still in the search input, presses a real Escape and asserts `.ctx-menu` is
+    gone while `.graph-search` is still there, then presses Escape again and asserts the find
+    bar is gone.
+  - The same for a dialog on top of the find bar (a prompt from a ref menu, cancelled with
+    Escape), so GC-034 is guarded too.
+  - Re-entrant like the rest of the suite: it must leave no dialog, menu or find bar open.
+- **Out of scope:** a jsdom unit test of `App`'s handler (the suite has no React environment).
+- **Acceptance:**
+  - [ ] The new step passes on the current build and its assertions are counted in the total.
+  - [ ] Reverting GC-037 (giving `ContextMenu` its Escape listener back) fails the step.
+- **Files:** `tools/e2e/run.mjs`, `CLAUDE.md` (the Testing paragraph's step list).
+- **Verify:** `npm run e2e` twice in a row, and once against a locally reverted GC-037.
+- **Log:**
+  - 2026-09-05 proposed by GC-037 (this ticket): the acceptance cases were driven over CDP from a
+    scratch script and thrown away, leaving the fix unguarded.
 
 ## Reviews
 
