@@ -224,9 +224,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | done |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
 | GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | done |
-| GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | todo |
-| GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | todo |
-| GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | todo |
+| GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | in-progress |
+| GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | in-progress |
+| GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | in-progress |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | todo |
@@ -3212,7 +3212,7 @@ decision is missing.
 
 ### GC-068 A watcher reload that finishes late overwrites a fresher snapshot
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** M | **Priority:** P1
 - **Depends on:** GC-011, GC-046
 - **Why:** `applyChange` in `App.tsx` (GC-011) awaits `window.api.loadRepo` and then calls
@@ -3259,6 +3259,7 @@ decision is missing.
     earlier — the watcher's reload after the stash push — resolving after it. GR-005's run and the
     second run of this review passed, so it is a race, not a constant; the Why above stands and the
     "seven-commit scratch repository never sees it" clause no longer does.
+  - 2026-09-05 23:35 claimed
 
 ### GC-069 The body preview takes width from the summary in a narrow message column
 
@@ -3548,7 +3549,7 @@ decision is missing.
 
 ### GC-075 A hunk button acts on the previous diff while the new one loads
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `DiffView`'s load effect (`src/renderer/src/diff/DiffView.tsx:36-49`) starts the fetch for
@@ -3585,10 +3586,11 @@ decision is missing.
   - 2026-09-05 proposed by GC-062 (this ticket): step 21's Unstage hunk failed five assertions
     against a perfectly working app, because the view was still rendering the diff it had before
     the click and the button built its patch from that.
+  - 2026-09-05 23:35 claimed
 
 ### GC-076 Every e2e run leaves a commit behind, and the fixture eventually breaks step 16
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** Step 10 clones the bare origin into `clone2`, commits `remote-<stamp>.txt` there, pushes
@@ -3629,6 +3631,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-062 (this ticket): eight verification runs grew the scratch repository
     from 7 commits to 44 and broke a search assertion that has nothing to do with the batch.
+  - 2026-09-05 23:35 claimed
 
 ## Reviews
 
