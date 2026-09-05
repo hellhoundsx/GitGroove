@@ -636,13 +636,22 @@ export function App(): JSX.Element {
   // clicked rather than at the pointer, so it reads as a dropdown hanging off that control.
   const openRepoMenu = useCallback(
     (at: { clientX: number; clientY: number }) => {
-      const items: MenuItem[] = recents.map((p) => ({
-        label: folderName(p),
-        hint: p,
-        disabled: repoPath !== null && normRepoPath(p) === normRepoPath(repoPath),
-        onClick: () => void openPath(p),
-      }));
-      if (items.length) items.push({ separator: true });
+      const items: MenuItem[] = [];
+      if (recents.length) {
+        // The list is captioned the way the empty state's copy of it is, so the paths below read
+        // as history rather than as one more command (GC-067).
+        items.push({ label: 'Recently opened', caption: true });
+        for (const p of recents) {
+          items.push({
+            label: folderName(p),
+            hint: p,
+            hintPath: true,
+            disabled: repoPath !== null && normRepoPath(p) === normRepoPath(repoPath),
+            onClick: () => void openPath(p),
+          });
+        }
+        items.push({ separator: true });
+      }
       items.push({ label: 'Open repository…', onClick: () => void openRepo() });
       ui.openMenu(at, items);
     },

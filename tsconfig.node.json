@@ -24,6 +24,9 @@
   "include": [
     "electron.vite.config.ts",
     "vitest.config.ts",
+    // The launcher's and the repository's own tests (GC-070): this is the project that already
+    // has the node types they need, so they type-check here rather than in the renderer's.
+    "tools/**/*.test.ts",
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*"

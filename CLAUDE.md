@@ -50,7 +50,7 @@ Node 25); it is only a warning and the suite runs. Do not "fix" it by downgradin
 
 ```
 TICKETS.md             the backlog: one ticket per startable task, each with a status (see roadmap section)
-vitest.config.ts       unit-test config: the renderer aliases, src/**/*.test.ts, node environment
+vitest.config.ts       unit-test config: the renderer aliases, src+tools/**/*.test.ts, node env
 src/
   main/index.ts        Electron window (1400x900, dark background, overlay title bar), loads out/renderer
   main/git.ts          every git call; spawn('git', BASE_ARGS + args) with LC_ALL=C, GIT_TERMINAL_PROMPT=0
@@ -330,7 +330,13 @@ the next click on that control a plain open.
 only the stash prompt sets it false, so a prompt whose label says "(optional)" keeps OK and Enter
 live on an empty field (GC-029); `confirm` returns true only for `'ok'`,
 and OK stays `.modal-buttons .btn:last-child` so the e2e helpers keep working. `MenuItem`
-supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`. Every confirmation in the
+supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`, and two fields the
+recents dropdown needed (GC-067): `hintPath`, which marks a hint as a path so it ellipsises at
+its *start* and the folder naming the entry survives, and `caption`, a non-interactive uppercase
+heading rendered as a plain `div.ctx-caption` rather than a `.ctx-item`, so no menu selector in
+the e2e driver can pick it up. In a menu row the label gives way last: `.ctx-label` is
+`flex: 0 1 auto` and `.ctx-hint` `flex: 1 1 0`, the reverse of the original rule, under which a
+path longer than the menu's 420px cap took the whole row and left the folder name a single letter. Every confirmation in the
 renderer goes through `useUi().confirm` (GC-003); the native `confirm()` is not used anywhere.
 
 ### Keyboard shortcuts (`src/renderer/src/shortcuts.ts`, `components/Shortcuts.tsx`)
@@ -497,7 +503,26 @@ moves it into the Staged group and into `git status --short` as `M  a.txt`, the 
 offers Unstage and neither Stage nor Discard, and Unstage puts it back. Step 19 makes its own edit
 to `a.txt` and checks it back out; the prologue undoes it only when the file is *staged*, the one
 state that step can leave behind, an unstaged edit there being the fixture's own. All 71
-assertions passed on the last three runs. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+assertions passed on the last three runs. Steps 20 and 21 cover the commit form and hunk staging,
+the two actions a client is judged on first and the two most fragile git invocations behind them
+(GC-062). Step 20 stages a scratch file from its row's Stage button, types a summary and a
+description into the form, reads the 72-character counter, commits with a real Ctrl+Enter aimed at
+the focused summary field, and asserts `git log -1 --format=%B` carries both lines and that the
+form emptied itself; it then ticks Amend, asserts the prefill came from HEAD, edits the summary,
+commits again from the button and asserts the subject changed while `git rev-list --count HEAD`
+did not. Step 21 opens the fixture's two-hunk `big.txt`, stages the second hunk and asserts only
+that hunk reached the index while the first is still an unstaged change, unstages it from the
+staged side, then cancels a Discard hunk and asserts the working tree is untouched. Its waits
+compare the **rendered added lines**, not just the chip and the hunk count: `DiffView` starts a new
+load without clearing `text`, so the previous diff stays on screen while the chip and the hunk
+buttons flip immediately, and a count-only wait let Unstage hunk build its patch from the stale
+hunk (GC-075 is the renderer-side fix). Both steps put the repository back themselves — with
+`git reset --soft`, never `--hard`, because the index the commit consumes holds the fixture's own
+staged `README.md` change and `main.txt` deletion and the working tree holds the unstaged edits
+every earlier step asserts against — and the prologue undoes them when a run dies inside one.
+Note that the fixture still **grows by one commit per run** from step 10's second clone, and past
+roughly forty commits that breaks step 16's virtualised-row assertion; `npm run e2e:setup` resets
+it, and GC-076 is the fix. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates (including the
 `push-target` branch step 17 pushes, locally and on the bare origin), and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind, restores `feature.txt`,
@@ -513,13 +538,18 @@ whole steps — it is just no longer Ricardo's own profile the suite reads (GC-0
 
 `npm test` (vitest 5, config in `vitest.config.ts`). Tests live next to the module they cover, and
 **the file extension picks the environment** (GC-046): `vitest.config.ts` declares two projects,
-`node` (`src/**/*.test.ts`, `environment: 'node'`, no plugins) for the pure modules, and `dom`
+`node` (`src/**/*.test.ts` and `tools/**/*.test.ts`, `environment: 'node'`, no plugins) for the
+pure modules and for the two tests that cover the repository and the launcher, and `dom`
 (`src/**/*.test.tsx`, `environment: 'jsdom'`, `@vitejs/plugin-react` applied) for anything that
 renders a component. Name a new test `.ts` unless it needs a DOM and `.tsx` when it does; there is
 nothing else to configure, though a project config does not inherit the root `resolve`, so both
 projects share one hoisted alias map. `npx vitest run --project node|dom` runs one of them.
-`tsconfig.web.json` already includes both via `src/renderer/src/**/*`, so `npm run typecheck`
-type-checks the tests too; import `describe`, `it` and `expect` from `vitest` explicitly rather
+`tsconfig.web.json` already includes the renderer's tests via `src/renderer/src/**/*` and
+`tsconfig.node.json` includes `tools/**/*.test.ts`, so `npm run typecheck` type-checks the tests
+too — a test under `tools/` needs the node types and gets them from that project rather than
+asking for them itself, and the `.test.ts` in that include is deliberate: every other script in
+that tree is `.mjs`, so `tools/e2e/run.mjs` can never be swept into the suite or the typecheck
+(GC-070); import `describe`, `it` and `expect` from `vitest` explicitly rather
 than turning on globals. Because there are no vitest globals, `@testing-library/react` cannot
 register its own auto-cleanup or act-environment hooks, so a component test wires `cleanup()` into
 `afterEach` and `IS_REACT_ACT_ENVIRONMENT` into `beforeAll` itself. None of the DOM
@@ -560,14 +590,17 @@ rules the same string the watcher does rather than a second copy of the normalis
 Electron and no build: `npx esbuild --loader=ts --format=esm < src/main/watch.ts` leaves one
 runtime import, `node:fs`, both `electron` and `@shared/types` being type-only. Mutation-checked:
 deleting the bare-`.git` rule fails the guard case and nothing else.
-`repo-hygiene.test.ts` guards the repository rather than the renderer (GC-047): it walks `src/`
+`tools/repo-hygiene.test.ts` guards the repository rather than the renderer (GC-047): it walks `src/`
 and `tools/` plus the root markdown files, skipping `node_modules/`, `out/`, `dist/` and the
 binary extensions, and fails on any C0 control byte that is not TAB or LF — CR included, because
 `.gitattributes` pins the working copy to LF. The message names the file and the byte offset, so
-the fix is obvious from the output alone. It lives under `src/renderer/src/` only so the existing
-`vitest.config.ts` include and `tsconfig.web.json` cover it with no config change, and it carries
-its own `/// <reference types="node" />` because the web project does not pull in the node types;
-move it and both configs need editing. This is what would have caught GC-042's literal U+0000 the
+the fix is obvious from the output alone. It sits in `tools/` beside `tools/launch-app.test.ts`,
+the other test covering something outside `src/`: both used to live under `src/renderer/src/` with
+a `/// <reference types="node" />` and a paragraph explaining the placement, because that was the
+one path `vitest.config.ts` and `tsconfig.web.json` reached; the node project's include and
+`tsconfig.node.json` now cover `tools/**/*.test.ts` instead, so a third such test needs no
+workaround and the renderer's typecheck no longer depends on node types it never uses (GC-070).
+Its `ROOT` is `resolve(fileURLToPath(import.meta.url), '..', '..')`. This is what would have caught GC-042's literal U+0000 the
 day it was written. Mutation-checked: a NUL written into a scratch file under `src/` fails it with
 that file and offset.
 `Preferences.test.tsx` is the first component test in the `dom` project (GC-046):
@@ -670,7 +703,13 @@ Ricardo sees (GC-060); unit tests for the watcher's ignore and scope rules, the 
 regression among them (GC-063); the recently-opened repositories list behind
 `gitclient.recentRepos`, offered from the repository breadcrumb, the title bar's `+` and the empty
 state, with an entry that no longer loads dropping itself (GC-044); and a component test for the
-folded-refs dropdown flip, the second in the `dom` project (GC-058). A context menu on every file row in
+folded-refs dropdown flip, the second in the `dom` project (GC-058); the recents dropdown captioned
+"Recently opened", its folder names kept in full and its paths ellipsised at the start so the tail
+still names the folder (GC-067); e2e coverage of the commit form and of hunk staging, the two
+actions with none before, taking the suite from 71 assertions to 88 (GC-062); and the two tests
+that cover the repository and the launcher moved out of `src/renderer/src/` into `tools/`, next to
+what they cover, on a `tools/**/*.test.ts` include in the node vitest project and in
+`tsconfig.node.json` (GC-070). A context menu on every file row in
 the detail panel, with Stage/Unstage/Discard reusing the `✕` button's own confirm wording and
 Open file / Show in folder / Copy file path behind the new `shell:*` channels, which refuse a path
 resolving outside the repository (GC-043); the ref chips after the first all giving way at the

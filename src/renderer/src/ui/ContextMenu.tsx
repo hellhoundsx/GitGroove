@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
 export interface MenuItem {
   label?: string;
   hint?: string; // right-aligned secondary text, e.g. a shortcut or explanation
+  hintPath?: boolean; // the hint is a path: ellipsise it at its start so the tail stays (GC-067)
+  caption?: boolean; // a non-interactive heading over the group beneath it (GC-067)
   onClick?: () => unknown;
   disabled?: boolean;
   danger?: boolean;
@@ -63,6 +65,12 @@ export function ContextMenu({ menu, onClose }: Props): JSX.Element {
       {menu.items.map((item, i) =>
         item.separator ? (
           <div key={i} className="ctx-sep" />
+        ) : item.caption ? (
+          // A heading, not a row: a plain div, so it is neither focusable nor clickable and the
+          // `.ctx-item` selectors every driver and test uses cannot pick it up (GC-067).
+          <div key={i} className="ctx-caption" role="presentation">
+            {item.label}
+          </div>
         ) : (
           <button
             key={i}
@@ -75,7 +83,7 @@ export function ContextMenu({ menu, onClose }: Props): JSX.Element {
             }}
           >
             <span className="ctx-label">{item.label}</span>
-            {item.hint && <span className="ctx-hint">{item.hint}</span>}
+            {item.hint && <span className={`ctx-hint ${item.hintPath ? 'path' : ''}`}>{item.hint}</span>}
           </button>
         ),
       )}

@@ -223,13 +223,15 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | done |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | done |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
-| GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | in-progress |
+| GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | done |
 | GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | todo |
+| GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | todo |
+| GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | todo |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | todo |
 | GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | todo |
-| GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | in-progress |
+| GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | todo |
@@ -249,7 +251,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
-| GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | in-progress |
+| GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | done |
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
@@ -2874,7 +2876,7 @@ decision is missing.
 
 ### GC-062 The e2e suite never commits through the commit form or stages a hunk
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-053
 - **Why:** Eighteen e2e steps cover branches, stashes, conflicts, cherry-picks, push, pull,
@@ -2905,11 +2907,11 @@ decision is missing.
   merge fixture is its own change), staging single lines (not a feature yet), the CHANGES
   count, changing any existing step.
 - **Acceptance:**
-  - [ ] `npm run e2e` passes three times in a row with the new assertions, and stays
+  - [x] `npm run e2e` passes three times in a row with the new assertions, and stays
         re-entrant when interrupted inside either step.
-  - [ ] The amend assertion fails if the summary field is not prefilled (mutation check: return
+  - [x] The amend assertion fails if the summary field is not prefilled (mutation check: return
         an empty string from the prefill in `DetailPanel.tsx`, run, restore).
-  - [ ] The hunk assertion fails if `buildHunkPatch` drops the file header (mutation check).
+  - [x] The hunk assertion fails if `buildHunkPatch` drops the file header (mutation check).
 - **Files:** `tools/e2e/run.mjs`, `CLAUDE.md` (Testing paragraph).
 - **Verify:** `npm run e2e` three times, then the two mutation checks with the source restored
   and `git diff` empty afterwards.
@@ -2917,6 +2919,39 @@ decision is missing.
   - 2026-09-05 proposed by GR-004: reading the step list for the review showed that the commit
     form and hunk staging, the two most frequent actions, are the two the suite never drives.
   - 2026-09-05 22:39 claimed
+  - 2026-09-05 23:30 done. Steps 20 and 21 added; the suite went from 71 to **88** assertions and
+    still uses five commented `sleep` calls, none of them new. Step 20 stages a scratch file from
+    its row's Stage button, types a summary and a description, checks the 72-character counter
+    (`43` for a 29-character summary), commits with a real CDP Ctrl+Enter aimed at the focused
+    summary field, and asserts `git log -1 --format=%B` carries both lines; it then ticks Amend,
+    asserts the prefill came from HEAD, edits the summary, commits from the button and asserts the
+    subject changed while `git rev-list --count HEAD` did not. Step 21 stages the second hunk of
+    `big.txt`, asserts only that hunk reached the index while the first is still unstaged, unstages
+    it from the staged side, then cancels a Discard hunk and asserts the tree is untouched. Both
+    restore the repository themselves (`git reset --soft`, never `--hard`: the index the commit
+    consumes holds the fixture's own staged changes) and the prologue undoes either from a
+    mid-step death.
+  - 2026-09-05 23:30 The first central run failed 5 assertions in step 21, and the cause was in the
+    test, not the app: `DiffView` starts a new load without clearing `text`, so switching from the
+    1-hunk unstaged side to the 1-hunk staged side satisfied a wait keyed on chip + hunk count
+    while the *previous* diff was still rendered, and Unstage hunk then rebuilt its patch from the
+    stale hunk, which git correctly rejected into the view's inline error. Driving the same clicks
+    by hand over CDP with generous sleeps unstaged cleanly (`git diff --cached -- big.txt` empty),
+    which is what proved the app innocent. `waitDiff` now also compares the ordered list of rendered
+    added lines, and the wait after Unstage hunk waits for the file view to *close* (the file leaves
+    the Staged group) rather than for a `.diff-empty` that can never appear. The underlying stale
+    render is filed as GC-075.
+  - 2026-09-05 23:30 Verified: four `ALL PASSED` runs at 88 assertions (three consecutive, then one
+    more after a fixture reset). Mutation check 1 — `setSummary(headCommit.summary)` →
+    `setSummary('')` at `DetailPanel.tsx:116` — failed exactly the two amend assertions and nothing
+    else. Mutation check 2 — `buildHunkPatch`'s `return header.join('\n') + '\n' + hunk.raw` →
+    `return hunk.raw` at `parseDiff.ts:134` — failed 6 assertions in step 21 with the index
+    untouched. Both reverted and rebuilt, `git status` clean of them. Re-entrancy was checked by
+    stranding the exact state a death inside each step leaves (an `e2e commit form` commit plus its
+    `e2e-commit-*.txt` file, and a staged `big.txt` hunk) and running the suite: the prologue
+    removed all three and the run proceeded. That run failed one assertion in step 16, which turned
+    out to be pre-existing fixture drift unrelated to this ticket — filed as GC-076 — and a fresh
+    `npm run e2e:setup` made the same run `ALL PASSED`.
 
 
 ### GC-063 Unit tests for the watcher's ignore and scope rules
@@ -3110,7 +3145,7 @@ decision is missing.
 
 ### GC-067 The recents dropdown shrinks the folder name to one letter and shows the path in full
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-044
 - **Why:** On the build at 3e97244, clicking the repository crumb over CDP opened GC-044's recents
@@ -3140,13 +3175,13 @@ decision is missing.
 - **Out of scope:** the study's search box and Favorites, the menu's colours and radius, the empty
   state (its rows already show name and path on two lines), GC-066's toggle behaviour.
 - **Acceptance:**
-  - [ ] Over CDP with the scratch repository loaded from `%TEMP%/gitclient-e2e/testrepo`, the
+  - [x] Over CDP with the scratch repository loaded from `%TEMP%/gitclient-e2e/testrepo`, the
         crumb menu's `.ctx-label` reads `testrepo` in full and the `.ctx-hint` ends with
         `/testrepo` (an ellipsis at its start), the menu no wider than 420px; the same with a
         clone whose folder is named `a-very-long-repository-folder-name-for-the-menu` in the list.
-  - [ ] The commit menu and the branch menu look as before (their hints are short), checked by
+  - [x] The commit menu and the branch menu look as before (their hints are short), checked by
         screenshot.
-  - [ ] The caption row renders above the recents, is not clickable, and Escape still closes the
+  - [x] The caption row renders above the recents, is not clickable, and Escape still closes the
         menu as one layer (e2e step 18 passes).
 - **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/ui/ContextMenu.tsx`,
   `src/renderer/src/App.tsx`.
@@ -3157,6 +3192,23 @@ decision is missing.
     scratch root eleven characters longer than the worker's, showed the folder name reduced to one
     letter and the full path kept.
   - 2026-09-05 22:39 claimed
+  - 2026-09-05 23:30 done. `.ctx-label` is `flex: 0 1 auto` and `.ctx-hint` `flex: 1 1 0` with
+    `text-align: right`, so the hint's basis is 0 and it absorbs the shortfall instead of the label;
+    `.ctx-hint.path` adds `direction: rtl` for the leading ellipsis, and `MenuItem` gains `hintPath`
+    and `caption`, the latter rendered as a plain `div.ctx-caption` so no `.ctx-item` selector in
+    the e2e driver can pick it up. Measured over CDP on the built app at 9333 with the scratch
+    repository plus a seeded `a-very-long-repository-folder-name-for-the-menu` entry: menu width
+    420 (the cap), `testrepo` label unclipped, its hint `direction: rtl` ending `/testrepo`, the
+    47-character label unclipped at 298px with its 88-character hint clipped to `…-or-the-menu`,
+    caption `Recently opened` as the menu's first child, `captionTag: DIV`, `captionIsItem: false`,
+    and the menu gone after one Escape. The commit menu is unchanged (420px, hints `direction: ltr`,
+    "keep changes in the working dire…" still end-ellipsised) and the branch menu still shrinks to
+    fit at 326px with nothing clipped; screenshots `docs/screenshots/gc-067-recents-dropdown.png`,
+    `gc-067-commit-menu.png` and `gc-067-branch-menu.png`, looked at next to
+    `gc-044-recents-dropdown.png`. e2e step 18 (the one-Escape-one-layer guard) passes in all four
+    clean runs. The ticket's suggested `unicode-bidi: plaintext` was tried and rejected — Chromium
+    resolves the paragraph direction from the leading `C` and puts the ellipsis back at the end —
+    and the reason is recorded in `app.css` so it is not re-added.
 
 ### GC-068 A watcher reload that finishes late overwrites a fresher snapshot
 
@@ -3246,7 +3298,7 @@ decision is missing.
 
 ### GC-070 Tests for tools/ live under src/renderer/src
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-059
 - **Why:** `repo-hygiene.test.ts` (GC-047) and `launch-app.test.ts` (GC-059) test the repository
@@ -3266,11 +3318,11 @@ decision is missing.
     two paragraphs in `CLAUDE.md`'s Unit tests section.
 - **Out of scope:** any change to what either test asserts; moving the renderer tests.
 - **Acceptance:**
-  - [ ] `npm test` reports the same 68 tests in 10 files, the two now under `tools/`;
+  - [x] `npm test` reports the same 68 tests in 10 files, the two now under `tools/`;
         `npx vitest run --project node` finds both.
-  - [ ] `npm run typecheck` passes, and `tsc --noEmit -p tsconfig.web.json --listFiles` lists no
+  - [x] `npm run typecheck` passes, and `tsc --noEmit -p tsconfig.web.json --listFiles` lists no
         file under `tools/` and neither test.
-  - [ ] The hygiene test still fails on a NUL written into a scratch file under `src/` (repeat
+  - [x] The hygiene test still fails on a NUL written into a scratch file under `src/` (repeat
         GC-047's mutation check), so the moved `ROOT` still points at the repository.
 - **Files:** `vitest.config.ts`, `tsconfig.node.json`, `src/renderer/src/launch-app.test.ts`
   and `src/renderer/src/repo-hygiene.test.ts` (moved to `tools/`), `CLAUDE.md`.
@@ -3279,6 +3331,22 @@ decision is missing.
   - 2026-09-05 22:23 proposed by GR-005: GC-059 added the second tools test that has to live in the
     renderer tree and explain why; the config should carry that instead.
   - 2026-09-05 22:39 claimed
+  - 2026-09-05 23:30 done. The node vitest project and `tsconfig.node.json` both include
+    `tools/**/*.test.ts`; the two tests moved to `tools/repo-hygiene.test.ts` and
+    `tools/launch-app.test.ts` with `ROOT` going from
+    `resolve(fileURLToPath(import.meta.url), '..', '..', '..', '..')` to `(..., '..', '..')`, and
+    both dropped their `/// <reference types="node" />` and their placement paragraphs. Nothing
+    either test asserts changed (diffed against `HEAD`: only the header comments and `ROOT`).
+    The acceptance line's "68 tests in 10 files" was written before GC-058 and GC-046 landed; the
+    real baseline is **72 tests in 11 files**, and it is identical before and after the move —
+    that identity is the criterion that matters and it holds. `npx vitest run --project node`
+    reports 64 tests in 8 files and lists both moved files by their `tools/` path.
+    `npm run typecheck` passes, and `tsc --noEmit -p tsconfig.web.json --listFiles` matches
+    nothing under `tools/` and neither test, so the renderer's program no longer pulls in node
+    types for them. GC-047's mutation check repeated from the new location: a NUL written into
+    `src/renderer/src/gc070-mut.txt` failed the hygiene test with
+    `control character (0x00) at byte offset 2`, so the moved `ROOT` still points at the
+    repository; scratch file removed and the suite back to 72/11.
 
 
 ### GC-071 The primary ref chip is unreadable at the minimum column width
@@ -3477,6 +3545,90 @@ decision is missing.
   - 2026-09-05 23:14 proposed by GR-006: the screenshot pass over the commit menu caught "mi…", and injecting
     GC-067's rule into the live page showed the row still 7px too wide with the cut moved to the hint.
 
+
+### GC-075 A hunk button acts on the previous diff while the new one loads
+
+- **Status:** todo
+- **Area:** diff | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** `DiffView`'s load effect (`src/renderer/src/diff/DiffView.tsx:36-49`) starts the fetch for
+  a new `view` but never resets `text`, so the previously loaded diff stays rendered until the new
+  one resolves. The header chip (`.file-view-sub .chip`) and the hunk buttons, meanwhile, come
+  straight from `view` and flip immediately — so for the length of one IPC round trip the view
+  claims to be showing one side of a file while the hunks on screen belong to another. Clicking
+  Stage / Unstage / Discard hunk in that window calls `buildHunkPatch` on the stale hunk, and
+  `git apply` rejects the mismatched patch into the view's own inline error line. Found while
+  verifying GC-062: its step 21 switched `big.txt` from the 1-hunk unstaged side to the 1-hunk
+  staged side and clicked Unstage hunk, and git refused the patch because the renderer had handed
+  it `row 3 edited` when the index held `row 35 edited`. Nothing is corrupted — git is what stops
+  it — but the user sees a failure for a click that looked valid, and the window is wider on a real
+  repository than on the seven-commit scratch one. GC-062 worked around it in the test by matching
+  the rendered added lines; the renderer should not need that.
+- **Scope:**
+  - Clear `text` (and `error`) at the top of the load effect so the hunks unmount and the existing
+    "Loading diff…" body shows while a load is in flight, instead of the previous diff's rows.
+  - Gate the hunk action buttons on that in-flight state the same way `busy` already gates them, so
+    a click during the gap is impossible rather than merely rejected.
+- **Out of scope:** a spinner or skeleton design for the loading body, cancelling the in-flight IPC
+  call, the commit-file side of the same view (it has no action buttons), GC-052's toolbar.
+- **Acceptance:**
+  - [ ] Over CDP on the scratch repository: stage the second hunk of `big.txt`, click the Staged
+        Files row, and read `.file-view .diff-body` immediately — it shows the loading body, not the
+        unstaged side's hunk, and the hunk buttons are disabled until the staged diff arrives.
+  - [ ] Reverting GC-062's content-keyed `waitDiff` in `tools/e2e/run.mjs` back to a chip + hunk
+        count wait leaves step 21 passing, which it does not today (say so in the log).
+  - [ ] `npm run e2e` still passes, and no flicker is visible in a screenshot taken mid-load.
+- **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css` (only if the
+  empty body between diffs reads badly).
+- **Verify:** build, the CDP check above, `npm run e2e`, a screenshot of the loading body.
+- **Log:**
+  - 2026-09-05 proposed by GC-062 (this ticket): step 21's Unstage hunk failed five assertions
+    against a perfectly working app, because the view was still rendering the diff it had before
+    the click and the button built its patch from that.
+
+### GC-076 Every e2e run leaves a commit behind, and the fixture eventually breaks step 16
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** Step 10 clones the bare origin into `clone2`, commits `remote-<stamp>.txt` there, pushes
+  it and pulls it into `main` (`tools/e2e/run.mjs:442-457`). Nothing ever removes it: the commit
+  stays on `main` and on the bare origin, and the prologue does not reset either. So the fixture
+  grows by a commit and a file on **every** run, and `npm run e2e:setup` is the only thing that
+  puts it back. Measured during GC-062's verification: 7 commits at setup, 9 after one run, and
+  **44** after the batch's runs — at which point step 16's `matches are highlighted and the rest
+  dimmed` assertion failed reading `matches: 0, dimmed: 39` while the readout correctly said
+  `1 of 1` and the right row was selected. The rows are virtualised, so once the history is long
+  enough the single matching row is outside the rendered window at the moment the assertion reads
+  the DOM. The suite is the batch routine's own verification tool, so a failure that depends on how
+  many times it has been run is worse than the bug it would catch: it looks like a regression in
+  whatever ticket is in flight. A fresh `npm run e2e:setup` made the same run pass, which is how
+  the drift was identified rather than the ticket blamed.
+- **Scope:**
+  - Step 10 undoes itself: after the pull assertions, drop the commit from the working clone and
+    from the bare origin (and remove `clone2`), so a finished run leaves `main` where it found it.
+  - The prologue removes any `Commit from another clone` commit and `remote-*.txt` file a run that
+    died inside step 10 left behind, the way the GC-062 blocks do for steps 20 and 21.
+  - The fixture's commit count becomes an invariant the run can state: assert at the end that
+    `git rev-list --count HEAD` matches what `setup-testrepo.mjs` creates, so the next drift of
+    this kind fails loudly and names itself instead of surfacing as an unrelated step's flake.
+- **Out of scope:** step 16's own assertion (it is correct — it is the fixture that moved), making
+  the graph search scroll a match into view before asserting (that is the test's existing
+  `searchStateAtTop()` discipline and it works on the fixture as designed), GC-064's concurrent-root
+  marker, GC-055's and GC-056's fixture changes.
+- **Acceptance:**
+  - [ ] `npm run e2e` five times in a row without an intervening `e2e:setup`, all passing, with
+        `git rev-list --count HEAD` and `git ls-remote origin` identical before the first and after
+        the fifth.
+  - [ ] Killing a run inside step 10 and running again passes, with no `Commit from another clone`
+        left on `main` or on the bare origin.
+  - [ ] The count invariant fails the run when a commit is added to the fixture by hand.
+- **Files:** `tools/e2e/run.mjs`, and `tools/e2e/setup-testrepo.mjs` only if the expected count is
+  better exported from there than restated.
+- **Verify:** the three checks above, and `npm run e2e:setup && npm run e2e` once normally.
+- **Log:**
+  - 2026-09-05 proposed by GC-062 (this ticket): eight verification runs grew the scratch repository
+    from 7 commits to 44 and broke a search assertion that has nothing to do with the batch.
 
 ## Reviews
 

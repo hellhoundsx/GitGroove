@@ -1,15 +1,11 @@
-// `tsconfig.web.json` is the renderer's project and does not pull in the node types, so this
-// file asks for them itself rather than changing that config for one test.
-/// <reference types="node" />
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// This test checks the *repository*, not the renderer. It lives here only because
-// `vitest.config.ts` includes `src/**/*.test.ts` and `tsconfig.web.json` includes
-// `src/renderer/src/**/*`, so it is picked up by `npm test` and `npm run typecheck`
-// with no configuration change. Move it and both of those need editing.
+// This test checks the *repository*, not any one module, so it sits beside the other repository
+// tooling (GC-070): `vitest.config.ts`'s node project includes `tools/**/*.test.ts` and
+// `tsconfig.node.json`, which already carries the node types, covers it for `npm run typecheck`.
 //
 // Why it exists (GC-047): GC-042 found a literal U+0000 that a session had typed straight into
 // `shortcuts.test.ts`. vitest, `tsc` and the build all read the file happily, so it survived a
@@ -17,8 +13,8 @@ import { describe, expect, it } from 'vitest';
 // `git diff`, `git blame`, review and the `.gitattributes` LF normalisation. A byte-level scan
 // catches it in milliseconds. Control characters belong in source as escapes, never as bytes.
 
-/** Repo root: this file is at <root>/src/renderer/src/. */
-const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..', '..', '..');
+/** Repo root: this file is at <root>/tools/. */
+const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 
 /** Trees walked in full. */
 const TREES = ['src', 'tools'];

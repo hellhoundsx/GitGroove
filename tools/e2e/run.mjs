@@ -6,7 +6,7 @@
 // hold, then launches through tools/launch-app.mjs, which keeps the run invisible (no window, no
 // focus change). Both the prologue and the epilogue stop one process tree only (GC-035).
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -193,6 +193,66 @@ const settle = async (ms = 600) => {
   await waitIdle();
 };
 const escape = () => send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }).then(() => send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' }));
+/** A real Ctrl+Enter to whatever has focus (CDP `modifiers: 2` is Ctrl). The commit form binds it on
+ *  the summary and the description through `matches('commit', e)`, so the key has to reach the
+ *  focused field rather than a window listener the way Escape does (GC-062). */
+const ctrlEnter = () =>
+  send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, modifiers: 2 }).then(() =>
+    send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, modifiers: 2 }),
+  );
+
+// ---- helpers for the commit form and the diff's hunk actions (GC-062) -----------------------------
+/** Type into a controlled input or textarea the way a user does (React needs the native setter). */
+const setField = (selector, text) =>
+  ev(
+    `(() => { const el = document.querySelector(${q(selector)}); if (!el) return 'no field ' + ${q(selector)}; el.focus(); const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${q(text)}); el.dispatchEvent(new Event('input', { bubbles: true })); return 'typed into ' + ${q(selector)} + ': ' + ${q(text)}; })()`,
+  );
+/** Select the WIP row so the detail panel shows the staging view. The rows are virtualised and an
+ *  earlier step may have left a commit deep in the graph selected, so scroll back to the top first
+ *  (GC-030's lesson, applied here the same way step 19 does). */
+const selectWip = async () => {
+  await waitFor(`(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return !!document.querySelector('.graph-row.wip'); })()`, 'the WIP row to be rendered');
+  return ev(`(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'no WIP row'; r.click(); return 'WIP row selected'; })()`);
+};
+/** Click the Stage button on a file row in the staging list. */
+const stageRow = (file) =>
+  ev(
+    `(() => { const r = [...document.querySelectorAll('.detail-panel .file-row')].find(x => x.title === ${q(file)}); if (!r) return 'no file row ' + ${q(file)}; const b = r.querySelector('.actions .btn.success'); if (!b) return 'no Stage button on ' + ${q(file)}; if (b.disabled) return 'DISABLED Stage on ' + ${q(file)}; b.click(); return 'clicked Stage on ' + ${q(file)}; })()`,
+  );
+/** Click a file row inside one staging group. A file with a hunk staged is listed in both groups, so
+ *  the group is what picks the unstaged or the staged side of the diff (GC-062). */
+const clickFileRow = (group, file) =>
+  ev(
+    `(() => { const list = [...document.querySelectorAll('.detail-panel .file-list')].find(l => (l.querySelector('.group-head span')?.textContent ?? '').toLowerCase().startsWith(${q(group.toLowerCase())})); if (!list) return 'no group ' + ${q(group)}; const r = [...list.querySelectorAll('.file-row')].find(x => x.title === ${q(file)}); if (!r) return 'no row ' + ${q(file)} + ' under ' + ${q(group)}; r.click(); return 'clicked ' + ${q(file)} + ' under ' + ${q(group)}; })()`,
+  );
+/** What the open diff shows: which side, how many hunks, and every hunk action button in order. */
+const diffState = () =>
+  ev(
+    `(() => { const v = document.querySelector('.file-view'); return JSON.stringify({ open: !!v, name: v?.querySelector('.path .name')?.textContent ?? null, chip: v?.querySelector('.file-view-sub .chip')?.textContent ?? null, hunks: document.querySelectorAll('.file-view .diff-body .hunk').length, actions: [...document.querySelectorAll('.file-view .diff-body .hunk-actions .btn')].map(b => b.textContent.trim()).join(',') }); })()`,
+  );
+/** Click one hunk's action button ("Stage hunk" / "Discard hunk" / "Unstage hunk") by hunk index. */
+const hunkAction = (index, label) =>
+  ev(
+    `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'no hunk ' + ${index}; const b = [...h.querySelectorAll('.hunk-actions .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no ' + ${q(label)} + ' on hunk ' + ${index}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' on hunk ' + ${index}; b.click(); return 'clicked ' + ${q(label)} + ' on hunk ' + ${index}; })()`,
+  );
+/** Wait for the diff to be showing one side of a WIP file: the chip, the number of hunks **and the
+ *  exact list of added lines it renders**. The content is the load-bearing half. `DiffView` starts
+ *  the new load without clearing the text it already has, so between a click and the new diff
+ *  resolving it still renders the previous one, while the chip and the hunk buttons come straight
+ *  from `view` and flip instantly. A wait keyed on chip + hunk count alone is therefore satisfied by
+ *  the stale render whenever the old side happens to have the same number of hunks — which is
+ *  exactly what happens when this step switches from the 1-hunk unstaged side to the 1-hunk staged
+ *  one, and `Unstage hunk` then rebuilt its patch from the wrong hunk and git rejected it into
+ *  `DiffView`'s own error line. The added lines differ between the two sides, so matching them
+ *  closes that window. Staging or unstaging a hunk reloads the diff through `workdirVersion`, so
+ *  this is a strictly later moment than the click and there is nothing to sleep on (GC-053). */
+const waitDiff = (chip, hunks, adds) =>
+  waitFor(
+    `(document.querySelector('.file-view .file-view-sub .chip')?.textContent ?? '') === ${q(chip)}` +
+      ` && document.querySelectorAll('.file-view .diff-body .hunk').length === ${hunks}` +
+      ` && [...document.querySelectorAll('.file-view .diff-body .hunk .line.add .code')].map(c => c.textContent).join('|') === ${q(adds.join('|'))}`,
+    `the ${chip.toLowerCase()} diff to show ${hunks} hunk${hunks === 1 ? '' : 's'} adding ${adds.join(', ')}`,
+  );
 
 // ---- make the scratch repo state predictable when re-running --------------------------------------------
 git(['cherry-pick', '--abort']);
@@ -208,6 +268,21 @@ git(['remote', 'remove', 'mirror']);
 // step 17 pushes this scratch branch to the second remote and deletes it again (GC-031)
 git(['branch', '-D', 'push-target']);
 git(['push', '-q', 'origin', '--delete', 'push-target']);
+// step 20 commits through the commit form and then amends that commit, undoing both at the end. A
+// run that died in between leaves one extra commit on main, whose subject always starts with this
+// mark, plus the scratch file the step staged (GC-062). The reset is --soft, never --hard: the index
+// the commit consumed holds the fixture's own staged README.md change and main.txt deletion, and the
+// working tree holds the unstaged edits every later step asserts against, so a hard reset would undo
+// the commit by gutting the fixture. --soft puts index and tree back exactly as the commit found them.
+const COMMIT_MARK = 'e2e commit form';
+const COMMIT_FILE_RE = /^e2e-commit-\d+\.txt$/;
+for (let i = 0; i < 3; i++) {
+  if (!git(['log', '-1', '--format=%s']).startsWith(COMMIT_MARK)) break;
+  git(['reset', '--soft', 'HEAD^']);
+}
+// whatever that reset put back in the index is the fixture's own, except the step's scratch file
+for (const f of git(['diff', '--cached', '--name-only']).split('\n')) if (COMMIT_FILE_RE.test(f)) git(['reset', '-q', '--', f]);
+for (const f of readdirSync(R)) if (COMMIT_FILE_RE.test(f)) rmSync(join(R, f), { force: true });
 // step 15 parks the working tree in a stash, leaves a scratch file and edits a tracked one; undo
 // all three if a run died there. feature.txt is safe to restore because no other step touches it.
 const GUARD_FILE = 'guard-checkout.txt';
@@ -243,6 +318,17 @@ if (git(['diff', '--cached', '--name-only', '--', MENU_FILE]) === MENU_FILE) {
   git(['reset', '-q', '--', MENU_FILE]);
   git(['checkout', '-q', '--', MENU_FILE]);
 }
+// step 21 stages one hunk of this file, unstages it again and cancels a discard of the other, so a
+// finished run leaves it as it found it; a run that died in the middle can leave the hunk in the
+// index or (had the discard gone through) one edit missing from the working tree. Put both back: the
+// index entry to HEAD's version, then the two-hunk working tree the fixture writes. This runs after
+// every stash pop above, so it cannot rewrite a file a pop is about to restore (GC-062).
+const HUNK_FILE = 'big.txt';
+const HUNK_EDIT_1 = 'row 3 edited';
+const HUNK_EDIT_2 = 'row 35 edited';
+if (git(['diff', '--cached', '--name-only', '--', HUNK_FILE]) === HUNK_FILE) git(['reset', '-q', '--', HUNK_FILE]);
+// the same 40 rows with the same two edits `bigRows` writes in tools/e2e/setup-testrepo.mjs
+writeFileSync(join(R, HUNK_FILE), Array.from({ length: 40 }, (_, i) => (i === 2 ? HUNK_EDIT_1 : i === 34 ? HUNK_EDIT_2 : `row ${i + 1}`)).join('\n') + '\n');
 const stamp = Date.now();
 
 // ---- scenario -----------------------------------------------------------------------------------------------
@@ -735,6 +821,148 @@ check('Unstage file from the row menu unstages it again', shortOf(MENU_FILE) ===
 
 // put the file back so the run stays re-entrant
 git(['checkout', '-q', '--', MENU_FILE]);
+log(await tool('Refresh'));
+await settle();
+
+step(20, 'commit form: stage a file, type a summary and a description, commit with Ctrl+Enter, then amend');
+// GC-062. The two most frequent actions in a git client had no coverage: this one drives
+// `commit --file=-` on stdin, through the form rather than through git. The commit takes the whole
+// index with it, which here is the fixture's own staged README.md change and main.txt deletion
+// beside the scratch file the step stages, so the end of the step undoes it with `git reset --soft`
+// — a hard reset would take the mixed working tree every earlier step asserts against with it.
+const COMMIT_FILE = `e2e-commit-${stamp}.txt`;
+const COMMIT_SUMMARY = `${COMMIT_MARK} ${stamp}`;
+const COMMIT_BODY = 'Second line, typed into the description field.';
+const headBefore = git(['rev-parse', 'HEAD']);
+const statusBefore = status();
+writeFileSync(join(R, COMMIT_FILE), 'commit form\n');
+log(await tool('Refresh'));
+await settle();
+log(await selectWip());
+// only the staging view lists an uncommitted file, so this cannot be satisfied by a commit view
+await inGroup('Unstaged Files', COMMIT_FILE);
+log(await stageRow(COMMIT_FILE));
+await inGroup('Staged Files', COMMIT_FILE);
+await waitIdle();
+check('the row Stage button stages the file', shortOf(COMMIT_FILE) === `A  ${COMMIT_FILE}`, shortOf(COMMIT_FILE));
+
+log(await setField('.commit-form .summary-wrap input', COMMIT_SUMMARY));
+log(await setField('.commit-form textarea', COMMIT_BODY));
+const counter = await ev(`document.querySelector('.commit-form .counter')?.textContent ?? null`);
+check('the 72-character counter counts the summary down', counter === String(72 - COMMIT_SUMMARY.length), `${counter} for a ${COMMIT_SUMMARY.length}-character summary`);
+await shot('commit-form.png');
+// the description field has focus after being typed into, and Ctrl+Enter is bound on both fields;
+// press it on the summary, so the check names the field the key was aimed at when it goes wrong
+const focused = await ev(`(() => { const i = document.querySelector('.commit-form .summary-wrap input'); if (!i) return 'no summary field'; i.focus(); return document.activeElement === i ? 'focused' : 'focus landed on ' + document.activeElement?.tagName; })()`);
+check('the summary field takes focus for the keyboard commit', focused === 'focused', String(focused));
+await ctrlEnter();
+// the form clears itself only after `actions.commit` resolves, and the staged group empties with the
+// reload behind it, so both together are a strictly later moment than the key press (GC-053)
+await waitFor(
+  `[...document.querySelectorAll('.detail-panel .file-list .group-head span')].some(h => (h.textContent ?? '').toLowerCase().startsWith('staged files (0)')) && document.querySelector('.commit-form .summary-wrap input')?.value === ''`,
+  'the staged group to empty and the commit form to clear',
+  15000,
+);
+await waitIdle();
+check('Ctrl+Enter commits the summary and the description', git(['log', '-1', '--format=%B']) === `${COMMIT_SUMMARY}\n\n${COMMIT_BODY}`, git(['log', '-1', '--format=%B']).replace(/\n/g, ' | '));
+check('the committed file left the staging list', !status().includes(COMMIT_FILE), status());
+// the prefill below only fires on an empty form, so a commit that silently did nothing would leave
+// the typed summary sitting there and the amend assertion would pass for the wrong reason
+const cleared = JSON.parse(await ev(`JSON.stringify({ summary: document.querySelector('.commit-form .summary-wrap input')?.value ?? null, body: document.querySelector('.commit-form textarea')?.value ?? null })`));
+check('the form empties itself after committing', cleared.summary === '' && cleared.body === '', JSON.stringify(cleared));
+
+const countAfterCommit = git(['rev-list', '--count', 'HEAD']);
+log(await ev(`(() => { const cb = document.querySelector('.commit-form .check input'); if (!cb) return 'no amend checkbox'; if (cb.disabled) return 'amend checkbox disabled'; cb.click(); return 'ticked Amend previous commit'; })()`));
+await waitFor(`document.querySelector('.commit-form .summary-wrap input')?.value === ${q(COMMIT_SUMMARY)}`, "the amend tick to prefill HEAD's message");
+const prefilled = JSON.parse(await ev(`JSON.stringify({ summary: document.querySelector('.commit-form .summary-wrap input')?.value ?? null, body: document.querySelector('.commit-form textarea')?.value ?? null })`));
+check('ticking Amend prefills the form from HEAD', prefilled.summary === COMMIT_SUMMARY && prefilled.body === COMMIT_BODY, JSON.stringify(prefilled));
+
+const AMENDED_SUMMARY = `${COMMIT_SUMMARY} amended`;
+log(await setField('.commit-form .summary-wrap input', AMENDED_SUMMARY));
+log(await ev(`(() => { const b = document.querySelector('.commit-form .btn.primary.large'); if (!b) return 'no commit button'; if (b.disabled) return 'commit button disabled'; const label = b.textContent.trim(); b.click(); return 'clicked the commit button: ' + label; })()`));
+// doCommit clears the fields and unticks Amend once git has answered, and nothing else in the step
+// does that, so it marks the amend having landed
+await waitFor(`document.querySelector('.commit-form .summary-wrap input')?.value === '' && document.querySelector('.commit-form .check input')?.checked === false`, 'the commit form to clear after the amend', 15000);
+await waitIdle();
+check(
+  'amend rewrites the last commit instead of adding one',
+  git(['log', '-1', '--format=%s']) === AMENDED_SUMMARY && git(['rev-list', '--count', 'HEAD']) === countAfterCommit,
+  `${git(['log', '-1', '--format=%s'])} | count=${git(['rev-list', '--count', 'HEAD'])} was ${countAfterCommit}`,
+);
+
+// undo the step. --soft puts the index back exactly as the commit found it; the scratch file is the
+// one entry in it that is not the fixture's own, so that is the only one unstaged by hand (GC-062).
+git(['reset', '--soft', headBefore]);
+git(['reset', '-q', '--', COMMIT_FILE]);
+rmSync(join(R, COMMIT_FILE), { force: true });
+log(await tool('Refresh'));
+await settle();
+check('the commit step left the repository as it found it', git(['rev-parse', 'HEAD']) === headBefore && status() === statusBefore, `${status()} | expected ${statusBefore}`);
+
+step(21, 'hunk staging: Stage hunk, Unstage hunk, and a Discard hunk that is cancelled');
+// GC-062. `git apply --cached --recount` on a patch rebuilt by `buildHunkPatch` had no coverage
+// either. big.txt is the fixture's two-hunk file: row 3 and row 35 of 40 are edited, far enough
+// apart for git to report them as two hunks.
+const hunkStatusBefore = status();
+log(await selectWip());
+await inGroup('Unstaged Files', HUNK_FILE);
+log(await clickFileRow('Unstaged Files', HUNK_FILE));
+await waitDiff('Unstaged', 2, [HUNK_EDIT_1, HUNK_EDIT_2]);
+let d = JSON.parse(await diffState());
+check('the unstaged file opens with both hunks and an action pair on each', d.hunks === 2 && d.actions === 'Stage hunk,Discard hunk,Stage hunk,Discard hunk', JSON.stringify(d));
+await shot('diff-hunks.png');
+
+log(await hunkAction(1, 'Stage hunk'));
+await waitDiff('Unstaged', 1, [HUNK_EDIT_1]);
+await waitIdle();
+const cached = git(['diff', '--cached', '--', HUNK_FILE]);
+check('Stage hunk puts that hunk, and only that hunk, in the index', cached.includes(`+${HUNK_EDIT_2}`) && !cached.includes(HUNK_EDIT_1), cached.split('\n').filter((l) => /^[+-]/.test(l) && !/^[+-][+-]/.test(l)).join(' | '));
+check('the other hunk is still an unstaged change', git(['diff', '--', HUNK_FILE]).includes(`+${HUNK_EDIT_1}`), git(['diff', '--', HUNK_FILE]).split('\n').filter((l) => /^[+-]/.test(l) && !/^[+-][+-]/.test(l)).join(' | '));
+
+await inGroup('Staged Files', HUNK_FILE);
+log(await clickFileRow('Staged Files', HUNK_FILE));
+// the staged side's one hunk is the row 35 edit; the unstaged side left rendered behind it has one
+// hunk too, so only the added line tells the two apart (see waitDiff)
+await waitDiff('Staged', 1, [HUNK_EDIT_2]);
+d = JSON.parse(await diffState());
+// compared as the whole list rather than with /Stage hunk/, which "Unstage hunk" also matches
+check('the staged side offers Unstage hunk and nothing else', d.actions === 'Unstage hunk', JSON.stringify(d));
+log(await hunkAction(0, 'Unstage hunk'));
+// unstaging the only staged hunk leaves big.txt with no staged side at all, and `App` drops the
+// file view when the entry loses the side it was showing — so there is no empty staged diff to wait
+// for, the whole view goes. The close is driven by the snapshot reload behind the patch, which puts
+// it strictly after the click (GC-053).
+await waitFor(`!document.querySelector('.file-view')`, `the file view to close as ${HUNK_FILE} leaves the Staged group`);
+// if the patch was rejected the view is still open with git's message on it; carry it into the
+// assertion below rather than leaving a bare "the index is not empty"
+const unstageErr = await ev(`document.querySelector('.file-view .file-view-sub .err')?.textContent ?? ''`);
+await waitIdle();
+check(
+  'Unstage hunk empties the index again',
+  git(['diff', '--cached', '--', HUNK_FILE]) === '',
+  (git(['diff', '--cached', '--name-status', '--', HUNK_FILE]).replace(/\n/g, ' ') || `(${HUNK_FILE} is not staged)`) + (unstageErr ? ` | diff error: ${unstageErr}` : ''),
+);
+const unstagedDiff = git(['diff', '--', HUNK_FILE]);
+check('both edits are back as unstaged changes', unstagedDiff.includes(`+${HUNK_EDIT_1}`) && unstagedDiff.includes(`+${HUNK_EDIT_2}`), unstagedDiff.split('\n').filter((l) => /^[+-]/.test(l) && !/^[+-][+-]/.test(l)).join(' | '));
+
+await inGroup('Unstaged Files', HUNK_FILE);
+log(await clickFileRow('Unstaged Files', HUNK_FILE));
+await waitDiff('Unstaged', 2, [HUNK_EDIT_1, HUNK_EDIT_2]);
+log(await hunkAction(0, 'Discard hunk'));
+await waitModal();
+const discardHunkModal = String(await modal(null, null));
+check('Discard hunk asks first, naming the file', discardHunkModal.includes(`Discard this hunk from ${HUNK_FILE}?`), discardHunkModal);
+check('the discard prompt offers Cancel and Discard hunk', String(await modalButtons()) === 'Cancel | Discard hunk', await modalButtons());
+log(await modalClick('Cancel'));
+await waitNoModal();
+await waitIdle();
+check(
+  'cancelling the discard leaves the working tree exactly as it was',
+  git(['diff', '--', HUNK_FILE]) === unstagedDiff && status() === hunkStatusBefore,
+  `${status()} | expected ${hunkStatusBefore}`,
+);
+await escape();
+await waitFor(`!document.querySelector('.file-view')`, 'the diff to close');
 log(await tool('Refresh'));
 await settle();
 

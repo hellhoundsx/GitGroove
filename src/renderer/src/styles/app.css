@@ -1261,24 +1261,59 @@ textarea:focus {
 .ctx-item.danger {
   color: var(--danger);
 }
+/* The label is what the user picks a row by and the hint is only context, so the label gives way
+   last (GC-067). The two used to be the other way round: `flex: 1` gave the label a basis of 0
+   and so only what the hint left over, while the hint kept its content width up to the menu's
+   420px cap — and a recents path longer than that took everything, leaving the folder name a
+   single letter. The label now sizes to its content and the hint's basis is 0 instead, so the
+   hint grows into whatever is left and ellipsises there; the label loses nothing until it is the
+   only thing over the cap, and then it ellipsises itself rather than spilling out of the menu.
+   `text-align: right` keeps a short hint against the right edge, where the label's old `flex: 1`
+   used to push it. */
 .ctx-item .ctx-label {
-  flex: 1;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 /* The recents menu puts a full path in the hint, which is longer than the menu's 420px cap, so a
    hint ellipsizes instead of spilling out of the menu box (GC-044). */
 .ctx-item .ctx-hint {
+  flex: 1 1 0;
+  text-align: right;
   color: var(--text-dim);
   font-size: var(--fs-sm);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A path hint loses its head rather than its tail, so the folder that names the entry stays
+   readable (GC-067). An RTL box puts its overflow — and with it the ellipsis — at the leading
+   edge, while the path itself stays one unbroken left-to-right run (every character in it is
+   either a Latin letter or a neutral between two of them), so it still reads normally.
+   `unicode-bidi: plaintext` was tried here and does the wrong thing: it takes the paragraph
+   direction from the leading `C` and puts the ellipsis back at the end. Every other hint is short
+   and keeps the ordinary end ellipsis. */
+.ctx-item .ctx-hint.path {
+  direction: rtl;
+}
 .ctx-sep {
   height: 1px;
   margin: 4px 0;
   background: var(--border);
+}
+/* A non-interactive heading over a group of rows, matching the panels' section headers and the
+   empty state's own recents caption (GC-067). */
+.ctx-caption {
+  display: flex;
+  align-items: center;
+  height: 25px;
+  padding: 0 14px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 /* ---- Modal ------------------------------------------------------------------ */
