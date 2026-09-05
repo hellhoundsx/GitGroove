@@ -1,4 +1,4 @@
-# GitClient tickets
+# GitClient tickets in-progress | in-progress | in-progress | in-progress | in-progress | in-progress |
 
 The backlog of work that can be started right now, in a form an unattended session can pick
 up. Every ticket has exactly one status. The per-ticket `Status:` line is the source of truth;
@@ -795,7 +795,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-020 Keep the pinned branch's chip visible when chips fold
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-005
 - **Why:** `CommitGraph` shows at most `MAX_CHIPS = 2` chips and folds the rest behind `+N`, in an
@@ -817,6 +817,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 proposed by GC-005 (this ticket): the pin marker is the only on-screen explanation
     for the leftmost lane, and the current chip order can hide it.
+  - 2026-09-05 20:12 claimed
 
 ### GC-021 The pin follows a renamed branch and is dropped with a deleted one
 
@@ -1006,7 +1007,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-036 The e2e prologue leaves the named stash a run that dies mid-scenario creates
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** Step 5 creates a stash called `test stash` and step 8 pops it, asserting
@@ -1033,6 +1034,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-029 (this ticket): adding the unnamed-stash guard to the prologue
     made the same gap for `test stash` obvious; it is the only remaining stash the suite can
     strand.
+  - 2026-09-05 20:12 claimed
 
 ### GC-040 A crashed e2e run leaves its own Electron alive
 
@@ -1066,7 +1068,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-041 The launcher documents --keep-alive but checks --keep-running
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** The usage line at the top of `tools/launch-app.mjs` reads
@@ -1089,6 +1091,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 proposed by GC-035 (this ticket): the CLI's `killElectron()` call became
     `stopPort(port)` and the flag guarding it turned out not to be the one the header names.
+  - 2026-09-05 20:12 claimed
 
 ## Adding a ticket
 
@@ -1221,7 +1224,7 @@ decision is missing.
 
 ### GC-025 A readable error when git is not on PATH
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** main | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** launching the built app from a shell whose PATH has no `git` puts a bare
@@ -1257,6 +1260,7 @@ decision is missing.
     slip) showed `spawn git ENOENT` in the empty state and the status bar although git was on
     PATH and had just loaded another repository; a dead folder and a missing binary need two
     different messages, and GC-044 will hand this code stale paths on purpose.
+  - 2026-09-05 20:12 claimed
 
 ### GC-029 The stash message says "optional" but the modal refuses an empty one
 
@@ -1856,7 +1860,7 @@ decision is missing.
 
 ### GC-048 Long toolbar labels overflow their 52px button
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `.tool-btn` is a fixed `width: 52px` with no rule on the label, so a label wider than
@@ -1882,10 +1886,11 @@ decision is missing.
   - 2026-09-05 proposed by GC-030 (this ticket): the screenshot taken to verify the search round
     trip showed "Shortcuts" and "Preferences" running together; measuring confirmed the labels
     overflow their fixed-width buttons.
+  - 2026-09-05 20:12 claimed
 
 ### GC-047 A test that fails on a raw control byte in a source file
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-042
 - **Why:** GC-042 fixed one literal U+0000 that a session had written straight into
@@ -1924,6 +1929,7 @@ decision is missing.
     the escape, and it had to be repaired exactly the way GR-002 repaired two stray NULs in this
     file earlier the same day. Three occurrences in one day is why the scope covers the root
     markdown files and not only `src/`.
+  - 2026-09-05 20:12 claimed
 
 ### GC-049 Branch context menu is missing its tip-commit actions, mainly Reset
 
