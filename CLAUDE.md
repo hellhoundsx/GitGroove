@@ -37,14 +37,18 @@ the working copy to LF (`* text=auto eol=lf`) because the system Git config has
 | TypeScript | 7 | `baseUrl` is gone, tsconfig `paths` are relative; `tsc --noEmit` per target |
 | lucide-react | 1.x | the only icon source; wrap with `Icon` from `src/renderer/src/ui/icons.tsx` |
 | @fontsource/open-sans | 5 | UI font, imported in `main.tsx` (400/600/700) |
+| vitest | 5 | unit tests; its Vite peer range is `^6.4 || ^7 || ^8`, so it does not force a Vite bump |
 | git | system `git` on PATH | all repository access shells out, no libgit2 |
 
 Node 25 and npm 11 are installed; no pnpm, no Rust (Tauri was ruled out for that reason).
+`npm install` prints an `EBADENGINE` warning for vitest 5 (it wants Node 22/24/26+ and this is
+Node 25); it is only a warning and the suite runs. Do not "fix" it by downgrading Node.
 
 ## Repository layout
 
 ```
 TICKETS.md             the backlog: one ticket per startable task, each with a status (see roadmap section)
+vitest.config.ts       unit-test config: the renderer aliases, src/**/*.test.ts, node environment
 src/
   main/index.ts        Electron window (1400x900, dark background, overlay title bar), loads out/renderer
   main/git.ts          every git call; spawn('git', BASE_ARGS + args) with LC_ALL=C, GIT_TERMINAL_PROMPT=0
@@ -57,8 +61,8 @@ src/
     main.tsx           fonts, tokens.css, app.css, <UiProvider><App/></UiProvider>
     App.tsx            all state and every git action (see "App state and the run() wrapper")
     components/        TitleBar, Toolbar, LeftPanel, DetailPanel, StatusBar
-    graph/             lanes.ts (layout algorithm), GraphCell.tsx (one row's SVG), CommitGraph.tsx
-    diff/              parseDiff.ts (unified diff parser + hunk patch builder), DiffView.tsx
+    graph/             lanes.ts (layout algorithm) + lanes.test.ts, GraphCell.tsx (one row's SVG), CommitGraph.tsx
+    diff/              parseDiff.ts (unified diff parser + hunk patch builder) + parseDiff.test.ts, DiffView.tsx
     ui/                ContextMenu, Modal, UiContext (openMenu/prompt/confirm), icons, Avatar, avatars
     styles/            tokens.css (design tokens), app.css (all component styles, one file)
 docs/reference/gitkraken/   the GitKraken study: 6 notes files + 19 screenshots (README has the index)
@@ -73,6 +77,8 @@ tools/e2e/                  setup-testrepo.mjs (scratch repo + bare remote), run
 npm run dev            # electron-vite dev with HMR
 npm run build          # bundles to out/ (main, preload, renderer)
 npm run typecheck      # tsc for node target then web target
+npm test               # vitest run: the unit tests, once
+npm run test:watch     # vitest in watch mode
 npm run e2e:setup      # (re)creates the scratch repo under %TEMP%/gitclient-e2e (or $GITCLIENT_E2E_ROOT)
 npm run e2e            # drives the BUILT app through the UI, asserts against git, exits 1 on failure
 ```
@@ -245,7 +251,22 @@ a fixed sleep caused one flake. All 22 assertions passed on the last run. Screen
 `<root>/shots/`. The run is re-entrant (prologue aborts in-progress operations and removes the
 refs it creates).
 
-There are no unit tests yet; `parseDiff.ts` and `lanes.ts` are the obvious first candidates.
+### Unit tests
+
+`npm test` (vitest 5, config in `vitest.config.ts`). Tests live next to the module they cover as
+`*.test.ts` and run in the `node` environment — the two covered modules are pure, so there is no
+jsdom and no React plugin in that config. `tsconfig.web.json` already includes them via
+`src/renderer/src/**/*`, so `npm run typecheck` type-checks the tests too; import `describe`,
+`it` and `expect` from `vitest` explicitly rather than turning on globals.
+
+Covered today (22 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
+multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
+synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
+merge's fork and join, the **no early forking** regression guard, HEAD's lineage in column 0, a
+pinned sha that is not HEAD, an unknown pinned sha, colour stability when a lane index is
+recycled, and `maxLane`). The early-forking guard was mutation-checked: reintroducing the bug
+fails three of these tests.
 
 ## Working conventions learned the hard way
 
@@ -269,7 +290,8 @@ commit details and file lists; unified diff with hunk staging; stage/unstage/dis
 branch create/checkout/rename/delete; merge, rebase, cherry-pick, revert, reset; fetch/pull/push
 with upstream setup; stash save/apply/pop/drop; tags; remotes listing; context menus everywhere;
 in-progress operation banner with abort; conflicted files group; icon set; Open Sans; palette
-calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite.
+calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite; vitest unit
+tests for `parseDiff.ts` and `lanes.ts` (GC-002).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

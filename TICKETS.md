@@ -70,7 +70,7 @@ Ready-to-paste routine prompt:
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
 | GC-001 | Initialise the git repository | infra | S | P0 | done |
-| GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | in-progress |
+| GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | done |
 | GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | todo |
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | todo |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | todo |
@@ -128,7 +128,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-002 Unit tests for parseDiff and lanes
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P0
 - **Depends on:** GC-001
 - **Why:** These two pure modules carry the most logic-per-line in the app and have no tests.
@@ -145,13 +145,36 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     column 0, a pinned sha taking column 0, lane recycling keeps colours stable.
 - **Out of scope:** component tests, e2e changes.
 - **Acceptance:**
-  - [ ] `npm test` exits 0 with at least 12 assertions across both files.
-  - [ ] `npm run typecheck` still passes (test files are included or excluded deliberately).
+  - [x] `npm test` exits 0 with at least 12 assertions across both files.
+  - [x] `npm run typecheck` still passes (test files are included or excluded deliberately).
 - **Files:** `package.json`, `tsconfig.web.json`, new `*.test.ts` next to the modules,
   `CLAUDE.md` (Commands and Testing sections).
 - **Verify:** `npm test`, `npm run typecheck`.
 - **Log:**
   - 2026-09-05 15:42 claimed
+  - 2026-09-05 15:52 done. Added `vitest@5.0.0` as a devDependency: its Vite peer range is
+    `^6.4 || ^7 || ^8`, so `npm ls vite` still reports a single deduped `vite@7.3.6` and
+    `@vitejs/plugin-react` stayed on 5.2.0. `npm test` = `vitest run`, `npm run test:watch` =
+    `vitest`, config in a new `vitest.config.ts` (renderer aliases, `src/**/*.test.ts`, `node`
+    environment — both modules under test are pure, so no jsdom and no React plugin).
+    `parseDiff.test.ts` covers headers, hunk line numbering, omitted `@@` counts, `\ No newline`
+    meta lines, new/deleted/binary files, renames with and without hunks, multi-file diffs, and
+    `buildHunkPatch` round-tripping through the parser (including the header it synthesises for
+    an untracked file that arrives with no `diff --git` line). `lanes.test.ts` covers empty and
+    linear history, a merge's fork and join, the no-early-forking regression guard, HEAD's
+    lineage in column 0, a pinned sha that is not HEAD (ahead of GC-005), an unknown pinned sha
+    being ignored, colour stability across a recycled lane index, and `maxLane`.
+    Verified: `npm test` 22 tests / 2 files passed, `npm run typecheck` clean (test files are
+    already inside `tsconfig.web.json`'s `src/renderer/src/**/*`, so a `tsconfig.web.json` edit
+    was not needed; `vitest.config.ts` was added to `tsconfig.node.json` instead),
+    `npm run build` clean with no vitest reference in the renderer bundle. The lane guard was
+    mutation-checked: reintroducing early forking in `lanes.ts` failed three tests, and the file
+    was restored (`git diff` on it is empty). No e2e run — the ticket touches no main-process,
+    IPC or action code.
+  - Notes for later: the tests documented two quirks worth a ticket if they ever matter — a
+    pinned commit's own row reports `hasChildAbove: true` because column 0 is seeded before the
+    loop, and `parseUnifiedDiff` treats a line that lost its leading space as context. Both are
+    current, intended-enough behaviour and are asserted nowhere.
 
 ### GC-003 Replace native confirm() with the UI confirm modal
 

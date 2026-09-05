@@ -12,6 +12,8 @@
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "e2e:setup": "node tools/e2e/setup-testrepo.mjs",
     "e2e": "node tools/e2e/run.mjs",
     "recon:targets": "node tools/gk-recon/cdp.mjs targets"
@@ -30,6 +32,7 @@
     "electron": "^44.2.0",
     "electron-vite": "^5.0.0",
     "typescript": "^7.0.2",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^5.0.0"
   }
 }
