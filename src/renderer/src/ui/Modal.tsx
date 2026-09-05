@@ -12,11 +12,15 @@ export interface PromptOptions {
   okLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** Optional third button, between Cancel and OK. Resolves with `choice: 'secondary'`. */
+  secondary?: { label: string };
 }
 
 export interface PromptResult {
   value: string;
   checked: boolean;
+  /** Which button resolved the modal. `'secondary'` only when `options.secondary` was given. */
+  choice: 'ok' | 'secondary';
 }
 
 interface Props {
@@ -36,10 +40,11 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
     inputRef.current?.select();
   }, [hasInput]);
 
-  const ok = (): void => {
+  const resolveWith = (choice: 'ok' | 'secondary'): void => {
     if (hasInput && value.trim().length === 0) return;
-    onResolve({ value: value.trim(), checked });
+    onResolve({ value: value.trim(), checked, choice });
   };
+  const ok = (): void => resolveWith('ok');
 
   return (
     <div
@@ -73,6 +78,11 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
           <button className="btn" onClick={() => onResolve(null)}>
             {options.cancelLabel ?? 'Cancel'}
           </button>
+          {options.secondary && (
+            <button className="btn" disabled={hasInput && value.trim().length === 0} onClick={() => resolveWith('secondary')}>
+              {options.secondary.label}
+            </button>
+          )}
           <button ref={okRef} className={`btn ${options.danger ? 'danger' : 'primary'}`} disabled={hasInput && value.trim().length === 0} onClick={ok}>
             {options.okLabel ?? 'OK'}
           </button>

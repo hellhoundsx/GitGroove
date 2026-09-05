@@ -111,6 +111,10 @@ const menuClick = (label) =>
 const modal = (value, checked) =>
   ev(`(() => { const m = document.querySelector('.modal'); if (!m) return 'no modal'; const input = m.querySelector('.modal-field input'); if (input && ${q(value)} !== null) { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${q(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); } const cb = m.querySelector('.modal-check input'); if (cb && ${q(checked)} !== null && cb.checked !== ${q(checked)}) cb.click(); return JSON.stringify({ title: m.querySelector('h3')?.textContent, value: input?.value, checked: cb?.checked, ok: m.querySelector('.modal-buttons .btn:last-child')?.textContent }); })()`);
 const modalOk = () => ev(`(() => { const b = document.querySelector('.modal .modal-buttons .btn:last-child'); if (!b) return 'no modal'; if (b.disabled) return 'OK disabled'; b.click(); return 'OK clicked'; })()`);
+const modalButtons = () => ev(`[...document.querySelectorAll('.modal .modal-buttons .btn')].map(b => b.textContent.trim()).join(' | ')`);
+const modalMessage = () => ev(`document.querySelector('.modal .modal-message')?.textContent ?? 'no modal message'`);
+const modalClick = (label) =>
+  ev(`(() => { const b = [...document.querySelectorAll('.modal .modal-buttons .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no modal button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)}; b.click(); return 'clicked ' + ${q(label)}; })()`);
 const contextMenuOn = (selector, text) =>
   ev(`(() => { const rows = [...document.querySelectorAll(${q(selector)})]; const r = ${text === null ? 'rows[0]' : `rows.find(x => x.innerText.replace(/\\s+/g, ' ').includes(${q(text)}))`}; if (!r) return 'row not found: ' + ${q(text ?? selector)}; const b = r.getBoundingClientRect(); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.x + 20, clientY: b.y + b.height / 2, button: 2 })); return 'contextmenu on ' + r.innerText.replace(/\\s+/g, ' ').slice(0, 50); })()`);
 const tool = (label) =>
@@ -147,6 +151,15 @@ git(['branch', '-D', 'conflict-branch']);
 git(['branch', '-D', 'test-branch']);
 git(['tag', '-d', 't-test']);
 rmSync(join(root, 'clone2'), { recursive: true, force: true });
+// step 15 parks the working tree in a stash and leaves a scratch file; drop both if a run died there
+const GUARD_FILE = 'guard-checkout.txt';
+const GUARD_STASH = 'e2e checkout guard';
+rmSync(join(R, GUARD_FILE), { force: true });
+for (let i = 0; i < 5; i++) {
+  const idx = git(['stash', 'list']).split('\n').findIndex((l) => l.includes(GUARD_STASH));
+  if (idx < 0) break;
+  git(['stash', 'drop', '-q', `stash@{${idx}}`]);
+}
 const stamp = Date.now();
 
 // ---- scenario -----------------------------------------------------------------------------------------------
@@ -164,11 +177,16 @@ log(await modalOk());
 await settle();
 check('branch created and checked out', git(['branch', '--show-current']) === 'test-branch');
 
-step(3, 'left panel context menu: checkout main');
+step(3, 'left panel context menu: checkout main (dirty tree prompts first)');
 log(await contextMenuOn('.left-panel .ref-row', 'main'));
 await sleep(300);
 log('menu:', await menuList());
 log(await menuClick('Checkout main'));
+await sleep(400);
+const dirtyPrompt = String(await modal(null, null));
+check('dirty checkout prompts', dirtyPrompt.includes('Uncommitted changes'), dirtyPrompt);
+check('prompt names the branch', String(await modalMessage()).includes('Check out main anyway?'), await modalMessage());
+log(await modalClick('Check out anyway'));
 await settle();
 check('checked out main', git(['branch', '--show-current']) === 'main');
 
@@ -313,6 +331,55 @@ await shot('modal-discard-file.png');
 log(await modalOk());
 await settle();
 check('untracked file deleted after confirming', !existsSync(join(R, scratch)) && !status().includes(scratch), status());
+
+step(15, 'checkout guard: clean tree is silent, Cancel is inert, Stash and check out re-applies');
+// park the working tree so the clean-tree path can be exercised, restored at the end of the step
+git(['stash', 'push', '-u', '-q', '-m', GUARD_STASH]);
+log(await tool('Refresh'));
+await settle();
+check('tree parked before the clean-tree checkout', status() === '', status());
+log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
+await sleep(300);
+log(await menuClick('Checkout wip-branch'));
+await sleep(500);
+const promptedWhenClean = await ev(`!!document.querySelector('.modal')`);
+await waitIdle();
+check('clean tree checks out with no prompt', promptedWhenClean === false && git(['branch', '--show-current']) === 'wip-branch', `modal=${promptedWhenClean} branch=${git(['branch', '--show-current'])}`);
+
+git(['checkout', '-q', 'main']);
+writeFileSync(join(R, GUARD_FILE), 'guard\n');
+log(await tool('Refresh'));
+await settle();
+const dirtyBefore = status();
+const stashesBefore = git(['stash', 'list']).split('\n').filter(Boolean).length;
+log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
+await sleep(300);
+log(await menuClick('Checkout wip-branch'));
+await sleep(400);
+check('prompt offers all three choices', String(await modalButtons()) === 'Cancel | Stash and check out | Check out anyway', await modalButtons());
+await shot('modal-checkout-dirty.png');
+log(await modalClick('Cancel'));
+await sleep(400);
+await waitIdle();
+check('cancel leaves HEAD and the tree untouched', git(['branch', '--show-current']) === 'main' && status() === dirtyBefore, `${git(['branch', '--show-current'])} | ${status()}`);
+
+log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
+await sleep(300);
+log(await menuClick('Checkout wip-branch'));
+await sleep(400);
+log(await modalClick('Stash and check out'));
+await settle();
+check(
+  'stash and check out lands on the branch with the changes re-applied',
+  git(['branch', '--show-current']) === 'wip-branch' && status() === dirtyBefore && git(['stash', 'list']).split('\n').filter(Boolean).length === stashesBefore,
+  `${git(['branch', '--show-current'])} | ${status()} | stashes=${git(['stash', 'list']).split('\n').filter(Boolean).length}`,
+);
+// restore what this step parked so the run stays re-entrant
+git(['checkout', '-q', 'main']);
+rmSync(join(R, GUARD_FILE), { force: true });
+git(['stash', 'pop', '-q']);
+log(await tool('Refresh'));
+await settle();
 
 await shot('final.png');
 

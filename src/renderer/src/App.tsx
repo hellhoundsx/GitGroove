@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react';
-import type { Commit, GitRef, PullMode, Remote, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
+import type { CheckoutOptions, Commit, GitRef, PullMode, Remote, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
@@ -177,14 +177,46 @@ export function App(): JSX.Element {
 
   // ---- ref / commit / stash operations ------------------------------------------------
 
-  const checkoutRef = useCallback(
-    (r: GitRef) => {
-      if (r.isHead) return;
-      if (r.kind === 'tag') return run(`Checking out ${r.name}`, () => window.api.checkout(repo!, r.name, { detach: true }));
-      if (r.kind === 'remote') return run(`Checking out ${r.name}`, () => window.api.checkout(repo!, r.name, { track: true }));
-      return run(`Checking out ${r.name}`, () => window.api.checkout(repo!, r.name));
+  // Every checkout the UI can trigger goes through here: with a dirty working tree git either
+  // carries the changes over or refuses, so ask first and offer to stash them out of the way.
+  const runCheckout = useCallback(
+    async (name: string, doCheckout: () => Promise<void>): Promise<void> => {
+      if (snapshot?.status.entries.length) {
+        const r = await ui.prompt({
+          title: 'Uncommitted changes',
+          message: `You have uncommitted changes. Check out ${name} anyway?`,
+          input: false,
+          okLabel: 'Check out anyway',
+          secondary: { label: 'Stash and check out' },
+        });
+        if (!r) return;
+        if (r.choice === 'secondary') {
+          await run(`Stashing and checking out ${name}`, async () => {
+            await window.api.stashSave(repo!, { includeUntracked: true, message: `Before checking out ${name}` });
+            try {
+              await doCheckout();
+            } catch (e) {
+              // restore the changes on the branch we never left, then report why
+              await window.api.stashPop(repo!, 0).catch(() => undefined);
+              throw e;
+            }
+            await window.api.stashPop(repo!, 0);
+          });
+          return;
+        }
+      }
+      await run(`Checking out ${name}`, doCheckout);
     },
-    [repo, run],
+    [repo, run, snapshot, ui],
+  );
+
+  const checkoutRef = useCallback(
+    (r: GitRef): Promise<void> => {
+      if (r.isHead) return Promise.resolve();
+      const opts: CheckoutOptions = r.kind === 'tag' ? { detach: true } : r.kind === 'remote' ? { track: true } : {};
+      return runCheckout(r.name, () => window.api.checkout(repo!, r.name, opts));
+    },
+    [repo, runCheckout],
   );
 
   const createBranchAt = useCallback(
@@ -283,7 +315,7 @@ export function App(): JSX.Element {
         },
       });
       return [
-        { label: 'Checkout this commit (detached)', onClick: () => run(`Checking out ${short}`, () => window.api.checkout(repo!, c.sha, { detach: true })) },
+        { label: 'Checkout this commit (detached)', onClick: () => runCheckout(short, () => window.api.checkout(repo!, c.sha, { detach: true })) },
         { separator: true },
         { label: 'Create branch here…', onClick: () => createBranchAt(c.sha, `commit ${short}`) },
         { label: 'Create tag here…', onClick: () => createTagAt(c.sha) },
@@ -299,7 +331,7 @@ export function App(): JSX.Element {
         { label: 'Copy commit summary', onClick: () => void navigator.clipboard.writeText(c.summary) },
       ];
     },
-    [createBranchAt, createTagAt, currentBranch, repo, run, ui],
+    [createBranchAt, createTagAt, currentBranch, repo, run, runCheckout, ui],
   );
 
   const stashChanges = useCallback(async () => {

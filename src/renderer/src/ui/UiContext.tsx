@@ -52,7 +52,7 @@ export function UiProvider({ children }: { children: ReactNode }): JSX.Element {
   const confirm = useCallback<Ui['confirm']>(
     async (options) => {
       const r = await prompt({ title: options.title, message: options.message, input: false, okLabel: options.okLabel ?? 'OK', danger: options.danger });
-      return r !== null;
+      return r !== null && r.choice === 'ok'; // a `secondary` button is never a plain confirmation
     },
     [prompt],
   );

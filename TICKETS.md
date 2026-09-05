@@ -107,13 +107,14 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-001 | Initialise the git repository | infra | S | P0 | done |
 | GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | done |
 | GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | done |
-| GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | in-progress |
+| GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | done |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | todo |
 | GC-006 | Resizable ref column | graph | M | P1 | todo |
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | todo |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | todo |
 | GC-009 | Commit search | graph | M | P2 | todo |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
+| GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
@@ -253,7 +254,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-004 Confirm checkout when the working tree is dirty
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** S | **Priority:** P1
 - **Depends on:** GC-003
 - **Why:** Double-clicking a chip or branch row checks out immediately. With local changes git
@@ -266,15 +267,40 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - Behaviour is identical for chips, left-panel rows and the context menu.
 - **Out of scope:** a preference to disable the prompt (that belongs to GC-007).
 - **Acceptance:**
-  - [ ] Clean tree: no prompt, checkout as before.
-  - [ ] Dirty tree: prompt appears; Cancel leaves HEAD and the tree untouched.
-  - [ ] "Stash and check out" ends on the new branch with the changes re-applied.
-  - [ ] An e2e step covers the dirty case.
-- **Files:** `src/renderer/src/App.tsx` (the checkout action), `tools/e2e/run.mjs`.
+  - [x] Clean tree: no prompt, checkout as before.
+  - [x] Dirty tree: prompt appears; Cancel leaves HEAD and the tree untouched.
+  - [x] "Stash and check out" ends on the new branch with the changes re-applied.
+  - [x] An e2e step covers the dirty case.
+- **Files:** `src/renderer/src/App.tsx` (the checkout action), `src/renderer/src/ui/Modal.tsx`,
+  `src/renderer/src/ui/UiContext.tsx`, `tools/e2e/run.mjs`.
 - **Verify:** e2e, plus `git status --short` and `git rev-parse --abbrev-ref HEAD` in the
   scratch repo after each path.
 - **Log:**
   - 2026-09-05 16:02 claimed
+  - 2026-09-05 16:35 done. Every checkout the UI can trigger now goes through one
+    `runCheckout(name, doCheckout)` in `App.tsx`: `checkoutRef` (chips, left-panel rows and the
+    ref context menu, all three of which already funnelled through it) and the commit menu's
+    "Checkout this commit (detached)". With `snapshot.status.entries` empty it is the old
+    behaviour; otherwise it shows the modal, and "Stash and check out" runs
+    `stashSave({ includeUntracked: true })` → checkout → `stashPop(0)` inside a single `run()`,
+    popping the stash back onto the branch we never left if the checkout itself fails.
+    The modal needed a third button, so `PromptOptions` gained an optional `secondary: { label }`
+    rendered between Cancel and OK, and `PromptResult` gained `choice: 'ok' | 'secondary'`;
+    `useUi().confirm` now returns true only for `'ok'`, so a secondary press can never read as a
+    plain confirmation. `.modal-buttons .btn:last-child` is still OK, so the existing e2e
+    `modalOk` helper is unaffected.
+    Verified: `npm run typecheck` clean, `npm test` 22/22, `npm run build` clean.
+    e2e 29/29 assertions passed, run three times end to end (re-entrant). Step 3 now asserts the
+    prompt's title and its "Check out main anyway?" message before taking the "Check out anyway"
+    path; new step 15 parks the tree in a stash to assert a clean checkout raises no modal, then
+    asserts the three buttons, that Cancel leaves `branch --show-current` and `status --short`
+    untouched, and that "Stash and check out" ends on `wip-branch` with the same working tree and
+    the stash count back where it started. The step restores what it parked and the prologue
+    drops a leftover `e2e checkout guard` stash, so the suite stays re-entrant.
+    Screenshot `docs/screenshots/checkout-dirty-confirm.png` looked at: three buttons, primary
+    outline on "Check out anyway", the secondary sharing the Cancel style.
+    Noted for later: with only untracked files dirty the prompt is noise, since git carries them
+    across a checkout — filed as GC-019 rather than deviating from this ticket's scope.
 
 ### GC-005 Pin to Left: any branch can take column 0
 
@@ -560,6 +586,36 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 blocked: needs Ricardo's decision on the undoable set and on whether an
     unpushed-only guard is required, as GitKraken refuses to undo pushed operations.
+
+### GC-019 Only prompt on checkout when the changes are actually at risk
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P2
+- **Depends on:** GC-004
+- **Why:** GC-004 triggers its prompt on `status.entries` being non-empty, as that ticket
+  specified. Untracked files are the common case in a working repository (build output that is
+  not ignored, scratch notes) and git carries them across a checkout untouched, so the prompt
+  fires where nothing is at risk and trains the user to click through it.
+- **Scope:**
+  - Skip the prompt when every entry is untracked (`unstaged === 'untracked'` and
+    `staged === null`); check out directly as if the tree were clean.
+  - Keep prompting for any staged or unstaged change to a tracked file, and for conflicted
+    entries.
+  - When the prompt does appear, say how many files are affected in the message so the count
+    matches what the detail panel shows.
+- **Out of scope:** asking git which specific files would collide with the target commit
+  (`git checkout --dry-run` does not exist; `diff --name-only` against the target would be a
+  bigger change and belongs to its own ticket if it is ever wanted).
+- **Acceptance:**
+  - [ ] An untracked-only tree checks out with no prompt and the file survives the checkout.
+  - [ ] A tracked modification still prompts.
+  - [ ] The e2e step 15 clean-tree assertion is extended with the untracked-only case.
+- **Files:** `src/renderer/src/App.tsx` (`runCheckout`), `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e`, plus `git status --short` before and after each path.
+- **Log:**
+  - 2026-09-05 proposed by GC-004 (this ticket): implementing the guard exactly as GC-004
+    specified made an untracked-only tree prompt, which the e2e step 15 dirty case relies on and
+    which is measurably noise in real use.
 
 ---
 

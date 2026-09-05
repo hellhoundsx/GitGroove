@@ -171,14 +171,20 @@ Staging actions are exposed to the DetailPanel as `StagingActions`; menus are bu
 `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`, `remoteMenuItems`.
 
 Keyboard: ArrowUp/Down move the selection across WIP + commits, Escape closes the file view.
-Double-clicking a branch chip or a left-panel branch row checks it out immediately (matches
-GitKraken; a confirmation for dirty trees was discussed but not added).
+Double-clicking a branch chip or a left-panel branch row checks it out (matches GitKraken).
+Every checkout the UI can trigger — chips, left-panel rows, the ref menu, the commit menu's
+detached checkout — goes through `runCheckout(name, doCheckout)`, which with a non-empty
+`status.entries` asks first and offers "Stash and check out" (stash push `-u`, checkout, stash
+pop, all inside one `run()`; the stash is popped back if the checkout itself fails).
 
 ### UI layer (`src/renderer/src/ui`)
 
 `UiProvider` gives `useUi()` with `openMenu(event, items)` (DOM context menu, viewport-clamped,
 closes on outside click / Escape / wheel / resize), `prompt(options)` (modal with optional text
-input and checkbox, resolves `{ value, checked }` or null) and `confirm(options)`. `MenuItem`
+input and checkbox, resolves `{ value, checked, choice }` or null) and `confirm(options)`.
+`PromptOptions.secondary` adds a third button between Cancel and OK which resolves with
+`choice: 'secondary'` (GC-004's "Stash and check out"); `confirm` returns true only for `'ok'`,
+and OK stays `.modal-buttons .btn:last-child` so the e2e helpers keep working. `MenuItem`
 supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`. Every confirmation in the
 renderer goes through `useUi().confirm` (GC-003); the native `confirm()` is not used anywhere.
 
@@ -246,11 +252,13 @@ kills Electron, launches the built app with the DevTools port, loads the repo th
 and menus, stash and pop, a real merge conflict with banner + message + abort, cherry-pick (clean
 and already-applied: git leaves it in progress and the message must stay visible), push, fetch
 (`Fetch all` lives in the Pull caret popover), pull after a commit from a second clone, tag create
-and delete, WIP menu. It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps;
-a fixed sleep caused one flake, and a per-file delete through the confirm modal. All 24 assertions
-passed on the last run. Screenshots land in
-`<root>/shots/`. The run is re-entrant (prologue aborts in-progress operations and removes the
-refs it creates).
+and delete, WIP menu, a per-file delete through the confirm modal, and the dirty-checkout guard
+(clean tree raises no prompt; Cancel changes nothing; "Stash and check out" lands on the branch
+with the tree re-applied). It waits for the status-bar spinner (`waitIdle`) rather than fixed
+sleeps; a fixed sleep caused one flake. All 29 assertions passed on the last run. Screenshots
+land in `<root>/shots/`. The run is re-entrant (prologue aborts in-progress operations, removes
+the refs it creates, and drops the `e2e checkout guard` stash a run interrupted in step 15 would
+leave behind).
 
 ### Unit tests
 
@@ -292,7 +300,8 @@ branch create/checkout/rename/delete; merge, rebase, cherry-pick, revert, reset;
 with upstream setup; stash save/apply/pop/drop; tags; remotes listing; context menus everywhere;
 in-progress operation banner with abort; conflicted files group; icon set; Open Sans; palette
 calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite; vitest unit
-tests for `parseDiff.ts` and `lanes.ts` (GC-002); every confirmation on the styled modal (GC-003).
+tests for `parseDiff.ts` and `lanes.ts` (GC-002); every confirmation on the styled modal (GC-003);
+the dirty-tree checkout guard with "Stash and check out" (GC-004).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance
