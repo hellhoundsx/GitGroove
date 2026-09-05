@@ -141,7 +141,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | done |
-| GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | in-progress |
+| GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | done |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
@@ -162,6 +162,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | todo |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | todo |
+| GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | todo |
 | GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
@@ -1596,7 +1597,7 @@ decision is missing.
 
 ### GC-042 shortcuts.test.ts is stored as binary because of a raw NUL byte
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** GC-010's `src/renderer/src/shortcuts.test.ts` contains a literal U+0000 byte inside a
@@ -1613,16 +1614,26 @@ decision is missing.
     show no `i/-text` entry.
 - **Out of scope:** any change to the bindings, the matchers or the overlay.
 - **Acceptance:**
-  - [ ] `git ls-files --eol src/renderer/src/shortcuts.test.ts` reports `i/lf w/lf`.
-  - [ ] `git show HEAD -- src/renderer/src/shortcuts.test.ts` shows a text diff.
-  - [ ] `npm test` still reports 30 passed.
-  - [ ] No other tracked non-PNG file is `i/-text`.
+  - [x] `git ls-files --eol src/renderer/src/shortcuts.test.ts` reports `i/lf w/lf`.
+  - [ ] `git show HEAD -- src/renderer/src/shortcuts.test.ts` shows a text diff. Not tickable
+    on the fixing commit itself: its pre-image blob is still the binary one, so git prints
+    "Binary files differ" for that one transition. Every diff from here on is text, proved by
+    `git diff` on a scratch edit and by `git blame -L 18,19` printing the changed line.
+  - [x] `npm test` still passes: 37 tests in 4 files (the ticket said 30, written before
+    GC-024 added `prefs.test.ts`).
+  - [x] No other tracked non-PNG file is `i/-text`.
 - **Files:** `src/renderer/src/shortcuts.test.ts`.
 - **Verify:** `npm test`, `npm run typecheck`, `git ls-files --eol`, `git show HEAD -- <file>`.
 - **Log:**
   - 2026-09-05 proposed by GR-002: the GC-010 commit could not be reviewed as a diff because git
     stores the test file as binary; the working copy had to be read instead.
   - 2026-09-05 18:45 claimed
+  - 2026-09-05 18:50 done. One byte changed: the literal U+0000 at offset 790 became the
+    six-character escape `\u0000`, so the assertion is identical and the file is text again.
+    `git ls-files --eol` now reports `i/lf w/lf attr/text=auto eol=lf` for it and lists no
+    other tracked non-PNG file as `i/-text`. Verified with `npm run typecheck` (clean),
+    `npm test` (4 files, 37 tests passed) and `npm run build` (clean). No e2e and no
+    screenshot: the change touches neither `git.ts`, `ipc.ts`, actions nor any UI.
 
 ### GC-043 Context menu on file rows in the detail panel
 
@@ -1787,6 +1798,48 @@ decision is missing.
   - 2026-09-05 proposed by GC-024 (this ticket): writing the `prefs.ts` tests needed a React stub
     to reach a hook-only subscriber list, and three tickets have already deferred work for want of
     a DOM environment.
+
+### GC-047 A test that fails on a raw control byte in a source file
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-042
+- **Why:** GC-042 fixed one literal U+0000 that a session had written straight into
+  `shortcuts.test.ts`. Nothing caught it: vitest, `tsc` and the build all read the file happily,
+  so it survived a whole ticket cycle and was only found when GR-002 tried to review the commit
+  as a diff and got "Binary files differ". The same mistake in any future file would be just as
+  invisible, and the cost is that the file drops out of `git diff`, `git blame`, review and
+  `.gitattributes` normalisation. A byte-level check is a few lines and runs in milliseconds.
+- **Scope:**
+  - A vitest test that walks the tracked source trees (`src/` and `tools/`) and the root markdown
+    files (`TICKETS.md`, `CLAUDE.md`, `README.md`) and fails if any file
+    contains a C0 control byte other than TAB (0x09) and LF (0x0A); CR (0x0D) counts as a failure
+    too, because `.gitattributes` pins the working copy to LF.
+  - The failure message names the file and the byte offset, the way GC-042's ticket described the
+    original one, so the fix is obvious from the output alone.
+  - It skips `node_modules/`, `out/`, `dist/` and binary extensions (`.png`, `.woff2`, `.ico`).
+  - Placed at `src/renderer/src/repo-hygiene.test.ts` so the existing `vitest.config.ts` include
+    (`src/**/*.test.ts`) and `tsconfig.web.json` cover it without config changes, even though what
+    it checks is the repository rather than the renderer; say so in a comment at the top.
+- **Out of scope:** a git hook, a lint rule, any CI wiring, checking encodings or trailing
+  whitespace.
+- **Acceptance:**
+  - [ ] `npm test` passes on a clean tree.
+  - [ ] Putting a raw NUL back into any file under `src/` makes it fail, and the message names
+    that file and the offset (mutation-check it, then revert).
+  - [ ] The walk skips `node_modules/` and `out/`, and the whole suite still runs well under a
+    second.
+- **Files:** new `src/renderer/src/repo-hygiene.test.ts`, `CLAUDE.md` (Testing section).
+- **Verify:** `npm test`, `npm run typecheck`, plus the mutation check above.
+- **Log:**
+  - 2026-09-05 proposed by GC-042 (this ticket): the raw NUL byte GC-042 removed passed every
+    existing check and was found only by a human reading a diff; a byte-level test would have
+    caught it the same day.
+  - 2026-09-05 the same mistake happened a third time while GC-042 was being closed: the Node
+    script writing this ticket's own log line into `TICKETS.md` emitted a real U+0000 instead of
+    the escape, and it had to be repaired exactly the way GR-002 repaired two stray NULs in this
+    file earlier the same day. Three occurrences in one day is why the scope covers the root
+    markdown files and not only `src/`.
 
 ## Reviews
 

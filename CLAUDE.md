@@ -434,7 +434,15 @@ dimming non-matches instead of hiding them (GC-009); one table of keyboard short
 stop narrowed to one process tree, so a run no longer kills every Electron on the machine
 (GC-035); the stash prompt's "(optional)" message really being optional, on a per-prompt
 `required` flag (GC-029); Escape closing exactly one layer, decided once in `App.tsx`, for
-the dialogs (GC-034), the context menu (GC-037) and the toolbar's Pull popover (GC-038).
+the dialogs (GC-034), the context menu (GC-037) and the toolbar's Pull popover (GC-038);
+`shortcuts.test.ts` stored as text again, its raw NUL byte replaced by the `\u0000` escape so
+git stops classifying it as binary (GC-042). Write control characters into a source file as an
+escape, never as the byte itself: a literal one makes git treat the whole file as binary, and
+`git diff`, `git blame`, review and the `.gitattributes` LF rule all silently skip it while
+vitest, `tsc` and the build keep passing. The trap catches generators too: a Node script that
+writes the escape by typing it emits the byte instead, so build it as
+`String.fromCharCode(92) + 'u0000'` (that is how GC-042 repaired both the test and two log lines
+this same rule had corrupted in `TICKETS.md` and here).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance
