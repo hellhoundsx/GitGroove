@@ -125,6 +125,13 @@ const searchState = () =>
   ev(
     `(() => { const bar = document.querySelector('.graph-search'); return JSON.stringify({ open: !!bar, value: bar?.querySelector('.search-input')?.value ?? null, count: bar?.querySelector('.search-count')?.textContent ?? null, matches: document.querySelectorAll('.graph-row.match').length, dimmed: document.querySelectorAll('.graph-row.unmatched').length, sha: document.querySelector('.detail-head .sha')?.textContent ?? null }); })()`,
   );
+/** The same, from a known scroll position: the rows are virtualised, so the rendered match and
+ *  dim counts only compare across a remount when the graph is scrolled the same way (GC-030). */
+const searchStateAtTop = async () => {
+  await ev(`(() => { const b = document.querySelector('.graph-body'); if (b) b.scrollTop = 0; return 'top'; })()`);
+  await sleep(200);
+  return searchState();
+};
 /** Which UI layers are up right now (GC-039: Escape must close exactly one of them). */
 const layerState = () =>
   ev(
@@ -132,6 +139,17 @@ const layerState = () =>
   );
 const searchBtn = (title) =>
   ev(`(() => { const b = [...document.querySelectorAll('.graph-search .search-btn')].find(x => (x.title ?? '').startsWith(${q(title)})); if (!b) return 'no search button ' + ${q(title)}; if (b.disabled) return 'DISABLED ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
+
+/** Poll a boolean expression in the renderer until it is true (or the wait runs out). */
+const waitFor = async (expression, what, max = 5000) => {
+  const start = Date.now();
+  while (Date.now() - start < max) {
+    if ((await ev(expression)) === true) return true;
+    await sleep(100);
+  }
+  check(`waited for ${what}`, false, `still false after ${max}ms: ${expression}`);
+  return false;
+};
 
 /** Wait until the app reports no running operation (status bar spinner gone), then a short settle. */
 const waitIdle = async (max = 15000) => {
@@ -451,6 +469,23 @@ log(await searchBtn('Next match'));
 await sleep(300);
 const wrapped = JSON.parse(await searchState());
 check('next continues from the clicked row and wraps', wrapped.count === '1 of 3', `${clicked.count} -> ${wrapped.count}`);
+
+// GC-030: the query lives in App, so a file view opening over the graph must not lose it
+const beforeDiff = JSON.parse(await searchStateAtTop());
+await waitFor(`!!document.querySelector('.detail-panel .file-list .file-row')`, 'the selected commit to list its files');
+log(await ev(`(() => { const r = document.querySelector('.detail-panel .file-list .file-row'); if (!r) return 'no file row on the selected commit'; r.click(); return 'opened ' + r.title; })()`));
+await waitFor(`!!document.querySelector('.file-view')`, 'the diff to replace the graph');
+const inDiff = JSON.parse(await searchState());
+check('opening a diff hides the graph and its search bar', inDiff.open === false, JSON.stringify(inDiff));
+await escape();
+await sleep(400);
+// rows are virtualised, so compare the rendered match/dim counts from the same scroll position
+const back = JSON.parse(await searchStateAtTop());
+check(
+  'closing the diff restores the query, the readout and the dimming',
+  back.open === true && back.value === 'feature' && back.count === beforeDiff.count && back.sha === beforeDiff.sha && back.matches === beforeDiff.matches && back.dimmed === beforeDiff.dimmed,
+  `before=${JSON.stringify(beforeDiff)} after=${JSON.stringify(back)}`,
+);
 
 await escape();
 await sleep(300);

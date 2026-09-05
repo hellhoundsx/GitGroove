@@ -49,10 +49,13 @@ export function App(): JSX.Element {
   const [pullOpen, setPullOpen] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
   // The search bar over the graph. `searchTick` changes on every request to open it so that
-  // Ctrl+F refocuses the field even when the bar is already showing.
-  const [search, setSearch] = useState({ open: false, tick: 0 });
-  const openSearch = useCallback(() => setSearch((s) => ({ open: true, tick: s.tick + 1 })), []);
-  const closeSearch = useCallback(() => setSearch((s) => ({ ...s, open: false })), []);
+  // Ctrl+F refocuses the field even when the bar is already showing. The query lives here rather
+  // than in `CommitGraph` because that component unmounts whenever a file view opens (GC-030);
+  // only closing the bar clears it.
+  const [search, setSearch] = useState({ open: false, tick: 0, query: '' });
+  const openSearch = useCallback(() => setSearch((s) => ({ ...s, open: true, tick: s.tick + 1 })), []);
+  const closeSearch = useCallback(() => setSearch((s) => ({ ...s, open: false, query: '' })), []);
+  const setSearchQuery = useCallback((query: string) => setSearch((s) => ({ ...s, query })), []);
 
   const load = useCallback(async (path: string) => {
     try {
@@ -495,8 +498,10 @@ export function App(): JSX.Element {
         return;
       }
       if (matches('escape', e)) {
-        if (search.open) closeSearch();
-        else setFileView(null);
+        // With a diff open the search bar is hidden behind it, so Escape closes the diff first
+        // and the query survives to the graph underneath (GC-030).
+        if (fileView) setFileView(null);
+        else if (search.open) closeSearch();
         return;
       }
       if (!snapshot) return;
@@ -511,7 +516,7 @@ export function App(): JSX.Element {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [snapshot, selected, search.open, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, ui]);
+  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, ui]);
 
   return (
     <div className="app">
@@ -540,11 +545,13 @@ export function App(): JSX.Element {
         onRefresh={() => void run('Refreshing', async () => undefined)}
         searchOpen={search.open}
         onSearch={() => {
-          if (search.open) closeSearch();
-          else {
+          // While a diff is open the bar is hidden behind it: bring the graph back and refocus
+          // the field rather than closing a search the user cannot see (GC-030).
+          if (fileView) {
             setFileView(null);
             openSearch();
-          }
+          } else if (search.open) closeSearch();
+          else openSearch();
         }}
       />
       <div className="main">
@@ -587,6 +594,8 @@ export function App(): JSX.Element {
                 selected={selected}
                 searchOpen={search.open}
                 searchTick={search.tick}
+                searchQuery={search.query}
+                onSearchQuery={setSearchQuery}
                 onCloseSearch={closeSearch}
                 onSelect={select}
                 onCommitMenu={(e, c) => onMenu(e, commitMenuItems(c))}

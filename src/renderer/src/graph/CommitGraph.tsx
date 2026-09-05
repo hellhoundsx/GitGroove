@@ -19,6 +19,9 @@ interface Props {
   searchOpen: boolean;
   /** Bumped every time Ctrl+F or the toolbar asks for the search bar, so it refocuses. */
   searchTick: number;
+  /** Owned by `App` so it survives this component unmounting behind a file view (GC-030). */
+  searchQuery: string;
+  onSearchQuery(query: string): void;
   onCloseSearch(): void;
   onSelect(sha: string): void;
   onCommitMenu(e: MouseEvent, commit: Commit): void;
@@ -68,7 +71,7 @@ const commitMatches = (c: Commit, q: string): boolean =>
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate }: Props): JSX.Element {
   // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
   const layout = useMemo(() => layoutGraph(commits, pinnedSha ?? headSha), [commits, headSha, pinnedSha]);
   const refsBySha = useMemo(() => {
@@ -140,9 +143,8 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   };
 
   // ---- search -------------------------------------------------------------
-  const [query, setQuery] = useState('');
   const searchInput = useRef<HTMLInputElement>(null);
-  const needle = searchOpen ? query.trim().toLowerCase() : '';
+  const needle = searchOpen ? searchQuery.trim().toLowerCase() : '';
 
   const matches = useMemo(() => (needle === '' ? [] : commits.filter((c) => commitMatches(c, needle)).map((c) => c.sha)), [commits, needle]);
   const matchSet = useMemo(() => new Set(matches), [matches]);
@@ -160,6 +162,8 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   );
 
   // A new query jumps to its first match; the scroll effect below then brings the row into view.
+  // Seeded with the needle of the first render, so coming back from a file view with the same
+  // query leaves the selection where the user left it (GC-030).
   const lastNeedle = useRef(needle);
   useEffect(() => {
     if (lastNeedle.current === needle) return;
@@ -167,12 +171,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     if (matches.length > 0) onSelect(matches[0]!);
   }, [needle, matches, onSelect]);
 
-  // Opening (or re-triggering Ctrl+F while already open) focuses and selects the field.
+  // Opening (or re-triggering Ctrl+F while already open) focuses and selects the field. Clearing
+  // the query on close is `App`'s job, since the query outlives this component.
   useEffect(() => {
-    if (!searchOpen) {
-      setQuery('');
-      return;
-    }
+    if (!searchOpen) return;
     searchInput.current?.focus();
     searchInput.current?.select();
   }, [searchOpen, searchTick]);
@@ -354,8 +356,8 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
             className="search-input"
             placeholder="Find a commit by message, author or sha"
             spellCheck={false}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={searchQuery}
+            onChange={(e) => onSearchQuery(e.target.value)}
             onKeyDown={onSearchKey}
           />
           <span className="search-count">{needle === '' ? `${commits.length} commits` : matches.length === 0 ? 'no matches' : at >= 0 ? `${at + 1} of ${matches.length}` : `${matches.length} matches`}</span>

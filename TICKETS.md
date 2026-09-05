@@ -143,7 +143,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | done |
 | GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | done |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | done |
-| GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | in-progress |
+| GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | done |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
@@ -153,6 +153,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | todo |
+| GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -168,6 +169,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
+| GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1287,7 +1289,7 @@ decision is missing.
 
 ### GC-030 Commit search loses its query and results when a diff opens
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-009
 - **Why:** The search bar's `open` flag lives in `App.tsx`, but the query, the match list and the
@@ -1307,9 +1309,9 @@ decision is missing.
 - **Out of scope:** searching while the diff stays open, searching file paths (GC-009's out of
   scope stands), the author chip (GC-027).
 - **Acceptance:**
-  - [ ] Search "feature", click a file of the selected commit, close the diff: the bar shows
+  - [x] Search "feature", click a file of the selected commit, close the diff: the bar shows
     "feature", the same "1 of 3" readout and the same dimmed rows.
-  - [ ] e2e step 16 gains that round trip, asserting `searchState()` before and after.
+  - [x] e2e step 16 gains that round trip, asserting `searchState()` before and after.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/graph/CommitGraph.tsx`,
   `tools/e2e/run.mjs`.
 - **Verify:** `npm run typecheck && npm run build && npm run e2e`.
@@ -1317,6 +1319,20 @@ decision is missing.
   - 2026-09-05 proposed by GR-001: the query is component state in a component that unmounts
     behind the diff view; noticed while reading GC-009's `CommitGraph.tsx`.
   - 2026-09-05 19:06 claimed
+  - 2026-09-05 19:35 done. `query` moved into `App`'s `search` state next to `open` and `tick`,
+    passed down as `searchQuery` + `onSearchQuery`; `closeSearch` is now the only thing that clears
+    it, so `CommitGraph` no longer clears on unmount. `lastNeedle` is still seeded from the first
+    render's needle, so a remount with an unchanged query re-selects nothing. The toolbar button
+    with a diff open closes the diff and reopens/refocuses the bar instead of closing the search,
+    and Escape with a diff open now closes the diff first (the bar is hidden behind it) rather
+    than a search the user cannot see. e2e step 16 gained the round trip: open the first file of
+    the selected commit, assert the bar is gone with the graph, Escape, assert value, readout,
+    selection and the rendered match/dim counts are identical — compared from a fixed scroll
+    position through a new `searchStateAtTop()` helper, because the rows are virtualised. Verified:
+    `npm run typecheck`, `npm run build`, `npm test` (37 pass), `npm run e2e` twice (63 assertions,
+    all pass, still re-entrant), and a stealth launch driven over CDP for
+    `docs/screenshots/search-survives-diff.png`, which shows "feature", "1 of 3", three matched
+    rows and the rest dimmed after the diff was closed from the toolbar button.
 
 ### GC-031 Push to a chosen remote when the repository has several
 
@@ -1820,6 +1836,35 @@ decision is missing.
     to reach a hook-only subscriber list, and three tickets have already deferred work for want of
     a DOM environment.
 
+### GC-048 Long toolbar labels overflow their 52px button
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `.tool-btn` is a fixed `width: 52px` with no rule on the label, so a label wider than
+  the button simply spills out of it. Measured over CDP on a 1400px window: "Preferences" is 56px
+  in a 52px button and starts 2px to the left of it, and its left edge sits 1px after the right
+  edge of the "Shortcuts" label, so the two read as one word. The icons stay on their 52px grid
+  while the text does not, so the label is no longer centred under its own icon, and a narrower
+  window makes the overlap worse. GitKraken's toolbar buttons size to their label instead.
+- **Scope:**
+  - Let `.tool-btn` size to its content (a minimum width plus horizontal padding) instead of a
+    fixed 52px, so every label stays inside its own button and its icon stays centred over it.
+  - Keep the icon-above-label layout, the icon size and the active/disabled styling unchanged.
+- **Out of scope:** hiding the labels at narrow widths, a toolbar overflow menu, changing which
+  buttons the toolbar shows.
+- **Acceptance:**
+  - [ ] For every `.tool-btn`, the label's rect is inside the button's rect, measured over CDP.
+  - [ ] Neighbouring labels have a visible gap at 1400px and at 1000px.
+  - [ ] A screenshot of the toolbar shows each icon centred over its own label.
+- **Files:** `src/renderer/src/styles/app.css`.
+- **Verify:** build, launch through `node tools/launch-app.mjs`, measure every `.tool-btn` and its
+  label rect over CDP at two window widths, and look at a screenshot of the toolbar.
+- **Log:**
+  - 2026-09-05 proposed by GC-030 (this ticket): the screenshot taken to verify the search round
+    trip showed "Shortcuts" and "Preferences" running together; measuring confirmed the labels
+    overflow their fixed-width buttons.
+
 ### GC-047 A test that fails on a raw control byte in a source file
 
 - **Status:** todo
@@ -1861,6 +1906,72 @@ decision is missing.
     the escape, and it had to be repaired exactly the way GR-002 repaired two stray NULs in this
     file earlier the same day. Three occurrences in one day is why the scope covers the root
     markdown files and not only `src/`.
+
+### GC-049 Branch context menu is missing its tip-commit actions, mainly Reset
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P2
+- **Depends on:** none
+- **Why:** Ricardo right-clicked a local branch row in GitKraken's left panel (not the currently
+  checked-out one) and got a menu whose middle group is entirely commit actions for that branch's
+  tip commit: `Reset <checked-out branch> to this commit` with a Soft / Mixed / Hard submenu,
+  Revert commit, Cherry pick commit, Create tag here / annotated tag here, Copy commit sha — this
+  matches what was already recorded in `docs/reference/gitkraken/05-menus-shortcuts.md` (the
+  "Branch chip" and left-panel-branch observations, lines 101-129): GitKraken's branch/chip menu
+  is the branch-specific items (Checkout, Merge, Rebase, Rename, Delete, Pin to Left, ...) with the
+  commit menu for the ref's tip commit merged in underneath. Our `refMenuItems`
+  (`src/renderer/src/App.tsx:298`) only ever builds the branch-specific half; the tip-commit half
+  that `commitMenuItems` (`src/renderer/src/App.tsx:350`) already implements — including the exact
+  `resetItem('soft'|'mixed'|'hard', ...)` submenu Ricardo is missing — is never reused there. So
+  today the only way to reset the checked-out branch to another branch's tip is to find that exact
+  commit row in the graph and right-click it, which does not work when the branch's tip is not
+  the row you clicked (e.g. after it has diverged, or its tip commit is scrolled out of the visible
+  graph). The underlying git action, IPC channel and confirm-modal wiring already exist; this is a
+  menu-composition gap, not new plumbing.
+- **Scope:**
+  - Extract the tip-commit action group out of `commitMenuItems` into a small helper (e.g.
+    `tipCommitMenuItems(sha, shortLabel)`) that both `commitMenuItems` and `refMenuItems` call, so
+    the wording and behaviour stay identical instead of being duplicated. It covers: Cherry pick
+    commit, Revert commit, a separator, the Reset `<currentBranch>` to `<short sha>` submenu
+    (Soft / Mixed / Hard, same hints and the same hard-reset confirm as today), a separator,
+    Create tag here…, Copy commit sha — all keyed off the ref's `sha` field (`GitRef.sha`,
+    `src/shared/types.ts:23`), not off a `Commit` object, since the ref menu is not given one.
+  - In `refMenuItems`, for `r.kind === 'head'` (local branches; the currently checked-out one
+    included, matching the study's screenshot of the menu on the checked-out chip), insert this
+    group after the existing Checkout / Merge / Rebase block and before the Pin to Left /
+    Rename / Push block, with a separator on each side.
+  - Cherry pick and Revert stay disabled with no `currentBranch` (same guard `commitMenuItems`
+    already uses); Reset stays available regardless (it targets `currentBranch`, which can be
+    detached HEAD too — `target` already falls back to `'HEAD'`).
+- **Out of scope:** remote-tracking branches and tags getting the same group (tags already have
+  their own, narrower menu; remote branches would need their own decision, not bundled in here),
+  Fast-forward as a distinct action, "Start a pull request", "Explain Branch Changes" and other AI
+  features (GitClient has none and this ticket does not add any), "Create patch from commit" /
+  "Share commit as Cloud Patch", "Create worktree from", Hide / Solo in graph, and the
+  remote-aware push variants already covered by GC-031. Do not copy GitKraken's exact wording,
+  icons or ordering beyond what the existing `commitMenuItems` already uses — CLAUDE.md's "study,
+  never copy" rule applies to this menu too.
+- **Acceptance:**
+  - [ ] Right-clicking a local branch that is *not* checked out shows Reset `<current branch>` to
+        `<its tip's short sha>` with a working Soft / Mixed / Hard submenu; picking Hard asks for
+        confirmation the same way the commit-row Reset does.
+  - [ ] `git status --short` / `git log` confirm the reset actually moved the checked-out branch's
+        ref and left the working tree in the mode-appropriate state (soft: index unchanged, staged
+        stays staged; mixed: index reset, working tree unchanged; hard: matches the target commit).
+  - [ ] Cherry pick, Revert, Create tag here… and Copy commit sha on a branch row behave the same
+        as their existing commit-row equivalents (verified against `git log` / clipboard).
+  - [ ] Right-clicking the currently checked-out branch's own row/chip also shows the group
+        (matches the study's screenshot of the checked-out `main` chip).
+  - [ ] No behavioural change to the commit-row menu (still built from the same shared helper).
+  - [ ] e2e step: right-click a non-checked-out local branch, Reset (mixed) to its tip via the
+        menu, assert the checked-out branch's sha with `git rev-parse`.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, e2e, a screenshot of the branch-row menu next to the study's
+  `06-context-menu-branch.png` / `20-context-menu-leftpanel-branch.png` for a side-by-side look.
+- **Log:**
+  - 2026-09-05 requested by Ricardo with a screenshot of GitKraken's left-panel branch menu;
+    checked against the existing `docs/reference/gitkraken/05-menus-shortcuts.md` notes and the
+    current `refMenuItems` / `commitMenuItems` split in `App.tsx` before writing this ticket.
 
 ## Reviews
 

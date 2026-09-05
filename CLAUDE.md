@@ -203,7 +203,8 @@ search (from anywhere, including the commit form) and `?` opens the shortcuts ov
 computes `layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen`, and while a layer is up
 its window handler closes the topmost one (the overlay also on `?`) and swallows every other
 window-level shortcut, so the graph does not move and the diff does not close behind it; with no
-layer, Escape closes the search bar, then the file view. That handler runs in the **capture
+layer, Escape closes the file view first, then the search bar — the bar sits behind the diff while
+one is open, so closing the diff is what the user is asking for (GC-030). That handler runs in the **capture
 phase** and calls `stopPropagation()` on the key it consumes, so no React handler underneath sees
 it — the find bar's input closes itself on Escape otherwise, and one Escape would again close two
 layers. Every other key still reaches the focused element, which is what keeps a modal's input
@@ -215,8 +216,12 @@ only its outside-click handler because its open flag was lifted into `App` as `p
 passed back down as `pullOpen` + `onPullOpenChange` (GC-038). No `window` keydown listener
 exists anywhere in the renderer outside `App.tsx`; a new layer joins `layerOpen` rather than
 growing a listener of its own. The search
-bar's open flag lives in `App.tsx` as `{ open, tick }`: `tick` changes on every request to open it so a
-second Ctrl+F refocuses a bar that is already showing. **No handler compares a key name of its
+bar's state lives in `App.tsx` as `{ open, tick, query }`: `tick` changes on every request to open it so a
+second Ctrl+F refocuses a bar that is already showing, and `query` is up there rather than in
+`CommitGraph` because that component unmounts whenever a file view opens, which used to throw the
+query and the dimming away (GC-030). Only `closeSearch` clears it, so a diff can open over the
+graph and the search comes back untouched; the toolbar's Search button with a diff open closes the
+diff and refocuses the bar instead of closing a search the user cannot see. **No handler compares a key name of its
 own** (GC-010): every one asks `matches(id, event)` from `src/renderer/src/shortcuts.ts`.
 Double-clicking a branch chip or a left-panel branch row checks it out (matches GitKraken).
 Every checkout the UI can trigger — chips, left-panel rows, the ref menu, the commit menu's
@@ -357,14 +362,16 @@ and already-applied: git leaves it in progress and the message must stay visible
 and delete, WIP menu, a per-file delete through the confirm modal, and the dirty-checkout guard
 (clean tree raises no prompt; Cancel changes nothing; "Stash and check out" lands on the branch
 with the tree re-applied), commit search (message, sha prefix, stepping through
-matches, the position following a clicked row, Escape), and remote management (add a second remote
+matches, the position following a clicked row, a diff opened over the graph and closed again with
+the query, readout, selection and dimming intact — compared from a fixed scroll position through
+`searchStateAtTop()`, because the rows are virtualised (GC-030) — and Escape), and remote management (add a second remote
 pointing at the bare origin and fetch it, rename it, edit its URL, remove it, origin untouched),
 and the layering guard (GC-039): with the find bar open and focus in its input, a commit context
 menu, a ref-menu prompt and the toolbar Pull popover are each opened over it and closed with one
 real Escape, the find bar keeping its query every time, and only the Escape after that closes the
 find bar itself. Reverting GC-037 or GC-038 locally fails that step.
 It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused
-one flake. All 60 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+one flake. All 62 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates, and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind, and pops back the
 unnamed stash step 5 parks the tree in for a moment). Step 1 also removes
@@ -432,7 +439,8 @@ branch the leftmost column, remembered per repository (GC-005); the resizable re
 width-aware chip fold (GC-006); the Preferences dialog behind one `gitclient.prefs` key, with
 avatars, default pull mode, the dirty-checkout confirmation and the 72-character counter all
 switchable (GC-007); commit search over the loaded commits from the toolbar button or Ctrl+F,
-dimming non-matches instead of hiding them (GC-009); one table of keyboard shortcuts behind
+dimming non-matches instead of hiding them (GC-009); the commit search surviving a diff opening over the graph, its query owned by `App` (GC-030);
+one table of keyboard shortcuts behind
 `matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
 `tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); every
 stop narrowed to one process tree, so a run no longer kills every Electron on the machine
