@@ -110,7 +110,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | done |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | done |
 | GC-006 | Resizable ref column | graph | M | P1 | done |
-| GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | todo |
+| GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | in-progress |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | todo |
 | GC-009 | Commit search | graph | M | P2 | todo |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
@@ -401,7 +401,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-007 Preferences page with Gravatar toggle
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-003
 - **Why:** Gravatar is the only network call from the renderer and must be switchable off.
@@ -423,6 +423,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   `app.css`.
 - **Verify:** build, DevTools network check via CDP, screenshot.
 - **Log:**
+  - 2026-09-05 16:32 claimed
 
 ### GC-008 Remote add, edit and remove
 
