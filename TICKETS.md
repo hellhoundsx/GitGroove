@@ -228,9 +228,11 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | todo |
+| GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | in-progress |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
+| GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -259,7 +261,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
 | GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
 | GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | todo |
-| GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P3 | todo |
+| GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1320,6 +1322,8 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 proposed by GC-020 (this ticket): the acceptance case could not be reproduced against
     the fixture without adding two branches by hand, which showed the fold has no coverage.
+  - 2026-09-05 23:14 GR-006: GC-023 was the second ticket to build the four-ref commit by hand (its 300px and
+    400px measurements), and GC-071 now waits on this one; still P3 because nothing else is blocked.
 
 
 ## Adding a ticket
@@ -3194,6 +3198,15 @@ decision is missing.
 - **Log:**
   - 2026-09-05 22:23 proposed by GR-005: reading GC-011's renderer half found the background
     reload writing its result without checking that nothing newer had landed since it started.
+  - 2026-09-05 23:14 GR-006: seen on the fixture for the first time, in the review's own e2e run at ee91d54
+    (`%TEMP%/gitclient-review/e2e-run1.log`, step 5). The suite had stashed through the toolbar, popped
+    the stash with `git stash pop --index` from outside, clicked Refresh and waited for the spinner;
+    the app then reported "No changes to stash" on the Stash button while `git status --short` listed
+    the popped tree, so the named-stash half of the step never opened its dialog (2 of 71 assertions
+    failed). The only way a Refresh ends with a clean status over a dirty tree is a load that started
+    earlier — the watcher's reload after the stash push — resolving after it. GR-005's run and the
+    second run of this review passed, so it is a race, not a constant; the Why above stands and the
+    "seven-commit scratch repository never sees it" clause no longer does.
 
 ### GC-069 The body preview takes width from the summary in a narrow message column
 
@@ -3272,7 +3285,7 @@ decision is missing.
 
 - **Status:** todo
 - **Area:** graph | **Size:** S | **Priority:** P3
-- **Depends on:** GC-023
+- **Depends on:** GC-023, GC-055
 - **Why:** GC-023's first acceptance criterion ("at 100px with four refs on one commit, the first
   chip keeps its name legible") turned out to be unsatisfiable, and not because of the shrink rule
   it was written against. Measured over CDP on a commit carrying four refs: at a 100px ref column
@@ -3303,11 +3316,14 @@ decision is missing.
   - 2026-09-05 22:45 proposed by GC-023 (this ticket): verifying GC-023 at 100px showed the primary
     chip truncated to 17/29px identically before and after the change, so the criterion belongs to
     a different cause than the one GC-023 fixed.
+  - 2026-09-05 23:14 GR-006: now depends on GC-055 as well. Its Verify needs a commit carrying four refs, which
+    the fixture lacks; GC-020 and GC-023 each built theirs by hand, and a third ticket doing the same
+    is the point at which the fixture should carry it.
 
 ### GC-072 Show in folder is offered on a file the commit deleted, and always fails
 
 - **Status:** todo
-- **Area:** ui | **Size:** S | **Priority:** P3
+- **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-043
 - **Why:** GC-043 disables "Open file" on a commit file whose `kind` is `deleted`, but leaves
   "Show in folder" enabled beside it, and `repoFile()` in `ipc.ts` rejects any path that is not on
@@ -3326,16 +3342,140 @@ decision is missing.
     e2e suite at all: it has none today, and this state had to be created by hand
     (`git rm` + commit on a throwaway branch) to be seen.
   - An e2e assertion on the resulting menu.
+  - The same guard for a staging-view row whose file is not in the working tree: a staged or
+    unstaged deletion (`kind === 'deleted'`). On the build at ee91d54 the fixture's own staged
+    deletion `main.txt` gives `Unstage file | Open file | Show in folder | Copy file path`, and Open
+    file puts "File not found in the working tree: main.txt" in the status bar
+    (`%TEMP%/gitclient-review/GR-006/05-wip-deleted-row-menu.png`, `05b-after-open-file.png`). It is
+    the WIP half of the same hole and, unlike the commit half, needs no new fixture commit.
 - **Out of scope:** the rest of the file-row menu (GC-043), `repoFile()`'s path rules.
 - **Acceptance:**
   - [ ] On a commit that deletes a file, the row's menu offers no item that fails when clicked.
   - [ ] The scratch repository carries such a commit and an e2e step asserts the menu on it.
+  - [ ] On the fixture's staged deletion `main.txt`, and on an unstaged deletion made with `rm`, the
+        row's menu offers no item that fails when clicked; the e2e assertion covers the `main.txt`
+        row too.
 - **Files:** `src/renderer/src/App.tsx`, `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
 - **Verify:** typecheck, build, `npm run e2e`, and the menu read over CDP on the deleting commit.
 - **Log:**
   - 2026-09-05 22:45 proposed by GC-043 (this ticket): verifying GC-043's "Open file is disabled on
     a deleted commit file" needed a commit the fixture does not have, and building one by hand
     showed the neighbouring item is offered but always errors.
+  - 2026-09-05 23:14 GR-006: extended to the staging rows (`main.txt`, the fixture's staged deletion, offers
+    Open file and Show in folder and Open file fails with "File not found in the working tree") and
+    raised from P3 to P2: it is a defect in GC-043 as shipped and reachable from the fixture as it
+    stands. Board row moved up behind GC-069.
+
+
+### GC-073 Hide and Solo branches in the graph from the left panel
+
+- **Status:** todo
+- **Area:** graph | **Size:** M | **Priority:** P2
+- **Depends on:** none
+- **Why:** The study records hide/solo toggles on hover on every left-panel branch row and "Hide /
+  Show / Solo in graph" in the branch menu (`04-panels.md`, "Left panel (refs)";
+  `05-menus-shortcuts.md`, "Branch chip", and the left-panel `main` row whose third-last group is
+  `Hide, Pin to Left, Solo`), and defines the header's "Viewing N" as the number of refs currently
+  shown. Ours shows every ref always: `getLog` runs `--all`, `LeftPanel` counts
+  `local.length + remoteCount + tags.length`, and the branch menu offers Pin to Left with nothing
+  beside it (`%TEMP%/gitclient-review/GR-006/07-left-branch-menu.png`). On catena-feed read-only
+  (GR-005's `07-catena-feed-columns.png`) that is 881 commits from every branch and tag interleaved
+  in date order, with the lanes of long-dead branches holding columns the user cannot reclaim.
+  Soloing `master` or hiding a noisy remote is the graph behaviour GitKraken users reach for right
+  after checkout, and it is the one left-panel behaviour in the study with no ticket: GC-049 and
+  GC-051 both name it out of scope.
+- **Scope:**
+  - A per-repository hidden set, `gitclient.hidden.<repoPath>` (a JSON array of ref `fullName`s),
+    stored the way the pin is (`pinKey` in `App.tsx`) and pruned on every load to refs that still
+    exist. The checked-out branch can never be hidden: no toggle on its row, no menu entry.
+  - `getLog(cwd, max, exclude)` adds one `--exclude=<fullName>` per hidden ref ahead of `--all`
+    (git applies `--exclude` to the `--all` that follows it), so hidden-only commits leave the graph
+    and everything reachable from a visible ref stays. `loadRepo(path, maxCommits, exclude)` carries
+    it through the type, the `ipc.ts` validation (`strs`) and the preload entry the usual way.
+    HEAD is part of `--all` and is never excluded, so column 0 keeps the checked-out lineage whatever
+    is hidden.
+  - Left panel: an eye toggle on row hover for local and remote branches (a `.row-action` shaped
+    like the section head's `.section-action`), the row dimmed with an eye-off icon while hidden;
+    "Viewing N" counts only visible refs; a "Show all" action on the Local and Remote section heads
+    while anything under them is hidden.
+  - Branch menu (chip and left row), local and remote branches: "Hide in graph" / "Show in graph"
+    and "Solo in graph", next to Pin to Left. Solo hides every other local and remote branch except
+    the checked-out one; tags are untouched.
+  - The graph omits the chips of hidden refs (`refsBySha`), so a commit still reachable through a
+    visible ref keeps its row without the hidden chip.
+  - Fixture note: hiding `wip-branch` alone removes no row, because `origin/wip-branch` still
+    reaches `89c9b05`. Decide whether hiding a local branch also hides the upstream its chip absorbs
+    (the chip already treats the pair as one ref) and say which in the log.
+- **Out of scope:** hiding tags or stashes, hiding a whole remote in one action, the section context
+  menu beyond the Show all above, the drag handles, GC-051's folders, any change to lane assignment
+  or to the pin.
+- **Acceptance:**
+  - [ ] Scratch repository: hide `wip-branch` and `origin/wip-branch` — the `Work on wip branch`
+        row is gone, `.graph-row` count drops by one, Viewing drops by two, and the commit rows equal
+        `git log --exclude=refs/heads/wip-branch --exclude=refs/remotes/origin/wip-branch --all --oneline | wc -l`;
+        Show all restores every count.
+  - [ ] Solo `feature`: the `main` chip (checked out) and the `feature` chip stay, no
+        `wip-branch` or `origin/wip-branch` chip is rendered anywhere, the `Work on wip branch` row
+        is gone, and Viewing equals the number of left-panel rows that are not dimmed.
+  - [ ] Reload the app: the hidden set survives; `git branch -D` a hidden branch and Refresh: it is
+        pruned from `localStorage` and Viewing is right.
+  - [ ] e2e step: hide `wip-branch` (and its upstream) from the left row's menu, assert the row count
+        and the git count above, Show all, assert restored; the prologue clears `gitclient.hidden.*`
+        so a run that dies mid-step does not hide rows for the next.
+  - [ ] Screenshots of the left panel with a hidden row and of the graph after Solo, looked at next to
+        the study's `08-left-panel-expanded.png` and `02-main-1080.png`.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
+  `src/renderer/src/App.tsx`, `src/renderer/src/components/LeftPanel.tsx`,
+  `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`, `tools/e2e/run.mjs`,
+  `CLAUDE.md` (the localStorage keys, the log command).
+- **Verify:** typecheck, build, `npm run e2e`, the CDP checks and screenshots above, then catena-feed
+  read-only with `master` soloed for the large-graph look (a read-only load; hiding writes only
+  `localStorage`).
+- **Log:**
+  - 2026-09-05 23:14 proposed by GR-006: the what's-next pass over `04-panels.md` and `05-menus-shortcuts.md`
+    against the board — hide/solo is the one left-panel behaviour in the study without a ticket, and
+    the branch menu screenshot from this review shows Pin to Left standing alone.
+
+### GC-074 The commit menu's Reset rows do not fit the menu, whichever side gives way
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-067
+- **Why:** At the 420px cap the middle Reset row of the commit menu is 7px too wide. On the build at
+  ee91d54, measured over CDP with the menu open on `Main-only change`,
+  `Reset main to 6ff1f8a: mixed` renders its `.ctx-label` at 166 of 173px — "Reset main to
+  6ff1f8a: mi…" (`%TEMP%/gitclient-review/GR-006/06-commit-menu.png`) — while its hint "keep changes
+  in the working directory" is whole at 212px; the soft and hard rows fit. GC-067 reverses the flex
+  weights so the label wins, and with its rule injected into the same live page the label is whole
+  and the hint is cut to 205 of 212px instead: the row still does not fit, the cut only moves. The
+  study's Reset is one entry with a three-row submenu (`05-menus-shortcuts.md`: Soft / Mixed / Hard,
+  each with a short hint), so the branch and sha are said once; ours says `Reset main to 6ff1f8a`
+  three times. GC-049 will put the same group into the branch menu, where longer branch names make
+  it worse.
+- **Scope:**
+  - Say the target once: a caption row (`MenuItem.caption`, which GC-067 adds) reading
+    `Reset main to 6ff1f8a`, then three rows labelled `Soft`, `Mixed`, `Hard` (the last still
+    `danger`, still behind the same confirm) carrying the current hints. `resetItem` in `App.tsx`
+    is the one place to change; if GC-049's helper extraction has landed, it moves with it.
+  - Whatever the wording, the acceptance is measured, not eyeballed.
+- **Out of scope:** the menu's 420px cap and its colours, the other menus' hints, GC-049's group in
+  the branch menu (it inherits this), a real submenu.
+- **Acceptance:**
+  - [ ] Over CDP with the commit menu open on `Main-only change`: every `.ctx-label` and
+        `.ctx-hint` reports `scrollWidth <= clientWidth`; the same with
+        `a-very-long-branch-name-for-the-menu` checked out (created, checked out and deleted again in
+        the scratch repository only).
+  - [ ] The three actions still run and Hard still confirms first: Soft from the menu moves
+        `git rev-parse HEAD` to the target and leaves `git status --short`'s staged rows staged; put
+        it back with `git reset --soft <previous sha>`.
+  - [ ] e2e step 18 still passes (the caption row is not clickable and Escape still closes the menu as
+        one layer).
+  - [ ] Screenshot looked at next to the study's `05-context-menu-commit.png`.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs` (only if a measurement step is added).
+- **Verify:** typecheck, build, the CDP measurement above, `npm run e2e`, screenshot.
+- **Log:**
+  - 2026-09-05 23:14 proposed by GR-006: the screenshot pass over the commit menu caught "mi…", and injecting
+    GC-067's rule into the live page showed the row still 7px too wide with the cut moved to the hint.
 
 
 ## Reviews
@@ -3651,3 +3791,65 @@ appends its own section here.
     GC-058); its Testing paragraph's 66 assertions and its Unit tests paragraph's 68 tests both
     match this run. Its Unit tests section documents the renderer-tree placement of the two tools
     tests as a deliberate choice; GC-070 proposes changing that, and the section changes with it.
+
+### GR-006 Backlog review 2026-09-05 23:14
+
+- **Status:** done
+- **Window:** 3e97244..ee91d54
+- **Log:**
+  - 2026-09-05 23:14 shipped: dcff889 (GR-005's review), 1697049 (GC-065 the screenshot audit,
+    `09-repo-dropdown.png` and `10-branch-dropdown.png` marked unusable at every citation; GC-043 the
+    file-row context menu with `fileMenuItems` in `App.tsx`, the `shell:*` channels behind
+    `repoFile()` and a `window.shell` bridge, e2e step 19; GC-023 the
+    `.ref-chip:not(:first-child):not(.more)` shrink rule; GC-066 the dropdown toggle through
+    `MenuAnchor.owner` and a capture-phase mousedown registered at provider mount, with
+    `UiContext.test.tsx`), 81b15e0 (Ricardo rebalancing this review routine toward the UI and
+    what's-next passes) and ee91d54, the claim of GC-067, GC-062 and GC-070, `in-progress` throughout
+    and not touched. Read as a reviewer: `repoFile()` resolves against the repository and refuses
+    `''`, `..`, `../`, `..\\` and an absolute remainder, so another drive and a traversal through a
+    real file are both caught; it does not follow symlinks, noted and not ticketed. `fileMenuItems`
+    guards Open file on a commit row whose `kind` is `deleted` and nothing else, so the staging
+    list's own deletion rows (the fixture's `main.txt`) offer Open file and Show in folder and both
+    fail — GC-072 extended. GC-023's rule assumes the first child of `.col-ref` is a chip, which it
+    is (the `.ref-line` connector comes last). GC-066's two refs are read within one gesture, as the
+    comment says, and both halves of the condition are mutation-checked in the log. Every ticked box in
+    the window has evidence in its log; GC-023's first box is unticked with a written reason and
+    GC-071 filed for it.
+  - health: typecheck ok, tests 72 passed (11 files: 64 node, 8 dom), build ok, in the detached
+    worktree at ee91d54 with `node_modules` junctioned from the main checkout.
+    `GITCLIENT_E2E_PORT=9336 npm run e2e` against the review's own scratch repository, twice: the first run 69 of 71 assertions, 2 failed in step 5 (the named-stash dialog never opened because the app's status read clean after an external stash pop and a Refresh — logged under GC-068 as its first sighting on the fixture, `e2e-run1.log`); the second run 71 assertions, ALL PASSED, exit 0 (`e2e-run2.log`). Both runs stopped their own Electron on 9336.
+  - app: the worktree build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, stopped
+    afterwards with `stopPort(9334)` (no electron.exe with 9334 on its command line remained; the e2e
+    runs on 9336 stopped their own). The 9334 profile still holds GR-005's `graphColumns` toggles, so
+    every screenshot shows AUTHOR / DATE / TIME / SHA on. Screenshots in
+    `%TEMP%/gitclient-review/GR-006/`, all looked at: `01-graph.png` (seven rows plus WIP, lanes
+    continuous through the merge, `main` absorbing `origin/main` with the cloud mark and `v0.1.0`
+    beside it, `wip-bran…` / `orig…` and `featu…` / `origin/f…` both truncated at 150px as
+    expected), `02-commit-selected.png` (merge commit: sha, ref list truncated to `origin/m…`, message
+    box, initials avatar, two parent links wrapping to a second line, `+1 added`, `feature.txt`),
+    `03-wip-staging.png` (Unstaged 3 / Staged 2, the 72 counter), `04-diff.png` (two-hunk `big.txt`,
+    icon rail 3 / 3 / 1 / 0), `05-wip-deleted-row-menu.png` and `05b-after-open-file.png` (the staged
+    deletion's menu, then "File not found in the working tree: main.txt" in the status bar — GC-072),
+    `06-commit-menu.png` (rotating surface: Checkout detached | Create branch / tag | Cherry pick,
+    Revert | three Reset rows, the middle one reading `mi…` — GC-074, measured 166/173px before and
+    205/212px on the hint after GC-067's rule was injected), `07-left-branch-menu.png` (rotating:
+    Checkout, Merge, Rebase | Create branch | Pin to Left | Rename, Push and set upstream | Delete |
+    Copy branch name — no hide/solo, GC-073; the tip-commit group is GC-049), `08-shortcuts.png`
+    (rotating: the `?` overlay's five groups, Close button, graph dimmed behind it). Compared with
+    `04-panels.md` and `05-menus-shortcuts.md` rather than a matching capture for the menus, since
+    GitKraken's are native and the study's `06-context-menu-branch.png` shows the chip menu.
+  - what's next: the study's left panel has hide/solo toggles and a "Viewing N" that counts shown
+    refs; ours has neither and no ticket covered it (GC-049 and GC-051 both name it out of scope), so
+    GC-073. Also noted for a later review, not ticketed: the Path | Tree toggle both file lists carry
+    in the study (`04-panels.md`, staging and commit views) — the fixture has no nested path, so a
+    ticket would have to change the fixture first, which GC-072 and GC-055 are already lined up to do.
+  - tickets: added GC-073 (P2, graph, from the what's-next pass) and GC-074 (P3, ui, from the
+    screenshot pass, depends on GC-067); extended GC-072 with the staging-row half of its hole, raised
+    it to P2 and moved its board row up behind GC-069; GC-071 now depends on GC-055 as well, with log
+    lines on both; GC-068 got the e2e evidence above. Board: GC-073 sits after GC-050 as the last P2
+    row, GC-074 after GC-071 in the P3 block. Nothing else moved. Blocked GC-017 and GC-018 still wait
+    on Ricardo's decisions. GC-040 checked against `run.mjs`: still one `stopApp()` on the last line,
+    so the ticket stands.
+  - notes: `CLAUDE.md`'s "Done" paragraph is current through 1697049 (GC-065, GC-043, GC-023,
+    GC-066); its Testing paragraph's 71 assertions and its Unit tests paragraph's 72 tests both match
+    this run. GC-070, in progress, will change the Unit tests section's placement paragraphs.
