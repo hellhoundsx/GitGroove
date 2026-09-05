@@ -607,6 +607,12 @@ textarea:focus {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow);
 }
+/* opened upwards when hanging below would cross `.graph-body`'s bottom edge, which clips it;
+   `CommitGraph` measures the rects on every hover and adds the class (GC-022) */
+.ref-chip.more .more-list.flip-up {
+  top: auto;
+  bottom: 100%;
+}
 .ref-chip.more:hover .more-list {
   display: flex;
 }

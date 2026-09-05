@@ -37,7 +37,9 @@ the working copy to LF (`* text=auto eol=lf`) because the system Git config has
 | TypeScript | 7 | `baseUrl` is gone, tsconfig `paths` are relative; `tsc --noEmit` per target |
 | lucide-react | 1.x | the only icon source; wrap with `Icon` from `src/renderer/src/ui/icons.tsx` |
 | @fontsource/open-sans | 5 | UI font, imported in `main.tsx` (400/600/700) |
-| vitest | 5 | unit tests; its Vite peer range is `^6.4 || ^7 || ^8`, so it does not force a Vite bump |
+| vitest | 5 | unit tests, two projects (node + jsdom); its Vite peer range is `^6.4 \|\| ^7 \|\| ^8`, so it does not force a Vite bump |
+| jsdom | 30 | the `dom` project's environment; vitest peers it as `*`. `npm install` prints an `EBADENGINE` for it on Node 25 exactly as it does for vitest — a warning, and the suite runs |
+| @testing-library/react | 16 | component rendering; peers React 18 or 19 and has no Vite peer, so it cannot force a bump. Needs `@testing-library/dom` 10 alongside it |
 | git | system `git` on PATH | all repository access shells out, no libgit2 |
 
 Node 25 and npm 11 are installed; no pnpm, no Rust (Tauri was ruled out for that reason).
@@ -93,7 +95,7 @@ npm run build && node tools/launch-app.mjs --repo "$TEMP/gitclient-e2e/testrepo"
 # --port <n>   DevTools port, default 9333
 # --repo <p>   sets gitclient.lastRepo over CDP and reloads, so no load.js is needed
 # --visible    the normal, focused window; without it the launch is stealthy
-# --keep-running  skip freeing the port first, so an app already on it is left running (GC-041)
+# --keep-running  don't free the port first: attach to the app already on it (GC-041, GC-054)
 ```
 
 It is **stealthy by default**: it spawns `node_modules/electron/dist/electron.exe` directly
@@ -246,9 +248,12 @@ both keep their original label, and the toolbar's Push title names the remote it
 the branch has no upstream (GC-031).
 Double-clicking a branch chip or a left-panel branch row checks it out (matches GitKraken).
 Every checkout the UI can trigger — chips, left-panel rows, the ref menu, the commit menu's
-detached checkout — goes through `runCheckout(name, doCheckout)`, which with a non-empty
-`status.entries` asks first and offers "Stash and check out" (stash push `-u`, checkout, stash
-pop, all inside one `run()`; the stash is popped back if the checkout itself fails).
+detached checkout — goes through `runCheckout(name, doCheckout)`, which asks first and offers
+"Stash and check out" (stash push `-u`, checkout, stash pop, all inside one `run()`; the stash is
+popped back if the checkout itself fails) whenever a tracked file has staged, unstaged or
+conflicted changes. A tree holding only untracked files checks out silently, because git carries
+those across untouched (GC-019); the prompt names the number of files actually at risk, which is
+the staging list minus its untracked rows.
 
 ### UI layer (`src/renderer/src/ui`)
 
@@ -322,7 +327,10 @@ rows between WIP and HEAD when the head lane is free, `'toNode'` on the HEAD row
 the selected row visible, and renders chips: a local branch **absorbs its upstream** when both
 point at the same commit (cloud icon appended), at most `chipBudget(refColW)` chips (one per
 75px of ref column, 1 to 6, so the default 150px still shows two) then a `+N` chip
-whose hover shows the rest in a dropdown; hovering a chip expands it to its full name over the
+whose hover shows the rest in a dropdown — flipped above the chip (`.more-list.flip-up`) when
+hanging below would cross `.graph-body`'s bottom edge and be clipped by it, decided on every
+`mouseenter` against the live rects because the rows are virtualised (GC-022); hovering a chip
+expands it to its full name over the
 graph (per-chip hover, not per-cell, otherwise the `+N` chip moves away from the pointer).
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold into `+N`, where it would explain the leftmost lane only on
@@ -383,7 +391,9 @@ a real merge conflict with banner + message + abort, cherry-pick (clean
 and already-applied: git leaves it in progress and the message must stay visible), push, fetch
 (`Fetch all` lives in the Pull caret popover), pull after a commit from a second clone, tag create
 and delete, WIP menu, a per-file delete through the confirm modal, and the dirty-checkout guard
-(clean tree raises no prompt; Cancel changes nothing; "Stash and check out" lands on the branch
+(clean tree raises no prompt; an untracked-only tree raises none either and keeps its file; a
+tracked edit does prompt, and the message counts only the file at risk even with an untracked one
+beside it (GC-019); Cancel changes nothing; "Stash and check out" lands on the branch
 with the tree re-applied), commit search (message, sha prefix, stepping through
 matches, the position following a clicked row, a diff opened over the graph and closed again with
 the query, readout, selection and dimming intact — compared from a fixed scroll position through
@@ -398,10 +408,11 @@ menu, a ref-menu prompt and the toolbar Pull popover are each opened over it and
 real Escape, the find bar keeping its query every time, and only the Escape after that closes the
 find bar itself. Reverting GC-037 or GC-038 locally fails that step.
 It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused
-one flake. All 64 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+one flake. All 66 assertions passed on the last three runs. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates (including the
 `push-target` branch step 17 pushes, locally and on the bare origin), and drops the
-`e2e checkout guard` stash a run interrupted in step 15 would leave behind, and pops back both the
+`e2e checkout guard` stash a run interrupted in step 15 would leave behind, restores `feature.txt`,
+the tracked file that step edits (GC-019), and pops back both the
 unnamed stash step 5 parks the tree in for a moment and the named `test stash` a run that died
 between steps 5 and 8 would strand — popped, not dropped, because it holds the mixed working tree
 every later step asserts against (GC-036)). Step 1 also removes
@@ -411,13 +422,22 @@ otherwise.
 
 ### Unit tests
 
-`npm test` (vitest 5, config in `vitest.config.ts`). Tests live next to the module they cover as
-`*.test.ts` and run in the `node` environment — the two covered modules are pure, so there is no
-jsdom and no React plugin in that config. `tsconfig.web.json` already includes them via
-`src/renderer/src/**/*`, so `npm run typecheck` type-checks the tests too; import `describe`,
-`it` and `expect` from `vitest` explicitly rather than turning on globals.
+`npm test` (vitest 5, config in `vitest.config.ts`). Tests live next to the module they cover, and
+**the file extension picks the environment** (GC-046): `vitest.config.ts` declares two projects,
+`node` (`src/**/*.test.ts`, `environment: 'node'`, no plugins) for the pure modules, and `dom`
+(`src/**/*.test.tsx`, `environment: 'jsdom'`, `@vitejs/plugin-react` applied) for anything that
+renders a component. Name a new test `.ts` unless it needs a DOM and `.tsx` when it does; there is
+nothing else to configure, though a project config does not inherit the root `resolve`, so both
+projects share one hoisted alias map. `npx vitest run --project node|dom` runs one of them.
+`tsconfig.web.json` already includes both via `src/renderer/src/**/*`, so `npm run typecheck`
+type-checks the tests too; import `describe`, `it` and `expect` from `vitest` explicitly rather
+than turning on globals. Because there are no vitest globals, `@testing-library/react` cannot
+register its own auto-cleanup or act-environment hooks, so a component test wires `cleanup()` into
+`afterEach` and `IS_REACT_ACT_ENVIRONMENT` into `beforeAll` itself. None of the DOM
+devDependencies reaches `out/`: the renderer builds from `index.html` and nothing in that graph
+imports a test file.
 
-Covered today (44 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (45 tests, 44 in the node project and 1 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -452,6 +472,14 @@ its own `/// <reference types="node" />` because the web project does not pull i
 move it and both configs need editing. This is what would have caught GC-042's literal U+0000 the
 day it was written. Mutation-checked: a NUL written into a scratch file under `src/` fails it with
 that file and offset.
+`Preferences.test.tsx` is the first component test and the only one in the `dom` project (GC-046):
+it renders the Preferences dialog, clicks the avatars row's checkbox and asserts both that
+`getPrefs().avatars` flipped and that the controlled input reflects it. Two things it does
+differently from `prefs.test.ts`, deliberately: no `vi.resetModules()` — React Testing Library is
+imported statically, so re-importing `prefs.ts` would hand the component a second React instance
+and every hook in it would throw — and it restores `DEFAULT_PREFS` and clears `localStorage` in
+`afterEach`, because jsdom's storage is real and persists across cases in a file. Mutation-checked:
+replacing the avatars row's `setPrefs` call with a no-op fails it.
 
 ## Working conventions learned the hard way
 
@@ -491,9 +519,14 @@ exists (GC-025); the pinned branch's chip ranking second so the fold cannot hide
 one push entry per remote in the branch and tag menus, with the `origin`-first default shared
 between main and renderer so labels and behaviour agree (GC-031); the e2e prologue recovering the named stash a run interrupted between steps 5 and 8
 strands (GC-036); the launcher's header naming `--keep-running`, the flag it actually reads
-(GC-041); a byte-level test that fails on a raw control byte in any source or root markdown file
+(GC-041), and that flag attaching to the app already on the port instead of spawning a second
+Electron that could never bind it (GC-054); a byte-level test that fails on a raw control byte in any source or root markdown file
 (GC-047); toolbar buttons sized to their labels so "Shortcuts" and "Preferences" no longer run
-together (GC-048);
+together (GC-048); the checkout prompt firing only when a tracked file is actually at risk, with
+the count of those files in the message (GC-019); the folded-refs dropdown opening upwards when
+the scroll container would otherwise clip it (GC-022); a jsdom project alongside the node one so
+components can be unit tested, the file extension picking the environment and the Preferences
+dialog serving as the first component test (GC-046);
 one table of keyboard shortcuts behind
 `matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
 `tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); every

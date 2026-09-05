@@ -192,9 +192,9 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | done |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | done |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | done |
-| GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | in-progress |
+| GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | done |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | done |
-| GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | in-progress |
+| GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | done |
 | GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | todo |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
@@ -210,12 +210,14 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | todo |
-| GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | in-progress |
+| GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | done |
 | GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | done |
 | GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
-| GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | in-progress |
+| GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
+| GC-059 | A test for the launcher attach path | tests | S | P3 | todo |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
+| GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | todo |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
@@ -815,7 +817,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-019 Only prompt on checkout when the changes are actually at risk
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** GC-004
 - **Why:** GC-004 triggers its prompt on `status.entries` being non-empty, as that ticket
@@ -833,9 +835,9 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   (`git checkout --dry-run` does not exist; `diff --name-only` against the target would be a
   bigger change and belongs to its own ticket if it is ever wanted).
 - **Acceptance:**
-  - [ ] An untracked-only tree checks out with no prompt and the file survives the checkout.
-  - [ ] A tracked modification still prompts.
-  - [ ] The e2e step 15 clean-tree assertion is extended with the untracked-only case.
+  - [x] An untracked-only tree checks out with no prompt and the file survives the checkout.
+  - [x] A tracked modification still prompts.
+  - [x] The e2e step 15 clean-tree assertion is extended with the untracked-only case.
 - **Files:** `src/renderer/src/App.tsx` (`runCheckout`), `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e`, plus `git status --short` before and after each path.
 - **Log:**
@@ -843,6 +845,20 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     specified made an untracked-only tree prompt, which the e2e step 15 dirty case relies on and
     which is measurably noise in real use.
   - 2026-09-05 20:51 claimed
+  - 2026-09-05 21:05 done. `runCheckout` now filters `status.entries` to the rows at risk —
+    everything except an entry whose `staged` is null and whose `unstaged` is `untracked`, the exact
+    shape `git.ts` pushes for an untracked file — and prompts only when that list is non-empty,
+    naming its length in the message. e2e step 15 grew a middle case between the clean and dirty
+    ones: an untracked-only tree checks out with no modal, HEAD moves and the file is still there
+    afterwards. The dirty case now edits the tracked `feature.txt` and deliberately leaves the
+    untracked guard file beside it, so `PASS the prompt counts the file at risk, not the untracked
+    ones` on the message 'You have uncommitted changes in 1 file.' proves the count excludes
+    untracked rows rather than just counting staging rows. The prologue and the step epilogue both
+    restore `feature.txt`, so the suite stays re-entrant. `npm run e2e` was run three times, 66
+    assertions passing each time (64 before this ticket). Noted deviation: the ticket asked for a
+    count that 'matches what the detail panel shows'; the panel lists untracked rows too, so the
+    message counts the files at risk instead — with no untracked file present, the ordinary case,
+    the two are the same number.
 
 ### GC-020 Keep the pinned branch's chip visible when chips fold
 
@@ -1172,7 +1188,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-054 --keep-running still spawns a second Electron that cannot bind the port
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** infra | **Size:** S | **Priority:** P3
 - **Depends on:** GC-041
 - **Why:** `--keep-running` correctly skips `stopPort`, so the app already on the port survives —
@@ -1189,9 +1205,9 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Out of scope:** what the flag does about `stopPort`, new flags, and the `launchApp` module API
   that `tools/e2e/run.mjs` uses.
 - **Acceptance:**
-  - [ ] With an app on the port, a `--keep-running` launch adds no new electron.exe process tree.
-  - [ ] The pid on the port is unchanged and the command still exits 0.
-  - [ ] With a free port the flag changes nothing about a normal launch.
+  - [x] With an app on the port, a `--keep-running` launch adds no new electron.exe process tree.
+  - [x] The pid on the port is unchanged and the command still exits 0.
+  - [x] With a free port the flag changes nothing about a normal launch.
 - **Files:** `tools/launch-app.mjs`.
 - **Verify:** launch on a port, count electron.exe trees with
   `Get-CimInstance Win32_Process -Filter "Name='electron.exe'"`, launch again with the flag, count
@@ -1200,6 +1216,20 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-041 (this ticket): verifying the flag left a stray four-process
     Electron tree that had to be killed by pid, the exact situation GC-035 exists to avoid.
   - 2026-09-05 20:51 claimed
+  - 2026-09-05 21:05 done. `--keep-running` now takes an attach branch: a new module-local
+    `attachTarget(port)` probes `/json`, returns null the moment the first probe is refused (port
+    free, spawn as before), and otherwise waits for a `page` target — a booting Chromium answers
+    `/json` before it lists one — then the CLI looks the pid up with the existing `pidOnPort`,
+    applies `--repo` through `setRepo` if given, prints which pid holds the port and exits 0 without
+    spawning. A failed pid lookup prints 'pid unknown' rather than failing the run. The exported
+    module API (`launchApp`, `stopApp`, `stopPort`) is untouched, so `tools/e2e/run.mjs` cannot
+    observe the change — and the e2e suite passed three times through it. Verified on port 9333 by
+    counting `electron.exe` processes with `Get-CimInstance`: 4 before, 8 after a `--keep-running`
+    launch on the free port (one tree, root pid 40292, 'app ready' as usual), then still 8 after a
+    second `--keep-running` launch, which printed 'attached to the app already on port 9333 (pid
+    40292)' and exited 0 — no process with a later CreationDate, and `netstat` showed the same pid
+    holding the port. `stopPort(9333)` then took the count back to the 4 that were running before
+    this session, which are not ours.
 
 ### GC-055 The scratch repo has no commit with more than two refs, so chip folding is untested
 
@@ -1240,7 +1270,7 @@ decision is missing.
 
 ### GC-022 The +N refs dropdown is clipped by the graph scroll container
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `.ref-chip.more .more-list` is absolutely positioned at `top: 100%` inside the row,
@@ -1257,8 +1287,8 @@ decision is missing.
 - **Out of scope:** turning the `+N` list into a real menu through `useUi().openMenu` (a bigger
   change to how refs are reached, and it would lose the hover preview).
 - **Acceptance:**
-  - [ ] On the last row of a full graph, the whole folded list is visible.
-  - [ ] On rows with room below, it still opens downwards.
+  - [x] On the last row of a full graph, the whole folded list is visible.
+  - [x] On rows with room below, it still opens downwards.
 - **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
 - **Verify:** build, then measure the list's rect against `.graph-body`'s rect over CDP for a top
   row and a bottom row.
@@ -1266,6 +1296,23 @@ decision is missing.
   - 2026-09-05 proposed by GC-006 (this ticket): the width-aware fold folds more refs at narrow
     widths, and measuring the dropdown while checking that fold showed it clipped at the bottom.
   - 2026-09-05 20:51 claimed
+  - 2026-09-05 21:05 done. `CommitGraph` holds `moreUp` (the sha of the row whose list is flipped)
+    and decides the direction in `onMoreEnter` on every hover against live rects — the list is
+    forced visible for one synchronous measurement and restored in the same task, since it is
+    `display:none` until the `:hover` rule lands. It flips only when the list does not fit below
+    *and* there is more room above, so a list taller than the body still opens on the side that
+    shows most of it; keying by sha rather than a boolean is what makes it safe under
+    virtualisation. `app.css` gains one rule setting `top: auto; bottom: 100%` on
+    `.ref-chip.more .more-list.flip-up`. Verified over CDP against the scratch repository with
+    `.graph-body` clamped to 140px and the folding row scrolled to each edge: at the bottom the
+    list measures 188->222 inside a body of 106->246, `flipped=true`, clipped 0px; stripping the
+    class in place and re-measuring the same row — the pre-fix drawing — puts it at 242->276,
+    clipped 30px below the container, which is the counterfactual that proves the flip is doing
+    the work. At the top of the body the same row reports `flipped=false`, opening downwards,
+    clipped 0px. Screenshot taken with a real CDP hover and looked at:
+    `docs/screenshots/gc022-more-list-flipped.png`. Note for GC-055: the scratch repository folds a
+    ref on exactly one row and only below the default column width — this had to be measured at
+    `refColW=100`, which is the gap GC-055 exists to close.
 
 ### GC-023 Chip shrinking still assumes exactly two chips
 
@@ -2064,7 +2111,7 @@ decision is missing.
 
 ### GC-046 A DOM environment so components can be unit tested
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** M | **Priority:** P3
 - **Depends on:** none
 - **Why:** `vitest.config.ts` runs one project in the `node` environment, which was right while
@@ -2089,9 +2136,9 @@ decision is missing.
 - **Out of scope:** porting existing e2e steps to component tests, snapshot testing, a coverage
   threshold, testing `App.tsx` as a whole (it reaches for `window.api`).
 - **Acceptance:**
-  - [ ] `npm test` runs both projects and passes, with the existing 37 node tests untouched.
-  - [ ] `npm run typecheck` passes with the new `.tsx` test included.
-  - [ ] The proof test fails if the Preferences avatars row stops calling `setPrefs`.
+  - [x] `npm test` runs both projects and passes, with the existing 37 node tests untouched.
+  - [x] `npm run typecheck` passes with the new `.tsx` test included.
+  - [x] The proof test fails if the Preferences avatars row stops calling `setPrefs`.
 - **Files:** `vitest.config.ts`, `package.json`, new
   `src/renderer/src/components/Preferences.test.tsx`, `CLAUDE.md`.
 - **Verify:** `npm test`, `npm run typecheck`, `npm run build` (the build must not pick up the
@@ -2101,6 +2148,22 @@ decision is missing.
     to reach a hook-only subscriber list, and three tickets have already deferred work for want of
     a DOM environment.
   - 2026-09-05 20:51 claimed
+  - 2026-09-05 21:05 done. `vitest.config.ts` now declares two projects split purely by file
+    extension: `node` (`src/**/*.test.ts`, no plugins) and `dom` (`src/**/*.test.tsx`, jsdom,
+    `@vitejs/plugin-react`), sharing one hoisted alias map because a project config does not inherit
+    the root `resolve`. devDependencies added: `jsdom@^30.0.1` (vitest peers it as `*`),
+    `@testing-library/react@^16.3.3` (peers React 18 or 19, no Vite peer) and its required
+    `@testing-library/dom@^10.4.1`; `jest-dom` was not needed. Nothing else in `package.json` moved.
+    New `src/renderer/src/components/Preferences.test.tsx` renders the dialog, clicks the avatars
+    row and asserts both `getPrefs().avatars` and the controlled input. `npm test` is 7 files / 45
+    tests; `--project node` alone is still 6 files / 44, so the node project is provably untouched.
+    `npm run typecheck` clean. Mutation-checked independently at close-out: replacing the toggle
+    row's `setPrefs` call with a no-op fails `Preferences.test.tsx:45` (expected false, got true),
+    and restoring left an empty `git diff` on `Preferences.tsx`. `npm run build` succeeds, a
+    case-insensitive grep for jsdom or testing-library across `out/` is empty and `Preferences.test`
+    appears 0 times in the renderer bundle, so the new devDependencies do not reach the build.
+    `npm install` now prints a second `EBADENGINE` warning, for jsdom 30 on Node 25 — harmless,
+    like vitest 5's.
 
 ### GC-048 Long toolbar labels overflow their 52px button
 
@@ -2427,6 +2490,66 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-003: the suite's own handover says fixed sleeps flaked once, GC-039 added
     eleven more, and GC-030 has since added the `waitFor` helper that makes replacing them cheap.
+
+### GC-058 A component test for the folded-refs dropdown flip
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-022, GC-046
+- **Why:** GC-022's flip is decided in `onMoreEnter` from three live rects, and nothing automated
+  guards it: it was verified once by hand, over CDP, against a graph body clamped to 140px and a ref
+  column narrowed to 100px so that a single row folded at all. The e2e suite never folds a ref
+  (GC-055), so a regression that stopped adding `flip-up` would ship silently. GC-046 has since given
+  the suite a jsdom project, and the decision is pure geometry over rects, which jsdom can be made to
+  report.
+- **Scope:**
+  - `src/renderer/src/graph/CommitGraph.test.tsx` in the `dom` project: render the graph with a
+    commit carrying more refs than `chipBudget` allows, stub `getBoundingClientRect` on the chip, the
+    list and `.graph-body` (jsdom returns zeroes otherwise), fire `mouseEnter` on the `+N` chip and
+    assert the class.
+  - Both directions: a chip near the container's bottom edge gets `flip-up`, one with room below does
+    not, and the 'taller than the body' case opens on the side with more room.
+- **Out of scope:** rendering the real CSS (jsdom applies no stylesheet, so the assertion is on the
+  class, not on the computed `top`/`bottom`), testing the rest of `CommitGraph`.
+- **Acceptance:**
+  - [ ] `npm test` passes with the new file in the `dom` project.
+  - [ ] Mutation-checked: forcing `setMoreUp(null)` unconditionally in `onMoreEnter` fails it.
+- **Files:** new `src/renderer/src/graph/CommitGraph.test.tsx`.
+- **Verify:** `npm test`, `npm run typecheck`, then the mutation check.
+- **Log:**
+  - 2026-09-05 proposed by GC-022 (this ticket): the flip shipped with no automated coverage at all,
+    and the one check that exists is a hand-run CDP measurement needing the app built and launched.
+
+### GC-059 A test for the launcher attach path
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-054
+- **Why:** `tools/launch-app.mjs` has no tests, and GC-054 put a decision in it that is exactly the
+  kind that rots: with the DevTools port already answering, the CLI must attach and exit rather than
+  spawn a second Electron nobody will stop. Verifying it costs a build, a launch and two process-tree
+  counts today. The implementing agent proved the same behaviour in seconds against a fake CDP
+  endpoint — a plain Node http server on an unused port serving one `page` target — which is a test
+  that could live in the repository instead of in a scratch folder.
+- **Scope:**
+  - A test that stands up a throwaway http server answering `/json` with one `page` target, runs
+    `node tools/launch-app.mjs --keep-running --port <that port>` as a child process, and asserts it
+    exits 0, prints 'attached', and spawned no `electron.exe`.
+  - A second case: with the port free, `attachTarget` returns null — asserted on the function, not by
+    launching Electron. A unit test must never spawn the app.
+  - It runs in the `node` project and must not need a build.
+- **Out of scope:** testing `launchApp` itself or anything that starts Electron; the e2e suite stays
+  the only thing that launches the app.
+- **Acceptance:**
+  - [ ] `npm test` passes with the new file and starts no Electron process.
+  - [ ] Mutation-checked: removing the attach branch from the CLI fails it.
+- **Files:** new `tools/launch-app.test.ts` (or a path under `src/` if `vitest.config.ts`'s include
+  has to stay as it is — say which in the log), possibly `vitest.config.ts`.
+- **Verify:** `npm test` with an `electron.exe` count before and after, then the mutation check.
+- **Log:**
+  - 2026-09-05 proposed by GC-054 (this ticket): the ticket's three acceptance criteria all needed a
+    manual launch and `Get-CimInstance` counts, and a fake CDP endpoint proved the same thing in
+    seconds without one.
 
 ## Reviews
 

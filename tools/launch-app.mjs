@@ -13,9 +13,13 @@
 //
 // Usage: node tools/launch-app.mjs [--port 9333] [--repo <path>] [--visible] [--keep-running]
 // `--keep-running` skips the `stopPort` that normally frees the DevTools port first, so an app
-// already listening on it keeps running and this launch comes up alongside it. The header used to
-// name it `--keep-alive` while the code read `--keep-running`, so the documented spelling silently
-// stopped the process it promised to spare; `--keep-running` is the name that works (GC-041).
+// already listening on it keeps running; this launch then **attaches** to that app instead of
+// spawning one of its own (GC-054), because a second Electron could never bind a port that is
+// already taken while the readiness probe would be answered by the first app, so the launcher
+// printed "app ready" over a leaked, unreachable process tree nobody would ever stop. With the
+// port free the flag changes nothing. The header used to name it `--keep-alive` while the code
+// read `--keep-running`, so the documented spelling silently stopped the process it promised to
+// spare; `--keep-running` is the name that works (GC-041).
 // Exits 0 once the page target is up, 1 on timeout.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -150,6 +154,30 @@ export async function setRepo(target, repo) {
   await sleep(1500);
 }
 
+/**
+ * The page target of an app already listening on the DevTools port, or null when nothing answers
+ * there. CLI-only, for `--keep-running` (GC-054): a booting app answers /json before it lists a
+ * page, so once the port has replied at all this waits for the page rather than reporting the port
+ * free and spawning a second Electron that could never bind it.
+ */
+async function attachTarget(port, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  let answered = false;
+  while (Date.now() < deadline) {
+    try {
+      const list = await (await fetch(`http://localhost:${port}/json`)).json();
+      answered = true;
+      const target = list.find((t) => t.type === 'page');
+      if (target) return target;
+    } catch {
+      // Nothing on the port yet: this launch is the first one, so spawn as usual.
+      if (!answered) return null;
+    }
+    await sleep(500);
+  }
+  throw new Error(`port ${port} is in use but lists no page target; stop that app or pass another --port`);
+}
+
 const invokedDirectly = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 if (invokedDirectly) {
   const args = process.argv.slice(2);
@@ -159,9 +187,23 @@ if (invokedDirectly) {
     return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
   };
   const port = Number(value('--port', process.env.GITCLIENT_E2E_PORT ?? 9333));
+  const repo = value('--repo', null);
   try {
-    if (!flag('--keep-running')) await stopPort(port);
-    const { target } = await launchApp({ port, repo: value('--repo', null), visible: flag('--visible') });
+    if (flag('--keep-running')) {
+      // Attach to the app that already holds the port instead of leaking a second one (GC-054).
+      // `--visible` has nothing to act on here; the running app is whatever it was launched as.
+      const running = await attachTarget(port);
+      if (running) {
+        const pid = pidOnPort(port);
+        if (repo) await setRepo(running, repo);
+        // The pid is a convenience, not a requirement: a lookup that fails must not fail the run.
+        console.log(`attached to the app already on port ${port} (pid ${pid ?? 'unknown'}): ${running.url}`);
+        process.exit(0);
+      }
+    } else {
+      await stopPort(port);
+    }
+    const { target } = await launchApp({ port, repo, visible: flag('--visible') });
     console.log(`app ready on port ${port}${flag('--visible') ? '' : ' (stealth)'}: ${target.url}`);
     process.exit(0);
   } catch (e) {

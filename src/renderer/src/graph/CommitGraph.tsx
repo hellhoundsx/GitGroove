@@ -224,6 +224,35 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
   }, [selected, commits, hasWip]);
 
+  // ---- folded refs (+N) ---------------------------------------------------
+  // The dropdown hangs below the chip inside `.graph-body`, which scrolls, so a row near the
+  // bottom had its list cut off and the chips in it unreachable. The direction is decided per
+  // hover against the live rects, the way `ContextMenu` clamps itself to the viewport, and is
+  // held as the sha of the hovered row because the rows are virtualised (GC-022).
+  const [moreUp, setMoreUp] = useState<string | null>(null);
+
+  const onMoreEnter = (e: MouseEvent<HTMLSpanElement>, sha: string): void => {
+    const body = bodyRef.current;
+    const list = e.currentTarget.querySelector<HTMLElement>('.more-list');
+    if (!body || !list) {
+      setMoreUp(null);
+      return;
+    }
+    // The list is display:none until the :hover rule lands, so it is forced visible for this one
+    // measurement and put back in the same task: nothing paints in between.
+    const shown = list.style.display;
+    list.style.display = 'flex';
+    const height = list.getBoundingClientRect().height;
+    list.style.display = shown;
+    const chip = e.currentTarget.getBoundingClientRect();
+    const bodyRect = body.getBoundingClientRect();
+    const below = bodyRect.bottom - chip.bottom;
+    const above = chip.top - bodyRect.top;
+    // Flip only when it does not fit below *and* there is more room above, so a list taller than
+    // the whole body still opens on the side that shows the most of it.
+    setMoreUp(height > below && above > below ? sha : null);
+  };
+
   const renderChip = ({ ref: r, upstreamHere }: Chip, color: string): JSX.Element => {
     const isPinned = r.kind === 'head' && r.name === pinnedName;
     return (
@@ -309,9 +338,9 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
         <div className="col-ref">
           {chips.slice(0, maxChips).map((chip) => renderChip(chip, color))}
           {chips.length > maxChips && (
-            <span className="ref-chip more" title="More refs on this commit">
+            <span className="ref-chip more" title="More refs on this commit" onMouseEnter={(e) => onMoreEnter(e, c.sha)} onMouseLeave={() => setMoreUp(null)}>
               +{chips.length - maxChips}
-              <span className="more-list">{chips.slice(maxChips).map((chip) => renderChip(chip, color))}</span>
+              <span className={`more-list ${moreUp === c.sha ? 'flip-up' : ''}`}>{chips.slice(maxChips).map((chip) => renderChip(chip, color))}</span>
             </span>
           )}
           {rowRefs.length > 0 && <span className="ref-line" style={{ background: color }} />}

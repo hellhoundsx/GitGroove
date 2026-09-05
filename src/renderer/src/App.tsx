@@ -231,10 +231,14 @@ export function App(): JSX.Element {
   // carries the changes over or refuses, so ask first and offer to stash them out of the way.
   const runCheckout = useCallback(
     async (name: string, doCheckout: () => Promise<void>): Promise<void> => {
-      if (prefs.confirmDirtyCheckout && snapshot?.status.entries.length) {
+      // Untracked files come across a checkout untouched, so a tree holding nothing else is not at
+      // risk and must not be asked about (GC-019); the count names the files that are, which is the
+      // staging list minus those untracked rows.
+      const atRisk = (snapshot?.status.entries ?? []).filter((e) => !(e.staged === null && e.unstaged === 'untracked'));
+      if (prefs.confirmDirtyCheckout && atRisk.length) {
         const r = await ui.prompt({
           title: 'Uncommitted changes',
-          message: `You have uncommitted changes. Check out ${name} anyway?`,
+          message: `You have uncommitted changes in ${atRisk.length} file${atRisk.length === 1 ? '' : 's'}. Check out ${name} anyway?`,
           input: false,
           okLabel: 'Check out anyway',
           secondary: { label: 'Stash and check out' },

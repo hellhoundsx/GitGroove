@@ -181,10 +181,13 @@ git(['remote', 'remove', 'mirror']);
 // step 17 pushes this scratch branch to the second remote and deletes it again (GC-031)
 git(['branch', '-D', 'push-target']);
 git(['push', '-q', 'origin', '--delete', 'push-target']);
-// step 15 parks the working tree in a stash and leaves a scratch file; drop both if a run died there
+// step 15 parks the working tree in a stash, leaves a scratch file and edits a tracked one; undo
+// all three if a run died there. feature.txt is safe to restore because no other step touches it.
 const GUARD_FILE = 'guard-checkout.txt';
+const GUARD_TRACKED = 'feature.txt';
 const GUARD_STASH = 'e2e checkout guard';
 rmSync(join(R, GUARD_FILE), { force: true });
+git(['checkout', '-q', '--', GUARD_TRACKED]);
 for (let i = 0; i < 5; i++) {
   const idx = git(['stash', 'list']).split('\n').findIndex((l) => l.includes(GUARD_STASH));
   if (idx < 0) break;
@@ -393,7 +396,7 @@ log(await modalOk());
 await settle();
 check('untracked file deleted after confirming', !existsSync(join(R, scratch)) && !status().includes(scratch), status());
 
-step(15, 'checkout guard: clean tree is silent, Cancel is inert, Stash and check out re-applies');
+step(15, 'checkout guard: clean and untracked-only trees are silent, Cancel is inert, Stash and check out re-applies');
 // park the working tree so the clean-tree path can be exercised, restored at the end of the step
 git(['stash', 'push', '-u', '-q', '-m', GUARD_STASH]);
 log(await tool('Refresh'));
@@ -407,8 +410,28 @@ const promptedWhenClean = await ev(`!!document.querySelector('.modal')`);
 await waitIdle();
 check('clean tree checks out with no prompt', promptedWhenClean === false && git(['branch', '--show-current']) === 'wip-branch', `modal=${promptedWhenClean} branch=${git(['branch', '--show-current'])}`);
 
+// git carries untracked files across a checkout untouched, so a tree holding nothing else must not
+// raise the prompt either, and the file must still be there afterwards (GC-019)
 git(['checkout', '-q', 'main']);
 writeFileSync(join(R, GUARD_FILE), 'guard\n');
+log(await tool('Refresh'));
+await settle();
+log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
+await sleep(300);
+log(await menuClick('Checkout wip-branch'));
+await sleep(500);
+const promptedWhenUntracked = await ev(`!!document.querySelector('.modal')`);
+await waitIdle();
+check(
+  'untracked-only tree checks out with no prompt and keeps the file',
+  promptedWhenUntracked === false && git(['branch', '--show-current']) === 'wip-branch' && existsSync(join(R, GUARD_FILE)),
+  `modal=${promptedWhenUntracked} branch=${git(['branch', '--show-current'])} file=${existsSync(join(R, GUARD_FILE))}`,
+);
+
+// a change to a tracked file is at risk, so this one does prompt. The untracked file stays on disk
+// alongside it: the count in the message is the files at risk, so it must say one, not two (GC-019).
+git(['checkout', '-q', 'main']);
+writeFileSync(join(R, GUARD_TRACKED), 'feature work\nmore\nguard edit\n');
 log(await tool('Refresh'));
 await settle();
 const dirtyBefore = status();
@@ -418,6 +441,8 @@ await sleep(300);
 log(await menuClick('Checkout wip-branch'));
 await sleep(400);
 check('prompt offers all three choices', String(await modalButtons()) === 'Cancel | Stash and check out | Check out anyway', await modalButtons());
+const dirtyMessage = String(await modalMessage());
+check('the prompt counts the file at risk, not the untracked ones', dirtyMessage.includes('in 1 file.'), dirtyMessage);
 await shot('modal-checkout-dirty.png');
 log(await modalClick('Cancel'));
 await sleep(400);
@@ -435,9 +460,11 @@ check(
   git(['branch', '--show-current']) === 'wip-branch' && status() === dirtyBefore && git(['stash', 'list']).split('\n').filter(Boolean).length === stashesBefore,
   `${git(['branch', '--show-current'])} | ${status()} | stashes=${git(['stash', 'list']).split('\n').filter(Boolean).length}`,
 );
-// restore what this step parked so the run stays re-entrant
+// restore what this step parked so the run stays re-entrant, the tracked edit included: every later
+// step compares against the mixed working tree the stash is about to put back, and nothing else
 git(['checkout', '-q', 'main']);
 rmSync(join(R, GUARD_FILE), { force: true });
+git(['checkout', '-q', '--', GUARD_TRACKED]);
 git(['stash', 'pop', '-q']);
 log(await tool('Refresh'));
 await settle();
