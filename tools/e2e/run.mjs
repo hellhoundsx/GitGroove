@@ -178,6 +178,9 @@ git(['tag', '-d', 't-test']);
 rmSync(join(root, 'clone2'), { recursive: true, force: true });
 git(['remote', 'remove', 'upstream']);
 git(['remote', 'remove', 'mirror']);
+// step 17 pushes this scratch branch to the second remote and deletes it again (GC-031)
+git(['branch', '-D', 'push-target']);
+git(['push', '-q', 'origin', '--delete', 'push-target']);
 // step 15 parks the working tree in a stash and leaves a scratch file; drop both if a run died there
 const GUARD_FILE = 'guard-checkout.txt';
 const GUARD_STASH = 'e2e checkout guard';
@@ -514,6 +517,26 @@ await settle();
 check('remote added and fetched', git(['remote']).split('\n').includes('upstream') && git(['for-each-ref', '--format=%(refname)', 'refs/remotes/upstream']).includes('refs/remotes/upstream/main'), git(['remote', '-v']).replace(/\n/g, ' '));
 check('the new remote shows in the left panel', String(await ev(`[...document.querySelectorAll('.left-panel .ref-row.remote-group .row-name')].map(x => x.textContent).join(',')`)).includes('upstream'));
 await shot('remotes-added.png');
+
+// with two remotes the branch menu offers one push entry per remote, and each pushes there (GC-031)
+git(['branch', '-f', 'push-target', 'main']);
+log(await tool('Refresh'));
+await settle();
+log(await contextMenuOn('.left-panel .ref-row', 'push-target'));
+await sleep(300);
+const pushMenu = await menuList();
+check('branch menu lists a push entry per remote', /Push push-target to origin/.test(pushMenu) && /Push push-target to upstream/.test(pushMenu), pushMenu);
+log(await menuClick('Push push-target to upstream'));
+await settle();
+check(
+  'the chosen remote received the branch',
+  git(['ls-remote', 'upstream', 'push-target']).includes(git(['rev-parse', 'push-target'])),
+  git(['ls-remote', 'upstream', 'push-target']) || '(nothing on upstream)',
+);
+git(['push', '-q', 'origin', '--delete', 'push-target']);
+git(['branch', '-D', 'push-target']);
+log(await tool('Refresh'));
+await settle();
 
 log(await contextMenuOn('.left-panel .ref-row.remote-group', 'upstream'));
 await sleep(300);

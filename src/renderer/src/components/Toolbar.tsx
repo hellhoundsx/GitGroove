@@ -23,6 +23,8 @@ interface Props extends ToolbarHandlers {
   behind: number;
   hasUpstream: boolean;
   hasRemotes: boolean;
+  /** The remote a push with no upstream lands on, so the button can name it (GC-031). */
+  pushRemote: string | null;
   hasChanges: boolean;
   stashCount: number;
   pullMode: PullMode;
@@ -67,6 +69,11 @@ export function Toolbar(p: Props): JSX.Element {
 
   const pullLabel = PULL_MODES.find((m) => m.mode === p.pullMode)?.label ?? 'Pull';
   const remoteHint = !p.hasRemotes ? 'No remotes configured' : !p.hasUpstream ? 'Current branch has no upstream' : undefined;
+  const pushTitle = !p.hasRemotes
+    ? 'No remotes configured'
+    : p.hasUpstream
+      ? 'Push'
+      : `Push to ${p.pushRemote ?? 'the default remote'} and set upstream`;
 
   return (
     <div className="toolbar">
@@ -129,7 +136,7 @@ export function Toolbar(p: Props): JSX.Element {
             </div>
           )}
         </div>
-        <ToolButton label="Push" icon={Upload} title={remoteHint ? (p.hasRemotes ? 'Push and set upstream' : remoteHint) : 'Push'} disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} onClick={p.onPush} />
+        <ToolButton label="Push" icon={Upload} title={pushTitle} disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} onClick={p.onPush} />
         <ToolButton label="Branch" icon={GitBranch} title="Create a branch at HEAD" disabled={noRepo || p.busy} onClick={p.onCreateBranch} />
         <ToolButton label="Stash" icon={Archive} title={p.hasChanges ? 'Stash working changes' : 'No changes to stash'} disabled={noRepo || p.busy || !p.hasChanges} onClick={p.onStash} />
         <ToolButton label="Pop" icon={ArchiveRestore} title={p.stashCount ? `Pop the latest of ${p.stashCount} stash${p.stashCount === 1 ? '' : 'es'}` : 'No stashes'} disabled={noRepo || p.busy || p.stashCount === 0} onClick={p.onPop} />

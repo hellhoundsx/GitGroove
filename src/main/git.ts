@@ -28,6 +28,7 @@ import type {
   StatusEntry,
   WorkdirDiffRequest,
 } from '@shared/types';
+import { defaultRemote } from '@shared/remotes';
 
 const FIELD = '\x1f';
 const RECORD = '\x1e';
@@ -545,7 +546,7 @@ export async function push(cwd: string, req: PushRequest): Promise<void> {
     let remote = req.remote;
     if (!remote) {
       const remotes = await getRemotes(cwd);
-      remote = remotes.find((r) => r.name === 'origin')?.name ?? remotes[0]?.name;
+      remote = defaultRemote(remotes);
       if (!remote) throw new GitError('This repository has no remotes to push to', args, '', null);
     }
     const branch = req.branch ?? (await runGit(cwd, ['symbolic-ref', '--short', '-q', 'HEAD'])).trim();

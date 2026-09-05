@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react';
 import type { CheckoutOptions, Commit, GitRef, Remote, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
+import { defaultRemote } from '@shared/remotes';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
@@ -310,11 +311,19 @@ export function App(): JSX.Element {
     (r: GitRef): MenuItem[] => {
       const items: MenuItem[] = [];
       const cur = currentBranch ?? 'HEAD';
+      const remotes = snapshot?.remotes ?? [];
+      const fallback = defaultRemote(remotes);
       if (r.kind === 'tag') {
         items.push({ label: `Checkout ${r.name} (detached)`, onClick: () => checkoutRef(r) });
         items.push({ label: `Create branch from ${r.name}…`, onClick: () => createBranchAt(r.name, `tag ${r.name}`) });
         items.push({ separator: true });
-        items.push({ label: `Push tag to remote`, disabled: !snapshot?.remotes.length, onClick: () => run(`Pushing tag ${r.name}`, () => window.api.push(repo!, { remote: snapshot!.remotes[0]!.name, branch: r.name })) });
+        if (remotes.length > 1) {
+          for (const rem of remotes) {
+            items.push({ label: `Push tag ${r.name} to ${rem.name}`, onClick: () => run(`Pushing tag ${r.name} to ${rem.name}`, () => window.api.push(repo!, { remote: rem.name, branch: r.name })) });
+          }
+        } else {
+          items.push({ label: `Push tag to remote`, disabled: !fallback, onClick: () => run(`Pushing tag ${r.name}`, () => window.api.push(repo!, { remote: fallback, branch: r.name })) });
+        }
         items.push({ label: `Delete tag ${r.name}`, danger: true, onClick: async () => (await ui.confirm({ title: `Delete tag ${r.name}?`, okLabel: 'Delete', danger: true })) && run('Deleting tag', () => window.api.deleteTag(repo!, r.name)) });
         items.push({ separator: true });
         items.push({ label: 'Copy tag name', onClick: () => void navigator.clipboard.writeText(r.name) });
@@ -343,11 +352,23 @@ export function App(): JSX.Element {
             if (res && res.value !== r.name) await run('Renaming branch', () => window.api.renameBranch(repo!, r.name, res.value));
           },
         });
-        items.push({
-          label: `Push ${r.name}${r.upstream ? ` to ${r.upstream}` : ' and set upstream'}`,
-          disabled: !snapshot?.remotes.length,
-          onClick: () => run(`Pushing ${r.name}`, () => window.api.push(repo!, { branch: r.name, setUpstream: !r.upstream })),
-        });
+        if (remotes.length > 1) {
+          // MenuItem has no submenu, so the remotes become their own separated group (GC-031)
+          items.push({ separator: true });
+          for (const rem of remotes) {
+            items.push({
+              label: `Push ${r.name} to ${rem.name}`,
+              hint: r.upstream ? undefined : 'sets the upstream',
+              onClick: () => run(`Pushing ${r.name} to ${rem.name}`, () => window.api.push(repo!, { remote: rem.name, branch: r.name, setUpstream: !r.upstream })),
+            });
+          }
+        } else {
+          items.push({
+            label: `Push ${r.name}${r.upstream ? ` to ${r.upstream}` : ' and set upstream'}`,
+            disabled: !fallback,
+            onClick: () => run(`Pushing ${r.name}`, () => window.api.push(repo!, { branch: r.name, setUpstream: !r.upstream })),
+          });
+        }
       }
       items.push({ separator: true });
       items.push({ label: `Delete ${r.name}`, danger: true, disabled: r.isHead, onClick: () => deleteBranch(r) });
@@ -539,6 +560,7 @@ export function App(): JSX.Element {
         behind={snapshot?.status.behind ?? 0}
         hasUpstream={!!headRef?.upstream}
         hasRemotes={(snapshot?.remotes.length ?? 0) > 0}
+        pushRemote={defaultRemote(snapshot?.remotes ?? []) ?? null}
         hasChanges={(snapshot?.status.entries.length ?? 0) > 0}
         stashCount={snapshot?.stashes.length ?? 0}
         pullMode={prefs.pullMode}

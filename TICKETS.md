@@ -144,7 +144,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | done |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | done |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | done |
-| GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | in-progress |
+| GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | done |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | done |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | done |
@@ -170,6 +170,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | todo |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
+| GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
+| GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
@@ -1457,7 +1459,7 @@ decision is missing.
 
 ### GC-031 Push to a chosen remote when the repository has several
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** GC-008
 - **Why:** GC-008 made a second remote a two-click affair, and the push paths still assume one.
@@ -1476,10 +1478,10 @@ decision is missing.
   - Toolbar Push title names the remote it will use when the branch has no upstream.
 - **Out of scope:** a remote picker dialog, "push to all remotes", pull from a chosen remote.
 - **Acceptance:**
-  - [ ] With `origin` and a second remote, the branch menu lists a push entry per remote and each
+  - [x] With `origin` and a second remote, the branch menu lists a push entry per remote and each
     pushes there (`git ls-remote <remote> <branch>` shows the sha).
-  - [ ] Tag push with remotes `alpha` and `origin` lands on `origin` by default.
-  - [ ] e2e step 17 (remotes) pushes a branch to the added remote before removing it.
+  - [x] Tag push with remotes `alpha` and `origin` lands on `origin` by default.
+  - [x] e2e step 17 (remotes) pushes a branch to the added remote before removing it.
 - **Files:** `src/renderer/src/App.tsx`, `src/main/git.ts`, `src/renderer/src/components/Toolbar.tsx`,
   `tools/e2e/run.mjs`.
 - **Verify:** `npm run typecheck && npm run build && npm run e2e`, `git ls-remote` on the bare
@@ -1488,6 +1490,98 @@ decision is missing.
   - 2026-09-05 proposed by GR-001: GC-008 shipped remote management while every push path still
     hard-codes a single remote, and the tag path picks a different one from the branch path.
   - 2026-09-05 20:35 claimed
+  - 2026-09-05 20:45 done. The remote choice moved into `src/shared/remotes.ts` as
+    `defaultRemote(remotes)` (origin, else the first), imported by `git.ts push` and by `App`, so
+    the menu labels and the push it performs can no longer disagree. `refMenuItems` now emits one
+    "Push <branch> to <remote>" entry per remote, in its own separated group, when the repository
+    has several (the single-remote label is unchanged), the tag menu emits "Push tag <name> to
+    <remote>" per remote and otherwise uses `defaultRemote` instead of `remotes[0]`, and the
+    toolbar Push title reads "Push to <remote> and set upstream" when the branch has no upstream.
+    Verified: typecheck, build, `npm test` 44 passing (up from 39 — `src/shared/remotes.test.ts`
+    covers `defaultRemote`, including the alpha-versus-origin pair this ticket names;
+    mutation-checked by reverting the helper to `remotes[0]`, which fails that case).
+    `npm run e2e` 64 assertions all passed, up from 62: step 17 now creates a scratch
+    `push-target` branch, checks the menu lists "Push push-target to origin" and "…to upstream",
+    clicks the upstream entry and asserts `git ls-remote upstream push-target` carries the sha,
+    then deletes the branch on both sides (the prologue drops it too, so the run stays
+    re-entrant). The `alpha` ordering premise was confirmed directly in the scratch repo:
+    `git remote` lists `alpha` before `origin`, so the old `remotes[0]` tag push really did pick
+    the wrong one. Screenshot of the two-remote branch menu in
+    `docs/screenshots/gc-031-push-per-remote.png`, looked at; the toolbar title was read over CDP
+    with `main`'s upstream temporarily unset in the scratch repo ("Push to origin and set
+    upstream") and restored afterwards.
+
+### GC-056 The scratch repo's second remote is the same bare repo as origin
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** e2e step 17 adds a second remote (`upstream`, later renamed `mirror`) pointing at
+  `<root>/remote.git` — the very repository `origin` already points at. Every per-remote
+  assertion is therefore blind: GC-031's new "the chosen remote received the branch" check reads
+  `git ls-remote upstream push-target`, which would pass just as well if the push had gone to
+  `origin`, because both names resolve to the same bare repository. The same blindness covers the
+  fetch assertion and anything GC-057 adds later. A distinct second bare repo makes the
+  difference observable.
+- **Scope:**
+  - `setup-testrepo.mjs` creates a second bare repository `<root>/remote2.git` alongside
+    `remote.git`, with nothing pushed to it, and does not add it as a remote (step 17 still adds
+    the remote through the UI, which is the thing it is testing).
+  - `run.mjs` step 17 adds `upstream` pointing at `remote2.git` instead of `remote.git`, and the
+    "remote added and fetched" check drops the `refs/remotes/upstream/main` expectation (an empty
+    bare repository has no branches) in favour of asserting the remote exists with the right URL.
+  - The GC-031 push assertion becomes exclusive: after pushing `push-target` to `upstream`,
+    `git ls-remote upstream push-target` carries the sha **and** `git ls-remote origin
+    push-target` is empty. Clean-up deletes it from `remote2.git` only.
+- **Out of scope:** a third remote, pull from a chosen remote, changing any other step.
+- **Acceptance:**
+  - [ ] `npm run e2e:setup` creates `<root>/remote2.git` as an empty bare repository.
+  - [ ] Step 17 passes with the exclusive assertion (the sha on `upstream`, nothing on `origin`).
+  - [ ] Pointing that push back at `origin` in `App.tsx` fails the assertion (mutation check).
+  - [ ] The run stays re-entrant: a second `npm run e2e` straight afterwards passes unchanged.
+- **Files:** `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e:setup && npm run e2e` twice in a row, then the mutation check above.
+- **Log:**
+  - 2026-09-05 proposed by GC-031 (this ticket): the per-remote push assertion GC-031 added
+    cannot tell the two remotes apart, because step 17 points both at the same bare repository.
+
+### GC-057 Toolbar Push and Pull cannot choose the remote
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P3
+- **Depends on:** GC-031
+- **Why:** GC-031 gave the branch and tag context menus one push entry per remote, but the
+  toolbar still has a single Push button that always uses the upstream, or `defaultRemote` when
+  there is none — it now names that remote in its title, which is honest but still offers no way
+  to change it. Pull is in the same position: `pull(cwd, mode)` takes no remote at all and its
+  caret popover only chooses ff / ff-only / rebase. The study
+  (`docs/reference/gitkraken/05-menus-shortcuts.md`) has both as split buttons whose popover
+  lists the remotes. A user with two remotes has to go through the left panel for every push.
+- **Scope:**
+  - Push becomes a split button like Pull: a caret opening a popover that, with several remotes,
+    lists "Push to <remote>" per remote (setting the upstream when the branch has none). With one
+    remote the caret stays hidden, so nothing changes for the common case.
+  - `pull` takes an optional remote (`git pull <flag> <remote> <branch>` when given, today's
+    argument-free form otherwise), threaded through `ipc.ts` and the preload; the Pull popover
+    gains a "Pull from <remote>" row per remote below the existing mode rows, separated.
+  - The Push popover joins `layerOpen` in `App.tsx` the way the Pull popover already does
+    (GC-038), so Escape still closes exactly one layer.
+- **Out of scope:** "push to all remotes", remembering the last remote used, a remote picker
+  dialog, changing what either button does when the repository has one remote.
+- **Acceptance:**
+  - [ ] With two remotes, the Push caret lists both and each pushes there (`git ls-remote`).
+  - [ ] With one remote, neither button gains a caret it did not have.
+  - [ ] Pull from a named remote reaches `git pull <flag> <remote> <branch>`.
+  - [ ] Escape with either popover open closes only it, the find bar keeping its query (the
+    GC-039 guard extended to the Push popover).
+- **Files:** `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/App.tsx`,
+  `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
+  `tools/e2e/run.mjs`.
+- **Verify:** `npm run typecheck && npm run build && npm test && npm run e2e`, plus a CDP
+  screenshot of each popover with two remotes.
+- **Log:**
+  - 2026-09-05 proposed by GC-031 (this ticket): GC-031 fixed the context menus and left the
+    toolbar with one hard-coded remote for push and no remote at all for pull.
 
 ### GC-032 Optional Author, Date and SHA columns in the graph
 

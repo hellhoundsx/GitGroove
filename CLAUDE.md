@@ -180,6 +180,12 @@ Awesome icons, Open Sans, bundled Git for Windows shelled out to. Native (Chromi
   `--no-edit`, rebase, cherry-pick, revert, reset soft/mixed/hard, tags, fetch
   `--all --prune`, pull (`--no-rebase` | `--ff-only` | `--rebase`), push (`-u <remote> <branch>`
   when setting upstream, `--force-with-lease` for force), stash push/apply/pop/drop.
+- **A push with no remote named picks `defaultRemote(remotes)` from `src/shared/remotes.ts`**
+  (`origin`, else the first remote): `getRemotes` sorts by name, so a plain `remotes[0]` sent
+  tag pushes to a remote called `alpha` while branch pushes went to `origin` (GC-031). Main and
+  renderer import the same helper so a menu label cannot promise a different remote from the
+  one the push uses; `src/shared/` is the only place code is shared both ways, and it is
+  covered by `remotes.test.ts`.
 - Credentials rely on the system credential helper; `GIT_TERMINAL_PROMPT=0` prevents hangs.
 
 ### IPC and preload
@@ -233,6 +239,11 @@ query and the dimming away (GC-030). Only `closeSearch` clears it, so a diff can
 graph and the search comes back untouched; the toolbar's Search button with a diff open closes the
 diff and refocuses the bar instead of closing a search the user cannot see. **No handler compares a key name of its
 own** (GC-010): every one asks `matches(id, event)` from `src/renderer/src/shortcuts.ts`.
+With several remotes configured, `refMenuItems` offers one "Push <branch> to <remote>" entry per
+remote in its own separated group, and the tag menu one "Push tag <name> to <remote>" per remote
+(`MenuItem` has no submenu, so a separated group is the whole mechanism); with a single remote
+both keep their original label, and the toolbar's Push title names the remote it would use when
+the branch has no upstream (GC-031).
 Double-clicking a branch chip or a left-panel branch row checks it out (matches GitKraken).
 Every checkout the UI can trigger — chips, left-panel rows, the ref menu, the commit menu's
 detached checkout — goes through `runCheckout(name, doCheckout)`, which with a non-empty
@@ -377,14 +388,19 @@ with the tree re-applied), commit search (message, sha prefix, stepping through
 matches, the position following a clicked row, a diff opened over the graph and closed again with
 the query, readout, selection and dimming intact — compared from a fixed scroll position through
 `searchStateAtTop()`, because the rows are virtualised (GC-030) — and Escape), and remote management (add a second remote
-pointing at the bare origin and fetch it, rename it, edit its URL, remove it, origin untouched),
+pointing at the bare origin and fetch it; with both remotes present, check the branch menu lists
+a push entry per remote, push a scratch `push-target` branch to the added one and assert
+`git ls-remote` carries the sha, then delete it on both sides — GC-031, and note that both
+remotes are the same bare repository today, so the assertion cannot yet tell them apart
+(GC-056); then rename the remote, edit its URL, remove it, origin untouched),
 and the layering guard (GC-039): with the find bar open and focus in its input, a commit context
 menu, a ref-menu prompt and the toolbar Pull popover are each opened over it and closed with one
 real Escape, the find bar keeping its query every time, and only the Escape after that closes the
 find bar itself. Reverting GC-037 or GC-038 locally fails that step.
 It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused
-one flake. All 62 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
-aborts in-progress operations, removes the refs and the remotes it creates, and drops the
+one flake. All 64 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+aborts in-progress operations, removes the refs and the remotes it creates (including the
+`push-target` branch step 17 pushes, locally and on the bare origin), and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind, and pops back both the
 unnamed stash step 5 parks the tree in for a moment and the named `test stash` a run that died
 between steps 5 and 8 would strand — popped, not dropped, because it holds the mixed working tree
@@ -401,7 +417,7 @@ jsdom and no React plugin in that config. `tsconfig.web.json` already includes t
 `src/renderer/src/**/*`, so `npm run typecheck` type-checks the tests too; import `describe`,
 `it` and `expect` from `vitest` explicitly rather than turning on globals.
 
-Covered today (39 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (44 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -421,6 +437,11 @@ reaching for a reset function; and the subscriber list is reachable only through
 React's `useSyncExternalStore` is stubbed with `vi.mock` to capture the `subscribe` callback,
 which keeps `prefs.ts` free of exports that exist only for tests. Mutation-checked: deleting the
 migration branch in `load()` fails the migration case.
+`remotes.test.ts` covers `defaultRemote` (GC-031): no remotes, a single oddly named one, `origin`
+winning over an `alpha` that sorts before it and over a `zeta` that sorts after it, and the
+first-remote fallback when there is no `origin`. Mutation-checked: reverting the helper to
+`remotes[0]` fails the alpha case. It sits in `src/shared/` next to the module it covers, which
+the existing `src/**/*.test.ts` include already picks up.
 `repo-hygiene.test.ts` guards the repository rather than the renderer (GC-047): it walks `src/`
 and `tools/` plus the root markdown files, skipping `node_modules/`, `out/`, `dist/` and the
 binary extensions, and fails on any C0 control byte that is not TAB or LF — CR included, because
@@ -466,7 +487,9 @@ switchable (GC-007); commit search over the loaded commits from the toolbar butt
 dimming non-matches instead of hiding them (GC-009); the commit search surviving a diff opening over the graph, its query owned by `App` (GC-030);
 a named message when git is missing from PATH, told apart from a repository folder that no longer
 exists (GC-025); the pinned branch's chip ranking second so the fold cannot hide its marker
-(GC-020); the e2e prologue recovering the named stash a run interrupted between steps 5 and 8
+(GC-020);
+one push entry per remote in the branch and tag menus, with the `origin`-first default shared
+between main and renderer so labels and behaviour agree (GC-031); the e2e prologue recovering the named stash a run interrupted between steps 5 and 8
 strands (GC-036); the launcher's header naming `--keep-running`, the flag it actually reads
 (GC-041); a byte-level test that fails on a raw control byte in any source or root markdown file
 (GC-047); toolbar buttons sized to their labels so "Shortcuts" and "Preferences" no longer run
