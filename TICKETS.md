@@ -1,4 +1,4 @@
-# GitClient tickets done || done || done || done || done || done ||
+# GitClient tickets
 
 The backlog of work that can be started right now, in a form an unattended session can pick
 up. Every ticket has exactly one status. The per-ticket `Status:` line is the source of truth;
@@ -12,7 +12,7 @@ GitKraken, never copy it; never run write operations against Ricardo's real repo
 | Status | Meaning | Who sets it |
 | --- | --- | --- |
 | `todo` | Ready to start. Scope and acceptance criteria are written down. | Ricardo (or a session adding a ticket) |
-| `in-progress` | Claimed by one worker session. Its presence tells every other worker run to exit. Reviews never use it. | The session that claims it |
+| `in-progress` | Claimed by the running batch. Its presence tells every other worker run to exit; one batch sets it on several tickets at once. Reviews never use it. | The session that claims it |
 | `done` | Implemented, verified, committed and pushed. | The session that finished it |
 | `blocked` | Cannot proceed without a decision, a design or another ticket. Reason is in the log. | Anyone |
 
@@ -20,64 +20,110 @@ Ricardo can reopen a `done` ticket by setting it back to `todo` with a log line 
 
 ## Routine protocol (for the scheduled session)
 
-The routine fires every few minutes. Most runs do nothing. A run that finds work takes exactly
-one ticket and stays alive until that ticket is `done` or `blocked`, committed and pushed on
-`main`. Because of the `in-progress` lock, at most one ticket is ever being worked on.
+The routine fires every few minutes. Most runs do nothing. A run that finds work takes a
+**batch** of tickets — one is a valid batch — and stays alive until every ticket in it is
+`done` or `blocked`, committed and pushed on `main`.
+
+The session that claims a batch is an **orchestrator**: it writes no ticket code itself. Each
+ticket is implemented by its own subagent, in this one working tree, restricted to that ticket's
+files. The orchestrator owns selection, claiming, all shared verification, both shared documents
+and the commits. That division exists because the expensive checks are singletons — one `out/`
+directory, one DevTools port, one scratch repository — so they can only be run once, centrally,
+after the parallel work is in.
 
 1. **Sync.** `git pull --ff-only origin main`. If the pull fails (network, authentication,
    non-fast-forward), stop and report; never work while pushes cannot land. Then
    `git status --porcelain` must be empty. If it is not, a previous run died mid-work: stop and
-   report, do not clean up.
+   report, do not clean up. The one exception is a tree holding exactly the unfinished work of a
+   batch whose claim is already on `origin/main` — finishing that close-out is better than
+   leaving its lock stranded, but say so in the report.
 2. **Lock check.** If any ticket is `in-progress` anywhere in this file, exit without doing
-   anything. Another run owns it. (If its claim line is older than six hours, mention it in the report so Ricardo can
-   inspect; still do not take it over.)
-3. **Pick.** The first board row that is `todo` and whose `Depends on` tickets are all `done`.
-   Any size. If nothing is eligible, exit.
-4. **Claim, commit, push.** Set the ticket to `in-progress`, update the board row, append a log
-   line `YYYY-MM-DD HH:MM claimed`, then commit only that change and push it:
-   `git commit -am "GC-0NN: claim" && git push origin main`. This is the first commit of
-   every working run; the lock is on `main` before any code changes exist. If that push is
-   rejected as non-fast-forward, another run claimed first: `git reset --hard origin/main`
-   discards the unpublished claim, then stop and report.
-5. **Implement** within the ticket's scope. Do not widen it. If something adjacent needs doing,
-   add a new `todo` ticket at the end of the file instead.
-6. **Verify.** `npm run typecheck && npm run build` always. `npm test` once GC-002 exists.
-   `npm run e2e:setup && npm run e2e` when the ticket touches `git.ts`, `ipc.ts`, actions in
-   `App.tsx` or the DetailPanel. For UI changes, launch the built app, load the e2e repo, take a
-   CDP screenshot to `docs/screenshots/` and look at it before calling it done. Tick the
-   acceptance boxes only for items actually checked.
+   anything: a batch is running. (If its claim line is older than six hours, mention it in the
+   report so Ricardo can inspect; still do not take it over.) Several `in-progress` lines at once
+   are normal — a batch claims all of its tickets together.
+3. **Select the batch.** Walk the board top to bottom, which is priority order. A row is
+   eligible when it is `todo` and every ticket in its `Depends on` is `done`. Take the first
+   eligible row, then keep walking and add a later eligible ticket **only if its `Files:` set is
+   disjoint from every ticket already in the batch**. Any shared file and it waits for another
+   run; never try to sequence two tickets over one file. `TICKETS.md` and `CLAUDE.md` never count
+   toward a file set, because the orchestrator is their only writer. Stop at six tickets, or at
+   one if the first eligible ticket is size L. If nothing is eligible, exit. Report which
+   eligible tickets were skipped and on which file each collided.
+4. **Claim the batch, commit, push.** For every ticket in the batch set the section to
+   `in-progress`, update the board row, append a log line `YYYY-MM-DD HH:MM claimed`, then commit
+   only that change and push it: `git commit -am "GC-0NN, GC-0MM, ...: claim" && git push origin main`.
+   This is the first commit of every working run; the lock is on `main` before any code changes
+   exist. If that push is rejected as non-fast-forward, another run claimed first:
+   `git reset --hard origin/main` discards the unpublished claim, then stop and report.
+5. **Dispatch**, one subagent per ticket, all in parallel, in a single message. Each is given its
+   ticket's Why / Scope / Out of scope / Acceptance verbatim, **the list of files it owns**, and
+   these bans: nothing outside its file list (other agents are editing this same tree); no
+   `TICKETS.md` or `CLAUDE.md` edits — it reports the stale wording instead; no `npm run build`,
+   no e2e, no app launch, because those are the singletons the orchestrator runs centrally; no
+   git write commands, it leaves its work uncommitted. It **may** run `npm run typecheck` and
+   `npm test`, which are safe concurrently — a typecheck error in a file it does not own is
+   another agent's work in flight, not its problem. Do not give agents separate worktrees:
+   disjoint ownership in one tree is what makes a single central build and one e2e run possible.
+6. **Verify centrally**, serialized, once every agent is done. Read each agent's diff and confirm
+   it stayed in its lane and did what it reported; `git status --porcelain` must show only files
+   the batch owns. `npm run typecheck && npm run build` and `npm test` always, once for the whole
+   batch. `npm run e2e:setup && npm run e2e` when any ticket touches `git.ts`, `ipc.ts`, actions
+   in `App.tsx` or the DetailPanel, or `tools/e2e/*`. For tickets needing the running app, launch
+   through `node tools/launch-app.mjs`, drive it over CDP, screenshot into `docs/screenshots/`
+   and look at it — batching several tickets into one launch. Re-run any mutation or destructive
+   check an agent reports, rather than ticking a box on its word. If a shared check fails and the
+   cause is not obvious, bisect by reverting one ticket's files at a time, not the batch. Tick
+   acceptance boxes only for items actually checked; when a criterion had to be checked by a
+   different method than its Verify line names, say which and why in that ticket's log.
 7. **Reflect.** Before closing, list what you noticed during the work that needs fixing or
    deserves work but was outside scope: bugs, missing tests, UX gaps against the GitKraken
    study, convention drift from `CLAUDE.md`. Add each as a new `todo` ticket with the full
    template, a board row at the position its priority deserves (bugs are P0 or P1) and a log
-   line `proposed by GC-0NN (this ticket): <reason>`. Deduplicate against existing tickets
-   first. Zero new tickets is fine; never more than three per run.
-8. **Close out, commit, push.** Set the ticket to `done` (or `blocked` with a one-line reason),
-   update the board row, append a log line saying what was done and how it was verified. Update
-   `CLAUDE.md` if a convention, command or the roadmap changed. Then
-   `git add -A && git commit -m "GC-0NN: <ticket title>" && git push origin main`.
-   Intermediate commits during the work are fine; the final one must leave no `in-progress`
-   line anywhere in this file.
-9. **Report** the ticket id, its final status, the commit shas and any tickets added in step 7.
+   line `proposed by GC-0NN (this ticket): <reason>`. Deduplicate first: if an existing ticket
+   already covers it, add the evidence to the log of the ticket you were working on and name
+   that id instead of filing a duplicate. Zero new tickets is fine; never more than three per
+   run, whatever the batch size.
+8. **Close out, commit, push.** Each ticket independently becomes `done`, or `blocked` with a
+   one-line reason — one failure never blocks the rest of the batch. Update each section status,
+   each board row and each log line, naming the evidence (assertion counts, measured values,
+   screenshot paths). Update `CLAUDE.md` once for the whole batch wherever a convention, command
+   or the roadmap changed. Then `git add -A && git commit -m "GC-0NN, GC-0MM, ...: <summary>" && git push origin main`.
+   Intermediate commits are fine; the final one must leave no `in-progress` line anywhere in
+   this file, and a claim commit must never be the last word on `main`.
+9. **Report** the batch, each ticket's final status and evidence, the commit shas, the eligible
+   tickets skipped and why, any tickets added in step 7, and anything that could not be verified
+   as specified.
 
-Commit message format: `GC-0NN: <imperative summary>`. The routine never checks out another
-branch, never rewrites published history and never force-pushes. Run every git command with
-`GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`: pushing relies on a GitHub token already
-stored in Git Credential Manager, and an unattended run cannot answer a sign-in window. If a
-push is rejected for authentication, leave the commits local, say so in the report, do not retry.
+**Editing this file's board table: never use a regex.** Split into lines, find the line starting
+with `| GC-0NN |`, split it on `|`, replace the status cell (`cells[cells.length - 2]`), join
+back. A regex built by string interpolation has silently corrupted this file before — the pipes
+were parsed as alternation, so the pattern matched the title line instead of the board row,
+appended to it, and still returned true from `test()`, leaving the board untouched with no error.
+After any edit, grep the rows and status lines back and confirm they say what was intended.
+
+Commit message format: `GC-0NN: <imperative summary>` for one ticket, `GC-0NN, GC-0MM, ...: <summary>`
+for a batch. The routine never checks out another branch, never rewrites published history and
+never force-pushes. Run every git command with `GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`:
+pushing relies on a GitHub token already stored in Git Credential Manager, and an unattended run
+cannot answer a sign-in window. If a push is rejected for authentication, leave the commits local,
+say so in the report, do not retry.
 
 Ricardo uses this machine while runs happen, often in a full-screen game. **Never steal focus.**
 Never run anything in `tools/gk-recon/*.ps1` (`focus`, `rclick`, `shot`, `cursor`, `esc`) or
 any other OS-level input or screenshot; drive and capture the app over CDP only. Launch the app
-only through `node tools/launch-app.mjs` (stealth by default) once GC-028 has landed; until
-then, run e2e when a ticket requires it but skip optional screenshots rather than pop a window.
+only through `node tools/launch-app.mjs` (stealth by default). **Never
+`taskkill //F //IM electron.exe`** (GC-035): stop only what the run started, with `stopPort(port)`,
+the `stop()` a `launchApp` resolves with, or `taskkill //F //T //PID <pid>` against a tree you
+identified as yours — the reviewer's Electron runs on port 9334 and a machine-wide kill takes it,
+and any `npm run dev` window, down with it.
 
 Ready-to-paste routine prompt:
 
 > Open `C:/Users/Ricar/Documents/apps/GitClient`. Read `CLAUDE.md`, then follow the
-> "Routine protocol" in `TICKETS.md` exactly. If a ticket is already `in-progress`, exit and
-> say so. Otherwise take one ticket through to `done` or `blocked`, committed and pushed on
-> `main`, and report the ticket id, final status and commit shas.
+> "Routine protocol" in `TICKETS.md` exactly. If any ticket is already `in-progress`, exit and
+> say so. Otherwise claim a batch of eligible `todo` tickets whose files do not overlap,
+> implement them in parallel subagents, verify centrally, take each through to `done` or
+> `blocked` committed and pushed on `main`, and report the batch, final statuses and commit shas.
 
 ## Review routine (hourly backlog reviewer)
 
