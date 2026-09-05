@@ -140,7 +140,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | done |
 | GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
-| GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
+| GC-024 | Unit tests for prefs.ts | tests | S | P2 | in-progress |
 | GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | todo |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
@@ -1144,7 +1144,7 @@ decision is missing.
 
 ### GC-024 Unit tests for prefs.ts
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-007
 - **Why:** `prefs.ts` decides what every other component reads, and its `load()` is the only
@@ -1169,6 +1169,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-007 (this ticket): the migration and the per-field fallbacks were
     checked once by hand over CDP and have no regression guard.
+  - 2026-09-05 18:35 claimed
 
 ### GC-026 One dialog with several fields instead of chained prompts
 
