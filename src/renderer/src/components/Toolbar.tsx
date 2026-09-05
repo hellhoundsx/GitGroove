@@ -11,6 +11,7 @@ export interface ToolbarHandlers {
   onStash(): void;
   onPop(): void;
   onRefresh(): void;
+  onSearch(): void;
   onOpenPreferences(): void;
 }
 
@@ -24,6 +25,7 @@ interface Props extends ToolbarHandlers {
   hasChanges: boolean;
   stashCount: number;
   pullMode: PullMode;
+  searchOpen: boolean;
   onPullModeChange(mode: PullMode): void;
 }
 
@@ -33,9 +35,9 @@ const PULL_MODES: { mode: PullMode; label: string }[] = [
   { mode: 'rebase', label: 'Pull (rebase)' },
 ];
 
-function ToolButton({ label, icon, title, disabled, onClick }: { label: string; icon: LucideIcon; title?: string; disabled?: boolean; onClick?: () => void }): JSX.Element {
+function ToolButton({ label, icon, title, disabled, active, onClick }: { label: string; icon: LucideIcon; title?: string; disabled?: boolean; active?: boolean; onClick?: () => void }): JSX.Element {
   return (
-    <button className="tool-btn" title={title ?? label} disabled={disabled} onClick={onClick}>
+    <button className={`tool-btn ${active ? 'active' : ''}`} title={title ?? label} disabled={disabled} onClick={onClick}>
       <Icon of={icon} size={18} />
       <span>{label}</span>
     </button>
@@ -136,7 +138,7 @@ export function Toolbar(p: Props): JSX.Element {
         <ToolButton label="Refresh" icon={RefreshCw} disabled={noRepo || p.busy} onClick={p.onRefresh} />
       </div>
       <div className="actions right">
-        <ToolButton label="Search" icon={Search} disabled />
+        <ToolButton label="Search" icon={Search} title="Find a commit (Ctrl+F)" active={p.searchOpen} disabled={noRepo} onClick={p.onSearch} />
         <ToolButton label="Preferences" icon={Settings} title="Preferences" onClick={p.onOpenPreferences} />
       </div>
     </div>

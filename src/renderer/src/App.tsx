@@ -44,6 +44,11 @@ export function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
+  // The search bar over the graph. `searchTick` changes on every request to open it so that
+  // Ctrl+F refocuses the field even when the bar is already showing.
+  const [search, setSearch] = useState({ open: false, tick: 0 });
+  const openSearch = useCallback(() => setSearch((s) => ({ open: true, tick: s.tick + 1 })), []);
+  const closeSearch = useCallback(() => setSearch((s) => ({ ...s, open: false })), []);
 
   const load = useCallback(async (path: string) => {
     try {
@@ -449,9 +454,18 @@ export function App(): JSX.Element {
   // ---- keyboard ----------------------------------------------------------------------
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // Ctrl+F works from anywhere, including the commit message field
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        if (!snapshot) return;
+        e.preventDefault();
+        setFileView(null);
+        openSearch();
+        return;
+      }
       if (isEditable(e.target)) return;
       if (e.key === 'Escape') {
-        setFileView(null);
+        if (search.open) closeSearch();
+        else setFileView(null);
         return;
       }
       if (!snapshot || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
@@ -464,7 +478,7 @@ export function App(): JSX.Element {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [snapshot, selected]);
+  }, [snapshot, selected, search.open, openSearch, closeSearch]);
 
   return (
     <div className="app">
@@ -488,6 +502,14 @@ export function App(): JSX.Element {
         onStash={() => void stashChanges()}
         onPop={() => void run('Popping stash', () => window.api.stashPop(repo!, 0))}
         onRefresh={() => void run('Refreshing', async () => undefined)}
+        searchOpen={search.open}
+        onSearch={() => {
+          if (search.open) closeSearch();
+          else {
+            setFileView(null);
+            openSearch();
+          }
+        }}
       />
       <div className="main">
         {snapshot && repo ? (
@@ -527,6 +549,9 @@ export function App(): JSX.Element {
                 pinnedSha={pinnedRef?.sha ?? null}
                 pinnedName={pinnedRef?.name ?? null}
                 selected={selected}
+                searchOpen={search.open}
+                searchTick={search.tick}
+                onCloseSearch={closeSearch}
                 onSelect={select}
                 onCommitMenu={(e, c) => onMenu(e, commitMenuItems(c))}
                 onWipMenu={(e) => onMenu(e, wipMenuItems())}

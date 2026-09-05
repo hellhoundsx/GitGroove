@@ -112,7 +112,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-006 | Resizable ref column | graph | M | P1 | done |
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | done |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | done |
-| GC-009 | Commit search | graph | M | P2 | in-progress |
+| GC-009 | Commit search | graph | M | P2 | done |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
@@ -127,6 +127,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
+| GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -484,7 +485,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-009 Commit search
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** M | **Priority:** P2
 - **Depends on:** GC-001
 - **Why:** The Search toolbar button is a disabled placeholder. Finding a commit by message,
@@ -497,12 +498,28 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - Rows are not hidden (GitKraken keeps the graph and dims non-matches).
 - **Out of scope:** searching file paths or diffs (`git log -S`), searching past the loaded 2000.
 - **Acceptance:**
-  - [ ] Typing a sha prefix selects that commit and scrolls it into view.
-  - [ ] e2e step: search for a known message in the scratch repo, assert the selected sha.
+  - [x] Typing a sha prefix selects that commit and scrolls it into view.
+  - [x] e2e step: search for a known message in the scratch repo, assert the selected sha.
 - **Files:** `Toolbar.tsx`, `CommitGraph.tsx`, `App.tsx`, `app.css`, `tools/e2e/run.mjs`.
 - **Verify:** e2e, screenshot.
 - **Log:**
   - 2026-09-05 16:56 claimed
+  - 2026-09-05 17:10 done. The Search toolbar button and Ctrl+F (from anywhere, including the
+    commit form) reveal a find bar above the graph header: search icon, a 320px field, the
+    position readout, previous / next / close. Matching rows are tinted and every other row drops
+    to 0.3 opacity — no row is hidden, so the graph stays continuous. Matching is client-side over
+    the loaded commits on summary, body, author name, author email and sha prefix. A new query
+    jumps to its first match and the existing keep-selection-visible effect scrolls it into view;
+    Enter / Shift+Enter, the arrow keys and the two buttons step through the results, wrapping at
+    the ends. The position is derived from the selection rather than held in its own state, so
+    clicking a row mid-search moves the readout with it and "next" continues from there instead of
+    from a stale cursor. Escape (in the field or globally) closes the bar and clears the query.
+    Verified: `npm run typecheck`, `npm test` (23), `npm run build`, and `npm run e2e` — 48
+    assertions, all passed, including the new step 16 (toolbar opens the bar; "Main-only" selects
+    the expected sha; a 6-character sha prefix selects the same commit at "1 of 1"; "feature"
+    counts 3 and Next moves the selection; clicking the last match reads "3 of 3" and Next wraps
+    to "1 of 3"; Escape closes and undims). Screenshot `docs/screenshots/commit-search.png`
+    looked at: compact find bar, three amber matches, the rest dimmed, graph lines unbroken.
 
 ### GC-010 Keyboard shortcuts overlay
 
@@ -753,6 +770,38 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     which is the same menu that renames and deletes the branch.
 
 ---
+
+### GC-027 Author filter in commit search
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-009
+- **Why:** GC-009 shipped a single text field that matches message, author and sha at once. The
+  GitKraken study (`docs/reference/gitkraken/04-panels.md`, "Commit search") records filter chips
+  for author and team next to the field, and that is the one thing the plain field cannot express:
+  "commits by this person" is drowned out whenever the name also appears in messages, and there is
+  no way to combine an author with a message term.
+- **Scope:**
+  - An "Author" chip next to the search field opens a list of the authors present in the loaded
+    commits (name + email, deduplicated on the lowercased email, most commits first).
+  - Picking one narrows the matches to that author; the free-text term still applies on top of it,
+    matching message and sha only. The chip shows the chosen name and clears with an x.
+  - The position readout and the dimming keep working unchanged; clearing the chip restores the
+    plain text search.
+- **Out of scope:** teams (we have no team concept), committer as distinct from author, date
+  ranges, more than one author at a time.
+- **Acceptance:**
+  - [ ] With an author chosen and the field empty, exactly that author's commits are matches.
+  - [ ] With an author chosen and a message term typed, both must hold.
+  - [ ] e2e step: pick the scratch repo's author, assert the match count equals
+    `git log --all --author=... --oneline | wc -l` for the loaded commits.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`,
+  `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, e2e, screenshot of the bar with a chip set.
+- **Log:**
+  - 2026-09-05 proposed by GC-009 (this ticket): the study's commit search has author filter
+    chips; the text field shipped here cannot separate "authored by" from "mentioned in the
+    message".
 
 ## Adding a ticket
 

@@ -174,7 +174,10 @@ must show (conflicts, an empty cherry-pick). `msg()` strips Electron's IPC prefi
 Staging actions are exposed to the DetailPanel as `StagingActions`; menus are built by
 `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`, `remoteMenuItems`.
 
-Keyboard: ArrowUp/Down move the selection across WIP + commits, Escape closes the file view.
+Keyboard: ArrowUp/Down move the selection across WIP + commits, Escape closes the search bar and
+then the file view, Ctrl+F opens the graph's commit search (from anywhere, including the commit
+form). The search bar's open flag lives in `App.tsx` as `{ open, tick }`: `tick` changes on every
+request to open it so a second Ctrl+F refocuses a bar that is already showing.
 Double-clicking a branch chip or a left-panel branch row checks it out (matches GitKraken).
 Every checkout the UI can trigger — chips, left-panel rows, the ref menu, the commit menu's
 detached checkout — goes through `runCheckout(name, doCheckout)`, which with a non-empty
@@ -240,6 +243,14 @@ whose hover shows the rest in a dropdown; hovering a chip expands it to its full
 graph (per-chip hover, not per-cell, otherwise the `+N` chip moves away from the pointer).
 Chip order: HEAD, tracking locals, other locals, remotes, tags.
 
+Commit search (GC-009) is a find bar `CommitGraph` draws above its header when `searchOpen`:
+matching is client-side over the loaded commits on summary, body, author name, author email and
+sha prefix. Matching rows get `.match`, every other row `.unmatched` (0.3 opacity) — GitKraken
+dims rather than hides, so the graph stays continuous. The position in the results is derived from
+the current selection (`matches.indexOf(selected)`) instead of its own state, so clicking a row
+mid-search moves the readout and "next" continues from there; a new query jumps to the first match
+and the keep-selection-visible effect scrolls it in.
+
 The ref column is resizable (GC-005's neighbour, GC-006): `CommitGraph` holds the width in state,
 writes it to `--ref-col-w` on `.graph-panel` (`tokens.css` only carries the 150px default) and
 persists it to `gitclient.refColW` on pointer-up. The 4px `.col-resize` handle is absolutely
@@ -286,10 +297,11 @@ and already-applied: git leaves it in progress and the message must stay visible
 (`Fetch all` lives in the Pull caret popover), pull after a commit from a second clone, tag create
 and delete, WIP menu, a per-file delete through the confirm modal, and the dirty-checkout guard
 (clean tree raises no prompt; Cancel changes nothing; "Stash and check out" lands on the branch
-with the tree re-applied), and remote management (add a second remote pointing at the bare origin
-and fetch it, rename it, edit its URL, remove it, origin untouched). It waits for the status-bar
-spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused one flake. All 38 assertions
-passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+with the tree re-applied), commit search (message, sha prefix, stepping through
+matches, the position following a clicked row, Escape), and remote management (add a second remote
+pointing at the bare origin and fetch it, rename it, edit its URL, remove it, origin untouched).
+It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused
+one flake. All 48 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates, and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind). Step 1 also removes
 `gitclient.prefs`: preferences persist in the app's localStorage, so a setting toggled by hand in
@@ -342,7 +354,8 @@ the dirty-tree checkout guard with "Stash and check out" (GC-004); "Pin to Left"
 branch the leftmost column, remembered per repository (GC-005); the resizable ref column with a
 width-aware chip fold (GC-006); the Preferences dialog behind one `gitclient.prefs` key, with
 avatars, default pull mode, the dirty-checkout confirmation and the 72-character counter all
-switchable (GC-007).
+switchable (GC-007); commit search over the loaded commits from the toolbar button or Ctrl+F,
+dimming non-matches instead of hiding them (GC-009).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

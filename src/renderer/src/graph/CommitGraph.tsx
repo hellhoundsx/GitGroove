@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { Check, Cloud, Minus, Pencil, Pin, Plus, Tag, TriangleAlert } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus, Search, Tag, TriangleAlert, X } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus } from '@shared/types';
 import { layoutGraph, type RowLayout } from './lanes';
 import { GraphCell, LANE_W, ROW_H, laneColor, type WipDash } from './GraphCell';
@@ -14,6 +14,10 @@ interface Props {
   pinnedSha: string | null; // branch pinned to column 0; HEAD's lineage takes it when null
   pinnedName: string | null; // name of that branch, for the pin marker on its chip
   selected: string | null; // sha, or WIP
+  searchOpen: boolean;
+  /** Bumped every time Ctrl+F or the toolbar asks for the search bar, so it refocuses. */
+  searchTick: number;
+  onCloseSearch(): void;
   onSelect(sha: string): void;
   onCommitMenu(e: MouseEvent, commit: Commit): void;
   onWipMenu(e: MouseEvent): void;
@@ -55,10 +59,14 @@ function chipsFor(refs: GitRef[]): Chip[] {
   return refs.filter((r) => !(r.kind === 'remote' && absorbed.has(r.name))).map((r) => ({ ref: r, upstreamHere: r.kind === 'head' && !!r.upstream && absorbed.has(r.upstream) }));
 }
 
+/** Client-side commit match: message, author name, author email, or a sha prefix. `q` is lowercased. */
+const commitMatches = (c: Commit, q: string): boolean =>
+  c.sha.startsWith(q) || c.summary.toLowerCase().includes(q) || c.body.toLowerCase().includes(q) || c.authorName.toLowerCase().includes(q) || c.authorEmail.toLowerCase().includes(q);
+
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate }: Props): JSX.Element {
   // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
   const layout = useMemo(() => layoutGraph(commits, pinnedSha ?? headSha), [commits, headSha, pinnedSha]);
   const refsBySha = useMemo(() => {
@@ -129,6 +137,57 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     persistRefColW(REF_COL_DEFAULT);
   };
 
+  // ---- search -------------------------------------------------------------
+  const [query, setQuery] = useState('');
+  const searchInput = useRef<HTMLInputElement>(null);
+  const needle = searchOpen ? query.trim().toLowerCase() : '';
+
+  const matches = useMemo(() => (needle === '' ? [] : commits.filter((c) => commitMatches(c, needle)).map((c) => c.sha)), [commits, needle]);
+  const matchSet = useMemo(() => new Set(matches), [matches]);
+
+  // The position in the result list is the selection itself, so clicking a row mid-search keeps
+  // "next" meaningful; -1 means the selected row is not one of the matches.
+  const at = matches.indexOf(selected ?? '');
+  const step = useCallback(
+    (delta: number): void => {
+      if (matches.length === 0) return;
+      const from = at >= 0 ? at + delta : delta > 0 ? 0 : matches.length - 1;
+      onSelect(matches[((from % matches.length) + matches.length) % matches.length]!);
+    },
+    [at, matches, onSelect],
+  );
+
+  // A new query jumps to its first match; the scroll effect below then brings the row into view.
+  const lastNeedle = useRef(needle);
+  useEffect(() => {
+    if (lastNeedle.current === needle) return;
+    lastNeedle.current = needle;
+    if (matches.length > 0) onSelect(matches[0]!);
+  }, [needle, matches, onSelect]);
+
+  // Opening (or re-triggering Ctrl+F while already open) focuses and selects the field.
+  useEffect(() => {
+    if (!searchOpen) {
+      setQuery('');
+      return;
+    }
+    searchInput.current?.focus();
+    searchInput.current?.select();
+  }, [searchOpen, searchTick]);
+
+  const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onCloseSearch();
+    } else if (e.key === 'Enter' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      step(e.key === 'Enter' && e.shiftKey ? -1 : 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      step(-1);
+    }
+  };
+
   // ---- virtualisation -----------------------------------------------------
   const bodyRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ top: 0, height: 800 });
@@ -189,7 +248,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     const style = { top: index * ROW_H };
     if (hasWip && index === 0) {
       return (
-        <div key="wip" className={`graph-row wip ${selected === WIP ? 'selected' : ''}`} style={style} onClick={() => onSelect(WIP)} onContextMenu={onWipMenu}>
+        <div key="wip" className={`graph-row wip ${selected === WIP ? 'selected' : ''} ${needle === '' ? '' : 'unmatched'}`} style={style} onClick={() => onSelect(WIP)} onContextMenu={onWipMenu}>
           <div className="col-ref" />
           <div className="col-graph" style={{ width: graphWidth }}>
             <GraphCell row={null} width={graphWidth} wip={wipLane} />
@@ -239,7 +298,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
       else if (i === headRowIndex && !row.hasChildAbove) wipDash = 'toNode';
     }
     return (
-      <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
+      <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''} ${needle === '' ? '' : matchSet.has(c.sha) ? 'match' : 'unmatched'}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
         <div className="col-ref">
           {chips.slice(0, maxChips).map((chip) => renderChip(chip, color))}
           {chips.length > maxChips && (
@@ -285,6 +344,30 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
           </clipPath>
         </defs>
       </svg>
+      {searchOpen && (
+        <div className="graph-search">
+          <Icon of={Search} size={13} className="search-icon" />
+          <input
+            ref={searchInput}
+            className="search-input"
+            placeholder="Find a commit by message, author or sha"
+            spellCheck={false}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onSearchKey}
+          />
+          <span className="search-count">{needle === '' ? `${commits.length} commits` : matches.length === 0 ? 'no matches' : at >= 0 ? `${at + 1} of ${matches.length}` : `${matches.length} matches`}</span>
+          <button className="search-btn" title="Previous match (Shift+Enter)" disabled={matches.length === 0} onClick={() => step(-1)}>
+            <Icon of={ChevronUp} size={14} />
+          </button>
+          <button className="search-btn" title="Next match (Enter)" disabled={matches.length === 0} onClick={() => step(1)}>
+            <Icon of={ChevronDown} size={14} />
+          </button>
+          <button className="search-btn" title="Close (Escape)" onClick={onCloseSearch}>
+            <Icon of={X} size={14} />
+          </button>
+        </div>
+      )}
       <div className="graph-header">
         <div className="col-ref">Branch / Tag</div>
         {/* absolutely positioned on the column boundary so it adds no width of its own and the

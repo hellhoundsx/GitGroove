@@ -128,6 +128,16 @@ const fetchAll = async () => {
   await sleep(300);
   return ev(`(() => { const b = [...document.querySelectorAll('.popover .popover-row')].find(x => x.innerText.trim() === 'Fetch all'); if (!b) return 'no Fetch all'; if (b.disabled) return 'Fetch all disabled'; b.click(); return 'clicked Fetch all'; })()`);
 };
+/** Type into the commit search field the way a user does (React needs the native setter + input event). */
+const searchType = (text) =>
+  ev(`(() => { const i = document.querySelector('.graph-search .search-input'); if (!i) return 'no search input'; i.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${q(text)}); i.dispatchEvent(new Event('input', { bubbles: true })); return 'typed ' + ${q(text)}; })()`);
+const searchState = () =>
+  ev(
+    `(() => { const bar = document.querySelector('.graph-search'); return JSON.stringify({ open: !!bar, value: bar?.querySelector('.search-input')?.value ?? null, count: bar?.querySelector('.search-count')?.textContent ?? null, matches: document.querySelectorAll('.graph-row.match').length, dimmed: document.querySelectorAll('.graph-row.unmatched').length, sha: document.querySelector('.detail-head .sha')?.textContent ?? null }); })()`,
+  );
+const searchBtn = (title) =>
+  ev(`(() => { const b = [...document.querySelectorAll('.graph-search .search-btn')].find(x => (x.title ?? '').startsWith(${q(title)})); if (!b) return 'no search button ' + ${q(title)}; if (b.disabled) return 'DISABLED ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
+
 /** Wait until the app reports no running operation (status bar spinner gone), then a short settle. */
 const waitIdle = async (max = 15000) => {
   const start = Date.now();
@@ -387,7 +397,52 @@ git(['stash', 'pop', '-q']);
 log(await tool('Refresh'));
 await settle();
 
-step(16, 'remotes: add and fetch, rename, edit URL, remove');
+step(16, 'commit search: message, sha prefix, next match, Escape');
+const mainOnlySha = git(['log', '--all', '--format=%H', '--grep=Main-only change']).split('\n')[0] ?? '';
+log(await tool('Search'));
+await sleep(300);
+let sr = JSON.parse(await searchState());
+check('search bar opens from the toolbar', sr.open === true, JSON.stringify(sr));
+
+log(await searchType('Main-only'));
+await sleep(300);
+sr = JSON.parse(await searchState());
+check('message search selects the matching commit', sr.sha === mainOnlySha.slice(0, 7), `selected=${sr.sha} expected=${mainOnlySha.slice(0, 7)} | ${sr.count}`);
+check('matches are highlighted and the rest dimmed, nothing hidden', sr.matches >= 1 && sr.dimmed >= 1, JSON.stringify(sr));
+await shot('search-message.png');
+
+log(await searchType(mainOnlySha.slice(0, 6)));
+await sleep(300);
+sr = JSON.parse(await searchState());
+check('a sha prefix selects that commit', sr.sha === mainOnlySha.slice(0, 7), `selected=${sr.sha} expected=${mainOnlySha.slice(0, 7)}`);
+check('the sha prefix matches exactly one commit', sr.count === '1 of 1', String(sr.count));
+
+// "feature" appears in three commit messages: the next-match button must move the selection
+log(await searchType('feature'));
+await sleep(300);
+const first = JSON.parse(await searchState());
+log(await searchBtn('Next match'));
+await sleep(300);
+const second = JSON.parse(await searchState());
+check('several matches are counted', /of [2-9]/.test(String(first.count)), `${first.count}`);
+check('next match moves the selection', second.sha !== first.sha && second.count !== first.count, `${first.sha}/${first.count} -> ${second.sha}/${second.count}`);
+
+// clicking a row mid-search moves the position with it, so "next" continues from there
+log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row.match')].pop(); if (!r) return 'no match row'; r.click(); return 'clicked the last match'; })()`));
+await sleep(300);
+const clicked = JSON.parse(await searchState());
+check('clicking a match moves the position to it', clicked.count === '3 of 3', String(clicked.count));
+log(await searchBtn('Next match'));
+await sleep(300);
+const wrapped = JSON.parse(await searchState());
+check('next continues from the clicked row and wraps', wrapped.count === '1 of 3', `${clicked.count} -> ${wrapped.count}`);
+
+await escape();
+await sleep(300);
+sr = JSON.parse(await searchState());
+check('Escape closes the search bar and clears the dimming', sr.open === false && sr.dimmed === 0, JSON.stringify(sr));
+
+step(17, 'remotes: add and fetch, rename, edit URL, remove');
 const remoteUrl = REMOTE.replace(/\\/g, '/');
 log(await sectionAction('Add remote'));
 await sleep(400);
