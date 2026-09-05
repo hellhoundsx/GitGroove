@@ -133,13 +133,18 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | done |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | done |
 | GC-009 | Commit search | graph | M | P2 | done |
-| GC-010 | Keyboard shortcuts overlay | ui | S | P2 | in-progress |
+| GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
 | GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | todo |
+| GC-029 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | todo |
+| GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
+| GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
+| GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | todo |
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | todo |
+| GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | todo |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
@@ -149,6 +154,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
+| GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -544,7 +550,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-010 Keyboard shortcuts overlay
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-003
 - **Why:** Shortcuts exist (arrows, Escape, Ctrl+Enter) but are undocumented in the app.
@@ -554,12 +560,39 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - Move existing key handling in `App.tsx` to read from that table.
 - **Out of scope:** user-configurable bindings.
 - **Acceptance:**
-  - [ ] Every key handled in the app appears in the overlay.
-  - [ ] Overlay closes with Escape and does not open while typing in the commit form.
-- **Files:** new `src/renderer/src/shortcuts.ts`, `App.tsx`, `ui/Modal.tsx`, `app.css`.
+  - [x] Every key handled in the app appears in the overlay.
+  - [x] Overlay closes with Escape and does not open while typing in the commit form.
+- **Files:** new `src/renderer/src/shortcuts.ts`, new `src/renderer/src/shortcuts.test.ts`,
+  new `src/renderer/src/components/Shortcuts.tsx`, `App.tsx`, `components/Toolbar.tsx`,
+  `components/DetailPanel.tsx`, `components/Preferences.tsx`, `graph/CommitGraph.tsx`,
+  `ui/Modal.tsx`, `ui/ContextMenu.tsx`, `styles/app.css`.
 - **Verify:** build, screenshot.
 - **Log:**
   - 2026-09-05 17:05 claimed
+  - 2026-09-05 17:45 done. `shortcuts.ts` holds one table of eleven shortcuts in five groups,
+    each with its display chords and a `match(e)` predicate; `matches(id, e)` is now the only
+    place a key name is compared. Every handler reads from it: `App.tsx` (Ctrl+F, `?`, Escape,
+    the arrows), `CommitGraph`'s find bar (imported as `isShortcut`, because `matches` is the
+    search-results array in that file), `DetailPanel`'s Ctrl+Enter, `Modal` and `Preferences`
+    (Enter/Escape) and `ContextMenu`/`Toolbar` (Escape). The overlay is
+    `components/Shortcuts.tsx`, rendered straight from the table, opened with `?` (or Shift+/)
+    and from a new toolbar Shortcuts button, closed with Escape, the button or the backdrop;
+    while it is open it swallows the other keys so the graph does not move behind it, and it
+    does not open while a text field has focus or while Preferences is up.
+    The ticket's Files line named `ui/Modal.tsx` for the dialog itself; the overlay went into
+    its own component instead, the way `Preferences.tsx` did in GC-007, and `Modal.tsx` only
+    switched its Enter/Escape over to the table.
+    Verified: `npm run typecheck`, `npm test` (30 tests, 8 of them the new
+    `shortcuts.test.ts` guarding unique ids, Ctrl/Cmd equivalence, `?` vs Shift+/, arrows
+    rejecting modifiers, and Enter vs Shift+Enter in the find bar), `npm run build`, and
+    `npm run e2e` (48 assertions, all passed) because the dialog and menu keys changed.
+    Driven over CDP on the scratch repo: Escape closes it, `?` while the commit summary has
+    focus does not open it, `?` outside inputs and the toolbar button both open it, ArrowDown
+    behind it does not move the selection, and eleven rows in five groups render — the whole
+    table. Screenshot `docs/screenshots/shortcuts-overlay.png`, looked at.
+    Note: the no-focus rule in this file landed (77110d6) after this run had claimed and had
+    already launched the app for that screenshot, so a window was shown. No `gk-recon` PowerShell
+    script was run; everything else went over CDP.
 
 ### GC-011 File-system watcher for automatic refresh
 
@@ -1020,7 +1053,199 @@ decision is missing.
   - 2026-09-05 proposed by GC-007 (this ticket): hit `spawn git ENOENT` twice while driving the
     built app over CDP and had to read the source to work out that PATH was the cause.
 
+### GC-029 The stash message says "optional" but the modal refuses an empty one
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** `stashChanges` in `App.tsx` opens `ui.prompt` with the label "Message (optional)", but
+  `Modal` disables OK (and Enter) whenever a prompt has a text field and the field is empty
+  (`hasInput && value.trim().length === 0`). So the toolbar Stash button and the WIP menu's
+  "Stash changes…" cannot stash without a message, contradicting their own label; git's default
+  "WIP on <branch>" message is unreachable. The e2e stash step (step 5) types `test stash`, which
+  is why the suite never saw it. Every other prompt in the app genuinely needs its value (branch
+  name, tag name, remote name, URL), so the fix is per prompt, not a change to the default.
+- **Scope:**
+  - `PromptOptions` gains `required?: boolean` (default `true`, so no other caller changes). With
+    `required: false` the OK and secondary buttons stay enabled on an empty field and Enter
+    resolves; the resolved `value` is `''`.
+  - `stashChanges` passes `required: false`; `stashSave` already omits `-m` for an empty message.
+  - e2e step 5: stash once with an empty message and assert `git stash list` gained an entry
+    whose message starts with `WIP on`, then keep the existing named-stash assertion.
+- **Out of scope:** any other prompt, validation of the message.
+- **Acceptance:**
+  - [ ] Toolbar Stash with the field left empty creates a stash with git's default message.
+  - [ ] Create branch, create tag, rename, add remote and edit URL still refuse an empty value.
+  - [ ] e2e passes with the extended step 5.
+- **Files:** `src/renderer/src/ui/Modal.tsx`, `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** `npm run typecheck && npm run build && npm run e2e:setup && npm run e2e`, then
+  `git stash list` in the scratch repo.
+- **Log:**
+  - 2026-09-05 proposed by GR-001: reading `Modal.tsx` against the stash prompt showed the
+    "(optional)" field is required, and the e2e step types a message so it never noticed.
+
+### GC-030 Commit search loses its query and results when a diff opens
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-009
+- **Why:** The search bar's `open` flag lives in `App.tsx`, but the query, the match list and the
+  focus bookkeeping live in `CommitGraph`, which `App` unmounts whenever a file view opens
+  (`fileView ? <DiffView/> : <CommitGraph/>`). Clicking a file in the detail panel mid-search,
+  then closing the diff, brings back an empty bar with "N commits", while the toolbar Search
+  button still shows as active and a click on it *closes* the bar instead of restoring it. Ctrl+F
+  also closes the diff before opening the bar. GitKraken keeps the search as a filter on the
+  graph independently of the file view.
+- **Scope:**
+  - Lift `query` into the `search` state in `App.tsx` next to `open` and `tick`, pass it and a
+    setter to `CommitGraph`, and keep `lastNeedle` behaviour (a new query still jumps to its first
+    match; an unchanged query on remount must not re-select).
+  - Closing the bar (Escape, the X, the toolbar button) still clears the query.
+  - The toolbar button: while a diff is open and the bar is open, a click closes the diff and
+    refocuses the bar rather than closing the search.
+- **Out of scope:** searching while the diff stays open, searching file paths (GC-009's out of
+  scope stands), the author chip (GC-027).
+- **Acceptance:**
+  - [ ] Search "feature", click a file of the selected commit, close the diff: the bar shows
+    "feature", the same "1 of 3" readout and the same dimmed rows.
+  - [ ] e2e step 16 gains that round trip, asserting `searchState()` before and after.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/graph/CommitGraph.tsx`,
+  `tools/e2e/run.mjs`.
+- **Verify:** `npm run typecheck && npm run build && npm run e2e`.
+- **Log:**
+  - 2026-09-05 proposed by GR-001: the query is component state in a component that unmounts
+    behind the diff view; noticed while reading GC-009's `CommitGraph.tsx`.
+
+### GC-031 Push to a chosen remote when the repository has several
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P2
+- **Depends on:** GC-008
+- **Why:** GC-008 made a second remote a two-click affair, and the push paths still assume one.
+  `git.ts push` picks `origin`, else the first remote, whenever the branch has no upstream; the
+  ref menu's single "Push <name> and set upstream" item and the toolbar Push give no hint which
+  remote that is, and "Push tag to remote" uses `snapshot.remotes[0]` (alphabetical, so a remote
+  called `alpha` beats `origin`). The study (`05-menus-shortcuts.md`, branch chip menu) has
+  "Push <name> to..." with one entry per remote and "to all remotes".
+- **Scope:**
+  - `refMenuItems`: with one remote keep today's item; with several, one item per remote
+    "Push <name> to <remote>" (setting the upstream when the branch has none) and, for tags,
+    "Push tag to <remote>" per remote. `MenuItem` has no submenu; a labelled group with a
+    separator is enough.
+  - Tag pushes go through the same remote choice as branches (`origin` preferred, then the
+    first) instead of `remotes[0]`.
+  - Toolbar Push title names the remote it will use when the branch has no upstream.
+- **Out of scope:** a remote picker dialog, "push to all remotes", pull from a chosen remote.
+- **Acceptance:**
+  - [ ] With `origin` and a second remote, the branch menu lists a push entry per remote and each
+    pushes there (`git ls-remote <remote> <branch>` shows the sha).
+  - [ ] Tag push with remotes `alpha` and `origin` lands on `origin` by default.
+  - [ ] e2e step 17 (remotes) pushes a branch to the added remote before removing it.
+- **Files:** `src/renderer/src/App.tsx`, `src/main/git.ts`, `src/renderer/src/components/Toolbar.tsx`,
+  `tools/e2e/run.mjs`.
+- **Verify:** `npm run typecheck && npm run build && npm run e2e`, `git ls-remote` on the bare
+  remotes of the scratch repo.
+- **Log:**
+  - 2026-09-05 proposed by GR-001: GC-008 shipped remote management while every push path still
+    hard-codes a single remote, and the tag path picks a different one from the branch path.
+
+### GC-032 Optional Author, Date and SHA columns in the graph
+
+- **Status:** todo
+- **Area:** graph | **Size:** M | **Priority:** P2
+- **Depends on:** GC-006, GC-007
+- **Why:** The study (`03-graph.md`, Columns) records user-enabled AUTHOR, COMMIT DATE / TIME,
+  SHA and CHANGES columns to the right of the message, toggled from column settings, and
+  `06-feature-inventory.md` marks relative and formatted dates as "Build". Our graph has the three
+  fixed columns only; the commit date is visible nowhere until a commit is selected, which makes
+  the date-ordered graph hard to read on a real repository.
+- **Scope:**
+  - Prefs `graphColumns: { author: boolean; date: boolean; sha: boolean }` (all off by default),
+    three toggles in Preferences under a "Graph" group, validated in `load()`.
+  - `CommitGraph` renders the enabled columns after the message column with fixed widths of our
+    own (about 140px author, 150px date, 80px sha), header labels AUTHOR, DATE / TIME, SHA, cells
+    at 12px in 60% text; the message column keeps `minmax(0, 1fr)` so nothing overflows.
+  - Date shown as `dd/mm/yyyy, HH:MM` in the local zone (the format the detail panel already
+    uses), with the ISO date as the title attribute. Author as the name only.
+  - The WIP row leaves the extra cells empty.
+- **Out of scope:** the CHANGES column (needs a per-commit diff stat), column reordering, a header
+  cog (Preferences is the one home for settings), relative "3 hours ago" dates.
+- **Acceptance:**
+  - [ ] Toggling each column in Preferences adds or removes it live, and the choice survives a
+    reload.
+  - [ ] With all three on, the rows stay 28px, the graph SVG width is unchanged and the message
+    column still truncates instead of widening the window.
+  - [ ] Screenshot at 1400x900 with all three on, looked at against `02-main-1080.png`.
+- **Files:** `src/renderer/src/prefs.ts`, `src/renderer/src/components/Preferences.tsx`,
+  `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** typecheck, build, `npm test` (a prefs test if GC-024 has landed), screenshot.
+- **Log:**
+  - 2026-09-05 proposed by GR-001: the study's optional graph columns are the largest visible gap
+    between the two graphs that no ticket covers.
+
+### GC-033 Global shortcuts from the study: branch, fetch, panels, staging
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-010
+- **Why:** `05-menus-shortcuts.md` lists the body-scope bindings GitKraken users have in their
+  fingers; we handle only arrows, Escape, Ctrl+F and Ctrl+Enter. GC-010 introduces the
+  `shortcuts.ts` table the handlers and the overlay read from, so adding bindings becomes a
+  table entry plus a handler and the overlay documents them for free.
+- **Scope:**
+  - Ctrl+B create branch at HEAD, Ctrl+L fetch all, Ctrl+J toggle the left panel, Ctrl+K toggle
+    the detail panel (new `detailCollapsed` state; the panel returns on any selection change),
+    Ctrl+Alt+F focus the left panel filter, Ctrl+Shift+S stage all, Ctrl+Shift+U unstage all,
+    Ctrl+Shift+M focus the commit summary field.
+  - All outside editable fields except Ctrl+Shift+M, which works from anywhere like Ctrl+F.
+    Disabled states follow the toolbar (no repo, busy, no remotes).
+  - Every entry lands in `shortcuts.ts`, so the GC-010 overlay lists them.
+- **Out of scope:** Ctrl+P command palette, undo/redo (GC-018), zoom, J/K/H/L vim keys,
+  Shift+Up/Down topological stepping, user-configurable bindings.
+- **Acceptance:**
+  - [ ] Each binding does what its table entry says, and the overlay shows all eight.
+  - [ ] Ctrl+B and Ctrl+Shift+S do nothing while the focus is in the commit form.
+  - [ ] e2e: Ctrl+L over CDP triggers a fetch (spinner appears, `waitIdle` settles).
+- **Files:** `src/renderer/src/shortcuts.ts`, `src/renderer/src/App.tsx`,
+  `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
+  `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, e2e, screenshot of the overlay.
+- **Log:**
+  - 2026-09-05 proposed by GR-001: the study's key bindings table has eight body-scope shortcuts
+    we lack; GC-010's table makes them cheap and self-documenting.
+
 ---
+
+### GC-029 Escape inside a dialog also closes the diff behind it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** `Preferences` and `Modal` handle Escape on their own backdrop, but the event keeps
+  bubbling to the `window` listener in `App.tsx`, which then also closes the open diff (or the
+  find bar) behind the dialog. One Escape does two things and the second one is invisible until
+  the dialog is gone.
+- **Scope:**
+  - Escape closes only the topmost layer: the dialog if one is open, otherwise the find bar,
+    otherwise the diff.
+  - Do it once, for every layer, rather than per dialog: either the dialogs stop the event
+    (`stopPropagation` on the key they consume) or `App.tsx` learns that a dialog is up. The
+    shortcuts overlay already guards itself in `App.tsx`; whichever way is chosen, that guard
+    folds into it instead of being a special case.
+- **Out of scope:** focus trapping, a general modal stack, the context menu (it closes on its
+  own and nothing sits under it).
+- **Acceptance:**
+  - [ ] With a file diff open, opening Preferences and pressing Escape closes only Preferences;
+    a second Escape closes the diff.
+  - [ ] Same with a prompt or confirm modal, and with the find bar open instead of the diff.
+  - [ ] The e2e suite still passes (it drives modals with Escape and with the buttons).
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/ui/Modal.tsx`,
+  `src/renderer/src/components/Preferences.tsx`.
+- **Verify:** typecheck, build, e2e, and the two acceptance cases driven over CDP.
+- **Log:**
+  - 2026-09-05 proposed by GC-010 (this ticket): confirmed over CDP while checking the overlay's
+    own Escape handling — with `README.md`'s diff open, opening Preferences and pressing Escape
+    left `.modal.prefs` gone *and* `.diff-body` gone in the same keystroke.
 
 ## Reviews
 
@@ -1028,3 +1253,38 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 `GR-0NN`, never appear on the board, are never picked by the ticket routine and are written
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
+
+### GR-001 Backlog review 2026-09-05 17:23
+
+- **Status:** done
+- **Window:** 197b5d9..a288c69
+- **Log:**
+  - 2026-09-05 17:23 shipped: GC-001 (repository), GC-002 (vitest, 22 then 23 tests), GC-003
+    (styled confirm modal), GC-004 (dirty-checkout guard with Stash and check out), GC-005 (Pin to
+    Left), GC-006 (resizable ref column, width-aware chip fold), GC-007 (Preferences behind
+    `gitclient.prefs`), GC-008 (remote add/edit/rename/remove), GC-009 (commit search), plus the
+    protocol commits (review routine, reflect step, GC-028 stealth ticket). GC-010 was
+    `in-progress` (claimed 17:05) and was not touched. Read as a reviewer: `runCheckout` restores
+    the stash on a failed checkout correctly; `remoteAdd` leaves the remote in place when the
+    follow-up fetch fails, which is fine since the error is shown; `prefs.load()` validates per
+    field as claimed. Acceptance logs match the diffs, with one gap: GC-008's log says its e2e
+    step is 16 while GC-009 renumbered it to 17 (cosmetic). Three defects found in shipped code:
+    the stash prompt's "(optional)" message is required by the modal (GC-029, P1, masked because
+    e2e step 5 types a message); the search query dies with `CommitGraph` when a diff opens
+    (GC-030); every push path still assumes one remote and the tag path picks `remotes[0]` where
+    the branch path prefers `origin` (GC-031).
+  - health: typecheck ok, tests 23 passed (2 files), build ok — all run in the detached worktree
+    at `a288c69` with `node_modules` junctioned from the main checkout.
+  - app: skipped, GC-028 (stealth launcher) is still `todo` on `origin/main`. Looked instead at the
+    committed screenshots `docs/screenshots/commit-search.png` and `remote-menu.png`: the find
+    bar, dimming, remote menu and section `+` match the study's layout; the graph has only the
+    three fixed columns where the study lists optional Author, Date and SHA (GC-032), and the
+    staging list has no Path | Tree toggle (not ticketed, larger than a first pass warrants).
+  - tickets: added GC-029, GC-030, GC-031, GC-032, GC-033. No existing ticket extended; GC-022 and
+    GC-023 re-checked against `app.css` and still apply. Board: GC-029 placed right after GC-028
+    because it is a P1 defect in shipped work; GC-030 and GC-031 after GC-024 with the other P2
+    follow-ups to shipped tickets; GC-032 before GC-011 as the last P2; GC-033 after GC-027 with
+    the P3s. Blocked GC-017 and GC-018 still wait on Ricardo's decisions, nothing new to unblock
+    them.
+  - notes: `CLAUDE.md`'s "Unit tests" section still says "Covered today (22 tests)" although
+    GC-005 added a 23rd; the "Done" paragraph itself is current through GC-009.
