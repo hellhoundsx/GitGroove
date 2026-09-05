@@ -143,7 +143,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | done |
 | GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | done |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | done |
-| GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
+| GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | in-progress |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
@@ -1287,7 +1287,7 @@ decision is missing.
 
 ### GC-030 Commit search loses its query and results when a diff opens
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-009
 - **Why:** The search bar's `open` flag lives in `App.tsx`, but the query, the match list and the
@@ -1316,6 +1316,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-001: the query is component state in a component that unmounts
     behind the diff view; noticed while reading GC-009's `CommitGraph.tsx`.
+  - 2026-09-05 19:06 claimed
 
 ### GC-031 Push to a chosen remote when the repository has several
 
