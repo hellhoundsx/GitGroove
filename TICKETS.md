@@ -12,7 +12,7 @@ GitKraken, never copy it; never run write operations against Ricardo's real repo
 | Status | Meaning | Who sets it |
 | --- | --- | --- |
 | `todo` | Ready to start. Scope and acceptance criteria are written down. | Ricardo (or a session adding a ticket) |
-| `in-progress` | Claimed by one session (a `GC` ticket or a `GR` review). Its presence tells every other run to exit. | The session that claims it |
+| `in-progress` | Claimed by one worker session. Its presence tells every other worker run to exit. Reviews never use it. | The session that claims it |
 | `done` | Implemented, verified, committed and pushed. | The session that finished it |
 | `blocked` | Cannot proceed without a decision, a design or another ticket. Reason is in the log. | Anyone |
 
@@ -28,8 +28,8 @@ one ticket and stays alive until that ticket is `done` or `blocked`, committed a
    non-fast-forward), stop and report; never work while pushes cannot land. Then
    `git status --porcelain` must be empty. If it is not, a previous run died mid-work: stop and
    report, do not clean up.
-2. **Lock check.** If any ticket or review (`GR-0NN`, see "Review routine") is `in-progress`
-   anywhere in this file, exit without doing anything. Another run owns it. (If its claim line is older than six hours, mention it in the report so Ricardo can
+2. **Lock check.** If any ticket is `in-progress` anywhere in this file, exit without doing
+   anything. Another run owns it. (If its claim line is older than six hours, mention it in the report so Ricardo can
    inspect; still do not take it over.)
 3. **Pick.** The first board row that is `todo` and whose `Depends on` tickets are all `done`.
    Any size. If nothing is eligible, exit.
@@ -82,29 +82,43 @@ Ready-to-paste routine prompt:
 ## Review routine (hourly backlog reviewer)
 
 A second scheduled session, `gitclient-backlog-review`, fires once an hour and plays product
-owner. It never implements anything. It uses the same lock: if any `in-progress` line exists it
-exits; otherwise it claims by adding a review ticket `GR-0NN` with status `in-progress` to the
-Reviews section at the end of this file, commits and pushes that claim, and only then works.
-Review tickets have no board row and are never picked by the ticket routine.
+owner. It never implements anything. It runs **whether or not a ticket is in progress** and
+must never disturb the worker, so it obeys strict isolation:
+
+- It never modifies, builds, tests or launches anything in this checkout. All analysis happens
+  in a detached git worktree of `origin/main` under `%TEMP%/gitclient-review/wt` (with
+  `node_modules` junctioned from here), which it removes when done.
+- It uses its own scratch repository (`GITCLIENT_E2E_ROOT=%TEMP%/gitclient-review/e2e`) and its
+  own DevTools port (9334), and stops only the Electron process it started (by PID, never
+  `taskkill /IM electron.exe`, which would kill a worker's e2e run).
+- It never sets `in-progress`. Its review ticket `GR-0NN` is written once, as `done`, in the
+  Reviews section at the end of this file. Review tickets have no board row and are never
+  picked by the ticket routine.
+- Its only write to this checkout is `TICKETS.md`, made when that file is clean in
+  `git status` (so the worker is not mid-edit), committed alone with `git add TICKETS.md`, and
+  pushed. Because both routines share this clone, the worker's next push simply carries it.
+  It never touches `CLAUDE.md` or any other file; a stale "Done" paragraph becomes a note in
+  the review log instead.
 
 What a review does, time-boxed to about twenty minutes:
 
-- Reads every `GC` commit since the previous review (`git log`, `git show`) as a reviewer:
-  bugs, weak tests, scope creep, drift from `CLAUDE.md`, acceptance boxes ticked without
-  evidence in the ticket log.
-- Runs `npm run typecheck`, `npm test` and `npm run build`; any failure becomes a P0 bug ticket.
-- Builds and launches the app on the e2e repo, screenshots the graph, a commit, the staging view
-  and a diff into `%TEMP%/gitclient-review/GR-0NN/` (never into the repository), looks at them
-  and compares against `docs/reference/gitkraken/`.
+- Reads every `GC` commit on `origin/main` since the previous review (`git log`, `git show`)
+  as a reviewer: bugs, weak tests, scope creep, drift from `CLAUDE.md`, acceptance boxes ticked
+  without evidence in the ticket log.
+- Runs `npm run typecheck`, `npm test` and `npm run build` in the worktree; any failure
+  becomes a P0 bug ticket.
+- Once GC-028 has landed, launches the worktree's build on its own scratch repo through
+  `node tools/launch-app.mjs --port 9334`, screenshots the graph, a commit, the staging view and
+  a diff into `%TEMP%/gitclient-review/GR-0NN/` (never into the repository), looks at them and
+  compares against `docs/reference/gitkraken/`. Until then this step is skipped and the log says so.
 - Checks backlog hygiene: `blocked` tickets that can now be unblocked, `todo` tickets that are
   no longer concrete, wrong dependencies, board order.
 
 It then adds zero to five `GC` tickets with the full template and a log line
 `proposed by GR-0NN: <reason>`, may extend the scope of an existing `todo` ticket instead of
 duplicating it, may reorder `todo` board rows (reason in the review log), and never changes
-any status except its own review ticket's. It closes by setting the review ticket `done` with
-a log of what shipped, health results, screenshots looked at and tickets added, updates the
-"Done" paragraph of `CLAUDE.md` when needed, then commits `GR-0NN: backlog review` and pushes.
+any ticket that is `in-progress`, `done` or `blocked` (except to unblock one with a log
+line). Its commit is `GR-0NN: backlog review`.
 
 ## Board
 
@@ -1011,6 +1025,6 @@ decision is missing.
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
-`GR-0NN`, never appear on the board and are never picked by the ticket routine; their
-`in-progress` status is the same lock the worker respects. Each review appends its own section
-here.
+`GR-0NN`, never appear on the board, are never picked by the ticket routine and are written
+once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
+appends its own section here.
