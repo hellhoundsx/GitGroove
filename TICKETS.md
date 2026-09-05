@@ -197,9 +197,12 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | done |
 | GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | in-progress |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | in-progress |
+| GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | todo |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | todo |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
+| GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
+| GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | todo |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
@@ -2059,6 +2062,9 @@ decision is missing.
     clickable rows above its button.
   - An entry whose folder no longer loads is removed from the list; the error still shows in the
     status bar as today.
+  - The title bar's `+` button (`TitleBar.tsx`, title "New tab") has no click handler today
+    (GR-004, checked over CDP), so the one visible way to add a repository does nothing. Until
+    GC-016 gives it tabs it opens this same recents menu, anchored at the button.
 - **Out of scope:** favourites, a search box in the dropdown, the branch breadcrumb dropdown,
   multi-tab (GC-016 should reuse this list when it lands).
 - **Acceptance:**
@@ -2068,7 +2074,7 @@ decision is missing.
   - [ ] Picking a path that no longer exists shows the error and drops the entry.
   - [ ] Screenshot of the open dropdown looked at next to the study's `09-repo-dropdown.png` for
         layout only; the styling is ours.
-- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/Toolbar.tsx`,
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/components/TitleBar.tsx`,
   `src/renderer/src/styles/app.css`, `CLAUDE.md` (the remembered-state keys paragraph).
 - **Verify:** typecheck, build, then over CDP against the scratch repository and a second clone
   of it (loading a real repository read-only is fine, writing to one is not), reading
@@ -2076,6 +2082,8 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-002: the breadcrumb is inert and only one repository is remembered,
     where the study has a recents dropdown and a recents list on the new-tab page.
+  - 2026-09-05 21:25 scope extended by GR-004: the title bar's `+` "New tab" button is inert; it
+    opens the recents menu until GC-016 gives it tabs.
 
 ### GC-045 Commit view banner linking back to the working directory changes
 
@@ -2555,6 +2563,151 @@ decision is missing.
     seconds without one.
   - 2026-09-05 21:10 claimed
 
+### GC-060 Unattended launches write to Ricardo's own app profile
+
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P1
+- **Depends on:** GC-028
+- **Why:** Every launch of the built app, stealth or not, uses Electron's default `userData`
+  (`%APPDATA%/gitclient`), so the worker's e2e runs on 9333, the reviewer's screenshots on 9334
+  and Ricardo's own use of the app all read and write one `localStorage`. Three consequences
+  were observed in GR-004: `gitclient.refColW` was `100`, left behind when GC-022 narrowed the
+  ref column by hand to verify the flip, so GR-003's `01-graph.png` and GR-004's were taken at
+  100px while both logs said 150px and the code's `chipBudget(150)` promises two chips (both
+  screenshots show one chip plus `+1` on every ref row); every `--repo` launch rewrites
+  `gitclient.lastRepo`, so Ricardo's next start opens whatever scratch repository or read-only
+  real repository the last unattended run pointed at; and e2e step 1 already has to delete
+  `gitclient.prefs` because a setting toggled by hand in an earlier session (GC-007 left
+  `confirmDirtyCheckout` off) silently disabled whole steps. Screenshots that inform review
+  decisions cannot be trusted while any earlier session can change what they show, and an
+  unattended run must not touch the state the user sees.
+- **Scope:**
+  - `src/main/index.ts` honours a `GITCLIENT_USER_DATA` environment variable: when set,
+    `app.setPath('userData', <that path>)` before `app.whenReady()`. Nothing else in the main
+    process changes.
+  - `tools/launch-app.mjs` sets it for every launch it makes to
+    `<os.tmpdir()>/gitclient-profiles/<port>` (created if missing), so the worker (9333), the
+    e2e suite (whatever `GITCLIENT_E2E_PORT` says) and the reviewer (9334) each keep a profile
+    of their own that survives between runs on that port but never reaches Ricardo's. An
+    explicit `GITCLIENT_USER_DATA` in the environment wins over the default. `--visible`
+    launches are unattended too and get the same treatment; only a start outside the launcher
+    (`npm run dev`, a packaged app) uses the real profile.
+  - The launcher's header, `CLAUDE.md` (Commands, and the paragraph on remembered state) and
+    the step 1 comment in `tools/e2e/run.mjs` say where the profile lives. Step 1 keeps
+    deleting `gitclient.prefs`: the per-port profile persists across runs, so a stray setting is
+    still possible, just no longer Ricardo's.
+- **Out of scope:** clearing the whole profile per run (the persisted profile keeps the
+  gravatar cache warm and costs nothing), a preference or CLI flag to pick the profile in the
+  packaged app, migrating anything out of the current shared profile.
+- **Acceptance:**
+  - [ ] After `node tools/launch-app.mjs --port 9334 --repo <scratch>`, the newest file under
+        `%APPDATA%/gitclient/Local Storage/leveldb` is older than the launch, and
+        `<tmpdir>/gitclient-profiles/9334/Local Storage` exists.
+  - [ ] `localStorage.setItem('gitclient.refColW', '100')` over CDP on 9334 is not visible to a
+        fresh launch on 9333 (`getItem` returns null there).
+  - [ ] `npm run e2e` passes unchanged, and its step 1 still finds a clean `gitclient.prefs`.
+  - [ ] `npm run dev` still opens the last repository Ricardo used.
+- **Files:** `src/main/index.ts`, `tools/launch-app.mjs`, `tools/e2e/run.mjs` (step 1 comment
+  only), `CLAUDE.md`.
+- **Verify:** typecheck, build, the four checks above with `ls -la --time-style=full-iso` on
+  the real profile before and after a launch, then `npm run e2e`.
+- **Log:**
+  - 2026-09-05 proposed by GR-004: the review's own graph screenshots turned out to be taken at a
+    ref column width a previous ticket's hand check had left in the shared profile, and every
+    `--repo` launch overwrites the repository Ricardo's app opens next.
+
+### GC-061 A detached HEAD has no marker in the graph
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-020
+- **Why:** With `git checkout --detach HEAD~1` in the scratch repository and a Refresh, the
+  breadcrumb and the staging header read "detached HEAD" and the graph correctly moves column 0
+  to that commit's lineage, but no row says which commit is checked out: `for-each-ref` marks
+  `isHead` only on a branch, so the chip that carries the check mark simply disappears
+  (GR-004's `07-detached-head.png`). The study's graph always shows a chip on the checked-out
+  commit, and after "Checkout this commit (detached)" from our own commit menu the user is left
+  to find the row by the dashed WIP link alone. The Push button is correctly disabled meanwhile
+  but its title still reads "Push to origin and set upstream", which promises the click it
+  refuses.
+- **Scope:**
+  - When `info.branch` is null and `headSha` is set, `CommitGraph` renders a synthetic chip
+    labelled `HEAD` first on that commit's row: the checked-out styling (check icon, `.head`
+    class, lane colour), the same connector line, and ranked before every real ref so the fold
+    cannot hide it. It is built in the renderer from `headSha`; `getRefs` and `GitRef` do not
+    change.
+  - Right-click on that chip opens the commit menu for `headSha` (`commitMenuItems`), so
+    "Create branch here…" is one click away, which is the thing a detached user usually wants.
+  - The Toolbar's Push title reads "Cannot push from a detached HEAD" while `info.branch` is
+    null (the message `git.ts` already uses for the same case).
+  - The left panel is unchanged: there is no branch to tint, and the header already says so.
+- **Out of scope:** a chip on the WIP row, a "detached" banner in the detail panel, checking
+  out a remote branch as detached from its chip (that path exists), a left-panel row for HEAD.
+- **Acceptance:**
+  - [ ] `git checkout --detach HEAD~1` + Refresh in the scratch repository shows exactly one chip
+        reading `HEAD` on that commit's row, in column 0, with the dashed WIP link ending on it;
+        `git checkout main` + Refresh removes it and the `main` chip has the check mark again.
+  - [ ] The chip's context menu is the commit menu; "Create branch here…" creates the branch at
+        `git rev-parse HEAD`.
+  - [ ] The Push button's title names the detached state while disabled.
+  - [ ] e2e step: detach, Refresh, assert the chip's text and row, re-attach; the prologue
+        re-attaches to `main` if a run died in between (`git checkout -q main` is idempotent).
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/App.tsx`,
+  `src/renderer/src/components/Toolbar.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, e2e, then a screenshot of the detached state looked at next to
+  GR-004's `07-detached-head.png` (the before) and the study's `02-main-1080.png` for the chip's
+  place in the row.
+- **Log:**
+  - 2026-09-05 proposed by GR-004: detaching HEAD in the scratch repository left the graph with
+    no indication of the checked-out commit; the breadcrumb says "detached HEAD" and nothing
+    says where.
+
+### GC-062 The e2e suite never commits through the commit form or stages a hunk
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-053
+- **Why:** Eighteen e2e steps cover branches, stashes, conflicts, cherry-picks, push, pull,
+  tags, remotes, search and layering, but a case-insensitive grep of `tools/e2e/run.mjs` for
+  `hunk`, `amend` or `summary` finds nothing: the commit form (summary, description, the
+  72-character counter, Ctrl+Enter, the Commit button, "Amend previous commit" prefilling
+  HEAD's message, "Commit merge" for an empty summary during a merge) and the DiffView's Stage
+  hunk / Discard hunk / Unstage hunk buttons have no automated coverage at all. The commit step
+  10 needs is made with git in a second clone, and the merge in step 6 is aborted rather than
+  concluded. These are the two most frequent actions in a git client and the ones GitKraken
+  users judge first; they also route through `commit --file=-` on stdin and
+  `apply --cached --recount`, the two most fragile git invocations in `git.ts`.
+- **Scope:**
+  - A step that stages one file from the staging list, types a summary and a description into
+    the commit form, reads the counter, commits with Ctrl+Enter, and asserts
+    `git log -1 --format=%B` carries both lines and `git status --short` no longer lists the
+    file; then ticks Amend, asserts the summary field holds that message, edits it, commits,
+    and asserts `git log -1 --format=%s` changed while `git rev-list --count HEAD` did not.
+  - A step that opens the two-hunk `big.txt` from the staging list, clicks Stage hunk on the
+    second hunk, asserts `git diff --cached -- big.txt` contains that hunk's added line and
+    `git diff -- big.txt` still contains the first hunk's, then Unstage hunk from the staged
+    view and asserts the index is clean again; finally Discard hunk on one hunk behind the
+    confirm modal and Cancel, asserting the working tree is unchanged.
+  - Both steps leave the scratch repository as they found it (reset the amended commit with
+    `git reset --hard <sha before>` and restore the working tree to the state the prologue
+    expects), and the prologue undoes them if a run dies in between.
+- **Out of scope:** "Commit merge" for a concluded merge (step 6 aborts on purpose; a second
+  merge fixture is its own change), staging single lines (not a feature yet), the CHANGES
+  count, changing any existing step.
+- **Acceptance:**
+  - [ ] `npm run e2e` passes three times in a row with the new assertions, and stays
+        re-entrant when interrupted inside either step.
+  - [ ] The amend assertion fails if the summary field is not prefilled (mutation check: return
+        an empty string from the prefill in `DetailPanel.tsx`, run, restore).
+  - [ ] The hunk assertion fails if `buildHunkPatch` drops the file header (mutation check).
+- **Files:** `tools/e2e/run.mjs`, `CLAUDE.md` (Testing paragraph).
+- **Verify:** `npm run e2e` three times, then the two mutation checks with the source restored
+  and `git diff` empty afterwards.
+- **Log:**
+  - 2026-09-05 proposed by GR-004: reading the step list for the review showed that the commit
+    form and hunk staging, the two most frequent actions, are the two the suite never drives.
+
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -2720,3 +2873,77 @@ appends its own section here.
     of the two is off by one and the next ticket touching `run.mjs` (GC-053 fits) should count
     and fix it. The launcher header still names `--keep-alive` while the code reads
     `--keep-running` (GC-041 stands).
+
+### GR-004 Backlog review 2026-09-05 21:25
+
+- **Status:** done
+- **Window:** 766b4de..850a9cd
+- **Log:**
+  - 2026-09-05 21:25 shipped: cf86fdf (GC-025 missing-git message told apart from a missing
+    folder by an `existsSync` guard before every spawn, `checkGit` probing in the home directory;
+    GC-020 pin ranked second; GC-036 prologue pops the stranded named stash; GC-041 launcher
+    header; GC-047 `repo-hygiene.test.ts`; GC-048 toolbar buttons sized to their labels),
+    c3426c6 (GC-031 `defaultRemote` in `src/shared/remotes.ts` used by main and renderer, one
+    push entry per remote in the branch and tag menus, the Push title naming its remote, e2e
+    step 17 pushing `push-target` to the added remote), 42f3618 (the routine protocol became a
+    batch orchestrator dispatching one subagent per ticket), a5f21b9 (GC-019 `atRisk` filter
+    and the count in the prompt, GC-022 `onMoreEnter` measuring three rects and adding
+    `.flip-up`, GC-046 two vitest projects split by extension with `Preferences.test.tsx`,
+    GC-054 `attachTarget` in the launcher) and 850a9cd, the claim of GC-032, GC-011, GC-053 and
+    GC-059, which were `in-progress` throughout and were not touched. Read as a reviewer: the
+    `existsSync` guard is the only thing that can separate the two `ENOENT`s and it runs before
+    every spawn, correct; `error !== gitError` keeps the empty state from printing the sentence
+    twice. The pin rank memo now depends on `pinnedName`, which it had to. GC-031 leaves
+    `remote` unset on the single-remote path so main resolves it and passes it explicitly on the
+    multi-remote path, so label and push agree; the per-remote e2e assertion is still blind
+    because both remotes are one bare repository (GC-056 stands). GC-019's filter
+    (`staged === null && unstaged === 'untracked'`) matches exactly the shape the status parser
+    emits for untracked rows. GC-022 forces the list visible for one measurement inside the
+    handler and restores it in the same task, so nothing paints in between. GC-054 tells "port
+    silent" from "port answering but no page yet" and documents that `--visible` has nothing to
+    act on when attaching. GC-047's skip list is narrow (`.png`, `.woff2`, `.ico`) but nothing
+    else binary lives under the scanned trees today. Every ticked box in the window has evidence
+    in its log; GC-037's second box stays unticked with its written reason; every ticket in the
+    window has a `Depends on` line.
+  - health: typecheck ok, tests 45 passed (7 files, 44 in the node project and 1 in the dom
+    project), build ok, in the detached worktree at 850a9cd with `node_modules` junctioned from
+    the main checkout. `GITCLIENT_E2E_PORT=9336 npm run e2e` against the review's own scratch
+    repository: 66 assertions, ALL PASSED, exit 0, and the run stopped its own Electron (the
+    count matches `CLAUDE.md`'s Testing paragraph).
+  - app: the worktree build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`,
+    stopped afterwards by pid. Screenshots in `%TEMP%/gitclient-review/GR-004/`, all looked at:
+    `01-graph.png` (seven rows, lanes continuous through the merge, `main` absorbing
+    `origin/main` with the cloud mark, WIP `+1 ✎3 −1`; but every ref row shows one chip plus
+    `+1`, and CDP read `--ref-col-w` as 100px with `gitclient.refColW = "100"` in
+    `localStorage`, left there by GC-022's hand check in the profile every launch shares, so
+    GR-003's "chips folding at 150px" also described a 100px column, see GC-060),
+    `02-commit-selected.png` (merge commit: sha, ref list with a title tooltip, message box,
+    initials avatar, two parent links, `+1 added`, `feature.txt`), `03-wip-staging.png`
+    (Unstaged 3 / Staged 2, commit form with the 72 counter), `04-diff.png` (`a.txt`, one hunk
+    with Stage / Discard hunk, icon rail 3 / 3 / 1 / 0, the file highlighted in the panel),
+    `05-preferences.png` (four rows under Appearance and Behaviour, applied live, Close),
+    `06-shortcuts.png` (five groups rendered from the table), `07-detached-head.png` (after
+    `git checkout --detach HEAD~1` in the scratch repository: breadcrumb and staging header read
+    "detached HEAD", column 0 follows the detached commit, Push disabled, but no chip marks the
+    checked-out commit and the Push title still promises "Push to origin and set upstream",
+    GC-061), `08-catena-feed-top.png` and `09-catena-feed-scrolled.png` (catena-feed read-only:
+    881 commits, `Viewing 341`, 6 local and 52 remote branches; at `scrollTop` 12000 of 24696
+    the 40 rendered rows keep every lane continuous, tags `v1.41.0` to `v1.43.0` each on their
+    row, a remote chip in lane 2's colour, no lane break at either end of the window). Also
+    checked over CDP: the title bar's `+` "New tab" button has no click handler (folded into
+    GC-044); `%APPDATA%/gitclient` is the one Electron profile (its `DevToolsActivePort` was
+    rewritten by this review's launch and its `LOCK` dates from 12:42, Ricardo's own start).
+    Read for the review but not ticketed: the e2e step list has no step that commits through
+    the commit form or stages a hunk (GC-062).
+  - tickets: added GC-060 (P1, infra), GC-061 (P2, graph), GC-062 (P2, tests); extended GC-044
+    with the inert New-tab button. Board: GC-060 is the first `todo` row, right after the
+    in-progress batch, because it is small, changes state Ricardo sees in his own app and
+    corrupts the evidence every review relies on; GC-061 and GC-062 sit after GC-049 and before
+    GC-050, a visible correctness gap and the suite's largest blind spot ranking above the panel
+    drag handles. No other row moved. GC-058's dependencies (GC-022, GC-046) are both `done`
+    now, so it is eligible where it sits. Blocked GC-017 and GC-018 still wait on Ricardo's
+    decisions; nothing new to unblock them.
+  - notes: `CLAUDE.md`'s "Done" paragraph is current through GC-054 and its Testing paragraph's
+    66 matches this run. Its Graph section's "the default 150px still shows two" is true of the
+    code but not of any unattended screenshot taken since GC-022's check (GC-060 explains why).
+    GR-003's log line "chips folding at 150px" describes a 100px column; left as written.
