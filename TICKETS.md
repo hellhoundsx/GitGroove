@@ -195,8 +195,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | done |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | done |
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | done |
-| GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | todo |
-| GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
+| GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | in-progress |
+| GC-011 | File-system watcher for automatic refresh | main | M | P2 | in-progress |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | todo |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
@@ -209,13 +209,13 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
-| GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | todo |
+| GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | in-progress |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | done |
 | GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | done |
 | GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
-| GC-059 | A test for the launcher attach path | tests | S | P3 | todo |
+| GC-059 | A test for the launcher attach path | tests | S | P3 | in-progress |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | todo |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
@@ -667,7 +667,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-011 File-system watcher for automatic refresh
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** main | **Size:** M | **Priority:** P2
 - **Depends on:** GC-001
 - **Why:** The snapshot only reloads after an action inside the app. Edits from an editor or
@@ -691,6 +691,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   `shared/types.ts`, `App.tsx`.
 - **Verify:** e2e step driving external edits, CPU stays idle when nothing changes.
 - **Log:**
+  - 2026-09-05 21:10 claimed
 
 ### GC-012 Lazy loading past 2000 commits
 
@@ -1681,7 +1682,7 @@ decision is missing.
 
 ### GC-032 Optional Author, Date and SHA columns in the graph
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P2
 - **Depends on:** GC-006, GC-007
 - **Why:** The study (`03-graph.md`, Columns) records user-enabled AUTHOR, COMMIT DATE / TIME,
@@ -1712,6 +1713,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-001: the study's optional graph columns are the largest visible gap
     between the two graphs that no ticket covers.
+  - 2026-09-05 21:10 claimed
 
 ### GC-033 Global shortcuts from the study: branch, fetch, panels, staging
 
@@ -2460,7 +2462,7 @@ decision is missing.
 
 ### GC-053 e2e waits on the DOM instead of fixed sleeps
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-030
 - **Why:** `CLAUDE.md`'s Testing paragraph records that the suite waits on the status-bar spinner
@@ -2490,6 +2492,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-003: the suite's own handover says fixed sleeps flaked once, GC-039 added
     eleven more, and GC-030 has since added the `waitFor` helper that makes replacing them cheap.
+  - 2026-09-05 21:10 claimed
 
 ### GC-058 A component test for the folded-refs dropdown flip
 
@@ -2522,7 +2525,7 @@ decision is missing.
 
 ### GC-059 A test for the launcher attach path
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-054
 - **Why:** `tools/launch-app.mjs` has no tests, and GC-054 put a decision in it that is exactly the
@@ -2550,6 +2553,7 @@ decision is missing.
   - 2026-09-05 proposed by GC-054 (this ticket): the ticket's three acceptance criteria all needed a
     manual launch and `Get-CimInstance` counts, and a fake CDP endpoint proved the same thing in
     seconds without one.
+  - 2026-09-05 21:10 claimed
 
 ## Reviews
 
