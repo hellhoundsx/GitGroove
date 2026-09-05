@@ -13,6 +13,8 @@ export interface PromptOptions {
   okLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** Whether the text input must be non-empty for OK to be enabled (default true). */
+  required?: boolean;
   /** Optional third button, between Cancel and OK. Resolves with `choice: 'secondary'`. */
   secondary?: { label: string };
 }
@@ -31,6 +33,7 @@ interface Props {
 
 export function Modal({ options, onResolve }: Props): JSX.Element {
   const hasInput = options.input !== false;
+  const needsValue = hasInput && options.required !== false;
   const [value, setValue] = useState(options.defaultValue ?? '');
   const [checked, setChecked] = useState(options.checkbox?.defaultChecked ?? false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +45,7 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
   }, [hasInput]);
 
   const resolveWith = (choice: 'ok' | 'secondary'): void => {
-    if (hasInput && value.trim().length === 0) return;
+    if (needsValue && value.trim().length === 0) return;
     onResolve({ value: value.trim(), checked, choice });
   };
   const ok = (): void => resolveWith('ok');
@@ -80,11 +83,11 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
             {options.cancelLabel ?? 'Cancel'}
           </button>
           {options.secondary && (
-            <button className="btn" disabled={hasInput && value.trim().length === 0} onClick={() => resolveWith('secondary')}>
+            <button className="btn" disabled={needsValue && value.trim().length === 0} onClick={() => resolveWith('secondary')}>
               {options.secondary.label}
             </button>
           )}
-          <button ref={okRef} className={`btn ${options.danger ? 'danger' : 'primary'}`} disabled={hasInput && value.trim().length === 0} onClick={ok}>
+          <button ref={okRef} className={`btn ${options.danger ? 'danger' : 'primary'}`} disabled={needsValue && value.trim().length === 0} onClick={ok}>
             {options.okLabel ?? 'OK'}
           </button>
         </div>

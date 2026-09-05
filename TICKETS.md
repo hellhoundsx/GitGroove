@@ -135,7 +135,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-009 | Commit search | graph | M | P2 | done |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
 | GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | done |
-| GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | in-progress |
+| GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | done |
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | todo |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
@@ -154,6 +154,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
+| GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
@@ -971,6 +972,36 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-028 (this ticket): moving the launch into one module made the
     machine-wide kill it inherited obvious, and the reviewer routine documents it as a hazard.
 
+### GC-036 The e2e prologue leaves the named stash a run that dies mid-scenario creates
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** Step 5 creates a stash called `test stash` and step 8 pops it, asserting
+  `git stash list` is then empty. A run that dies between those two steps (an assertion crash, a
+  killed Electron, Ctrl+C) leaves that stash in the scratch repo, and the next run's step 8 fails
+  on an entry it did not create. The prologue already handles the two stashes it knows about --
+  `e2e checkout guard` from step 15 and, since GC-029, the unnamed `WIP on ...` one step 5 parks
+  the tree in -- but not this one, because dropping it would throw away the mixed working tree
+  every later step depends on.
+- **Scope:**
+  - The prologue pops (not drops) a leftover `test stash` the same way it pops a leftover
+    `WIP on ...` stash, so the mixed working tree comes back and the list is empty again.
+  - Give it the same bounded loop and the same comment style as the two guards next to it.
+- **Out of scope:** a general "reset the scratch repo" prologue, and re-running
+  `setup-testrepo.mjs` from `run.mjs`.
+- **Acceptance:**
+  - [ ] Interrupting a run after step 5 and re-running it passes, with step 8 still asserting an
+        empty stash list.
+  - [ ] A normal back-to-back `npm run e2e` still passes.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e`, kill it after step 5 (or create the stash by hand with
+  `git stash push -u -m "test stash"`), then `npm run e2e` again and read step 8.
+- **Log:**
+  - 2026-09-05 proposed by GC-029 (this ticket): adding the unnamed-stash guard to the prologue
+    made the same gap for `test stash` obvious; it is the only remaining stash the suite can
+    strand.
+
 ## Adding a ticket
 
 Copy a section, give it the next `GC-0NN`, fill every field, add a row to the board. A ticket
@@ -1114,7 +1145,7 @@ decision is missing.
 
 ### GC-029 The stash message says "optional" but the modal refuses an empty one
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `stashChanges` in `App.tsx` opens `ui.prompt` with the label "Message (optional)", but
@@ -1133,9 +1164,9 @@ decision is missing.
     whose message starts with `WIP on`, then keep the existing named-stash assertion.
 - **Out of scope:** any other prompt, validation of the message.
 - **Acceptance:**
-  - [ ] Toolbar Stash with the field left empty creates a stash with git's default message.
-  - [ ] Create branch, create tag, rename, add remote and edit URL still refuse an empty value.
-  - [ ] e2e passes with the extended step 5.
+  - [x] Toolbar Stash with the field left empty creates a stash with git's default message.
+  - [x] Create branch, create tag, rename, add remote and edit URL still refuse an empty value.
+  - [x] e2e passes with the extended step 5.
 - **Files:** `src/renderer/src/ui/Modal.tsx`, `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
 - **Verify:** `npm run typecheck && npm run build && npm run e2e:setup && npm run e2e`, then
   `git stash list` in the scratch repo.
@@ -1143,6 +1174,21 @@ decision is missing.
   - 2026-09-05 proposed by GR-001: reading `Modal.tsx` against the stash prompt showed the
     "(optional)" field is required, and the e2e step types a message so it never noticed.
   - 2026-09-05 17:35 claimed
+  - 2026-09-05 17:55 done. `PromptOptions.required` added to `Modal.tsx` (default true); the
+    disabled test and the early return in `resolveWith` now read `needsValue = hasInput &&
+    options.required !== false`, so Enter resolves too. `stashChanges` is the only caller that
+    passes `required: false` (grep over `src/renderer/src`), and `stashSave` already omitted
+    `-m` for an empty message, so no main-process change was needed. e2e step 5 now stashes
+    once with the field empty, asserts the OK button is enabled and that
+    `git stash list -1 --format=%gs` starts with `WIP on `, pops the tree back with
+    `--index` so the named stash below sees the same state, then keeps the original
+    `test stash` assertion; the prologue pops a leftover unnamed stash so the run stays
+    re-entrant. Verified: typecheck ok, build ok, `npm test` 30 passed, `npm run e2e` run three
+    times end to end, 49/49 assertions, exit 0. Acceptance 2 checked live over CDP against the
+    e2e repo: with the field emptied, Create branch (Create), Create tag (Create) and Add remote
+    (Next) all keep OK disabled while Stash does not; rename and edit URL share that path and set
+    no `required` flag. Screenshot `docs/screenshots/stash-optional-message.png` shows the Stash
+    button live with the empty field and the `WIP on main` placeholder.
 
 ### GC-030 Commit search loses its query and results when a diff opens
 

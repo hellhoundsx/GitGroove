@@ -209,7 +209,9 @@ pop, all inside one `run()`; the stash is popped back if the checkout itself fai
 closes on outside click / Escape / wheel / resize), `prompt(options)` (modal with optional text
 input and checkbox, resolves `{ value, checked, choice }` or null) and `confirm(options)`.
 `PromptOptions.secondary` adds a third button between Cancel and OK which resolves with
-`choice: 'secondary'` (GC-004's "Stash and check out"); `confirm` returns true only for `'ok'`,
+`choice: 'secondary'` (GC-004's "Stash and check out"); `PromptOptions.required` defaults to true and
+only the stash prompt sets it false, so a prompt whose label says "(optional)" keeps OK and Enter
+live on an empty field (GC-029); `confirm` returns true only for `'ok'`,
 and OK stays `.modal-buttons .btn:last-child` so the e2e helpers keep working. `MenuItem`
 supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`. Every confirmation in the
 renderer goes through `useUi().confirm` (GC-003); the native `confirm()` is not used anywhere.
@@ -325,7 +327,8 @@ with a merge, a tag, three branches, a bare `origin` with everything pushed, and
 tree (unstaged edits, untracked file, staged edit, staged deletion, a two-hunk file). `run.mjs`
 kills Electron, launches the built app with the DevTools port, loads the repo through
 `localStorage`, and asserts against git after each step: branch create/checkout/delete via prompt
-and menus, stash and pop, a real merge conflict with banner + message + abort, cherry-pick (clean
+and menus, stash with an empty message (git's own `WIP on <branch>`) and with a name, then pop,
+a real merge conflict with banner + message + abort, cherry-pick (clean
 and already-applied: git leaves it in progress and the message must stay visible), push, fetch
 (`Fetch all` lives in the Pull caret popover), pull after a commit from a second clone, tag create
 and delete, WIP menu, a per-file delete through the confirm modal, and the dirty-checkout guard
@@ -334,9 +337,10 @@ with the tree re-applied), commit search (message, sha prefix, stepping through
 matches, the position following a clicked row, Escape), and remote management (add a second remote
 pointing at the bare origin and fetch it, rename it, edit its URL, remove it, origin untouched).
 It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused
-one flake. All 48 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+one flake. All 49 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates, and drops the
-`e2e checkout guard` stash a run interrupted in step 15 would leave behind). Step 1 also removes
+`e2e checkout guard` stash a run interrupted in step 15 would leave behind, and pops back the
+unnamed stash step 5 parks the tree in for a moment). Step 1 also removes
 `gitclient.prefs`: preferences persist in the app's localStorage, so a setting toggled by hand in
 an earlier session (GC-007 left `confirmDirtyCheckout` off) silently disables whole steps
 otherwise.
@@ -392,7 +396,8 @@ avatars, default pull mode, the dirty-checkout confirmation and the 72-character
 switchable (GC-007); commit search over the loaded commits from the toolbar button or Ctrl+F,
 dimming non-matches instead of hiding them (GC-009); one table of keyboard shortcuts behind
 `matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
-`tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028).
+`tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); the stash
+prompt's "(optional)" message really being optional, on a per-prompt `required` flag (GC-029).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

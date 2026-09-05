@@ -377,7 +377,7 @@ export function App(): JSX.Element {
   );
 
   const stashChanges = useCallback(async () => {
-    const r = await ui.prompt({ title: 'Stash changes', label: 'Message (optional)', placeholder: 'WIP on ' + (currentBranch ?? 'HEAD'), checkbox: { label: 'Include untracked files', defaultChecked: true }, okLabel: 'Stash' });
+    const r = await ui.prompt({ title: 'Stash changes', label: 'Message (optional)', required: false, placeholder: 'WIP on ' + (currentBranch ?? 'HEAD'), checkbox: { label: 'Include untracked files', defaultChecked: true }, okLabel: 'Stash' });
     if (r) await run('Stashing', () => window.api.stashSave(repo!, { message: r.value, includeUntracked: r.checked }));
   }, [currentBranch, repo, run, ui]);
 

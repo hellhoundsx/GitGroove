@@ -160,6 +160,11 @@ for (let i = 0; i < 5; i++) {
   if (idx < 0) break;
   git(['stash', 'drop', '-q', `stash@{${idx}}`]);
 }
+// step 5 parks the whole tree in an unnamed stash for a moment; pop it back if a run died there
+for (let i = 0; i < 5; i++) {
+  if (!/^WIP on /.test(git(['stash', 'list', '-1', '--format=%gs']))) break;
+  git(['stash', 'pop', '--index', '-q']);
+}
 const stamp = Date.now();
 
 // ---- scenario -----------------------------------------------------------------------------------------------
@@ -201,7 +206,22 @@ log(await modalOk());
 await settle();
 check('branch deleted', !git(['branch', '--format=%(refname:short)']).includes('test-branch'));
 
-step(5, 'stash via toolbar');
+step(5, "stash via toolbar: an empty message uses git's default, then a named stash");
+// GC-029: the field is labelled "Message (optional)", so OK must stay enabled while it is empty.
+log(await tool('Stash'));
+await sleep(400);
+log(await modal('', true));
+const emptyOk = String(await ev(`(() => { const b = document.querySelector('.modal .modal-buttons .btn:last-child'); return b ? (b.disabled ? 'disabled' : 'enabled') : 'no modal'; })()`));
+check('Stash OK stays enabled on an empty message', emptyOk === 'enabled', emptyOk);
+log(await modalOk());
+await settle();
+const autoMessage = git(['stash', 'list', '-1', '--format=%gs']);
+check("empty message stashes under git's own WIP message", /^WIP on /.test(autoMessage) && status() === '', `${autoMessage} | ${status()}`);
+// put the mixed working tree back exactly as it was so the named stash below sees the same state
+git(['stash', 'pop', '--index', '-q']);
+log(await tool('Refresh'));
+await settle();
+
 log(await tool('Stash'));
 await sleep(400);
 log(await modal('test stash', true));
