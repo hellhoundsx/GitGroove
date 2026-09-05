@@ -135,7 +135,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-009 | Commit search | graph | M | P2 | done |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
 | GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | done |
-| GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | todo |
+| GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | in-progress |
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | todo |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
@@ -1114,7 +1114,7 @@ decision is missing.
 
 ### GC-029 The stash message says "optional" but the modal refuses an empty one
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `stashChanges` in `App.tsx` opens `ui.prompt` with the label "Message (optional)", but
@@ -1142,6 +1142,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-001: reading `Modal.tsx` against the stash prompt showed the
     "(optional)" field is required, and the e2e step types a message so it never noticed.
+  - 2026-09-05 17:35 claimed
 
 ### GC-030 Commit search loses its query and results when a diff opens
 
