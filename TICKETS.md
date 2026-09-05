@@ -134,7 +134,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-008 | Remote add, edit and remove | actions | M | P2 | done |
 | GC-009 | Commit search | graph | M | P2 | done |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
-| GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | todo |
+| GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | in-progress |
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | todo |
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
@@ -860,7 +860,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-028 Stealth mode: unattended runs never steal focus or show a window
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P0
 - **Depends on:** none
 - **Why:** The routines build, launch and screenshot the app while Ricardo is using the machine,
@@ -911,6 +911,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 17:11 proposed by Ricardo: the runs keep switching him out of a game. P0 because
     every other ticket's verification pops a window until this lands.
+  - 2026-09-05 17:30 claimed
 
 ## Adding a ticket
 
