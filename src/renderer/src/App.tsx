@@ -89,9 +89,20 @@ export function App(): JSX.Element {
     }
   }, [recents]);
 
+  // Nothing tied a git result to the moment it was asked for, so a slow background load could
+  // resolve after a user action had already reloaded and replace the fresh snapshot with the one
+  // it captured before the click — a staged file showing as unstaged until the next watcher event
+  // (GC-068). Every read below captures this counter when it starts and drops its result if it has
+  // moved on by the time git answers; `run()` bumps it, so a user action always invalidates the
+  // background work already in flight. Dropping is silent: whatever superseded it is already on
+  // screen, so there is nothing to report and no spinner to clear.
+  const generation = useRef(0);
+
   const load = useCallback(async (path: string) => {
+    const gen = generation.current;
     try {
       const snap = await window.api.loadRepo(path, MAX_COMMITS);
+      if (gen !== generation.current) return; // (GC-068) something newer has already landed
       setSnapshot(snap);
       setRepoPath(snap.info.path);
       // git hands back the canonical path, so dedupe against that rather than the one asked for.
@@ -102,6 +113,9 @@ export function App(): JSX.Element {
         /* ignore */
       }
     } catch (e) {
+      // A stale failure must not clear a repository a newer load has since opened, so the error
+      // path is generation-checked too (GC-068).
+      if (gen !== generation.current) return;
       setSnapshot(null);
       // The path did not load, so the status bar must stop naming it as the open repository; the
       // remembered path stays in localStorage in case the folder comes back (GC-025).
@@ -132,6 +146,9 @@ export function App(): JSX.Element {
   /** Switch to a repository: the folder dialog and the recents list both land here. */
   const openPath = useCallback(
     async (path: string) => {
+      // Switching repositories is a user action like any other, so it too invalidates a background
+      // load already running against the one being left (GC-068).
+      generation.current += 1;
       setFileView(null);
       setSelected(WIP);
       setBusy('Loading repository');
@@ -178,7 +195,9 @@ export function App(): JSX.Element {
   /** Re-read the working directory status after a mutation. */
   const refreshStatus = useCallback(async () => {
     if (!repo) return;
+    const gen = generation.current;
     const status = await window.api.getStatus(repo);
+    if (gen !== generation.current) return; // (GC-068)
     setSnapshot((s) => (s ? { ...s, status } : s));
     setWorkdirVersion((v) => v + 1);
   }, [repo]);
@@ -187,6 +206,9 @@ export function App(): JSX.Element {
   const run = useCallback(
     async (label: string, fn: () => Promise<unknown>, opts: { statusOnly?: boolean; rethrow?: boolean } = {}): Promise<void> => {
       if (!repo) return;
+      // The user acted, so whatever a background load is about to return was captured before this
+      // and must not land on top of the reload below (GC-068).
+      generation.current += 1;
       setBusy(label);
       setError(null);
       let failure: unknown = null;
@@ -262,7 +284,9 @@ export function App(): JSX.Element {
         }
         // Not `load()`: its failure path clears the open repository (GC-025), which a refresh
         // nobody asked for must never do, so the snapshot is replaced only when one arrives.
+        const gen = generation.current;
         const snap = await window.api.loadRepo(repo, MAX_COMMITS);
+        if (gen !== generation.current) return; // (GC-068) a user action has reloaded since
         setSnapshot(snap);
         setWorkdirVersion((v) => v + 1);
       } catch {

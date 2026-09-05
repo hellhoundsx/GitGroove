@@ -67,6 +67,13 @@ git(['add', 'README.md']);
 git(['rm', '-q', 'main.txt']);
 write('big.txt', bigRows({ 3: 'row 3 edited', 35: 'row 35 edited' }));
 
+// A snapshot of every branch tip, in a ref namespace the app never reads: getRefs() covers
+// refs/heads, refs/remotes and refs/tags only, and these point at commits the branches already
+// reach, so the graph gains no row from them. tools/e2e/run.mjs puts the fixture back to this
+// snapshot when a run finishes and asserts that it matches, so a step that leaves a commit
+// behind names itself instead of surfacing later as an unrelated step's flake (GC-076).
+for (const b of ['main', 'feature', 'wip-branch']) git(['update-ref', `refs/e2e/baseline/${b}`, b]);
+
 console.log(`test repository ready at ${R}`);
 console.log(git(['log', '--oneline', '--graph', '--all']));
 console.log(git(['status', '--short']));

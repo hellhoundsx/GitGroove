@@ -233,6 +233,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
+| GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | todo |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
@@ -254,6 +255,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | done |
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
+| GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
@@ -3779,6 +3781,107 @@ decision is missing.
 - **Log:**
   - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session; the 15px
     default bar with buttons measured and looked at on the worktree build.
+
+### GC-080 The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead
+
+- **Status:** todo
+- **Area:** tests | **Size:** M | **Priority:** P2
+- **Depends on:** none
+- **Why:** GC-053 replaced 61 fixed sleeps with `waitFor`, but the two helpers every git action still
+  goes through kept theirs (`tools/e2e/run.mjs:197-209`): `waitIdle` polls the status-bar spinner
+  away and then sleeps an unconditional 400ms "because the reload that follows the spinner is not
+  announced anywhere in the DOM", and `settle` sleeps 600ms *before* that "for the window in which
+  an action gets as far as raising the spinner". `settle()` is called 39 times and `waitIdle()`
+  directly 12 more, so every run pays 39 × 1.0s + 12 × 0.4s = **43.8s** of sleeping that no state
+  is observed during. The whole run is about 55-60s (the screenshot timestamps of one run in
+  `%TEMP%/gitclient-e2e/shots` put steps 5-16 at 26s and 17-end at 17s, plus launch and steps
+  1-4), so roughly three quarters of it is waiting on nothing. The suite is the batch routine's
+  own verification tool and the reviewer runs it too, several times a day, so the minute lost per
+  run is paid many times over. The sleeps also hide a flake: an action that finished before
+  `settle`'s 600ms ended never raised a spinner `waitIdle` could see, so the 400ms is what
+  actually covers it, and a slower-than-usual reload (a big fixture, a busy disk) still gets
+  through it with stale state. Both comments are right that today nothing observable marks the
+  reload — so make something.
+- **Scope:**
+  - `App.tsx` keeps a snapshot generation: a counter bumped every time a snapshot or a status is
+    applied to state — `run()`'s reload (full and `statusOnly`) and the watcher's background
+    refresh alike, since the suite's own `git` writes to the fixture reach the app only through
+    the watcher (GC-011) and a wait there has to see that arrival too. It is exposed as
+    `data-gen` on `.statusbar` (a prop into `StatusBar.tsx`, next to the `.busy` spinner the suite
+    already polls), so the DOM announces what the comments say it does not.
+  - `run.mjs` gets one helper, e.g. `act(fn)`: read the generation, perform the action, then
+    `waitFor` **both** the generation having advanced **and** the spinner being gone. Needing both
+    is what keeps a watcher refresh that lands between the read and the click from satisfying the
+    wait with pre-action state: the action's own `busy` blocks it until its reload bumps the
+    counter again. Replace every `settle()` / `waitIdle()` that follows a git action with it.
+  - Audit the rest one by one: a `settle()` after something that never touches git (opening a
+    menu, typing a search query, clicking a chip to select) is waiting on nothing and becomes a
+    `waitFor` on the DOM state the next line depends on, or goes.
+  - Print the run's total wall time on the last line, so this ticket's before/after and every later
+    speed change are measured in the log rather than estimated.
+- **Out of scope:** the poll intervals themselves (50ms / 150ms), step 16's inter-query sleep
+  (the second query lands on the same row as the first, so nothing observable changes — leave its
+  comment), the cost of the suite's own `git` spawns (GC-081), the fixture's size, and GC-068's
+  late-reload ordering — the residual window where a watcher bump lands after the click but before
+  `run()` has rendered `busy` is a few milliseconds wide and is closed properly by that ticket,
+  not by a sleep here.
+- **Acceptance:**
+  - [ ] `npm run e2e` three times in a row, every assertion passing, total time printed and under
+        30s each (from ~55-60s), both numbers in this log.
+  - [ ] `grep -c 'await sleep(' tools/e2e/run.mjs` is 3: the two poll intervals and step 16's,
+        each still carrying its comment; `settle` is gone and `waitIdle` no longer sleeps after the
+        spinner.
+  - [ ] Making `run()` skip the bump (mutation) makes the very first action's wait time out with a
+        message naming the generation, then revert.
+  - [ ] The watcher probe from GR-005 still holds: an untracked file written into the scratch tree
+        advances `data-gen` on its own within 1.5s with no click.
+  - [ ] `npm run typecheck`, `npm test`, build; the attribute is the only renderer-visible change.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/StatusBar.tsx`,
+  `tools/e2e/run.mjs`, `CLAUDE.md` (Testing paragraph: the wait discipline and the sleep count).
+- **Verify:** the five checks above; look at the printed total on each of the three runs.
+- **Log:**
+  - 2026-09-06 requested by Ricardo after asking whether the e2e time could be improved; the 39 +
+    12 call sites and the 43.8s floor were counted in `run.mjs`, the ~55-60s run length read off
+    the shot timestamps of the run then in progress.
+
+### GC-081 Time the e2e run's 141 git spawns and drop the redundant ones
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-080
+- **Why:** After GC-080 the largest remaining cost in the run is its own verification: `git()`
+  in `tools/e2e/run.mjs:28` is a synchronous `execFileSync`, it is called 141 times, and every
+  call is a fresh `git.exe` process on Windows, roughly 50-70ms each before git does anything —
+  an estimated 7-10s, which against a ~25s run is a third of it. Nobody has measured it, which is
+  the first problem: a fixed count and an estimate per call is not a number a later change can be
+  checked against. Some of the calls are plainly repeated — `status()` read more than once in a
+  step with no action between the reads, several `rev-parse` of single refs where one call takes
+  them all, check-then-act pairs in the prologue — but which ones are worth removing depends on
+  the measurement, so the ticket is deliberately ordered: measure, then cut what the numbers say.
+- **Scope:**
+  - `git()` accumulates its call count and wall time; the run prints `git: N calls, X.Xs` next to
+    GC-080's total-time line.
+  - With that number in the log, remove the redundant calls: a second read of the same state with
+    no action in between goes; several `rev-parse <ref>` in one step become one `rev-parse a b c`
+    (or one `for-each-ref`) split on newlines; a prologue check that only guards a cleanup it could
+    run unconditionally (with `okCodes`-style tolerance) is folded into the cleanup. Every removed
+    call must be a duplicate of one still made in the same step, so no assertion is weakened.
+  - Try, measure and keep only if they show: `GIT_OPTIONAL_LOCKS=0` in the spawn environment so
+    `git status` does not refresh and rewrite the index on the fixture, and resolving the git
+    executable's absolute path once instead of a PATH lookup per spawn.
+- **Out of scope:** making `git()` async and overlapping calls (the assertions are sequential by
+  nature, action then read), changing what any step asserts, the fixture (GC-055, GC-056, GC-064,
+  GC-076).
+- **Acceptance:**
+  - [ ] The `git:` line is printed; its before value is in this log.
+  - [ ] Call count and git wall time both down by at least a third, every assertion still passing
+        over three runs; the after values are in this log.
+  - [ ] Each removed call is named in the log with the surviving call that covers it.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e` three times; compare the two printed lines with the ones GC-080 left.
+- **Log:**
+  - 2026-09-06 requested by Ricardo alongside GC-080, with the note that the ceiling is about 5s
+    and it is worth doing only once GC-080 has made that a meaningful share of the run.
 
 
 ## Reviews

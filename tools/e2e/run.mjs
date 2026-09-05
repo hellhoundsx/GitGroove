@@ -35,6 +35,21 @@ const git = (args, cwd = R) => {
 const status = () => git(['status', '--short']).replace(/\n/g, ' ');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The branch tips setup-testrepo.mjs recorded, keyed by branch name (GC-076). The run puts the
+// fixture back to them when it finishes and then asserts that it did, so a step that leaves a
+// commit behind says so itself. A fixture built before that snapshot existed cannot be checked at
+// all, which makes it as stale as no fixture: say so the same way and stop before the launch.
+const baseline = new Map(
+  git(['for-each-ref', '--format=%(refname:lstrip=3) %(objectname)', 'refs/e2e/baseline'])
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => l.split(' ')),
+);
+if (baseline.size === 0) {
+  console.error(`The test repository at ${R} predates the fixture baseline. Run: node tools/e2e/setup-testrepo.mjs`);
+  process.exit(2);
+}
+
 let failures = 0;
 const check = (name, ok, detail = '') => {
   console.log(`    ${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' | ' + detail : ''}`);
@@ -262,7 +277,6 @@ git(['checkout', '-q', 'main']);
 git(['branch', '-D', 'conflict-branch']);
 git(['branch', '-D', 'test-branch']);
 git(['tag', '-d', 't-test']);
-rmSync(join(root, 'clone2'), { recursive: true, force: true });
 git(['remote', 'remove', 'upstream']);
 git(['remote', 'remove', 'mirror']);
 // step 17 pushes this scratch branch to the second remote and deletes it again (GC-031)
@@ -329,6 +343,72 @@ const HUNK_EDIT_2 = 'row 35 edited';
 if (git(['diff', '--cached', '--name-only', '--', HUNK_FILE]) === HUNK_FILE) git(['reset', '-q', '--', HUNK_FILE]);
 // the same 40 rows with the same two edits `bigRows` writes in tools/e2e/setup-testrepo.mjs
 writeFileSync(join(R, HUNK_FILE), Array.from({ length: 40 }, (_, i) => (i === 2 ? HUNK_EDIT_1 : i === 34 ? HUNK_EDIT_2 : `row ${i + 1}`)).join('\n') + '\n');
+
+// Three steps commit to main and nothing used to take those commits back: step 6's `main change`,
+// the `Pickable commit` step 7 cherry-picks (which step 12 then needs to find already applied, so
+// it cannot be undone where it is made) and step 10's `Commit from another clone`. The fixture grew
+// by three commits and two files a run — 6 on main at setup, 9 after one run, 44 after a batch's —
+// until step 16 asserted on a virtualised row that history that long had pushed out of the rendered
+// window, and the flake looked like a regression in whatever ticket was in flight (GC-076).
+//
+// So the run puts them back itself, here and again at the end: the prologue call recovers a run
+// that died mid-scenario, the epilogue call is the healthy path, and both must be a no-op on a
+// fixture that has not drifted. Commits are matched by subject, the way the GC-062 block above
+// matches its own mark, rather than reset to the baseline sha wholesale: a commit somebody added to
+// the fixture by hand is not this run's to remove, and leaving it is what makes the closing
+// assertion fail loudly instead of silently healing the drift it exists to report.
+const RUN_COMMITS = [/^main change$/, /^Pickable commit \d+$/, /^Commit from another clone \d+$/];
+const RUN_FILE_RE = /^(pick|remote)-\d+\.txt$/;
+// what the fixture stages for itself, so the rest of the index belongs to the commits just dropped
+const FIXTURE_STAGED = ['README.md', 'main.txt'];
+// the unstaged a.txt edit setup-testrepo.mjs leaves behind; `main change` commits that same content,
+// so dropping it needs the working tree written back rather than checked out of HEAD
+const FIXTURE_A_TXT = 'line1\nline2 changed\nline3\nline4 new\n';
+// `status()` over the working tree a finished run hands to the next one. It is the fixture's five
+// paths, and a.txt among them is what proves the write above happened: `main change` absorbs that
+// edit into a commit, so dropping the commit without writing the file back would leave a.txt clean.
+// The staged half of the fixture is already gone by here and this is deliberately not it: step 8
+// pops the stash through the toolbar, which does not restore the index, so the staged README.md
+// edit and main.txt deletion come back unstaged. That happens on every run, with or without this
+// block, and putting the index back is a different drift from the commits this ticket removes.
+const EXPECTED_STATUS = 'M README.md  M a.txt  M big.txt  D main.txt ?? new.txt';
+const restoreFixture = () => {
+  // --soft, never --hard, for the reason the GC-062 block gives: the index holds the fixture's own
+  // staged README.md change and main.txt deletion and the tree holds the edits every step asserts
+  // against, so a hard reset would undo the commits by gutting the fixture.
+  for (let i = 0; i < RUN_COMMITS.length; i++) {
+    if (!RUN_COMMITS.some((re) => re.test(git(['log', '-1', '--format=%s'])))) break;
+    git(['reset', '--soft', 'HEAD^']);
+  }
+  for (const f of git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean)) {
+    if (FIXTURE_STAGED.includes(f)) continue;
+    git(['reset', '-q', '--', f]);
+    if (RUN_FILE_RE.test(f)) rmSync(join(R, f), { force: true });
+    else if (f === MENU_FILE) writeFileSync(join(R, MENU_FILE), FIXTURE_A_TXT);
+  }
+  // step 7 also commits to wip-branch, which is never checked out here, so its tip moves by ref
+  if (/^Pickable commit \d+$/.test(git(['log', '-1', '--format=%s', 'wip-branch']))) {
+    git(['update-ref', 'refs/heads/wip-branch', git(['rev-parse', 'wip-branch^'])]);
+  }
+  // every branch the run makes for itself, on both sides: conflict-branch (step 6), test-branch
+  // (step 2) and push-target (step 17) are all deleted by their own steps on the healthy path
+  for (const b of git(['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads']).split('\n').filter(Boolean)) {
+    if (!baseline.has(b)) git(['branch', '-D', b]);
+  }
+  for (const b of git(['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads'], REMOTE).split('\n').filter(Boolean)) {
+    if (!baseline.has(b)) git(['update-ref', '-d', `refs/heads/${b}`], REMOTE);
+  }
+  // steps 9 and 10 push main to the bare origin. Write the ref rather than force-pushing: the remote
+  // is ours and a rewind is not a push any step performs.
+  if (git(['rev-parse', 'refs/heads/main'], REMOTE) !== git(['rev-parse', 'main'])) {
+    git(['update-ref', 'refs/heads/main', git(['rev-parse', 'main'])], REMOTE);
+  }
+  git(['fetch', '-q', 'origin', '--prune']);
+  // the second clone step 10 makes to commit from, which it clones fresh every run
+  rmSync(join(root, 'clone2'), { recursive: true, force: true });
+};
+restoreFixture();
+
 const stamp = Date.now();
 
 // ---- scenario -----------------------------------------------------------------------------------------------
@@ -967,6 +1047,22 @@ log(await tool('Refresh'));
 await settle();
 
 await shot('final.png');
+
+step(22, 'the run leaves the fixture exactly as it found it');
+// The same call the prologue makes, on the healthy path this time, and then the invariant: a run
+// that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
+// growing the history until some later run's virtualised-row assertion flakes for it (GC-076).
+restoreFixture();
+const drift = [...baseline].filter(([b, sha]) => git(['rev-parse', b]) !== sha).map(([b]) => b);
+const remoteDrift = [...baseline].filter(([b, sha]) => git(['rev-parse', `refs/heads/${b}`], REMOTE) !== sha).map(([b]) => b);
+check(
+  'main carries the commits the fixture was built with and no more',
+  git(['rev-list', '--count', 'HEAD']) === git(['rev-list', '--count', 'refs/e2e/baseline/main']),
+  `${git(['rev-list', '--count', 'HEAD'])} commits, the fixture has ${git(['rev-list', '--count', 'refs/e2e/baseline/main'])}` +
+    ` | run: npm run e2e:setup${drift.length ? ' | drifted: ' + git(['log', '--oneline', 'refs/e2e/baseline/main..HEAD']).replace(/\n/g, ' ') : ''}`,
+);
+check('every branch is back on its baseline tip, here and on the bare origin', drift.length === 0 && remoteDrift.length === 0, `local: ${drift.join(', ') || 'none'} | origin: ${remoteDrift.join(', ') || 'none'}`);
+check('the working tree is the one the next run expects', status() === EXPECTED_STATUS, `${status()} | expected ${EXPECTED_STATUS}`);
 
 ws.close();
 stopApp();

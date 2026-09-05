@@ -28,39 +28,57 @@ function splitPath(path: string): [string, string] {
 
 export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageFile, onDiscardFile, onApplyPatch }: Props): JSX.Element {
   const ui = useUi();
-  const [text, setText] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // (GC-075) What was loaded, and which view it was loaded for. The header chip and the hunk
+  // buttons come straight from `view` and flip the instant it changes, so a diff kept from the
+  // previous view would be on screen under a header claiming the other side of the file, and a
+  // hunk button would build its patch against an index git has already moved on from. Tying the
+  // result to its own view and comparing during render, rather than clearing it from the effect,
+  // is what makes that impossible: an effect runs after React has committed the new `view`, which
+  // leaves one painted frame with the new header over the old hunks and the buttons still live.
+  const viewKey = `${repo}|${version}|${view.source}|${view.path}|${view.source === 'commit' ? view.sha : `${view.staged}|${view.kind ?? ''}`}`;
+  const [loaded, setLoaded] = useState<{ key: string; text: string | null; error: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
+  /** What a Stage/Unstage/Discard click reported, as opposed to what the load did. */
+  const [actionError, setActionError] = useState<string | null>(null);
+  const current = loaded?.key === viewKey ? loaded : null;
+  const text = current?.text ?? null;
+  const error = current?.error ?? actionError;
+  const loading = current === null;
 
   useEffect(() => {
     let cancelled = false;
-    setError(null);
+    setActionError(null);
     const load =
       view.source === 'commit'
         ? window.api.getCommitFileDiff(repo, view.sha, view.path)
         : window.api.getWorkdirFileDiff(repo, { path: view.path, staged: view.staged, untracked: view.kind === 'untracked' });
     load.then(
-      (t) => !cancelled && setText(t),
-      (e) => !cancelled && setError(e instanceof Error ? e.message : String(e)),
+      (t) => !cancelled && setLoaded({ key: viewKey, text: t, error: null }),
+      // A failure is stored against the same key, so the file buttons come back rather than staying
+      // disabled on a view that will never resolve.
+      (e) => !cancelled && setLoaded({ key: viewKey, text: null, error: e instanceof Error ? e.message : String(e) }),
     );
     return () => {
       cancelled = true;
     };
-  }, [repo, view, version]);
+  }, [repo, view, version, viewKey]);
 
   const files = useMemo(() => (text === null ? [] : parseUnifiedDiff(text)), [text]);
   const file: FileDiff | undefined = files[0];
   const [dir, name] = splitPath(view.path);
   const isWip = view.source === 'wip';
   const untracked = view.kind === 'untracked';
+  // Every action is aimed at what is on screen, so a load in flight disables them exactly like a
+  // running one does: the header already claims the new side of the file (GC-075).
+  const actionsDisabled = busy || loading;
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     setBusy(true);
-    setError(null);
+    setActionError(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setActionError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -71,20 +89,20 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     const patch = buildHunkPatch(file, hunk);
     if (view.source === 'wip' && view.staged) {
       return (
-        <button className="btn" disabled={busy} onClick={() => void run(() => onApplyPatch(patch, { cached: true, reverse: true }))}>
+        <button className="btn" disabled={actionsDisabled} onClick={() => void run(() => onApplyPatch(patch, { cached: true, reverse: true }))}>
           Unstage hunk
         </button>
       );
     }
     return (
       <>
-        <button className="btn success" disabled={busy} onClick={() => void run(() => onApplyPatch(patch, { cached: true }))}>
+        <button className="btn success" disabled={actionsDisabled} onClick={() => void run(() => onApplyPatch(patch, { cached: true }))}>
           Stage hunk
         </button>
         {!untracked && (
           <button
             className="btn danger"
-            disabled={busy}
+            disabled={actionsDisabled}
             onClick={() =>
               void ui
                 .confirm({ title: `Discard this hunk from ${name}?`, message: 'Discard this hunk from the working directory? This cannot be undone.', okLabel: 'Discard hunk', danger: true })
@@ -114,12 +132,12 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         <span className="spacer" />
         {isWip && view.source === 'wip' && !view.staged && (
           <>
-            <button className="btn success" disabled={busy} onClick={() => void run(() => onStageFile(view.path))}>
+            <button className="btn success" disabled={actionsDisabled} onClick={() => void run(() => onStageFile(view.path))}>
               Stage file
             </button>
             <button
               className="btn danger"
-              disabled={busy}
+              disabled={actionsDisabled}
               onClick={() =>
                 void ui
                   .confirm(
@@ -135,7 +153,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
           </>
         )}
         {isWip && view.source === 'wip' && view.staged && (
-          <button className="btn" disabled={busy} onClick={() => void run(() => onUnstageFile(view.path))}>
+          <button className="btn" disabled={actionsDisabled} onClick={() => void run(() => onUnstageFile(view.path))}>
             Unstage file
           </button>
         )}
@@ -148,7 +166,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         {error && <span className="err">{error}</span>}
       </div>
       <div className="diff-body">
-        {text === null && !error && <div className="diff-empty">Loading diff…</div>}
+        {loading && !error && <div className="diff-empty">Loading diff…</div>}
         {text !== null && !file && <div className="diff-empty">No textual changes.</div>}
         {file?.binary && <div className="diff-empty">Binary file.</div>}
         {file &&
