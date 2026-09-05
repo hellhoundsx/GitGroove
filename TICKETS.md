@@ -108,7 +108,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | done |
 | GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | done |
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | done |
-| GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | todo |
+| GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | in-progress |
 | GC-006 | Resizable ref column | graph | M | P1 | todo |
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | todo |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | todo |
@@ -304,7 +304,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-005 Pin to Left: any branch can take column 0
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P1
 - **Depends on:** GC-002
 - **Why:** GitKraken offers "Pin to Left" on a branch so its lineage becomes the straight
@@ -328,6 +328,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/components/LeftPanel.tsx`.
 - **Verify:** `npm test`, build, screenshot against the e2e repo.
 - **Log:**
+  - 2026-09-05 16:12 claimed
 
 ### GC-006 Resizable ref column
 
