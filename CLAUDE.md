@@ -44,6 +44,7 @@ Node 25 and npm 11 are installed; no pnpm, no Rust (Tauri was ruled out for that
 ## Repository layout
 
 ```
+TICKETS.md             the backlog: one ticket per startable task, each with a status (see roadmap section)
 src/
   main/index.ts        Electron window (1400x900, dark background, overlay title bar), loads out/renderer
   main/git.ts          every git call; spawn('git', BASE_ARGS + args) with LC_ALL=C, GIT_TERMINAL_PROMPT=0
@@ -270,17 +271,15 @@ with upstream setup; stash save/apply/pop/drop; tags; remotes listing; context m
 in-progress operation banner with abort; conflicted files group; icon set; Open Sans; palette
 calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite.
 
-Next, roughly in order Ricardo and I discussed:
-
-1. "Pin to Left" context action so any branch can take column 0 (GitKraken has it).
-2. Resizable ref/graph columns; long single branch names still clip at 150px.
-3. Confirmation before checkout when the working tree is dirty (optional, discussed).
-4. Gravatar behind a preference; general Preferences page.
-5. Drag-and-drop merge/rebase between chips; interactive rebase editor.
-6. Lazy loading past 2000 commits; file-system watcher for automatic refresh.
-7. Undo/Redo and Search toolbar buttons are placeholders (disabled); multi-tab is a single tab.
-8. Light theme, keyboard shortcuts overlay, side-by-side diff, commit search.
-9. Unit tests for `parseDiff` and `lanes`.
+**The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
+`GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance
+criteria, files and verification steps. The "Routine protocol" section at the top of that file
+is what a scheduled session follows: it fires every few minutes, exits immediately if any ticket
+is `in-progress`, otherwise claims the first eligible `todo`, commits and pushes the claim to
+`main` first (that is the lock), implements, verifies, then commits and pushes with the ticket
+set to `done` or `blocked`. One ticket in flight at any time. Do not keep a second roadmap here;
+when a ticket ships, update the "Done" paragraph above and the ticket file, not a list in this
+section.
 
 ## Reference material
 
