@@ -1,0 +1,81 @@
+/* GitClient design tokens. Own palette, calibrated against the study in docs/reference/gitkraken. */
+:root {
+  color-scheme: dark;
+
+  /* Type */
+  --font-ui: 'Open Sans', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, 'JetBrains Mono', Menlo, monospace;
+  --fs-xs: 10px;
+  --fs-sm: 12px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --lh: 20px;
+
+  /* Spacing and shape */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --handle: 6px;
+
+  /* Layout metrics */
+  --titlebar-h: 34px;
+  --toolbar-h: 48px;
+  --statusbar-h: 26px;
+  --left-panel-w: 220px;
+  --detail-panel-w: 400px;
+  --row-h: 28px;
+  --node-size: 20px;
+  --lane-w: 20px;
+  --ref-col-w: 150px;
+
+  /* Surfaces: a short grey ramp, warm-neutral, stepping ~10 per level */
+  --bg-app: #1c1e23;
+  --bg-titlebar: #2a2d34;
+  --bg-toolbar: #33373f;
+  --bg-panel: #272a31;
+  --bg-panel-raised: #32363f;
+  --bg-menu: #3d424d;
+  --bg-input: rgba(0, 0, 0, 0.2);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+
+  /* Text as white with alpha, so it sits on any surface */
+  --text: rgba(255, 255, 255, 0.75);
+  --text-bright: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.6);
+  --text-dim: rgba(255, 255, 255, 0.4);
+  --text-inverse: #1c1e23;
+
+  /* Semantic */
+  --accent: #4d88ff;
+  --accent-soft: rgba(77, 136, 255, 0.2);
+  --accent-hover: rgba(77, 136, 255, 0.1);
+  --success: #5cb85c;
+  --success-soft: rgba(92, 184, 92, 0.2);
+  --warning: #de9b43;
+  --danger: #d9413d;
+  --danger-soft: rgba(217, 65, 61, 0.2);
+  --link: #40c5ec;
+
+  /* Diff */
+  --diff-add: rgba(92, 184, 92, 0.18);
+  --diff-del: rgba(217, 65, 61, 0.18);
+
+  /* Graph lanes, cycled by column index. Slightly desaturated so several lanes can coexist. */
+  --lane-0: #1c9fbc;
+  --lane-1: #2a6fe0;
+  --lane-2: #8d2ac2;
+  --lane-3: #c22fb0;
+  --lane-4: #d61e74;
+  --lane-5: #c7262a;
+  --lane-6: #e8623a;
+  --lane-7: #e6c23a;
+  --lane-8: #7fcf45;
+  --lane-9: #34c99a;
+}

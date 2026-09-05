@@ -1,0 +1,474 @@
+import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react';
+import type { Commit, GitRef, PullMode, Remote, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
+import { TitleBar } from './components/TitleBar';
+import { Toolbar } from './components/Toolbar';
+import { LeftPanel } from './components/LeftPanel';
+import { DetailPanel, type StagingActions } from './components/DetailPanel';
+import { StatusBar } from './components/StatusBar';
+import { CommitGraph, WIP } from './graph/CommitGraph';
+import { DiffView, type FileViewSource } from './diff/DiffView';
+import { useUi } from './ui/UiContext';
+import type { MenuItem } from './ui/ContextMenu';
+
+const LAST_REPO_KEY = 'gitclient.lastRepo';
+const PULL_MODE_KEY = 'gitclient.pullMode';
+const MAX_COMMITS = 2000;
+
+const isEditable = (t: EventTarget | null): boolean => t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+/** Human-readable error text: strips Electron's IPC wrapper and the error class name. */
+const msg = (e: unknown): string =>
+  (e instanceof Error ? e.message : String(e))
+    .replace(/^Error invoking remote method '[^']+': /, '')
+    .replace(/^(GitError|Error): /, '')
+    .trim();
+
+function readPullMode(): PullMode {
+  try {
+    const v = localStorage.getItem(PULL_MODE_KEY);
+    return v === 'ff-only' || v === 'rebase' ? v : 'ff';
+  } catch {
+    return 'ff';
+  }
+}
+
+export function App(): JSX.Element {
+  const ui = useUi();
+  const [repoPath, setRepoPath] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(LAST_REPO_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const [snapshot, setSnapshot] = useState<RepoSnapshot | null>(null);
+  const [selected, setSelected] = useState<string | null>(WIP);
+  const [fileView, setFileView] = useState<FileViewSource | null>(null);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [workdirVersion, setWorkdirVersion] = useState(0);
+  const [busy, setBusy] = useState<string | null>(null); // label of the running operation
+  const [error, setError] = useState<string | null>(null);
+  const [pullMode, setPullMode] = useState<PullMode>(readPullMode);
+
+  const load = useCallback(async (path: string) => {
+    try {
+      const snap = await window.api.loadRepo(path, MAX_COMMITS);
+      setSnapshot(snap);
+      setRepoPath(snap.info.path);
+      try {
+        localStorage.setItem(LAST_REPO_KEY, snap.info.path);
+      } catch {
+        /* ignore */
+      }
+    } catch (e) {
+      setSnapshot(null);
+      setError(msg(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (repoPath) {
+      setBusy('Loading repository');
+      setError(null);
+      void load(repoPath).finally(() => setBusy(null));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openRepo = useCallback(async () => {
+    const path = await window.api.openRepoDialog();
+    if (path) {
+      setFileView(null);
+      setSelected(WIP);
+      setBusy('Loading repository');
+      setError(null);
+      await load(path).finally(() => setBusy(null));
+    }
+  }, [load]);
+
+  const repo = snapshot?.info.path ?? null;
+
+  /** Re-read the working directory status after a mutation. */
+  const refreshStatus = useCallback(async () => {
+    if (!repo) return;
+    const status = await window.api.getStatus(repo);
+    setSnapshot((s) => (s ? { ...s, status } : s));
+    setWorkdirVersion((v) => v + 1);
+  }, [repo]);
+
+  /** Run a git operation with busy/error handling, then reload the snapshot (or only the status). */
+  const run = useCallback(
+    async (label: string, fn: () => Promise<unknown>, opts: { statusOnly?: boolean; rethrow?: boolean } = {}): Promise<void> => {
+      if (!repo) return;
+      setBusy(label);
+      setError(null);
+      let failure: unknown = null;
+      try {
+        await fn();
+      } catch (e) {
+        failure = e;
+      } finally {
+        try {
+          if (opts.statusOnly) await refreshStatus();
+          else {
+            await load(repo);
+            setWorkdirVersion((v) => v + 1);
+          }
+        } catch (e) {
+          failure ??= e;
+        } finally {
+          setBusy(null);
+        }
+      }
+      if (failure !== null) {
+        // git often exits non-zero while leaving the repo in a state the panels now show (conflicts,
+        // an empty cherry-pick, a stopped rebase), so keep the message visible after the reload
+        setError(msg(failure));
+        if (opts.rethrow) throw failure;
+      }
+    },
+    [repo, load, refreshStatus],
+  );
+
+  const actions = useMemo<StagingActions>(
+    () => ({
+      stage: (paths) => run('Staging', () => window.api.stage(repo!, paths), { statusOnly: true, rethrow: true }),
+      unstage: (paths) => run('Unstaging', () => window.api.unstage(repo!, paths), { statusOnly: true, rethrow: true }),
+      stageAll: () => run('Staging all', () => window.api.stageAll(repo!), { statusOnly: true, rethrow: true }),
+      unstageAll: () => run('Unstaging all', () => window.api.unstageAll(repo!), { statusOnly: true, rethrow: true }),
+      discard: (entries: StatusEntry[]) =>
+        run(
+          'Discarding',
+          () =>
+            window.api.discard(repo!, {
+              tracked: entries.filter((e) => e.unstaged !== null && e.unstaged !== 'untracked').map((e) => e.path),
+              untracked: entries.filter((e) => e.unstaged === 'untracked').map((e) => e.path),
+            }),
+          { statusOnly: true, rethrow: true },
+        ),
+      commit: (summary, body, amend) => run('Committing', () => window.api.commit(repo!, { summary, body, amend }), { rethrow: true }),
+      abortOperation: () => run('Aborting', () => window.api.abortOperation(repo!), { rethrow: true }),
+    }),
+    [repo, run],
+  );
+
+  const applyPatch = useCallback(
+    (patch: string, opts: { cached?: boolean; reverse?: boolean }) => run('Applying patch', () => window.api.applyPatch(repo!, patch, opts), { statusOnly: true, rethrow: true }),
+    [repo, run],
+  );
+
+  // Close a WIP file view whose file no longer has changes of that kind.
+  useEffect(() => {
+    if (!fileView || fileView.source !== 'wip' || !snapshot) return;
+    const entry = snapshot.status.entries.find((e) => e.path === fileView.path);
+    const still = entry && (fileView.staged ? entry.staged !== null : entry.unstaged !== null);
+    if (!still) setFileView(null);
+  }, [snapshot, fileView]);
+
+  const commits = snapshot?.commits ?? [];
+  const selectedCommit = useMemo(() => (selected && selected !== WIP ? commits.find((c) => c.sha === selected) ?? null : null), [commits, selected]);
+  const headCommit = useMemo(() => (snapshot?.info.headSha ? commits.find((c) => c.sha === snapshot.info.headSha) ?? null : null), [commits, snapshot]);
+  const headRef = useMemo(() => snapshot?.refs.find((r) => r.isHead) ?? null, [snapshot]);
+  const currentBranch = snapshot?.info.branch ?? null;
+
+  const select = useCallback((sha: string) => {
+    setSelected(sha);
+    setFileView(null);
+  }, []);
+
+  // ---- ref / commit / stash operations ------------------------------------------------
+
+  const checkoutRef = useCallback(
+    (r: GitRef) => {
+      if (r.isHead) return;
+      if (r.kind === 'tag') return run(`Checking out ${r.name}`, () => window.api.checkout(repo!, r.name, { detach: true }));
+      if (r.kind === 'remote') return run(`Checking out ${r.name}`, () => window.api.checkout(repo!, r.name, { track: true }));
+      return run(`Checking out ${r.name}`, () => window.api.checkout(repo!, r.name));
+    },
+    [repo, run],
+  );
+
+  const createBranchAt = useCallback(
+    async (startPoint: string, startLabel: string) => {
+      const r = await ui.prompt({ title: 'Create branch', message: `From ${startLabel}`, label: 'Branch name', placeholder: 'feature/name', checkbox: { label: 'Checkout after creating', defaultChecked: true }, okLabel: 'Create' });
+      if (r) await run('Creating branch', () => window.api.createBranch(repo!, { name: r.value, startPoint, checkout: r.checked }));
+    },
+    [repo, run, ui],
+  );
+
+  const createTagAt = useCallback(
+    async (sha: string) => {
+      const r = await ui.prompt({ title: 'Create tag', message: `At commit ${sha.slice(0, 7)}`, label: 'Tag name', placeholder: 'v1.0.0', checkbox: { label: 'Annotated tag (uses the name as message)' }, okLabel: 'Create' });
+      if (r) await run('Creating tag', () => window.api.createTag(repo!, { name: r.value, sha, message: r.checked ? r.value : undefined }));
+    },
+    [repo, run, ui],
+  );
+
+  const deleteBranch = useCallback(
+    async (r: GitRef) => {
+      if (r.kind === 'remote') {
+        const [remote, ...rest] = r.name.split('/');
+        const branch = rest.join('/');
+        if (!(await ui.confirm({ title: `Delete ${r.name}?`, message: `This deletes branch "${branch}" on the remote "${remote}".`, okLabel: 'Delete from remote', danger: true }))) return;
+        await run(`Deleting ${r.name}`, () => window.api.deleteRemoteBranch(repo!, remote!, branch));
+        return;
+      }
+      if (!(await ui.confirm({ title: `Delete branch ${r.name}?`, okLabel: 'Delete', danger: true }))) return;
+      try {
+        await run(`Deleting ${r.name}`, () => window.api.deleteBranch(repo!, r.name, false), { rethrow: true });
+      } catch (e) {
+        if (/not fully merged/i.test(msg(e))) {
+          if (await ui.confirm({ title: `${r.name} is not fully merged`, message: 'Deleting it will lose the commits that are not reachable from another branch.', okLabel: 'Force delete', danger: true }))
+            await run(`Deleting ${r.name}`, () => window.api.deleteBranch(repo!, r.name, true));
+        }
+      }
+    },
+    [repo, run, ui],
+  );
+
+  const refMenuItems = useCallback(
+    (r: GitRef): MenuItem[] => {
+      const items: MenuItem[] = [];
+      const cur = currentBranch ?? 'HEAD';
+      if (r.kind === 'tag') {
+        items.push({ label: `Checkout ${r.name} (detached)`, onClick: () => checkoutRef(r) });
+        items.push({ label: `Create branch from ${r.name}…`, onClick: () => createBranchAt(r.name, `tag ${r.name}`) });
+        items.push({ separator: true });
+        items.push({ label: `Push tag to remote`, disabled: !snapshot?.remotes.length, onClick: () => run(`Pushing tag ${r.name}`, () => window.api.push(repo!, { remote: snapshot!.remotes[0]!.name, branch: r.name })) });
+        items.push({ label: `Delete tag ${r.name}`, danger: true, onClick: async () => (await ui.confirm({ title: `Delete tag ${r.name}?`, okLabel: 'Delete', danger: true })) && run('Deleting tag', () => window.api.deleteTag(repo!, r.name)) });
+        items.push({ separator: true });
+        items.push({ label: 'Copy tag name', onClick: () => void navigator.clipboard.writeText(r.name) });
+        return items;
+      }
+      items.push({ label: r.isHead ? `${r.name} is checked out` : `Checkout ${r.name}`, disabled: r.isHead, onClick: () => checkoutRef(r) });
+      if (!r.isHead && currentBranch) {
+        items.push({ label: `Merge ${r.name} into ${cur}`, onClick: () => run(`Merging ${r.name}`, () => window.api.merge(repo!, r.name)) });
+        items.push({ label: `Rebase ${cur} onto ${r.name}`, onClick: () => run(`Rebasing onto ${r.name}`, () => window.api.rebase(repo!, r.name)) });
+      }
+      items.push({ separator: true });
+      items.push({ label: `Create branch from ${r.name}…`, onClick: () => createBranchAt(r.name, r.name) });
+      if (r.kind === 'head') {
+        items.push({
+          label: `Rename ${r.name}…`,
+          onClick: async () => {
+            const res = await ui.prompt({ title: 'Rename branch', label: 'New name', defaultValue: r.name, okLabel: 'Rename' });
+            if (res && res.value !== r.name) await run('Renaming branch', () => window.api.renameBranch(repo!, r.name, res.value));
+          },
+        });
+        items.push({
+          label: `Push ${r.name}${r.upstream ? ` to ${r.upstream}` : ' and set upstream'}`,
+          disabled: !snapshot?.remotes.length,
+          onClick: () => run(`Pushing ${r.name}`, () => window.api.push(repo!, { branch: r.name, setUpstream: !r.upstream })),
+        });
+      }
+      items.push({ separator: true });
+      items.push({ label: `Delete ${r.name}`, danger: true, disabled: r.isHead, onClick: () => deleteBranch(r) });
+      items.push({ separator: true });
+      items.push({ label: 'Copy branch name', onClick: () => void navigator.clipboard.writeText(r.name) });
+      return items;
+    },
+    [checkoutRef, createBranchAt, currentBranch, deleteBranch, repo, run, snapshot, ui],
+  );
+
+  const commitMenuItems = useCallback(
+    (c: Commit): MenuItem[] => {
+      const short = c.sha.slice(0, 7);
+      const target = currentBranch ?? 'HEAD';
+      const resetItem = (mode: 'soft' | 'mixed' | 'hard', hint: string): MenuItem => ({
+        label: `Reset ${target} to ${short}: ${mode}`,
+        hint,
+        danger: mode === 'hard',
+        onClick: async () => {
+          if (mode === 'hard' && !(await ui.confirm({ title: `Hard reset ${target} to ${short}?`, message: 'All uncommitted changes will be lost.', okLabel: 'Reset', danger: true }))) return;
+          await run(`Resetting (${mode})`, () => window.api.reset(repo!, mode, c.sha));
+        },
+      });
+      return [
+        { label: 'Checkout this commit (detached)', onClick: () => run(`Checking out ${short}`, () => window.api.checkout(repo!, c.sha, { detach: true })) },
+        { separator: true },
+        { label: 'Create branch here…', onClick: () => createBranchAt(c.sha, `commit ${short}`) },
+        { label: 'Create tag here…', onClick: () => createTagAt(c.sha) },
+        { separator: true },
+        { label: 'Cherry pick commit', disabled: !currentBranch, onClick: () => run(`Cherry-picking ${short}`, () => window.api.cherryPick(repo!, c.sha)) },
+        { label: 'Revert commit', disabled: !currentBranch, onClick: () => run(`Reverting ${short}`, () => window.api.revert(repo!, c.sha)) },
+        { separator: true },
+        resetItem('soft', 'keep all changes staged'),
+        resetItem('mixed', 'keep changes in the working directory'),
+        resetItem('hard', 'discard all changes'),
+        { separator: true },
+        { label: 'Copy commit sha', onClick: () => void navigator.clipboard.writeText(c.sha) },
+        { label: 'Copy commit summary', onClick: () => void navigator.clipboard.writeText(c.summary) },
+      ];
+    },
+    [createBranchAt, createTagAt, currentBranch, repo, run, ui],
+  );
+
+  const stashChanges = useCallback(async () => {
+    const r = await ui.prompt({ title: 'Stash changes', label: 'Message (optional)', placeholder: 'WIP on ' + (currentBranch ?? 'HEAD'), checkbox: { label: 'Include untracked files', defaultChecked: true }, okLabel: 'Stash' });
+    if (r) await run('Stashing', () => window.api.stashSave(repo!, { message: r.value, includeUntracked: r.checked }));
+  }, [currentBranch, repo, run, ui]);
+
+  const stashMenuItems = useCallback(
+    (s: Stash): MenuItem[] => [
+      { label: 'Apply stash', onClick: () => run('Applying stash', () => window.api.stashApply(repo!, s.index)) },
+      { label: 'Pop stash', hint: 'apply and drop', onClick: () => run('Popping stash', () => window.api.stashPop(repo!, s.index)) },
+      { separator: true },
+      { label: 'Drop stash', danger: true, onClick: async () => (await ui.confirm({ title: 'Drop this stash?', message: s.message, okLabel: 'Drop', danger: true })) && run('Dropping stash', () => window.api.stashDrop(repo!, s.index)) },
+    ],
+    [repo, run, ui],
+  );
+
+  const wipMenuItems = useCallback(
+    (): MenuItem[] => {
+      const entries = snapshot?.status.entries ?? [];
+      return [
+        { label: 'Stage all changes', disabled: entries.length === 0, onClick: () => actions.stageAll().catch(() => undefined) },
+        { label: 'Unstage all changes', disabled: !entries.some((e) => e.staged), onClick: () => actions.unstageAll().catch(() => undefined) },
+        { separator: true },
+        { label: 'Stash changes…', disabled: entries.length === 0, onClick: stashChanges },
+        { separator: true },
+        {
+          label: 'Discard all changes',
+          danger: true,
+          disabled: entries.length === 0,
+          onClick: async () => (await ui.confirm({ title: 'Discard all uncommitted changes?', message: 'Untracked files will be deleted. This cannot be undone.', okLabel: 'Discard everything', danger: true })) && actions.discard(entries).catch(() => undefined),
+        },
+      ];
+    },
+    [actions, snapshot, stashChanges, ui],
+  );
+
+  const remoteMenuItems = useCallback(
+    (rem: Remote): MenuItem[] => [
+      { label: `Fetch ${rem.name}`, onClick: () => run(`Fetching ${rem.name}`, () => window.api.fetch(repo!, rem.name)) },
+      { separator: true },
+      { label: 'Copy remote URL', onClick: () => void navigator.clipboard.writeText(rem.fetchUrl) },
+    ],
+    [repo, run],
+  );
+
+  const onMenu = useCallback((e: MouseEvent, items: MenuItem[]) => ui.openMenu(e, items), [ui]);
+
+  // ---- keyboard ----------------------------------------------------------------------
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (isEditable(e.target)) return;
+      if (e.key === 'Escape') {
+        setFileView(null);
+        return;
+      }
+      if (!snapshot || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+      e.preventDefault();
+      const order = [WIP, ...snapshot.commits.map((c) => c.sha)];
+      const i = selected ? order.indexOf(selected) : -1;
+      const next = e.key === 'ArrowDown' ? Math.min(order.length - 1, i + 1) : Math.max(0, i - 1);
+      const sha = order[next];
+      if (sha !== undefined) setSelected(sha);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [snapshot, selected]);
+
+  const changePullMode = (mode: PullMode): void => {
+    setPullMode(mode);
+    try {
+      localStorage.setItem(PULL_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <div className="app">
+      <TitleBar repoName={snapshot?.info.name ?? null} onOpenRepo={openRepo} />
+      <Toolbar
+        info={snapshot?.info ?? null}
+        busy={busy !== null}
+        ahead={snapshot?.status.ahead ?? 0}
+        behind={snapshot?.status.behind ?? 0}
+        hasUpstream={!!headRef?.upstream}
+        hasRemotes={(snapshot?.remotes.length ?? 0) > 0}
+        hasChanges={(snapshot?.status.entries.length ?? 0) > 0}
+        stashCount={snapshot?.stashes.length ?? 0}
+        pullMode={pullMode}
+        onPullModeChange={changePullMode}
+        onFetch={() => void run('Fetching', () => window.api.fetch(repo!))}
+        onPull={(mode) => void run('Pulling', () => window.api.pull(repo!, mode))}
+        onPush={() => void run('Pushing', () => window.api.push(repo!, { setUpstream: !headRef?.upstream }))}
+        onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
+        onStash={() => void stashChanges()}
+        onPop={() => void run('Popping stash', () => window.api.stashPop(repo!, 0))}
+        onRefresh={() => void run('Refreshing', async () => undefined)}
+      />
+      <div className="main">
+        {snapshot && repo ? (
+          <>
+            <LeftPanel
+              refs={snapshot.refs}
+              stashes={snapshot.stashes}
+              remotes={snapshot.remotes}
+              collapsed={leftCollapsed || fileView !== null}
+              onExpand={() => (fileView ? setFileView(null) : setLeftCollapsed(false))}
+              onCollapse={() => setLeftCollapsed(true)}
+              onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
+              onRefActivate={(r) => void checkoutRef(r)}
+              onStashMenu={(e, s) => onMenu(e, stashMenuItems(s))}
+              onStashActivate={(s) => void run('Applying stash', () => window.api.stashApply(repo, s.index))}
+              onRemoteMenu={(e, rem) => onMenu(e, remoteMenuItems(rem))}
+            />
+            {fileView ? (
+              <DiffView
+                repo={repo}
+                view={fileView}
+                version={workdirVersion}
+                onClose={() => setFileView(null)}
+                onStageFile={(p) => actions.stage([p])}
+                onUnstageFile={(p) => actions.unstage([p])}
+                onDiscardFile={(p, untracked) => actions.discard([{ path: p, staged: null, unstaged: untracked ? 'untracked' : 'modified' }])}
+                onApplyPatch={applyPatch}
+              />
+            ) : (
+              <CommitGraph
+                commits={commits}
+                refs={snapshot.refs}
+                status={snapshot.status}
+                headSha={snapshot.info.headSha}
+                selected={selected}
+                onSelect={select}
+                onCommitMenu={(e, c) => onMenu(e, commitMenuItems(c))}
+                onWipMenu={(e) => onMenu(e, wipMenuItems())}
+                onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
+                onRefActivate={(r) => void checkoutRef(r)}
+              />
+            )}
+            <DetailPanel
+              repo={repo}
+              commit={selectedCommit}
+              headCommit={headCommit}
+              status={snapshot.status}
+              openFile={fileView}
+              actions={actions}
+              onSelectSha={select}
+              onOpenFile={setFileView}
+            />
+          </>
+        ) : (
+          <div className="graph-panel">
+            <div className="graph-empty">
+              <div>
+                <div style={{ fontSize: 'var(--fs-xl)', color: 'var(--text)' }}>GitClient</div>
+                <div>Open a repository to see its commit graph.</div>
+                {error && <div style={{ color: 'var(--danger)', marginTop: 8 }}>{error}</div>}
+                <div className="primary">
+                  <button className="btn primary large" onClick={openRepo}>
+                    Open repository…
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      <StatusBar repoPath={repoPath} commitCount={commits.length} busy={busy} error={error} onDismissError={() => setError(null)} />
+    </div>
+  );
+}

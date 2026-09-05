@@ -1,0 +1,1 @@
+(() => `fileView=${!!document.querySelector('.file-view-panel')} graphRows=${document.querySelectorAll('#commit-message-zone .graph-row').length} leftPanelW=${Math.round((document.querySelector('.left-panel')||{getBoundingClientRect:()=>({width:0})}).getBoundingClientRect().width)} expanded=${document.querySelector('.expanded-detail-panel')?1:0}`)()
