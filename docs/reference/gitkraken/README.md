@@ -50,9 +50,13 @@ own Git client with a comparable experience. They are observations, not source.
 
 ## Screenshot index
 
-Captures 05, 06, 07, 09, 10, 11 and 20 are OS-level screenshots of the whole
-window (they include the native title and menu bar); the rest are renderer
-captures without window chrome.
+Captures 05, 06, 07, 11 and 20 are OS-level screenshots of the whole window
+(they include the native title and menu bar); the rest are renderer captures
+without window chrome. Every file below was reopened and looked at directly for
+GC-065, after `09-repo-dropdown.png` and `10-branch-dropdown.png` turned out not
+to show GitKraken at all (see the "Unusable captures" note below the table) —
+that audit is the source of this list, not the original capture session's
+filenames or intent.
 
 | File | Shows |
 | --- | --- |
@@ -62,10 +66,10 @@ captures without window chrome.
 | `04-diff-view.png` | File opened from a commit: graph replaced by the Monaco diff, left panel collapsed to icons |
 | `05-context-menu-commit.png` | Right-click menu on a commit row |
 | `06-context-menu-branch.png` | Right-click menu on the checked-out branch chip in the graph |
-| `07-context-menu-wip.png` | Right-click on the WIP row (single item) |
+| `07-context-menu-wip.png` | GitKraken frame, but not a context menu: it shows the "Explain working changes (Preview)" hover tooltip over the WIP row, no menu list on screen (GC-065 — filename/caption predate this audit, left as-is since it is not the desktop-capture failure this ticket targets) |
 | `08-left-panel-expanded.png` | LOCAL and REMOTE sections expanded with branch tree |
-| `09-repo-dropdown.png` | Repository breadcrumb dropdown |
-| `10-branch-dropdown.png` | Branch breadcrumb dropdown |
+| `09-repo-dropdown.png` | **Unusable (GC-065): shows Ricardo's own desktop, not GitKraken** — a Claude Code window (left, a chat about the kyushu-route trip plan) and a browser tab on booking.com's passkey prompt (right). No repository dropdown was ever captured. |
+| `10-branch-dropdown.png` | **Unusable (GC-065): shows Ricardo's own desktop, not GitKraken** — the same Claude Code window (left) and a browser tab mid-navigation to `account.booking.com` sign-in (right). No branch dropdown was ever captured. |
 | `11-pull-dropdown.png` | Pull caret popover with the four pull/fetch modes |
 | `12-preferences.png` | Preferences, General page |
 | `13-command-palette.png` | Command palette modal |
@@ -75,3 +79,18 @@ captures without window chrome.
 | `17-launchpad.png` | Launchpad tab |
 | `18-preferences-ui.png` | Preferences, UI Customization page |
 | `20-context-menu-leftpanel-branch.png` | Right-click menu on a branch row in the left panel |
+
+### Unusable captures (GC-065)
+
+`09-repo-dropdown.png` and `10-branch-dropdown.png` are the only two files in
+`screenshots/` that fail to show GitKraken at all — both show Ricardo's desktop
+at the moment `shot.ps1` fired (a Claude Code window and a browser), meaning
+`focus.ps1` did not raise GitKraken first for these two captures. The other 17
+files in the directory were all opened and confirmed genuine GitKraken frames;
+none of them share this failure. The two measurements these captures were meant to
+illustrate (`04-panels.md`'s "Breadcrumb dropdowns" paragraph: 250px wide `ul`,
+27px items, 25px group headers, the "Recently opened" / "View all
+repositories" headers) were taken over CDP against the live DOM, not read off
+the screenshots, so they stand unchanged. Recapturing the two dropdowns needs a
+hands-on GitKraken session (`rclick.ps1` + `shot.ps1`, both foreground-stealing
+tools an unattended run must never touch) and is Ricardo's to schedule.

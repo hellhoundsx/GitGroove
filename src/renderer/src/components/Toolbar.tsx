@@ -2,6 +2,7 @@ import { useEffect, useRef, type JSX } from 'react';
 import { Archive, ArchiveRestore, ChevronDown, Download, GitBranch, Keyboard, Redo2, RefreshCw, Search, Settings, Undo2, Upload, type LucideIcon } from 'lucide-react';
 import type { PullMode, RepoInfo } from '@shared/types';
 import { Icon } from '../ui/icons';
+import type { MenuAnchor } from '../ui/UiContext';
 
 export interface ToolbarHandlers {
   onFetch(): void;
@@ -33,7 +34,7 @@ interface Props extends ToolbarHandlers {
   onPullModeChange(mode: PullMode): void;
   onPullOpenChange(open: boolean): void;
   /** Opens the recent-repositories menu, anchored where the caller says (GC-044). */
-  onRepoMenu(at: { clientX: number; clientY: number }): void;
+  onRepoMenu(at: MenuAnchor): void;
 }
 
 const PULL_MODES: { mode: PullMode; label: string }[] = [
@@ -87,7 +88,9 @@ export function Toolbar(p: Props): JSX.Element {
           title="Recent repositories"
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
-            p.onRepoMenu({ clientX: r.left, clientY: r.bottom });
+            // `owner` makes the crumb a real dropdown control: a second click closes the menu
+            // rather than reopening it (GC-066).
+            p.onRepoMenu({ clientX: r.left, clientY: r.bottom, owner: e.currentTarget });
           }}
         >
           <span className="caption">repository</span>

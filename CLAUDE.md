@@ -230,10 +230,17 @@ the error banner.
 ### IPC and preload
 
 Channels are grouped by prefix: `repo:*`, `commit:*`, `workdir:*`, `ref:*`, `remote:*`,
-`stash:*`. `repo:checkGit` is the one handler taking no arguments, so the only one with nothing
+`stash:*`, `shell:*`. That last group is the one that never touches git (GC-043):
+`shell:openPath` and `shell:showItemInFolder` hand a file to the OS, so they live in `ipc.ts`
+itself rather than in `git.ts`, and both go through `repoFile()`, which resolves the
+repository-relative path against the repository and refuses one landing outside it (a `..`, an
+absolute path, another drive) or missing from the working tree. They are exposed as their own
+`window.shell` bridge (`ShellApi` in `shared/types.ts`), not as more of `window.api`.
+`repo:checkGit` is the one handler taking no arguments, so the only one with nothing
 to validate. `ipc.ts` validates every argument (`str`, `strs`, `int`, `oneOf`). The preload maps
 each `GitApi` method to `ipcRenderer.invoke` with a tiny `call(channel)` helper; adding an API
-means: type in `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`.
+means: type in `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`
+— a `shell:*` channel skips the `git.ts` step and joins `ShellApi` and the `shell` bridge instead.
 `repo:changed` is the **one main -> renderer push** (GC-011): a `webContents.send` from `watch.ts`,
 subscribed by a hand-written preload entry that returns an unsubscribe so a React effect can clean
 up, not a `call()`. Its companion handler `repo:watch` only points the watcher at a repository.
@@ -305,11 +312,19 @@ the staging list minus its untracked rows.
 
 ### UI layer (`src/renderer/src/ui`)
 
-`UiProvider` gives `useUi()` with `openMenu(event, items)` (DOM context menu, viewport-clamped,
+`UiProvider` gives `useUi()` with `openMenu(at, items)` (DOM context menu, viewport-clamped,
 closes on outside click / wheel / resize), `prompt(options)` (modal with optional text
 input and checkbox, resolves `{ value, checked, choice }` or null), `confirm(options)`, and the
 pairs `dialogOpen` / `closeDialog()` and `menuOpen` / `closeMenu()` that let `App` own Escape for
 every layer (GC-034, GC-037).
+`openMenu`'s `at` is a `MenuAnchor`: a right-click passes the event itself and leaves `owner`
+unset, while a control that owns a dropdown passes itself as `owner` and gets a menu that toggles,
+a second click on it closing the menu instead of reopening it (GC-066). That is decided from a
+capture-phase mousedown `UiProvider` registers at mount, which therefore runs before the one
+`ContextMenu` registers when it opens — the listener that dismisses the menu — because by click
+time the menu is already gone and `menuOpen` already false, so a "close it if it is open" test in
+`openMenu` would never fire. `closeMenu` forgets the owner, so every other way of closing leaves
+the next click on that control a plain open.
 `PromptOptions.secondary` adds a third button between Cancel and OK which resolves with
 `choice: 'secondary'` (GC-004's "Stash and check out"); `PromptOptions.required` defaults to true and
 only the stash prompt sets it false, so a prompt whose label says "(optional)" keeps OK and Enter
@@ -419,6 +434,13 @@ Abort), Conflicted / Unstaged / Staged groups with hover actions, commit form (a
 HEAD's message, 72-character counter, Ctrl+Enter commits, "Commit merge" when concluding a merge
 with an empty summary). Commit view: sha (click copies), refs, message box, Avatar + author +
 date, parent links (click selects), counts, file list that opens the DiffView.
+Every file row in both views carries a context menu (GC-043) built by `fileMenuItems` in
+`App.tsx`: Stage / Unstage / Mark resolved for the group the row is in, Discard changes (Delete
+file for an untracked one) through `discardFileConfirm`, the same wording the row's `✕` button
+uses, then Open file, Show in folder and Copy file path. The action that does not apply is absent
+rather than disabled, and Discard is offered only in the unstaged group because `actions.discard`
+throws the working-tree change away and a staged-only row has nothing for it to take. Commit rows
+get the last three only, with Open file disabled on a `deleted` file.
 
 ### Styling
 
@@ -469,7 +491,13 @@ own window, and one query in step 16 that lands on the same single commit as the
 A fixed sleep caused one flake, and the 61 of them cost about 19s of idle time per run (64s
 before, 44-46s after). `contextMenuOn` waits for the previous menu to be **gone** before it
 dispatches: a synthetic `contextmenu` fires no `mousedown`, so it does not dismiss a menu that is
-still up, and step 15 opens the same menu four times. All 66 assertions passed on the last three runs. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+still up, and step 15 opens the same menu four times, and the file-row context menu (GC-043): the
+menu on an unstaged `a.txt` lists Stage, Discard and the three shell actions and no Unstage, Stage
+moves it into the Staged group and into `git status --short` as `M  a.txt`, the staged row's menu
+offers Unstage and neither Stage nor Discard, and Unstage puts it back. Step 19 makes its own edit
+to `a.txt` and checks it back out; the prologue undoes it only when the file is *staged*, the one
+state that step can leave behind, an unstaged edit there being the fixture's own. All 71
+assertions passed on the last three runs. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates (including the
 `push-target` branch step 17 pushes, locally and on the bare origin), and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind, restores `feature.txt`,
@@ -498,7 +526,7 @@ register its own auto-cleanup or act-environment hooks, so a component test wire
 devDependencies reaches `out/`: the renderer builds from `index.html` and nothing in that graph
 imports a test file.
 
-Covered today (68 tests, 64 in the node project and 4 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (72 tests, 64 in the node project and 8 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -567,6 +595,14 @@ gravatar.com request through the gate already in `useGravatar`. The assertion is
 class rather than a computed `top`/`bottom`, because jsdom applies no stylesheet.
 Mutation-checked: forcing `setMoreUp(null)` unconditionally in `onMoreEnter` fails two of the three.
 
+`UiContext.test.tsx` is the third, and it guards GC-066's dropdown toggle, which the e2e suite
+cannot reach: every menu there is opened by a synthetic `contextmenu`, never by a click on a
+control that owns one. It fires real `mouseDown` + `click` gestures so the listener order the fix
+depends on is the real one, and covers the three-click toggle, a bare `click` with no mousedown,
+an anchor with no `owner` still reopening (the right-click shape), and the owner being forgotten
+after an outside-click dismissal. Both halves of the toggle condition are mutation-checked:
+replacing either with `false` fails exactly one case and no other.
+
 ## Working conventions learned the hard way
 
 - In this Windows + Git Bash environment, long `bash -c` scripts with nested quotes and heredocs
@@ -634,7 +670,15 @@ Ricardo sees (GC-060); unit tests for the watcher's ignore and scope rules, the 
 regression among them (GC-063); the recently-opened repositories list behind
 `gitclient.recentRepos`, offered from the repository breadcrumb, the title bar's `+` and the empty
 state, with an entry that no longer loads dropping itself (GC-044); and a component test for the
-folded-refs dropdown flip, the second in the `dom` project (GC-058). Write control characters into a source file as an
+folded-refs dropdown flip, the second in the `dom` project (GC-058). A context menu on every file row in
+the detail panel, with Stage/Unstage/Discard reusing the `✕` button's own confirm wording and
+Open file / Show in folder / Copy file path behind the new `shell:*` channels, which refuse a path
+resolving outside the repository (GC-043); the ref chips after the first all giving way at the
+same weight, so a long third or fourth name no longer takes space from the checked-out branch's
+chip (GC-023); a control that owns a dropdown closing its menu on a second click instead of
+reopening it, for the repository crumb and the title bar's `+` (GC-066); and the study's
+screenshot index recording what each capture really shows, with the two that caught Ricardo's
+desktop instead of GitKraken marked unusable at every citation (GC-065). Write control characters into a source file as an
 escape, never as the byte itself: a literal one makes git treat the whole file as binary, and
 `git diff`, `git blame`, review and the `.gitattributes` LF rule all silently skip it while
 vitest, `tsc` and the build keep passing. The trap catches generators too: a Node script that

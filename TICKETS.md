@@ -199,8 +199,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | done |
 | GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | done |
 | GC-063 | Unit tests for the watcher's ignore and scope rules | tests | S | P1 | done |
-| GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | in-progress |
-| GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | in-progress |
+| GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | done |
+| GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | done |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
 | GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | todo |
 | GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | todo |
@@ -216,7 +216,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
-| GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | in-progress |
+| GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | done |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | done |
@@ -236,7 +236,9 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
-| GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | in-progress |
+| GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
+| GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | todo |
+| GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1355,7 +1357,7 @@ decision is missing.
 
 ### GC-023 Chip shrinking still assumes exactly two chips
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-006
 - **Why:** `.ref-chip:nth-child(2):not(.more)` gives the second chip `flex-shrink: 50` so the
@@ -1370,13 +1372,30 @@ decision is missing.
 - **Out of scope:** the chip order itself (GC-020) and the fold budget (GC-006).
 - **Acceptance:**
   - [ ] At 100px with four refs on one commit, the first chip keeps its name legible.
-  - [ ] At 400px nothing shrinks that did not have to.
+  - [x] At 400px nothing shrinks that did not have to.
 - **Files:** `src/renderer/src/styles/app.css`.
 - **Verify:** build, screenshot a commit with four refs at both ends of the width range.
 - **Log:**
   - 2026-09-05 proposed by GC-006 (this ticket): raising the fold budget above two made the
     two-chip assumption baked into the shrink rule visible.
   - 2026-09-05 22:08 claimed
+  - 2026-09-05 22:50 done, with the first acceptance box left unticked on purpose. The rule is now
+    `.ref-chip:not(:first-child):not(.more)`. Measured over CDP on a commit given four refs in the
+    scratch repository, comparing the shipped rule against the old one injected back into the live
+    page: at a 300px ref column, where four chips are visible, the new rule leaves the primary
+    chip's name whole (`.chip-name` clientWidth 29 of scrollWidth 29) while the three behind it
+    give way together (53/122, 71/164, 31/91); the old rule truncated the primary chip to 11 of 29
+    and crushed the second to 0, leaving the third and fourth at 126px and 86px — exactly the bug
+    the ticket describes. At 400px nothing shrinks: every chip renders at its natural width with no
+    overflow on the column. Screenshots `docs/screenshots/gc023-chips-300.png` and
+    `gc023-chips-400.png`. Note for anyone re-measuring: do not zoom a panel to read the chips, as
+    `zoom` on `.graph-panel` shrinks its internal layout width and fakes a truncation that is not
+    there — read `.chip-name`'s `scrollWidth` against its `clientWidth` instead.
+  - 2026-09-05 22:50 the "at 100px" criterion cannot be met and does not belong to this rule. At
+    100px `chipBudget` allows one chip, so the row is the primary chip plus `+3` and there is
+    nothing for a shrink weight to redistribute: the name measures 17 of 29 px, identically before
+    and after this change. Verified at 300px instead, where four chips are actually visible, and
+    the 100px case is filed as GC-071.
 
 ### GC-024 Unit tests for prefs.ts
 
@@ -2050,7 +2069,7 @@ decision is missing.
 
 ### GC-043 Context menu on file rows in the detail panel
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-003
 - **Why:** The study's file rows carry a context menu (`05-menus-shortcuts.md`, "File rows":
@@ -2080,15 +2099,15 @@ decision is missing.
 - **Out of scope:** Ignore file / extension / folder (writes `.gitignore`; its own ticket if
   wanted), Blame, History, Open in external editor (needs an editor preference), multi-select.
 - **Acceptance:**
-  - [ ] Right-click on an unstaged, a staged, an untracked and a commit file row each show the
+  - [x] Right-click on an unstaged, a staged, an untracked and a commit file row each show the
         right items; the item that does not apply (Unstage on an unstaged file) is absent, not
         disabled.
-  - [ ] Stage from the menu changes `git status --short`; Discard from the menu goes through the
+  - [x] Stage from the menu changes `git status --short`; Discard from the menu goes through the
         confirm modal and Cancel changes nothing.
-  - [ ] Copy file path puts the repository-relative path on the clipboard (read back with
+  - [x] Copy file path puts the repository-relative path on the clipboard (read back with
         `navigator.clipboard.readText()` over CDP).
-  - [ ] The `shell:*` channels reject a path outside the repository.
-  - [ ] e2e step: stage `a.txt` from its row menu, assert `git status --short`, then unstage it
+  - [x] The `shell:*` channels reject a path outside the repository.
+  - [x] e2e step: stage `a.txt` from its row menu, assert `git status --short`, then unstage it
         the same way.
 - **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/App.tsx`,
   `src/main/ipc.ts`, `src/preload/index.ts`, `src/preload/index.d.ts`, `src/shared/types.ts`,
@@ -2098,6 +2117,28 @@ decision is missing.
   - 2026-09-05 proposed by GR-002: dumping every context menu over CDP against the study showed
     the file rows as the only row type without one.
   - 2026-09-05 22:08 claimed
+  - 2026-09-05 22:50 done. Every acceptance criterion checked against the running build on the
+    scratch repository. Menus read back over CDP: an unstaged row gives
+    `Stage file | Discard changes | --- | Open file | Show in folder | --- | Copy file path`, an
+    untracked row the same with `Delete file`, a commit row only the last three, and a staged row
+    `Unstage file | ...` with neither Stage nor Discard (that one from e2e step 19, the fixture
+    having no staged file left by the time the CDP pass ran). The item that does not apply is
+    absent, not disabled. Discard opened the confirm modal with the `✕` button's own wording
+    ("This cannot be undone.", OK "Discard") and Cancel left `git status --short` untouched. Copy
+    file path put `README.md` on the clipboard, read back with `navigator.clipboard.readText()`.
+    The `shell:*` channels refused all four escapes tried — `../outside.txt`, an absolute
+    `C:/Windows/System32/notepad.exe`, `../../` and `a.txt/../../escape.txt`, which traverses
+    through a real file — each with "Path is outside the repository", and a path inside but absent
+    with "File not found in the working tree". e2e step 19 stages and unstages `a.txt` from its row
+    menu; the suite ran three times, all passing, 71 assertions including the four new ones, which
+    also proves the step's cleanup is re-entrant. Screenshot
+    `docs/screenshots/gc043-file-row-menu.png`, looked at: the menu reuses the existing
+    `.ctx-menu` styling, so `app.css` needed no change at all.
+  - 2026-09-05 22:50 two things found while verifying, neither in scope: the fixture has no commit
+    that deletes a file, so "Open file is disabled on a deleted commit file" had to be checked
+    against a throwaway commit built by hand (it is disabled — the menu came back
+    `(disabled) Open file | Show in folder | --- | Copy file path`), and the "Show in folder"
+    beside it is enabled but always fails. Both are GC-072.
 
 ### GC-044 Recently opened repositories from the repository breadcrumb
 
@@ -2937,7 +2978,7 @@ decision is missing.
 
 ### GC-065 Two of the study's screenshots show the desktop, not GitKraken
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** infra | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `docs/reference/gitkraken/screenshots/09-repo-dropdown.png` and
@@ -2965,10 +3006,10 @@ decision is missing.
     ends at the audit and the marking; recapturing is Ricardo's to schedule.
 - **Out of scope:** recapturing anything, re-running the CDP study, changing any measurement.
 - **Acceptance:**
-  - [ ] Every file in `screenshots/` has been opened and its subject recorded in the README index.
-  - [ ] `09-repo-dropdown.png` and `10-branch-dropdown.png` are marked unusable there and at each
+  - [x] Every file in `screenshots/` has been opened and its subject recorded in the README index.
+  - [x] `09-repo-dropdown.png` and `10-branch-dropdown.png` are marked unusable there and at each
     citation in `04-panels.md`, naming what they actually show.
-  - [ ] `grep -rn '09-repo-dropdown\|10-branch-dropdown' docs/` returns no citation that still
+  - [x] `grep -rn '09-repo-dropdown\|10-branch-dropdown' docs/` returns no citation that still
     presents the file as a GitKraken reference.
 - **Files:** `docs/reference/gitkraken/README.md`, `docs/reference/gitkraken/04-panels.md`, and
   whichever other notes files the grep turns up.
@@ -2979,10 +3020,23 @@ decision is missing.
     GitKraken's repository dropdown. `02-main-1080.png` and `11-pull-dropdown.png` were checked in
     the same pass and are genuine, which is what bounds this to an audit rather than a redo.
   - 2026-09-05 22:08 claimed
+  - 2026-09-05 22:50 done. All 19 files in `screenshots/` were opened and looked at, and the
+    README index now records each one's real subject. `09-repo-dropdown.png` and
+    `10-branch-dropdown.png` were confirmed by the orchestrator, not taken on the agent's word:
+    both show a Claude Code window (the kyushu-route accommodation chat) beside a browser on
+    booking.com, one of them mid sign-in with a passkey prompt. Both are marked unusable in the
+    index, in a new "Unusable captures" note and at their one citation in `04-panels.md`, and
+    `grep -rn '09-repo-dropdown\|10-branch-dropdown' docs/` returns five lines, every one of which
+    presents the file as unusable. The audit also corrected `07-context-menu-wip.png`, a genuine
+    GitKraken frame that shows the "Explain working changes (Preview)" hover tooltip rather than
+    the context menu its filename promises. The measurements in `04-panels.md` are unchanged; that
+    paragraph now says they came from CDP against the live DOM, which is why they survive the
+    screenshots being useless. One number the agent wrote was wrong and was fixed here: "the other
+    19 files" became "the other 17", the directory holding 19 in total.
 
 ### GC-066 A second click on the repository crumb cannot close its dropdown
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-044
 - **Why:** `ContextMenu` dismisses on a capture-phase `mousedown` anywhere outside itself
@@ -3001,10 +3055,10 @@ decision is missing.
   - The repository crumb and the title bar's `+` both toggle.
 - **Out of scope:** changing how right-click menus behave, the popover machinery in the toolbar.
 - **Acceptance:**
-  - [ ] Over CDP: clicking `.crumb.as-button` opens the menu, clicking it again leaves no
+  - [x] Over CDP: clicking `.crumb.as-button` opens the menu, clicking it again leaves no
     `.ctx-menu` in the DOM, and a third click opens it again.
-  - [ ] The same for the title bar's `+`.
-  - [ ] Escape still closes the menu as one layer and the e2e layering step (18) still passes.
+  - [x] The same for the title bar's `+`.
+  - [x] Escape still closes the menu as one layer and the e2e layering step (18) still passes.
 - **Files:** `src/renderer/src/ui/UiContext.tsx`, `src/renderer/src/ui/ContextMenu.tsx`,
   `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/components/TitleBar.tsx`.
 - **Verify:** typecheck, build, the three CDP checks above, `npm run e2e`.
@@ -3013,6 +3067,19 @@ decision is missing.
     that are opened by the control's own left click, which is where the existing outside-mousedown
     dismissal turns into a menu that will not close.
   - 2026-09-05 22:08 claimed
+  - 2026-09-05 22:50 done. `UiProvider` now remembers the element a menu belongs to and, on a
+    capture-phase mousedown registered at provider mount (so it runs before `ContextMenu`'s own,
+    registered later, which is what dismisses the menu), records that the gesture began on that
+    element; the click which follows then closes instead of reopening. Checked over CDP with real
+    `Input.dispatchMouseEvent` clicks rather than dispatched events: three clicks on
+    `.crumb.as-button` gave menu present true, false, true, and the title bar's `+` the same.
+    Escape still closes the menu as one layer (`.ctx-menu` gone immediately after), and e2e step 18
+    passed on all three runs. The four new cases in `src/renderer/src/ui/UiContext.test.tsx` take
+    the dom project from 4 tests to 8, 72 in total. Both halves of the toggle condition were
+    mutation-checked by the orchestrator rather than taken on the agent's word: replacing
+    `armedRef.current === owner` with `false` fails exactly one case, and
+    `ownerRef.current === owner` with `false` fails exactly one other. Screenshot
+    `docs/screenshots/gc066-recents-dropdown.png`.
 
 
 ### GC-067 The recents dropdown shrinks the folder name to one letter and shows the path in full
@@ -3175,6 +3242,76 @@ decision is missing.
 - **Log:**
   - 2026-09-05 22:23 proposed by GR-005: GC-059 added the second tools test that has to live in the
     renderer tree and explain why; the config should carry that instead.
+
+
+### GC-071 The primary ref chip is unreadable at the minimum column width
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-023
+- **Why:** GC-023's first acceptance criterion ("at 100px with four refs on one commit, the first
+  chip keeps its name legible") turned out to be unsatisfiable, and not because of the shrink rule
+  it was written against. Measured over CDP on a commit carrying four refs: at a 100px ref column
+  `chipBudget` allows exactly one chip, so the row renders the primary chip plus a `+3` chip, and
+  the primary chip's `.chip-name` reports `clientWidth` 17 against `scrollWidth` 29 — "main"
+  renders as "ma...". The numbers are identical before and after GC-023, because with one visible
+  chip there is nothing for a shrink weight to redistribute. What eats the column is fixed
+  furniture: the `+N` chip (26px), the leading check icon and the trailing cloud icon (11px each)
+  and the chip padding, leaving 17px of the 100px for the name. 100px is the low end `CommitGraph`
+  clamps the drag to, so this is the state a user who drags the column all the way in gets.
+- **Scope:**
+  - At the narrow end of the range the primary chip's name wins over the furniture around it: the
+    obvious candidates are dropping the trailing upstream cloud icon and letting the `+N` chip
+    shrink once the column is below some threshold, but the fix is whatever makes the name legible.
+  - Measure, do not eyeball: the check is `.chip-name`'s `scrollWidth` against its `clientWidth`
+    on a commit with four or more refs, at 100px and at the default 150px.
+- **Out of scope:** the fold budget itself (GC-006), the chip order (GC-020), the shrink weights
+  (GC-023), raising the 100px minimum.
+- **Acceptance:**
+  - [ ] At 100px on a commit with four refs, the first chip's `.chip-name` is not truncated
+        (`scrollWidth <= clientWidth`), or the ticket records why that is impossible at 100px and
+        the minimum is raised instead.
+  - [ ] At 150px and above nothing regresses: the same measurement, and the `+N` fold still works.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** build, then the two measurements above over CDP against a commit given four refs in
+  the scratch repository (the fixture has none — see GC-055).
+- **Log:**
+  - 2026-09-05 22:45 proposed by GC-023 (this ticket): verifying GC-023 at 100px showed the primary
+    chip truncated to 17/29px identically before and after the change, so the criterion belongs to
+    a different cause than the one GC-023 fixed.
+
+### GC-072 Show in folder is offered on a file the commit deleted, and always fails
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-043
+- **Why:** GC-043 disables "Open file" on a commit file whose `kind` is `deleted`, but leaves
+  "Show in folder" enabled beside it, and `repoFile()` in `ipc.ts` rejects any path that is not on
+  disk. So the one item still offered on a deleted row is the one that cannot work: clicking it
+  puts "File not found in the working tree: <path>" in the status bar. Verified over CDP on a
+  commit that deletes a file, where the menu came back
+  `(disabled) Open file | Show in folder | --- | Copy file path`. Either the item should be
+  disabled the same way, or it should reveal the containing folder, which is what a user asking
+  "where was this file" actually wants and what `showItemInFolder` can still do for a parent
+  directory that exists.
+- **Scope:**
+  - A commit file row whose file is not in the working tree either disables "Show in folder" the
+    way "Open file" is disabled, or reveals the nearest existing parent directory instead of
+    failing. Pick one and say which in the log; do not leave an item that only ever errors.
+  - The scratch repository gets a commit that deletes a file, so the case is reachable from the
+    e2e suite at all: it has none today, and this state had to be created by hand
+    (`git rm` + commit on a throwaway branch) to be seen.
+  - An e2e assertion on the resulting menu.
+- **Out of scope:** the rest of the file-row menu (GC-043), `repoFile()`'s path rules.
+- **Acceptance:**
+  - [ ] On a commit that deletes a file, the row's menu offers no item that fails when clicked.
+  - [ ] The scratch repository carries such a commit and an e2e step asserts the menu on it.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, `npm run e2e`, and the menu read over CDP on the deleting commit.
+- **Log:**
+  - 2026-09-05 22:45 proposed by GC-043 (this ticket): verifying GC-043's "Open file is disabled on
+    a deleted commit file" needed a commit the fixture does not have, and building one by hand
+    showed the neighbouring item is offered but always errors.
 
 
 ## Reviews

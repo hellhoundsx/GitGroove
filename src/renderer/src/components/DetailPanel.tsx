@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX, type ReactNode } from 'react';
+import { useEffect, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
 import type { Commit, CommitFile, FileChangeKind, RepoStatus, StatusEntry } from '@shared/types';
 import type { FileViewSource } from '../diff/DiffView';
 import { Trash2 } from 'lucide-react';
@@ -6,7 +6,24 @@ import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
 import { usePrefs } from '../prefs';
 import { matches } from '../shortcuts';
-import { useUi } from '../ui/UiContext';
+import { useUi, type ConfirmOptions } from '../ui/UiContext';
+
+/**
+ * Which file row a context menu was opened on (GC-043). The panel knows the row; `App` owns the
+ * items, the same way `commitMenuItems` and friends own every other menu in the app.
+ */
+export type FileMenuTarget =
+  | { source: 'wip'; entry: StatusEntry; group: 'conflicted' | 'unstaged' | 'staged' }
+  | { source: 'commit'; file: CommitFile };
+
+/**
+ * The one wording for throwing a single file's changes away, so the row's ✕ button and the same
+ * action in its context menu cannot drift apart (GC-043).
+ */
+export const discardFileConfirm = (e: StatusEntry): ConfirmOptions =>
+  e.unstaged === 'untracked'
+    ? { title: `Delete ${e.path}?`, message: 'The untracked file will be deleted. This cannot be undone.', okLabel: 'Delete', danger: true }
+    : { title: `Discard changes to ${e.path}?`, message: 'This cannot be undone.', okLabel: 'Discard', danger: true };
 
 export interface StagingActions {
   stage(paths: string[]): Promise<void>;
@@ -27,6 +44,7 @@ interface Props {
   actions: StagingActions;
   onSelectSha(sha: string): void;
   onOpenFile(view: FileViewSource): void;
+  onFileMenu(e: MouseEvent, target: FileMenuTarget): void;
 }
 
 interface FileRowProps {
@@ -35,15 +53,16 @@ interface FileRowProps {
   kind: FileChangeKind;
   active: boolean;
   onClick(): void;
+  onContextMenu(e: MouseEvent<HTMLDivElement>): void;
   children?: ReactNode;
 }
 
-function FileRow({ path, origPath, kind, active, onClick, children }: FileRowProps): JSX.Element {
+function FileRow({ path, origPath, kind, active, onClick, onContextMenu, children }: FileRowProps): JSX.Element {
   const idx = path.lastIndexOf('/');
   const dir = idx >= 0 ? path.slice(0, idx + 1) : '';
   const name = idx >= 0 ? path.slice(idx + 1) : path;
   return (
-    <div className={`file-row ${active ? 'active' : ''}`} title={origPath ? `${origPath} → ${path}` : path} onClick={onClick}>
+    <div className={`file-row ${active ? 'active' : ''}`} title={origPath ? `${origPath} → ${path}` : path} onClick={onClick} onContextMenu={onContextMenu}>
       <FileKindIcon kind={kind} />
       <span className="dir">{dir}</span>
       <span className="name">{name}</span>
@@ -64,7 +83,7 @@ function formatDate(iso: string): string {
 const isActive = (open: FileViewSource | null, path: string, staged?: boolean): boolean =>
   !!open && open.path === path && (open.source === 'commit' || staged === undefined || open.staged === staged);
 
-function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit<Props, 'commit' | 'repo' | 'onSelectSha'>): JSX.Element {
+function StagingView({ status, headCommit, openFile, actions, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'repo' | 'onSelectSha'>): JSX.Element {
   const ui = useUi();
   const prefs = usePrefs();
   const entries = status?.entries ?? [];
@@ -157,7 +176,14 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
               </button>
             </div>
             {conflicted.map((e) => (
-              <FileRow key={`c${e.path}`} path={e.path} kind="conflicted" active={isActive(openFile, e.path, false)} onClick={() => onOpenFile({ source: 'wip', path: e.path, staged: false, kind: 'conflicted' })}>
+              <FileRow
+                key={`c${e.path}`}
+                path={e.path}
+                kind="conflicted"
+                active={isActive(openFile, e.path, false)}
+                onClick={() => onOpenFile({ source: 'wip', path: e.path, staged: false, kind: 'conflicted' })}
+                onContextMenu={(ev) => onFileMenu(ev, { source: 'wip', entry: e, group: 'conflicted' })}
+              >
                 <button className="btn success" disabled={busy} onClick={() => void run(() => actions.stage([e.path]))}>
                   Mark resolved
                 </button>
@@ -180,6 +206,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
               kind={e.unstaged}
               active={isActive(openFile, e.path, false)}
               onClick={() => onOpenFile({ source: 'wip', path: e.path, staged: false, kind: e.unstaged })}
+              onContextMenu={(ev) => onFileMenu(ev, { source: 'wip', entry: e, group: 'unstaged' })}
             >
               <button className="btn success" disabled={busy} onClick={() => void run(() => actions.stage([e.path]))}>
                 Stage
@@ -188,15 +215,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
                 className="btn danger"
                 disabled={busy}
                 title={e.unstaged === 'untracked' ? 'Delete file' : 'Discard changes'}
-                onClick={() =>
-                  void ui
-                    .confirm(
-                      e.unstaged === 'untracked'
-                        ? { title: `Delete ${e.path}?`, message: 'The untracked file will be deleted. This cannot be undone.', okLabel: 'Delete', danger: true }
-                        : { title: `Discard changes to ${e.path}?`, message: 'This cannot be undone.', okLabel: 'Discard', danger: true },
-                    )
-                    .then((ok) => void (ok && run(() => actions.discard([e]))))
-                }
+                onClick={() => void ui.confirm(discardFileConfirm(e)).then((ok) => void (ok && run(() => actions.discard([e]))))}
               >
                 ✕
               </button>
@@ -218,6 +237,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
               kind={e.staged}
               active={isActive(openFile, e.path, true)}
               onClick={() => onOpenFile({ source: 'wip', path: e.path, staged: true, kind: e.staged })}
+              onContextMenu={(ev) => onFileMenu(ev, { source: 'wip', entry: e, group: 'staged' })}
             >
               <button className="btn" disabled={busy} onClick={() => void run(() => actions.unstage([e.path]))}>
                 Unstage
@@ -273,7 +293,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
   );
 }
 
-function CommitView({ repo, commit, openFile, onSelectSha, onOpenFile }: Pick<Props, 'repo' | 'openFile' | 'onSelectSha' | 'onOpenFile'> & { commit: Commit }): JSX.Element {
+function CommitView({ repo, commit, openFile, onSelectSha, onOpenFile, onFileMenu }: Pick<Props, 'repo' | 'openFile' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu'> & { commit: Commit }): JSX.Element {
   const [files, setFiles] = useState<CommitFile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -350,6 +370,7 @@ function CommitView({ repo, commit, openFile, onSelectSha, onOpenFile }: Pick<Pr
               kind={f.kind}
               active={isActive(openFile, f.path)}
               onClick={() => onOpenFile({ source: 'commit', sha: commit.sha, path: f.path, kind: f.kind })}
+              onContextMenu={(ev) => onFileMenu(ev, { source: 'commit', file: f })}
             />
           ))}
         </div>

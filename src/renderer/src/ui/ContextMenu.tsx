@@ -24,6 +24,10 @@ interface Props {
  * A DOM context menu positioned at the pointer and kept inside the viewport. It closes itself on
  * a click outside, a scroll, a resize or a blur, but never on Escape: like the dialogs, the menu
  * is a layer `App` closes (GC-034, GC-037), so one Escape can only ever close one of them.
+ *
+ * The outside click below is also what dismisses the menu when its own dropdown control is
+ * clicked a second time; making that click leave the menu shut instead of reopening it needs the
+ * owning element, which only `UiProvider` knows, so it lives there (GC-066).
  */
 export function ContextMenu({ menu, onClose }: Props): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);

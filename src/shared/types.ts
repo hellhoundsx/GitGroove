@@ -199,3 +199,15 @@ export interface GitApi {
   stashPop(repo: string, index: number): Promise<void>;
   stashDrop(repo: string, index: number): Promise<void>;
 }
+
+/**
+ * Handing a file to the operating system (GC-043). None of it is git, so it is its own bridge
+ * (`window.shell`) rather than another section of `GitApi`. Both take a repository-relative path
+ * and the main process refuses one that resolves outside `repo` or is not on disk.
+ */
+export interface ShellApi {
+  /** Open the file with whatever the OS has registered for it. */
+  openFile(repo: string, path: string): Promise<void>;
+  /** Reveal the file in the OS file manager. */
+  showInFolder(repo: string, path: string): Promise<void>;
+}

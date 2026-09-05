@@ -234,6 +234,15 @@ for (let i = 0; i < 5; i++) {
   if (idx < 0) break;
   git(['stash', 'pop', '--index', '-q', `stash@{${idx}}`]);
 }
+// step 19 edits this file and stages it from its row's context menu, then unstages it and puts it
+// back (GC-043). a.txt is also part of the fixture's mixed working tree, so only the state that step
+// can leave behind is undone: it is the one step in the run that ever stages the file, and an
+// unstaged edit here is the fixture's own.
+const MENU_FILE = 'a.txt';
+if (git(['diff', '--cached', '--name-only', '--', MENU_FILE]) === MENU_FILE) {
+  git(['reset', '-q', '--', MENU_FILE]);
+  git(['checkout', '-q', '--', MENU_FILE]);
+}
 const stamp = Date.now();
 
 // ---- scenario -----------------------------------------------------------------------------------------------
@@ -673,6 +682,61 @@ l = JSON.parse(await layerState());
 check('the next Escape closes the find bar', l.search === false, JSON.stringify(l));
 check('no layer is left open', l.menu === false && l.modal === false && l.popover === false, JSON.stringify(l));
 check('the dimming is cleared with the find bar', (await ev("document.querySelectorAll('.graph-row.unmatched').length")) === 0);
+
+step(19, 'file row context menu: stage and unstage a file from the staging list');
+// GC-043. The step owns this file's working-tree state rather than leaning on the fixture's: by
+// here the stash pop in step 8 has already folded the setup's edit into the history, so make the
+// edit, drive both menu actions against it, and check the file back out at the end.
+writeFileSync(join(R, MENU_FILE), `line1\nline2 changed\nline3\nline4 new\nfile menu step ${stamp}\n`);
+log(await tool('Refresh'));
+await settle();
+// the rows are virtualised and step 18 left a commit deep in the graph selected, so scroll the WIP
+// row back into the rendered window before clicking it (GC-030's lesson, applied here)
+await waitFor(`(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return !!document.querySelector('.graph-row.wip'); })()`, 'the WIP row to be rendered');
+log(await ev(`(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'no WIP row'; r.click(); return 'WIP row selected'; })()`));
+// only the staging view lists an uncommitted file, so this cannot be satisfied by the commit that
+// step 18 left selected
+await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(MENU_FILE)})`, `the staging list to show ${MENU_FILE}`);
+/** The file's own line of `git status --short`, trimmed: "M  x" staged against "M x" unstaged. */
+const shortOf = (file) => git(['status', '--short', '--', file]);
+/** Wait for the row to appear under one of the staging groups ("Unstaged Files"/"Staged Files"). */
+const inGroup = (group, file) =>
+  waitFor(
+    `[...document.querySelectorAll('.detail-panel .file-list')].some(l => (l.querySelector('.group-head span')?.textContent ?? '').toLowerCase().startsWith(${q(group.toLowerCase())}) && [...l.querySelectorAll('.file-row')].some(r => r.title === ${q(file)}))`,
+    `${file} to appear under ${group}`,
+  );
+
+await inGroup('Unstaged Files', MENU_FILE);
+log(await contextMenuOn('.detail-panel .file-row', MENU_FILE));
+const unstagedFileMenu = await menuList();
+check(
+  'an unstaged row offers Stage, Discard and the shell actions, and no Unstage',
+  /Stage file/.test(unstagedFileMenu) &&
+    /Discard changes/.test(unstagedFileMenu) &&
+    /Open file/.test(unstagedFileMenu) &&
+    /Show in folder/.test(unstagedFileMenu) &&
+    /Copy file path/.test(unstagedFileMenu) &&
+    !/Unstage file/.test(unstagedFileMenu),
+  unstagedFileMenu,
+);
+await shot('file-row-menu.png');
+log(await menuClick('Stage file'));
+await inGroup('Staged Files', MENU_FILE);
+await waitIdle();
+check('Stage file from the row menu stages it', shortOf(MENU_FILE) === `M  ${MENU_FILE}`, shortOf(MENU_FILE));
+
+log(await contextMenuOn('.detail-panel .file-row', MENU_FILE));
+const stagedFileMenu = await menuList();
+check('a staged row offers Unstage and neither Stage nor Discard', /Unstage file/.test(stagedFileMenu) && !/Stage file/.test(stagedFileMenu) && !/Discard changes/.test(stagedFileMenu), stagedFileMenu);
+log(await menuClick('Unstage file'));
+await inGroup('Unstaged Files', MENU_FILE);
+await waitIdle();
+check('Unstage file from the row menu unstages it again', shortOf(MENU_FILE) === `M ${MENU_FILE}`, shortOf(MENU_FILE));
+
+// put the file back so the run stays re-entrant
+git(['checkout', '-q', '--', MENU_FILE]);
+log(await tool('Refresh'));
+await settle();
 
 await shot('final.png');
 

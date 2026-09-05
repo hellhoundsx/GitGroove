@@ -1,4 +1,6 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { existsSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type {
   ApplyPatchOptions,
   CheckoutOptions,
@@ -36,6 +38,25 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: st
 }
 
 const repoOf = (v: unknown): string => str(v, 'A repository path');
+
+/**
+ * A repository-relative file path for the `shell:*` channels, resolved to an absolute one (GC-043).
+ * Those two hand a path straight to the operating system, so the renderer is not trusted with it:
+ * resolve against the repository and refuse anything that does not land inside it, which is what
+ * stops a `..`, an absolute path or another drive from reaching `shell`. Existence is checked here
+ * too so a file that has since been deleted reports that rather than opening nothing.
+ */
+function repoFile(repo: unknown, path: unknown): string {
+  const root = resolve(repoOf(repo));
+  const rel = str(path, 'A file path');
+  const full = resolve(root, rel);
+  const inside = relative(root, full);
+  // relative() answers '' for the repository itself and an absolute path when the two are on
+  // different Windows drives, so neither is "inside".
+  if (inside === '' || inside === '..' || inside.startsWith('../') || inside.startsWith('..\\') || isAbsolute(inside)) throw new Error(`Path is outside the repository: ${rel}`);
+  if (!existsSync(full)) throw new Error(`File not found in the working tree: ${rel}`);
+  return full;
+}
 
 export function registerIpc(): void {
   ipcMain.handle('repo:checkGit', () => git.checkGit());
@@ -144,4 +165,15 @@ export function registerIpc(): void {
   ipcMain.handle('stash:apply', (_e, repo: unknown, index: unknown) => git.stashApply(repoOf(repo), int(index, 'Stash index')).then(() => undefined));
   ipcMain.handle('stash:pop', (_e, repo: unknown, index: unknown) => git.stashPop(repoOf(repo), int(index, 'Stash index')).then(() => undefined));
   ipcMain.handle('stash:drop', (_e, repo: unknown, index: unknown) => git.stashDrop(repoOf(repo), int(index, 'Stash index')).then(() => undefined));
+
+  // opening a file in the OS (GC-043): Electron's own `shell`, no git anywhere in it, which is why
+  // these two live here and not in git.ts.
+  ipcMain.handle('shell:openPath', async (_e, repo: unknown, path: unknown) => {
+    // openPath reports a failure as a message and resolves anyway, so turn one into a rejection.
+    const failure = await shell.openPath(repoFile(repo, path));
+    if (failure) throw new Error(failure);
+  });
+  ipcMain.handle('shell:showItemInFolder', (_e, repo: unknown, path: unknown) => {
+    shell.showItemInFolder(repoFile(repo, path));
+  });
 }

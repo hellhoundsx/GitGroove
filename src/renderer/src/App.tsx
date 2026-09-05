@@ -4,7 +4,7 @@ import { defaultRemote } from '@shared/remotes';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
-import { DetailPanel, type StagingActions } from './components/DetailPanel';
+import { DetailPanel, discardFileConfirm, type FileMenuTarget, type StagingActions } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
 import { CommitGraph, WIP } from './graph/CommitGraph';
 import { DiffView, type FileViewSource } from './diff/DiffView';
@@ -547,6 +547,47 @@ export function App(): JSX.Element {
     [actions, snapshot, stashChanges, ui],
   );
 
+  // Handing a file to the OS is the one menu action that never touches git, so it does not go
+  // through `run()`: there is nothing to reload afterwards and a refusal only has to reach the
+  // status bar the way every other error does (GC-043).
+  const inShell = useCallback((fn: () => Promise<void>) => void fn().catch((e: unknown) => setError(msg(e))), []);
+
+  const fileMenuItems = useCallback(
+    (t: FileMenuTarget): MenuItem[] => {
+      const path = t.source === 'wip' ? t.entry.path : t.file.path;
+      const items: MenuItem[] = [];
+      if (t.source === 'wip') {
+        const e = t.entry;
+        if (t.group === 'staged') items.push({ label: 'Unstage file', onClick: () => actions.unstage([path]).catch(() => undefined) });
+        else items.push({ label: t.group === 'conflicted' ? 'Mark resolved' : 'Stage file', hint: t.group === 'conflicted' ? 'stage the resolved file' : undefined, onClick: () => actions.stage([path]).catch(() => undefined) });
+        // Discarding is offered exactly where the row's ✕ button is, and for the same reason: it
+        // throws the working-tree change away, so a staged-only row has nothing for it to take and
+        // a conflicted one has to be resolved or the whole operation aborted instead. The action
+        // that does not apply is left out rather than shown disabled, as in the ref menus (GC-043).
+        if (t.group === 'unstaged') {
+          items.push({
+            label: e.unstaged === 'untracked' ? 'Delete file' : 'Discard changes',
+            danger: true,
+            onClick: async () => (await ui.confirm(discardFileConfirm(e))) && actions.discard([e]).catch(() => undefined),
+          });
+        }
+        items.push({ separator: true });
+      }
+      items.push({
+        // A commit that deleted the file leaves nothing to open. Every other path is checked in the
+        // main process, which refuses one that is no longer in the working tree (GC-043).
+        label: 'Open file',
+        disabled: t.source === 'commit' && t.file.kind === 'deleted',
+        onClick: () => inShell(() => window.shell.openFile(repo!, path)),
+      });
+      items.push({ label: 'Show in folder', onClick: () => inShell(() => window.shell.showInFolder(repo!, path)) });
+      items.push({ separator: true });
+      items.push({ label: 'Copy file path', hint: 'relative to the repository', onClick: () => void navigator.clipboard.writeText(path) });
+      return items;
+    },
+    [actions, inShell, repo, ui],
+  );
+
   const addRemote = useCallback(async () => {
     const r = await ui.prompt({ title: 'Add remote', label: 'Remote name', placeholder: 'upstream', okLabel: 'Next' });
     if (!r || !r.value.trim()) return;
@@ -765,6 +806,7 @@ export function App(): JSX.Element {
               actions={actions}
               onSelectSha={select}
               onOpenFile={setFileView}
+              onFileMenu={(e, t) => onMenu(e, fileMenuItems(t))}
             />
           </>
         ) : (

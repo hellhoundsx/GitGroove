@@ -130,7 +130,13 @@ Screenshot `04-diff-view.png`.
 - Breadcrumb dropdowns (repository, branch) are DOM menus: 250px wide `ul`,
   background rgb(65,70,80), no radius, shadow 0 6px 12px rgba(0,0,0,0.18), 14px
   text, 27px items, 25px group headers ("Recently opened", "View all
-  repositories"). Screenshots `09-repo-dropdown.png`, `10-branch-dropdown.png`.
+  repositories"). These measurements were taken over CDP against the live DOM,
+  not read off a screenshot. `09-repo-dropdown.png` and `10-branch-dropdown.png`
+  were meant to illustrate this but are unusable (GC-065): both show Ricardo's
+  desktop (a Claude Code window and a browser) instead of GitKraken, because
+  `focus.ps1` did not raise GitKraken before `shot.ps1` fired — see the
+  "Unusable captures" note in `README.md`. Recapturing them needs a hands-on
+  GitKraken session and is not done here.
 - Pull caret opens a DOM popover under the button (`11-pull-dropdown.png`): a
   caption "Select a default pull/fetch operation to execute when clicking this
   button" and four radio rows: Fetch All, Pull (fast-forward if possible), Pull

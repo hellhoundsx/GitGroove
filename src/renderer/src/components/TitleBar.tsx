@@ -1,12 +1,13 @@
 import type { JSX } from 'react';
 import { FolderOpen, GitBranch, Plus } from 'lucide-react';
 import { Icon } from '../ui/icons';
+import type { MenuAnchor } from '../ui/UiContext';
 
 interface Props {
   repoName: string | null;
   onOpenRepo(): void;
   /** Opens the recent-repositories menu, anchored where the caller says (GC-044). */
-  onRepoMenu(at: { clientX: number; clientY: number }): void;
+  onRepoMenu(at: MenuAnchor): void;
 }
 
 export function TitleBar({ repoName, onOpenRepo, onRepoMenu }: Props): JSX.Element {
@@ -28,7 +29,9 @@ export function TitleBar({ repoName, onOpenRepo, onRepoMenu }: Props): JSX.Eleme
         title="New tab (recent repositories)"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          onRepoMenu({ clientX: r.left, clientY: r.bottom });
+          // `owner` makes the button a real dropdown control: a second click closes the menu
+          // rather than reopening it (GC-066).
+          onRepoMenu({ clientX: r.left, clientY: r.bottom, owner: e.currentTarget });
         }}
       >
         <Icon of={Plus} size={14} />

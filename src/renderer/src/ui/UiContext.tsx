@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type JSX, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
 import { ContextMenu, type MenuItem, type MenuState } from './ContextMenu';
 import { Modal, type PromptOptions, type PromptResult } from './Modal';
 
@@ -9,8 +9,20 @@ export interface ConfirmOptions {
   danger?: boolean;
 }
 
+/**
+ * Where a menu opens, and optionally the control it hangs off. A right-click menu passes the
+ * event itself and leaves `owner` unset; a dropdown control passes its own element and gets a
+ * menu that toggles, so a second click on it closes the menu instead of reopening it (GC-066).
+ */
+export interface MenuAnchor {
+  clientX: number;
+  clientY: number;
+  preventDefault?(): void;
+  owner?: Element | null;
+}
+
 export interface Ui {
-  openMenu(at: { clientX: number; clientY: number; preventDefault?(): void }, items: MenuItem[]): void;
+  openMenu(at: MenuAnchor, items: MenuItem[]): void;
   prompt(options: PromptOptions): Promise<PromptResult | null>;
   confirm(options: ConfirmOptions): Promise<boolean>;
   /** True while a prompt or confirm modal is up, so `App` knows a dialog owns the keyboard. */
@@ -40,10 +52,42 @@ export const useUi = (): Ui => useContext(UiContext);
 export function UiProvider({ children }: { children: ReactNode }): JSX.Element {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [modal, setModal] = useState<{ options: PromptOptions; resolve(r: PromptResult | null): void } | null>(null);
+  // The control the open menu belongs to, and that same control when the mouse gesture in flight
+  // started on it. Both are refs, not state: they are written by a DOM listener and read by
+  // `openMenu` within one gesture, long before React re-renders (GC-066).
+  const ownerRef = useRef<Element | null>(null);
+  const armedRef = useRef<Element | null>(null);
+
+  // `ContextMenu` dismisses on a capture-phase mousedown anywhere outside itself, so by the time
+  // a dropdown's own click handler asks for the menu again it is already gone and `menuOpen` is
+  // already false — a "close it if it is open" test in `openMenu` would never fire. This listener
+  // is registered when the provider mounts, before any menu registers its own on the same node
+  // and phase, so it runs first and is the last moment at which the menu can still be seen open:
+  // it records that this gesture began on the control that owns it, and the click that follows
+  // then closes the menu instead of reopening it (GC-066).
+  useEffect(() => {
+    const onDown = (e: MouseEvent): void => {
+      const owner = ownerRef.current;
+      armedRef.current = owner && e.target instanceof Node && owner.contains(e.target) ? owner : null;
+    };
+    window.addEventListener('mousedown', onDown, true);
+    return () => window.removeEventListener('mousedown', onDown, true);
+  }, []);
 
   const openMenu = useCallback<Ui['openMenu']>((at, items) => {
     at.preventDefault?.();
+    const owner = at.owner ?? null;
+    // A control toggles its own menu shut: either its mousedown has just dismissed it (`armed`),
+    // or the click arrived without one — a synthetic `element.click()` — and the menu it owns is
+    // still up (`ownerRef`). Both readings are of the same gesture, so both close (GC-066).
+    if (owner && (armedRef.current === owner || ownerRef.current === owner)) {
+      armedRef.current = null;
+      ownerRef.current = null;
+      setMenu(null);
+      return;
+    }
     if (items.length === 0) return;
+    ownerRef.current = owner;
     setMenu({ x: at.clientX, y: at.clientY, items });
   }, []);
 
@@ -72,7 +116,12 @@ export function UiProvider({ children }: { children: ReactNode }): JSX.Element {
   // Escape is handled once, in `App`, for every layer; the modal and the context menu only have
   // to say they are there and offer a way to close them.
   const closeDialog = useCallback(() => modal?.resolve(null), [modal]);
-  const closeMenu = useCallback(() => setMenu(null), []);
+  // Every close goes through here, so the owner is forgotten the moment its menu leaves the
+  // screen and a later click on that control is a plain open again (GC-066).
+  const closeMenu = useCallback(() => {
+    ownerRef.current = null;
+    setMenu(null);
+  }, []);
   const value = useMemo<Ui>(
     () => ({ openMenu, prompt, confirm, dialogOpen: modal !== null, closeDialog, menuOpen: menu !== null, closeMenu }),
     [openMenu, prompt, confirm, modal, closeDialog, menu, closeMenu],

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { GitApi, RepoChange } from '@shared/types';
+import type { GitApi, RepoChange, ShellApi } from '@shared/types';
 
 const call =
   <T>(channel: string) =>
@@ -57,5 +57,13 @@ const api: GitApi = {
   stashDrop: call('stash:drop'),
 };
 
+// Handing a file to the OS is not git, so it gets its own bridge rather than another section of
+// `window.api` (GC-043).
+const shell: ShellApi = {
+  openFile: call('shell:openPath'),
+  showInFolder: call('shell:showItemInFolder'),
+};
+
 contextBridge.exposeInMainWorld('api', api);
+contextBridge.exposeInMainWorld('shell', shell);
 contextBridge.exposeInMainWorld('platform', process.platform);
