@@ -197,10 +197,10 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | done |
 | GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | done |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | done |
-| GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | todo |
-| GC-063 | Unit tests for the watcher's ignore and scope rules | tests | S | P1 | todo |
+| GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | in-progress |
+| GC-063 | Unit tests for the watcher's ignore and scope rules | tests | S | P1 | in-progress |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
-| GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | todo |
+| GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | in-progress |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | todo |
@@ -222,7 +222,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
-| GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | todo |
+| GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | in-progress |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
@@ -2093,7 +2093,7 @@ decision is missing.
 
 ### GC-044 Recently opened repositories from the repository breadcrumb
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** The study's repository breadcrumb opens a dropdown (`04-panels.md`, "Dropdowns";
@@ -2136,6 +2136,7 @@ decision is missing.
     where the study has a recents dropdown and a recents list on the new-tab page.
   - 2026-09-05 21:25 scope extended by GR-004: the title bar's `+` "New tab" button is inert; it
     opens the recents menu until GC-016 gives it tabs.
+  - 2026-09-05 21:48 claimed
 
 ### GC-045 Commit view banner linking back to the working directory changes
 
@@ -2573,7 +2574,7 @@ decision is missing.
 
 ### GC-058 A component test for the folded-refs dropdown flip
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-022, GC-046
 - **Why:** GC-022's flip is decided in `onMoreEnter` from three live rects, and nothing automated
@@ -2599,6 +2600,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-022 (this ticket): the flip shipped with no automated coverage at all,
     and the one check that exists is a hand-run CDP measurement needing the app built and launched.
+  - 2026-09-05 21:48 claimed
 
 ### GC-059 A test for the launcher attach path
 
@@ -2652,7 +2654,7 @@ decision is missing.
 
 ### GC-060 Unattended launches write to Ricardo's own app profile
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P1
 - **Depends on:** GC-028
 - **Why:** Every launch of the built app, stealth or not, uses Electron's default `userData`
@@ -2702,6 +2704,7 @@ decision is missing.
   - 2026-09-05 proposed by GR-004: the review's own graph screenshots turned out to be taken at a
     ref column width a previous ticket's hand check had left in the shared profile, and every
     `--repo` launch overwrites the repository Ricardo's app opens next.
+  - 2026-09-05 21:48 claimed
 
 ### GC-061 A detached HEAD has no marker in the graph
 
@@ -2797,7 +2800,7 @@ decision is missing.
 
 ### GC-063 Unit tests for the watcher's ignore and scope rules
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P1
 - **Depends on:** GC-011
 - **Why:** GC-011's watcher shipped with a refresh loop that nothing in the repository could have
@@ -2830,6 +2833,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-011 (this ticket): the watcher's refresh loop passed typecheck, the
     unit suite and a full e2e run; the defect was one pure-function decision on one path.
+  - 2026-09-05 21:48 claimed
 
 ### GC-064 An e2e:setup on the shared scratch root wipes a run already using it
 
