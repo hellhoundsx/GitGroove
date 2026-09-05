@@ -358,9 +358,13 @@ and delete, WIP menu, a per-file delete through the confirm modal, and the dirty
 (clean tree raises no prompt; Cancel changes nothing; "Stash and check out" lands on the branch
 with the tree re-applied), commit search (message, sha prefix, stepping through
 matches, the position following a clicked row, Escape), and remote management (add a second remote
-pointing at the bare origin and fetch it, rename it, edit its URL, remove it, origin untouched).
+pointing at the bare origin and fetch it, rename it, edit its URL, remove it, origin untouched),
+and the layering guard (GC-039): with the find bar open and focus in its input, a commit context
+menu, a ref-menu prompt and the toolbar Pull popover are each opened over it and closed with one
+real Escape, the find bar keeping its query every time, and only the Escape after that closes the
+find bar itself. Reverting GC-037 or GC-038 locally fails that step.
 It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused
-one flake. All 49 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+one flake. All 60 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates, and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind, and pops back the
 unnamed stash step 5 parks the tree in for a moment). Step 1 also removes
@@ -434,7 +438,8 @@ dimming non-matches instead of hiding them (GC-009); one table of keyboard short
 stop narrowed to one process tree, so a run no longer kills every Electron on the machine
 (GC-035); the stash prompt's "(optional)" message really being optional, on a per-prompt
 `required` flag (GC-029); Escape closing exactly one layer, decided once in `App.tsx`, for
-the dialogs (GC-034), the context menu (GC-037) and the toolbar's Pull popover (GC-038);
+the dialogs (GC-034), the context menu (GC-037) and the toolbar's Pull popover (GC-038), with an
+e2e step that fails if any of the three regresses (GC-039);
 `shortcuts.test.ts` stored as text again, its raw NUL byte replaced by the `\u0000` escape so
 git stops classifying it as binary (GC-042). Write control characters into a source file as an
 escape, never as the byte itself: a literal one makes git treat the whole file as binary, and

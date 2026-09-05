@@ -142,7 +142,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | done |
 | GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | done |
-| GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | in-progress |
+| GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | done |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
@@ -1565,7 +1565,7 @@ decision is missing.
 
 ### GC-039 An e2e step that guards one Escape, one layer
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-038
 - **Why:** GC-034 and GC-037 both fixed "one Escape closes two things", and both were verified by
@@ -1582,9 +1582,9 @@ decision is missing.
   - Re-entrant like the rest of the suite: it must leave no dialog, menu or find bar open.
 - **Out of scope:** a jsdom unit test of `App`'s handler (the suite has no React environment).
 - **Acceptance:**
-  - [ ] The new step passes on the current build and its assertions are counted in the total.
-  - [ ] Reverting GC-037 (giving `ContextMenu` its Escape listener back) fails the step.
-  - [ ] Reverting GC-038 (giving `Toolbar` its Escape listener back) fails the step.
+  - [x] The new step passes on the current build and its assertions are counted in the total.
+  - [x] Reverting GC-037 (giving `ContextMenu` its Escape listener back) fails the step.
+  - [x] Reverting GC-038 (giving `Toolbar` its Escape listener back) fails the step.
 - **Files:** `tools/e2e/run.mjs`, `CLAUDE.md` (the Testing paragraph's step list).
 - **Verify:** `npm run e2e` twice in a row, and once against a locally reverted GC-037.
 - **Log:**
@@ -1595,6 +1595,25 @@ decision is missing.
   - 2026-09-05 18:25 GR-002 added the missing `Depends on` line (GC-038, the last of the three
     layers this step guards); the template asks for one on every ticket.
   - 2026-09-05 18:55 claimed
+  - 2026-09-05 19:20 done. `tools/e2e/run.mjs` gained a `layerState()` helper (menu / modal /
+    popover / find bar + its current query, read in one evaluation) and step 18: the find bar is
+    opened from the toolbar and typed into, so focus stays in the search input, then a commit
+    context menu (GC-037), a `Rename main…` prompt from the left-panel ref menu (GC-034) and the
+    toolbar Pull popover (GC-038) are each opened over it and closed with one real CDP Escape,
+    asserting each time that the layer is gone and the find bar still holds `feature`; the next
+    Escape closes the find bar and the last three assertions check no layer is left open and the
+    dimming is cleared, so the step is re-entrant. The cancelled prompt is also asserted to have
+    renamed nothing. Verified: `npm run typecheck`, `npm run build`, `npm test` (4 files, 37
+    tests) and `npm run e2e` three times on the clean build, 60 assertions passed each time
+    (was 49) and the scratch repository came back to `main` with no stash left. Mutation checks,
+    each built and run then reverted: removing `ui.menuOpen` from `layerOpen` in `App.tsx` and
+    giving `ContextMenu` its `keydown` listener back failed 5 assertions, the first being "Escape
+    closes the menu only"; the same for `pullOpen` and `Toolbar` failed exactly one, "Escape
+    closes the popover only". Worth knowing for a future revert: putting a layer's own Escape
+    listener back is not enough to reproduce the bug on its own, because `App`'s capture-phase
+    handler calls `stopPropagation()` and the bubble-phase listener never runs — the layer also
+    has to drop out of `layerOpen`, which is what makes the find bar's own input handler close it
+    at the same time. No screenshot: the step asserts over the DOM and the change is test-only.
 
 ### GC-042 shortcuts.test.ts is stored as binary because of a raw NUL byte
 

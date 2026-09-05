@@ -125,6 +125,11 @@ const searchState = () =>
   ev(
     `(() => { const bar = document.querySelector('.graph-search'); return JSON.stringify({ open: !!bar, value: bar?.querySelector('.search-input')?.value ?? null, count: bar?.querySelector('.search-count')?.textContent ?? null, matches: document.querySelectorAll('.graph-row.match').length, dimmed: document.querySelectorAll('.graph-row.unmatched').length, sha: document.querySelector('.detail-head .sha')?.textContent ?? null }); })()`,
   );
+/** Which UI layers are up right now (GC-039: Escape must close exactly one of them). */
+const layerState = () =>
+  ev(
+    `(() => JSON.stringify({ menu: !!document.querySelector('.ctx-menu'), modal: !!document.querySelector('.modal'), popover: !!document.querySelector('.toolbar .popover'), search: !!document.querySelector('.graph-search'), query: document.querySelector('.graph-search .search-input')?.value ?? null }))()`,
+  );
 const searchBtn = (title) =>
   ev(`(() => { const b = [...document.querySelectorAll('.graph-search .search-btn')].find(x => (x.title ?? '').startsWith(${q(title)})); if (!b) return 'no search button ' + ${q(title)}; if (b.disabled) return 'DISABLED ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
 
@@ -499,6 +504,58 @@ check(
   `${git(['remote']).replace(/\n/g, ' ')} | ${git(['for-each-ref', '--format=%(refname)', 'refs/remotes/mirror'])}`,
 );
 check('origin survived', git(['remote']).split('\n').includes('origin'), git(['remote', '-v']).replace(/\n/g, ' '));
+
+step(18, 'Escape closes exactly one layer: a menu, a dialog and the Pull popover over the find bar');
+// GC-039. Each of GC-034, GC-037 and GC-038 fixed "one Escape closed two things" and was verified
+// by a throwaway script. Here the find bar is the layer underneath every time: it must survive the
+// Escape that closes the layer on top of it, and only the next Escape may close it.
+log(await tool('Search'));
+await sleep(300);
+log(await searchType('feature'));
+await sleep(300);
+let l = JSON.parse(await layerState());
+check('the find bar is open with a query under the layers below', l.search === true && l.query === 'feature', JSON.stringify(l));
+
+// GC-037: a context menu over a commit row, with focus still in the search input
+log(await contextMenuOn('.graph-row.match', null));
+await sleep(300);
+l = JSON.parse(await layerState());
+check('a commit menu opens over the find bar', l.menu === true && l.search === true, JSON.stringify(l));
+await escape();
+await sleep(300);
+l = JSON.parse(await layerState());
+check('Escape closes the menu only, the find bar keeps its query', l.menu === false && l.search === true && l.query === 'feature', JSON.stringify(l));
+
+// GC-034: a dialog on top of the find bar (a prompt from the ref menu, cancelled with Escape)
+log(await contextMenuOn('.left-panel .ref-row', 'main'));
+await sleep(300);
+log(await menuClick('Rename main'));
+await sleep(400);
+l = JSON.parse(await layerState());
+check('the rename prompt opens over the find bar', l.modal === true && l.menu === false && l.search === true, JSON.stringify(l));
+await escape();
+await sleep(300);
+l = JSON.parse(await layerState());
+check('Escape closes the dialog only, the find bar keeps its query', l.modal === false && l.search === true && l.query === 'feature', JSON.stringify(l));
+check('the cancelled prompt renamed nothing', git(['branch', '--show-current']) === 'main', git(['branch', '--format=%(refname:short)']).replace(/\n/g, ' '));
+
+// GC-038: the toolbar's Pull popover on top of the find bar
+log(await ev("document.querySelector('.toolbar .caret-btn')?.click(); 'caret'"));
+await sleep(300);
+l = JSON.parse(await layerState());
+check('the Pull popover opens over the find bar', l.popover === true && l.search === true, JSON.stringify(l));
+await escape();
+await sleep(300);
+l = JSON.parse(await layerState());
+check('Escape closes the popover only, the find bar keeps its query', l.popover === false && l.search === true && l.query === 'feature', JSON.stringify(l));
+
+// with no layer left, the next Escape closes the find bar itself
+await escape();
+await sleep(300);
+l = JSON.parse(await layerState());
+check('the next Escape closes the find bar', l.search === false, JSON.stringify(l));
+check('no layer is left open', l.menu === false && l.modal === false && l.popover === false, JSON.stringify(l));
+check('the dimming is cleared with the find bar', (await ev("document.querySelectorAll('.graph-row.unmatched').length")) === 0);
 
 await shot('final.png');
 
