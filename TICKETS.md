@@ -138,7 +138,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | done |
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | done |
 | GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | done |
-| GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | todo |
+| GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | in-progress |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
@@ -1424,7 +1424,7 @@ decision is missing.
 
 ### GC-038 Escape with the Pull popover open also closes the find bar behind it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Why:** GC-037 made the context menu a layer, but the toolbar's Pull-options popover still
   closes itself from its own `window` keydown listener in `Toolbar.tsx`, which does not stop the
@@ -1448,6 +1448,7 @@ decision is missing.
   - 2026-09-05 proposed by GC-037 (this ticket): confirmed over CDP against the fixed build —
     with the find bar open and the Pull popover up, one Escape left `.popover` gone *and*
     `.graph-search` gone.
+  - 2026-09-05 18:05 claimed
 
 ### GC-039 An e2e step that guards one Escape, one layer
 
