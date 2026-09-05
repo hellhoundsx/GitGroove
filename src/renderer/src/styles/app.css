@@ -1464,3 +1464,83 @@ img.avatar {
   outline: none;
   border-color: var(--accent);
 }
+
+/* ---- Keyboard shortcuts overlay ----------------------------------------------- */
+
+.modal.shortcuts {
+  width: 560px;
+  gap: var(--sp-4);
+}
+.shortcut-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+}
+.shortcut-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.shortcut-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.shortcut-group-hint {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.shortcut-keys {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 150px;
+}
+.shortcut-keys > span {
+  display: inline-flex;
+  align-items: center;
+}
+.shortcut-or {
+  margin: 0 6px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.chord {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.shortcut-keys kbd {
+  min-width: 20px;
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  line-height: 18px;
+  text-align: center;
+  color: var(--text-bright);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+.shortcut-desc {
+  font-size: var(--fs-md);
+  color: var(--text);
+  min-width: 0;
+}

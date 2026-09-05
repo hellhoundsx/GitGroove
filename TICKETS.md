@@ -135,8 +135,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-009 | Commit search | graph | M | P2 | done |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
 | GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | todo |
-| GC-029 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | todo |
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | todo |
+| GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
@@ -1216,7 +1216,7 @@ decision is missing.
 
 ---
 
-### GC-029 Escape inside a dialog also closes the diff behind it
+### GC-034 Escape inside a dialog also closes the diff behind it
 
 - **Status:** todo
 - **Area:** ui | **Size:** S | **Priority:** P1
@@ -1243,7 +1243,8 @@ decision is missing.
   `src/renderer/src/components/Preferences.tsx`.
 - **Verify:** typecheck, build, e2e, and the two acceptance cases driven over CDP.
 - **Log:**
-  - 2026-09-05 proposed by GC-010 (this ticket): confirmed over CDP while checking the overlay's
+  - 2026-09-05 proposed by GC-010 (this ticket, filed as GC-034 because the hourly review took
+    GC-029 to GC-033 while this run was working): confirmed over CDP while checking the overlay's
     own Escape handling — with `README.md`'s diff open, opening Preferences and pressing Escape
     left `.modal.prefs` gone *and* `.diff-body` gone in the same keystroke.
 

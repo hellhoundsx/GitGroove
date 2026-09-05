@@ -80,6 +80,7 @@ npm run typecheck      # tsc for node target then web target
 npm test               # vitest run: the unit tests, once
 npm run test:watch     # vitest in watch mode
 npm run e2e:setup      # (re)creates the scratch repo under %TEMP%/gitclient-e2e (or $GITCLIENT_E2E_ROOT)
+                       # the working repository is <root>/testrepo, its bare origin <root>/remote.git
 npm run e2e            # drives the BUILT app through the UI, asserts against git, exits 1 on failure
 ```
 
@@ -174,10 +175,12 @@ must show (conflicts, an empty cherry-pick). `msg()` strips Electron's IPC prefi
 Staging actions are exposed to the DetailPanel as `StagingActions`; menus are built by
 `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`, `remoteMenuItems`.
 
-Keyboard: ArrowUp/Down move the selection across WIP + commits, Escape closes the search bar and
-then the file view, Ctrl+F opens the graph's commit search (from anywhere, including the commit
-form). The search bar's open flag lives in `App.tsx` as `{ open, tick }`: `tick` changes on every
-request to open it so a second Ctrl+F refocuses a bar that is already showing.
+Keyboard: ArrowUp/Down move the selection across WIP + commits, Escape closes the shortcuts
+overlay, then the search bar, then the file view, Ctrl+F opens the graph's commit search (from
+anywhere, including the commit form) and `?` opens the shortcuts overlay. The search bar's open
+flag lives in `App.tsx` as `{ open, tick }`: `tick` changes on every request to open it so a
+second Ctrl+F refocuses a bar that is already showing. **No handler compares a key name of its
+own** (GC-010): every one asks `matches(id, event)` from `src/renderer/src/shortcuts.ts`.
 Double-clicking a branch chip or a left-panel branch row checks it out (matches GitKraken).
 Every checkout the UI can trigger — chips, left-panel rows, the ref menu, the commit menu's
 detached checkout — goes through `runCheckout(name, doCheckout)`, which with a non-empty
@@ -194,6 +197,19 @@ input and checkbox, resolves `{ value, checked, choice }` or null) and `confirm(
 and OK stays `.modal-buttons .btn:last-child` so the e2e helpers keep working. `MenuItem`
 supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`. Every confirmation in the
 renderer goes through `useUi().confirm` (GC-003); the native `confirm()` is not used anywhere.
+
+### Keyboard shortcuts (`src/renderer/src/shortcuts.ts`, `components/Shortcuts.tsx`)
+
+`shortcuts.ts` is the single table of bindings (GC-010): one entry per shortcut with an id, the
+chords to display, a description, and a `match(e)` predicate over `KeyLike` (the four fields both
+DOM and React key events share). `matches(id, e)` is the only place in the renderer that compares
+a key name, and `components/Shortcuts.tsx` renders the overlay straight from the same list, so a
+binding cannot be documented differently from the way it behaves. The overlay opens with `?`
+(or Shift+/) and from the toolbar's Shortcuts button, closes with Escape, the button or the
+backdrop, and while it is open `App.tsx` swallows the other keys so the graph does not move
+behind it. Adding a shortcut means: an entry in the table, and `matches('<id>', e)` in the
+handler — never a bare `e.key === ...`. `CommitGraph.tsx` imports it as `isShortcut` because
+`matches` is the search-results array in that file.
 
 ### Preferences (`src/renderer/src/prefs.ts`, `components/Preferences.tsx`)
 
@@ -316,14 +332,16 @@ jsdom and no React plugin in that config. `tsconfig.web.json` already includes t
 `src/renderer/src/**/*`, so `npm run typecheck` type-checks the tests too; import `describe`,
 `it` and `expect` from `vitest` explicitly rather than turning on globals.
 
-Covered today (22 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (30 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
 merge's fork and join, the **no early forking** regression guard, HEAD's lineage in column 0, a
 pinned sha that is not HEAD, an unknown pinned sha, colour stability when a lane index is
 recycled, and `maxLane`). The early-forking guard was mutation-checked: reintroducing the bug
-fails three of these tests.
+fails three of these tests. `shortcuts.test.ts` guards the binding table: unique ids, Ctrl and
+Cmd both accepted, `?` and Shift+/ but not Ctrl+?, the graph arrows rejecting modifiers so
+Ctrl+ArrowDown does not move the selection, and Enter versus Shift+Enter in the find bar.
 
 ## Working conventions learned the hard way
 
@@ -355,7 +373,8 @@ branch the leftmost column, remembered per repository (GC-005); the resizable re
 width-aware chip fold (GC-006); the Preferences dialog behind one `gitclient.prefs` key, with
 avatars, default pull mode, the dirty-checkout confirmation and the 72-character counter all
 switchable (GC-007); commit search over the loaded commits from the toolbar button or Ctrl+F,
-dimming non-matches instead of hiding them (GC-009).
+dimming non-matches instead of hiding them (GC-009); one table of keyboard shortcuts behind
+`matches(id, event)` with the `?` overlay rendered from it (GC-010).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

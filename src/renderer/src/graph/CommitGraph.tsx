@@ -5,6 +5,8 @@ import { layoutGraph, type RowLayout } from './lanes';
 import { GraphCell, LANE_W, ROW_H, laneColor, type WipDash } from './GraphCell';
 import { Icon } from '../ui/icons';
 import { initialsOf } from '../ui/avatars';
+// `matches` is taken by the search results in this file.
+import { matches as isShortcut } from '../shortcuts';
 
 interface Props {
   commits: Commit[];
@@ -176,15 +178,15 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   }, [searchOpen, searchTick]);
 
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Escape') {
+    if (isShortcut('searchClose', e)) {
       e.preventDefault();
       onCloseSearch();
-    } else if (e.key === 'Enter' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      step(e.key === 'Enter' && e.shiftKey ? -1 : 1);
-    } else if (e.key === 'ArrowUp') {
+    } else if (isShortcut('searchPrev', e)) {
       e.preventDefault();
       step(-1);
+    } else if (isShortcut('searchNext', e)) {
+      e.preventDefault();
+      step(1);
     }
   };
 

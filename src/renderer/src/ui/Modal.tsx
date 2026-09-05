@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
+import { matches } from '../shortcuts';
 
 export interface PromptOptions {
   title: string;
@@ -53,8 +54,8 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
         if (e.target === e.currentTarget) onResolve(null);
       }}
       onKeyDown={(e) => {
-        if (e.key === 'Escape') onResolve(null);
-        if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) {
+        if (matches('dialogCancel', e)) onResolve(null);
+        if (matches('dialogConfirm', e) && !(e.target instanceof HTMLTextAreaElement)) {
           e.preventDefault();
           ok();
         }

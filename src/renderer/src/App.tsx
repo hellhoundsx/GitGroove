@@ -8,7 +8,9 @@ import { StatusBar } from './components/StatusBar';
 import { CommitGraph, WIP } from './graph/CommitGraph';
 import { DiffView, type FileViewSource } from './diff/DiffView';
 import { Preferences } from './components/Preferences';
+import { Shortcuts } from './components/Shortcuts';
 import { setPrefs, usePrefs } from './prefs';
+import { matches } from './shortcuts';
 import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
 
@@ -43,6 +45,7 @@ export function App(): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
   const [error, setError] = useState<string | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
   // The search bar over the graph. `searchTick` changes on every request to open it so that
   // Ctrl+F refocuses the field even when the bar is already showing.
@@ -455,7 +458,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // Ctrl+F works from anywhere, including the commit message field
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+      if (matches('openSearch', e)) {
         if (!snapshot) return;
         e.preventDefault();
         setFileView(null);
@@ -463,22 +466,37 @@ export function App(): JSX.Element {
         return;
       }
       if (isEditable(e.target)) return;
-      if (e.key === 'Escape') {
+      // The overlay swallows everything except closing itself, so the graph does not scroll
+      // behind it.
+      if (shortcutsOpen) {
+        if (matches('escape', e) || matches('help', e)) {
+          e.preventDefault();
+          setShortcutsOpen(false);
+        }
+        return;
+      }
+      if (matches('help', e)) {
+        if (!prefsOpen) setShortcutsOpen(true);
+        return;
+      }
+      if (matches('escape', e)) {
         if (search.open) closeSearch();
         else setFileView(null);
         return;
       }
-      if (!snapshot || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+      if (!snapshot) return;
+      const dir = matches('selectNext', e) ? 1 : matches('selectPrev', e) ? -1 : 0;
+      if (dir === 0) return;
       e.preventDefault();
       const order = [WIP, ...snapshot.commits.map((c) => c.sha)];
       const i = selected ? order.indexOf(selected) : -1;
-      const next = e.key === 'ArrowDown' ? Math.min(order.length - 1, i + 1) : Math.max(0, i - 1);
+      const next = dir === 1 ? Math.min(order.length - 1, i + 1) : Math.max(0, i - 1);
       const sha = order[next];
       if (sha !== undefined) setSelected(sha);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [snapshot, selected, search.open, openSearch, closeSearch]);
+  }, [snapshot, selected, search.open, openSearch, closeSearch, shortcutsOpen, prefsOpen]);
 
   return (
     <div className="app">
@@ -497,6 +515,7 @@ export function App(): JSX.Element {
         onFetch={() => void run('Fetching', () => window.api.fetch(repo!))}
         onPull={(mode) => void run('Pulling', () => window.api.pull(repo!, mode))}
         onOpenPreferences={() => setPrefsOpen(true)}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         onPush={() => void run('Pushing', () => window.api.push(repo!, { setUpstream: !headRef?.upstream }))}
         onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
         onStash={() => void stashChanges()}
@@ -589,6 +608,7 @@ export function App(): JSX.Element {
       </div>
       <StatusBar repoPath={repoPath} commitCount={commits.length} busy={busy} error={error} onDismissError={() => setError(null)} />
       {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} />}
+      {shortcutsOpen && <Shortcuts onClose={() => setShortcutsOpen(false)} />}
     </div>
   );
 }

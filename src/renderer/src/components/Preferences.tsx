@@ -1,6 +1,7 @@
 import { type JSX, type ReactNode } from 'react';
 import type { PullMode } from '@shared/types';
 import { setPrefs, usePrefs, type Prefs } from '../prefs';
+import { matches } from '../shortcuts';
 
 const PULL_MODES: { mode: PullMode; label: string }[] = [
   { mode: 'ff', label: 'Merge (fast-forward if possible)' },
@@ -41,7 +42,7 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
         if (e.target === e.currentTarget) onClose();
       }}
       onKeyDown={(e) => {
-        if (e.key === 'Escape' || e.key === 'Enter') onClose();
+        if (matches('dialogCancel', e) || matches('dialogConfirm', e)) onClose();
       }}
     >
       <div className="modal prefs" role="dialog" aria-modal="true" aria-labelledby="prefs-title">

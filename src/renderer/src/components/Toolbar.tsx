@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import { Archive, ArchiveRestore, ChevronDown, Download, GitBranch, Redo2, RefreshCw, Search, Settings, Undo2, Upload, type LucideIcon } from 'lucide-react';
+import { Archive, ArchiveRestore, ChevronDown, Download, GitBranch, Keyboard, Redo2, RefreshCw, Search, Settings, Undo2, Upload, type LucideIcon } from 'lucide-react';
 import type { PullMode, RepoInfo } from '@shared/types';
 import { Icon } from '../ui/icons';
+import { matches } from '../shortcuts';
 
 export interface ToolbarHandlers {
   onFetch(): void;
@@ -13,6 +14,7 @@ export interface ToolbarHandlers {
   onRefresh(): void;
   onSearch(): void;
   onOpenPreferences(): void;
+  onOpenShortcuts(): void;
 }
 
 interface Props extends ToolbarHandlers {
@@ -56,7 +58,7 @@ export function Toolbar(p: Props): JSX.Element {
       setPullOpen(false);
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setPullOpen(false);
+      if (matches('escape', e)) setPullOpen(false);
     };
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
@@ -139,6 +141,7 @@ export function Toolbar(p: Props): JSX.Element {
       </div>
       <div className="actions right">
         <ToolButton label="Search" icon={Search} title="Find a commit (Ctrl+F)" active={p.searchOpen} disabled={noRepo} onClick={p.onSearch} />
+        <ToolButton label="Shortcuts" icon={Keyboard} title="Keyboard shortcuts (?)" onClick={p.onOpenShortcuts} />
         <ToolButton label="Preferences" icon={Settings} title="Preferences" onClick={p.onOpenPreferences} />
       </div>
     </div>

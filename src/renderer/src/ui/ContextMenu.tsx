@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
+import { matches } from '../shortcuts';
 
 export interface MenuItem {
   label?: string;
@@ -38,7 +39,7 @@ export function ContextMenu({ menu, onClose }: Props): JSX.Element {
       onClose();
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
+      if (matches('escape', e)) onClose();
     };
     const close = (): void => onClose();
     window.addEventListener('mousedown', onDown, true);

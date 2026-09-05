@@ -5,6 +5,7 @@ import { Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
 import { usePrefs } from '../prefs';
+import { matches } from '../shortcuts';
 import { useUi } from '../ui/UiContext';
 
 export interface StagingActions {
@@ -240,7 +241,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canCommit) doCommit();
+                if (matches('commit', e) && canCommit) doCommit();
               }}
               spellCheck
             />
@@ -251,7 +252,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
             value={body}
             onChange={(e) => setBody(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canCommit) doCommit();
+              if (matches('commit', e) && canCommit) doCommit();
             }}
             spellCheck
           />
