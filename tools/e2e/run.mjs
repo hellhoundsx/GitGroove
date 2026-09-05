@@ -240,6 +240,9 @@ const stamp = Date.now();
 step(1, 'load test repo');
 // Preferences persist in the app's localStorage, so a hand-toggled setting from an earlier
 // session would silently change what the later steps see: start every run from the defaults.
+// The profile is no longer Ricardo's — `tools/launch-app.mjs` gives every launch it makes its own
+// under `<os.tmpdir()>/gitclient-profiles/<port>` (GC-060) — but it does persist between runs on
+// that port, so the removal still earns its place.
 await ev(`localStorage.removeItem('gitclient.prefs'); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
 await settle();
 let s = await state();

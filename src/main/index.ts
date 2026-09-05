@@ -10,6 +10,15 @@ const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL;
 // foreground window never changes. Screenshots still work, they come from the compositor.
 const isStealth = process.env.GITCLIENT_STEALTH === '1';
 
+// Every launch shares one Electron profile by default (`%APPDATA%/gitclient`), so an unattended run
+// reads and writes the same `localStorage` Ricardo sees: his last repository was rewritten by every
+// `--repo` launch, and a `gitclient.refColW` left at 100 by one session silently changed what the
+// next session's screenshots showed (GC-060). `GITCLIENT_USER_DATA` points a launch at a profile of
+// its own; `tools/launch-app.mjs` sets it per DevTools port. It must be applied before the app is
+// ready, which is why it runs at module scope. A start outside the launcher (`npm run dev`, a
+// packaged app) leaves the variable unset and keeps the real profile.
+if (process.env.GITCLIENT_USER_DATA) app.setPath('userData', process.env.GITCLIENT_USER_DATA);
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1400,

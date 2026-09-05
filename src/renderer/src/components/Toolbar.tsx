@@ -32,6 +32,8 @@ interface Props extends ToolbarHandlers {
   pullOpen: boolean;
   onPullModeChange(mode: PullMode): void;
   onPullOpenChange(open: boolean): void;
+  /** Opens the recent-repositories menu, anchored where the caller says (GC-044). */
+  onRepoMenu(at: { clientX: number; clientY: number }): void;
 }
 
 const PULL_MODES: { mode: PullMode; label: string }[] = [
@@ -78,10 +80,19 @@ export function Toolbar(p: Props): JSX.Element {
   return (
     <div className="toolbar">
       <div className="breadcrumb">
-        <div className="crumb">
+        {/* The dropdown hangs off the crumb's bottom-left corner, not off the pointer, so it
+            behaves like the breadcrumb menu it looks like (GC-044). */}
+        <button
+          className="crumb as-button"
+          title="Recent repositories"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            p.onRepoMenu({ clientX: r.left, clientY: r.bottom });
+          }}
+        >
           <span className="caption">repository</span>
           <span className="value">{p.info?.name ?? '—'}</span>
-        </div>
+        </button>
         {p.info && (
           <div className="crumb">
             <span className="caption">branch</span>

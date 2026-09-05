@@ -197,10 +197,11 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | done |
 | GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | done |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | done |
-| GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | in-progress |
-| GC-063 | Unit tests for the watcher's ignore and scope rules | tests | S | P1 | in-progress |
+| GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | done |
+| GC-063 | Unit tests for the watcher's ignore and scope rules | tests | S | P1 | done |
+| GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | todo |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
-| GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | in-progress |
+| GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | todo |
@@ -222,7 +223,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
-| GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | in-progress |
+| GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
@@ -231,6 +232,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
+| GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -2093,7 +2095,7 @@ decision is missing.
 
 ### GC-044 Recently opened repositories from the repository breadcrumb
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** The study's repository breadcrumb opens a dropdown (`04-panels.md`, "Dropdowns";
@@ -2120,10 +2122,10 @@ decision is missing.
 - **Out of scope:** favourites, a search box in the dropdown, the branch breadcrumb dropdown,
   multi-tab (GC-016 should reuse this list when it lands).
 - **Acceptance:**
-  - [ ] After loading two repositories the crumb menu lists both, most recent first, and picking
+  - [x] After loading two repositories the crumb menu lists both, most recent first, and picking
         the other one loads it (status bar name and `Viewing N` change).
-  - [ ] The list survives a reload and never exceeds 10 entries.
-  - [ ] Picking a path that no longer exists shows the error and drops the entry.
+  - [x] The list survives a reload and never exceeds 10 entries.
+  - [x] Picking a path that no longer exists shows the error and drops the entry.
   - [ ] Screenshot of the open dropdown looked at next to the study's `09-repo-dropdown.png` for
         layout only; the styling is ours.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/components/TitleBar.tsx`,
@@ -2137,6 +2139,25 @@ decision is missing.
   - 2026-09-05 21:25 scope extended by GR-004: the title bar's `+` "New tab" button is inert; it
     opens the recents menu until GC-016 gives it tabs.
   - 2026-09-05 21:48 claimed
+  - 2026-09-05 22:01 done, with the fourth criterion checked another way — see the line below.
+    `gitclient.recentRepos` is maintained by `load()`, the repository crumb is a button opening the
+    recents menu through `useUi().openMenu` anchored at its bottom-left corner, the title bar’s `+`
+    opens the same menu, and the empty state repeats the list as clickable rows. Verified over CDP
+    against the scratch repository and a second clone of it: after loading both, the menu read
+    clone2 (disabled), testrepo, separator, Open repository… with the full path as each hint, and
+    picking testrepo loaded it (crumb and status bar both changed to `testrepo 7 commits`, the list
+    reordering to testrepo-first). Eleven seeded entries came back as 10 after a reload, newest first.
+    Clicking a `C:/a` that does not exist showed `Repository folder not found: C:/a` in the status bar,
+    dropped that one entry (10 to 9) and left `gitclient.lastRepo` pointing at the real repository, so
+    GC-025’s behaviour is intact. Screenshots `docs/screenshots/gc-044-recents-dropdown.png` and
+    `docs/screenshots/gc-044-empty-state-recents.png`, both looked at.
+  - 2026-09-05 22:01 the fourth acceptance box is left unticked. It was checked against the study’s
+    written measurements instead of the screenshot it names, because `09-repo-dropdown.png` does not
+    show GitKraken’s repository dropdown at all — it shows Ricardo’s desktop at the moment of capture.
+    Our layout was compared against `04-panels.md`’s recorded shape for those dropdowns (a list of
+    recents, then an action row) and matches it; the one difference is that GitKraken groups the list
+    under a "Recently opened" header, which our `MenuItem` has no concept of, while our empty state does
+    carry that caption. Filed as GC-065.
 
 ### GC-045 Commit view banner linking back to the working directory changes
 
@@ -2574,7 +2595,7 @@ decision is missing.
 
 ### GC-058 A component test for the folded-refs dropdown flip
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-022, GC-046
 - **Why:** GC-022's flip is decided in `onMoreEnter` from three live rects, and nothing automated
@@ -2593,14 +2614,25 @@ decision is missing.
 - **Out of scope:** rendering the real CSS (jsdom applies no stylesheet, so the assertion is on the
   class, not on the computed `top`/`bottom`), testing the rest of `CommitGraph`.
 - **Acceptance:**
-  - [ ] `npm test` passes with the new file in the `dom` project.
-  - [ ] Mutation-checked: forcing `setMoreUp(null)` unconditionally in `onMoreEnter` fails it.
+  - [x] `npm test` passes with the new file in the `dom` project.
+  - [x] Mutation-checked: forcing `setMoreUp(null)` unconditionally in `onMoreEnter` fails it.
 - **Files:** new `src/renderer/src/graph/CommitGraph.test.tsx`.
 - **Verify:** `npm test`, `npm run typecheck`, then the mutation check.
 - **Log:**
   - 2026-09-05 proposed by GC-022 (this ticket): the flip shipped with no automated coverage at all,
     and the one check that exists is a hand-run CDP measurement needing the app built and launched.
   - 2026-09-05 21:48 claimed
+  - 2026-09-05 22:01 done. `src/renderer/src/graph/CommitGraph.test.tsx` renders one commit carrying
+    six refs so four fold into `+4` at the default 150px column, stubs `getBoundingClientRect` on
+    `.graph-body`, the `+N` chip and the hidden `.more-list`, and asserts the `flip-up` class in three
+    cases: room below, a chip 20px from the bottom edge, and a 500px list against a 400px body opening
+    on whichever side has more room. Three things it had to do that the scope did not anticipate: fire
+    `mouseOver` rather than `mouseEnter` (React synthesises `onMouseEnter` from the delegated event),
+    install a no-op `ResizeObserver` for the virtualisation effect, and set `avatars: false` so the
+    render makes no `crypto.subtle` call and no gravatar request. `npm test` is 68 tests over 10 files,
+    the `dom` project now 4 tests over 2 files. Mutation check re-run centrally: forcing
+    `setMoreUp(null)` in `onMoreEnter` fails two of the three (expected false to be true), and
+    `git diff` on `CommitGraph.tsx` was empty again after the revert.
 
 ### GC-059 A test for the launcher attach path
 
@@ -2654,7 +2686,7 @@ decision is missing.
 
 ### GC-060 Unattended launches write to Ricardo's own app profile
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** infra | **Size:** S | **Priority:** P1
 - **Depends on:** GC-028
 - **Why:** Every launch of the built app, stealth or not, uses Electron's default `userData`
@@ -2689,13 +2721,13 @@ decision is missing.
   gravatar cache warm and costs nothing), a preference or CLI flag to pick the profile in the
   packaged app, migrating anything out of the current shared profile.
 - **Acceptance:**
-  - [ ] After `node tools/launch-app.mjs --port 9334 --repo <scratch>`, the newest file under
+  - [x] After `node tools/launch-app.mjs --port 9334 --repo <scratch>`, the newest file under
         `%APPDATA%/gitclient/Local Storage/leveldb` is older than the launch, and
         `<tmpdir>/gitclient-profiles/9334/Local Storage` exists.
-  - [ ] `localStorage.setItem('gitclient.refColW', '100')` over CDP on 9334 is not visible to a
+  - [x] `localStorage.setItem('gitclient.refColW', '100')` over CDP on 9334 is not visible to a
         fresh launch on 9333 (`getItem` returns null there).
-  - [ ] `npm run e2e` passes unchanged, and its step 1 still finds a clean `gitclient.prefs`.
-  - [ ] `npm run dev` still opens the last repository Ricardo used.
+  - [x] `npm run e2e` passes unchanged, and its step 1 still finds a clean `gitclient.prefs`.
+  - [x] `npm run dev` still opens the last repository Ricardo used.
 - **Files:** `src/main/index.ts`, `tools/launch-app.mjs`, `tools/e2e/run.mjs` (step 1 comment
   only), `CLAUDE.md`.
 - **Verify:** typecheck, build, the four checks above with `ls -la --time-style=full-iso` on
@@ -2705,6 +2737,22 @@ decision is missing.
     ref column width a previous ticket's hand check had left in the shared profile, and every
     `--repo` launch overwrites the repository Ricardo's app opens next.
   - 2026-09-05 21:48 claimed
+  - 2026-09-05 22:01 done. `src/main/index.ts` honours `GITCLIENT_USER_DATA` at module scope,
+    `tools/launch-app.mjs` sets it to `<os.tmpdir()>/gitclient-profiles/<port>` for every launch it
+    makes (stealth and `--visible`) through a new exported `profileDir(port)`, and the step 1 comment
+    in `run.mjs` says where the profile lives. Verified centrally: a launch on 9335 created
+    `<tmp>/gitclient-profiles/9335/Local Storage` while the newest file under
+    `%APPDATA%/gitclient/Local Storage/leveldb` stayed at 21:42:32, older than every launch this run
+    made (21:55 onwards) and unchanged after the e2e suite too; `gitclient.refColW` set to `100` over
+    CDP on 9335 read back as `null` on a fresh 9336, whose profile also carried a recents list of its
+    own. `npm run e2e` passed twice, 66 assertions each, step 1 finding a clean `gitclient.prefs`.
+    Ports substituted, deliberately: the acceptance names 9334, which is the hourly backlog reviewer’s
+    port, and the launcher frees a port by stopping whatever listens on it, so checking there could
+    have killed a review mid-run. The same isolation was proved on 9335 and 9336 instead.
+    The fourth criterion was verified by construction rather than by running it: `npm run dev` is
+    `electron-vite dev` and no npm script goes through the launcher, so `GITCLIENT_USER_DATA` is unset
+    and the `setPath` call is skipped. Running it would have opened a visible, focused window, which an
+    unattended session must never do.
 
 ### GC-061 A detached HEAD has no marker in the graph
 
@@ -2800,7 +2848,7 @@ decision is missing.
 
 ### GC-063 Unit tests for the watcher's ignore and scope rules
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P1
 - **Depends on:** GC-011
 - **Why:** GC-011's watcher shipped with a refresh loop that nothing in the repository could have
@@ -2824,9 +2872,9 @@ decision is missing.
 - **Out of scope:** testing the debounce, the `fs.watch` subscription or the IPC push; an e2e step
   for external edits (that is its own gap, noted in GC-011's log).
 - **Acceptance:**
-  - [ ] `npm test` covers every path above and passes.
-  - [ ] Mutation-checked: deleting the bare-`.git` rule fails the suite.
-  - [ ] The test needs no Electron import and no build.
+  - [x] `npm test` covers every path above and passes.
+  - [x] Mutation-checked: deleting the bare-`.git` rule fails the suite.
+  - [x] The test needs no Electron import and no build.
 - **Files:** `src/main/watch.ts`, new `src/main/watch.test.ts` (or a path under `src/` if the
   `vitest.config.ts` include has to stay as it is — say which in the log).
 - **Verify:** `npm test`, then the mutation check.
@@ -2834,6 +2882,17 @@ decision is missing.
   - 2026-09-05 proposed by GC-011 (this ticket): the watcher's refresh loop passed typecheck, the
     unit suite and a full e2e run; the defect was one pure-function decision on one path.
   - 2026-09-05 21:48 claimed
+  - 2026-09-05 22:01 done. `ignored`, `scopeOf` and a new `toRel` are exported from
+    `src/main/watch.ts`; `toRel` was lifted out of the change handler so the test feeds the rules the
+    same string the watcher does rather than a second copy of the backslash normalisation. The test is
+    `src/main/watch.test.ts` and `vitest.config.ts` needed no edit: the `node` project’s
+    `src/**/*.test.ts` include and `tsconfig.node.json`’s `src/main/**/*` both already cover that path.
+    17 tests over every path the scope lists, run as `npx vitest run --project node src/main/watch.test.ts`.
+    Mutation check re-run centrally rather than taken on the agent’s word: deleting
+    `if (parts.length === 1) return true;` from `ignored()` fails exactly the bare-`.git` guard
+    (expected tree to be ignored, 1 failed | 16 passed); the file was restored and the suite re-run green.
+    No Electron and no build, checked statically: `npx esbuild --loader=ts --format=esm < src/main/watch.ts`
+    emits one runtime import, `node:fs`, both `electron` and `@shared/types` being type-only and erased.
 
 ### GC-064 An e2e:setup on the shared scratch root wipes a run already using it
 
@@ -2868,6 +2927,84 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-053 (this ticket): a concurrent `e2e:setup` on the default root
     destroyed a baseline measurement mid-run and the resulting failure named nothing.
+
+
+### GC-065 Two of the study's screenshots show the desktop, not GitKraken
+
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** `docs/reference/gitkraken/screenshots/09-repo-dropdown.png` and
+  `10-branch-dropdown.png` do not show GitKraken at all. Both show Ricardo's own desktop at the
+  moment of capture — a Claude Code window on the left and a browser on the right — so the two
+  breadcrumb dropdowns the study claims to have recorded were never recorded. `02-main-1080.png`
+  and `11-pull-dropdown.png` from the same study are genuine GitKraken frames, so this is not the
+  whole set: it is the captures that needed a real OS click to open a native-looking dropdown,
+  where `focus.ps1` evidently did not raise GitKraken before `shot.ps1` fired. The cost is silent.
+  `04-panels.md` cites both files by name for its "Breadcrumb dropdowns" measurements, and GC-044's
+  fourth acceptance criterion was "looked at next to the study's `09-repo-dropdown.png`" — that
+  check could not be made as written, and any future ticket citing either file will hit the same
+  wall without knowing why.
+- **Scope:**
+  - Open every file in `docs/reference/gitkraken/screenshots/` and record, in
+    `docs/reference/gitkraken/README.md`'s index, which ones actually show GitKraken. At least the
+    two above do not; the audit says whether any others share the failure.
+  - Each unusable file is marked in the README index and at every citation of it in the notes
+    files, so a ticket that reaches for one is told immediately rather than after a launch.
+  - The written measurements those notes carry (`250px` wide `ul`, `27px` items, `25px` group
+    headers, the "Recently opened" / "View all repositories" headers) stay: they were taken over
+    CDP against the live app, not read off the screenshot, and are still the usable reference.
+  - A recapture needs a hands-on GitKraken session, because opening those dropdowns needs
+    `rclick.ps1` and `shot.ps1`, which an unattended run must never touch. The ticket therefore
+    ends at the audit and the marking; recapturing is Ricardo's to schedule.
+- **Out of scope:** recapturing anything, re-running the CDP study, changing any measurement.
+- **Acceptance:**
+  - [ ] Every file in `screenshots/` has been opened and its subject recorded in the README index.
+  - [ ] `09-repo-dropdown.png` and `10-branch-dropdown.png` are marked unusable there and at each
+    citation in `04-panels.md`, naming what they actually show.
+  - [ ] `grep -rn '09-repo-dropdown\|10-branch-dropdown' docs/` returns no citation that still
+    presents the file as a GitKraken reference.
+- **Files:** `docs/reference/gitkraken/README.md`, `docs/reference/gitkraken/04-panels.md`, and
+  whichever other notes files the grep turns up.
+- **Verify:** the grep above, plus reading the README index against the directory listing.
+- **Log:**
+  - 2026-09-05 22:01 proposed by GC-044 (this ticket): GC-044's screenshot comparison could not be
+    made, because the file it names shows a Claude Code window and a browser rather than
+    GitKraken's repository dropdown. `02-main-1080.png` and `11-pull-dropdown.png` were checked in
+    the same pass and are genuine, which is what bounds this to an audit rather than a redo.
+
+### GC-066 A second click on the repository crumb cannot close its dropdown
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-044
+- **Why:** `ContextMenu` dismisses on a capture-phase `mousedown` anywhere outside itself
+  (`ContextMenu.tsx:45`), and GC-044 hung the recents dropdown off a `click` handler on the
+  repository crumb and on the title bar's `+`. Clicking either control while its own menu is open
+  therefore closes the menu on `mousedown` and reopens it on `click`, so the control reads as one
+  that cannot be toggled shut — the menu appears to ignore the click. Escape and an outside click
+  both work, so nothing is trapped; it is the dropdown affordance that is wrong, and these are the
+  first two controls in the app whose own click opens the menu (every other menu comes from a
+  right-click, where the question never arises).
+- **Scope:**
+  - A control that owns a menu closes it instead of reopening it when it is clicked while its own
+    menu is up. The obvious shape is for `UiProvider` to remember which element opened the current
+    menu and for `openMenu` to close and return when asked to reopen from that same element, so
+    the fix lands once for every future dropdown rather than in each caller.
+  - The repository crumb and the title bar's `+` both toggle.
+- **Out of scope:** changing how right-click menus behave, the popover machinery in the toolbar.
+- **Acceptance:**
+  - [ ] Over CDP: clicking `.crumb.as-button` opens the menu, clicking it again leaves no
+    `.ctx-menu` in the DOM, and a third click opens it again.
+  - [ ] The same for the title bar's `+`.
+  - [ ] Escape still closes the menu as one layer and the e2e layering step (18) still passes.
+- **Files:** `src/renderer/src/ui/UiContext.tsx`, `src/renderer/src/ui/ContextMenu.tsx`,
+  `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/components/TitleBar.tsx`.
+- **Verify:** typecheck, build, the three CDP checks above, `npm run e2e`.
+- **Log:**
+  - 2026-09-05 22:01 proposed by GC-044 (this ticket): GC-044 added the first two menus in the app
+    that are opened by the control's own left click, which is where the existing outside-mousedown
+    dismissal turns into a menu that will not close.
 
 
 ## Reviews

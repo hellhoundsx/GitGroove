@@ -15,13 +15,23 @@ import type { RepoChange } from '@shared/types';
 const DEBOUNCE_MS = 300;
 
 /**
+ * The event path `ignored` and `scopeOf` decide on: relative to the repository root, forward
+ * slashes, and empty when the platform could not name what moved (Windows hands us backslashes).
+ * It is its own exported function only so a test can feed the two rules below exactly the string
+ * the watcher feeds them, rather than a second copy of the normalisation (GC-063).
+ */
+export function toRel(filename: string | Buffer | null): string {
+  return typeof filename === 'string' ? filename.replace(/\\/g, '/') : '';
+}
+
+/**
  * Paths the watcher never reacts to, matched against the event path relative to the repository
  * root with forward slashes. `git check-ignore` would be the thorough answer for the working tree,
  * but every git call lives in `git.ts` and the watcher stays pure fs, so this is a static list of
  * the paths that churn: git's object and reflog writes, the `.lock` files it drops on every
  * command, and the one directory that dwarfs the rest of a checkout.
  */
-function ignored(rel: string): boolean {
+export function ignored(rel: string): boolean {
   const parts = rel.split('/');
   if (parts.includes('node_modules')) return true;
   if (parts[0] !== '.git') return false;
@@ -45,7 +55,7 @@ function ignored(rel: string): boolean {
  * `.git/refs`, `HEAD` and `packed-refs` move the graph, so the renderer reloads the whole
  * snapshot; anything else (a working tree file, `.git/index`, `MERGE_HEAD`) only moves the status.
  */
-function scopeOf(rel: string): RepoChange['scope'] {
+export function scopeOf(rel: string): RepoChange['scope'] {
   const parts = rel.split('/');
   if (parts[0] !== '.git') return 'tree';
   const seg = parts[1] ?? '';
@@ -89,7 +99,7 @@ export function watchRepo(sender: WebContents, repo: string | null): void {
   watcher.on('error', () => stop(id));
   watcher.on('change', (_event, filename) => {
     // A null filename means the platform could not name what moved; assume the working tree.
-    const rel = typeof filename === 'string' ? filename.replace(/\\/g, '/') : '';
+    const rel = toRel(filename);
     if (rel && ignored(rel)) return;
     const scope = rel ? scopeOf(rel) : 'tree';
     // 'refs' wins while a burst is collected: the full reload it asks for covers a tree change too.

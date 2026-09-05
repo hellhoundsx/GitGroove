@@ -110,6 +110,17 @@ a blank frame). `--visible` drops the variable **and** `windowsHide`, which matt
 `windowsHide` puts `SW_HIDE` in the child's `STARTUPINFO` and Chromium honours it for the first
 window it shows, so a visible launch with it set stays invisible.
 
+Every launch the launcher makes, stealth or `--visible`, also runs on **its own Electron profile**
+(GC-060): it sets `GITCLIENT_USER_DATA` to `<os.tmpdir()>/gitclient-profiles/<port>` (exported as
+`profileDir(port)`) and `src/main/index.ts` calls `app.setPath('userData', ...)` at module scope
+whenever that variable is set. So the worker (9333), the e2e suite (`GITCLIENT_E2E_PORT`) and the
+backlog reviewer (9334) each keep a `localStorage` of their own that survives between runs on that
+port and never reaches the one Ricardo sees; before this, every `--repo` launch rewrote his
+`gitclient.lastRepo`, and a `gitclient.refColW` of 100 left behind by GC-022's hand check made two
+review screenshots show one chip plus `+1` while both logs said 150px. An explicit
+`GITCLIENT_USER_DATA` in the environment wins over the default, and only a start that never goes
+through the launcher (`npm run dev`, a packaged app) uses the real profile.
+
 Ricardo uses this machine while the scheduled routines run, often in a full-screen game, so an
 unattended session must never steal focus: never launch the app any other way, and never run
 `tools/gk-recon/*.ps1` (`focus`, `rclick`, `shot`, `cursor`, `esc`) or any other OS-level input
@@ -126,11 +137,15 @@ still holding by stopping the one process listening on it, and is what the launc
 e2e prologue use. By hand, look the pid up (`netstat -ano -p tcp | grep 9333`) and
 `taskkill //F //T //PID <pid>`.
 
-The app remembers the last repository in `localStorage` (`gitclient.lastRepo`), the ref
+The app remembers the last repository in `localStorage` (`gitclient.lastRepo`), the ten most
+recently opened repositories (`gitclient.recentRepos`, a JSON array of absolute paths, newest
+first, deduplicated on the normalised path — GC-044), the ref
 column's width (`gitclient.refColW`, a number of pixels) and the branch pinned to the graph's
 left column, per repository (`gitclient.pinned.<repoPath>`, the branch name). Everything the
 user can actually set lives in one JSON blob under `gitclient.prefs` (see Preferences below);
-the old `gitclient.pullMode` key is migrated into it on first load and then removed.
+the old `gitclient.pullMode` key is migrated into it on first load and then removed. All of it
+lives in the profile's `localStorage`, which is the state a launcher launch keeps away from
+Ricardo's own profile (GC-060, above).
 
 ## tools/gk-recon/cdp.mjs (DevTools driver)
 
@@ -204,7 +219,7 @@ Windows reports that as a `change` on the `.git` directory itself, and a directo
 second path segment for the ignore list to match, so the renderer reloaded the status, which ran
 `git status` again — a push every 300ms forever on an idle repository. Anything that really
 changes inside `.git` arrives under its own relative path, so dropping the bare event costs
-nothing. `.git/refs`, `HEAD` and `packed-refs` scope to `refs` (full snapshot reload); everything
+nothing — the rule `watch.test.ts` now pins (GC-063). `.git/refs`, `HEAD` and `packed-refs` scope to `refs` (full snapshot reload); everything
 else scopes to `tree` (status only). `git check-ignore` is deliberately not used: every git call
 lives in `git.ts`, so the watcher stays pure fs. In the renderer a change that arrives while
 `busy` is set is parked and flushed exactly once when `busy` clears, and the background reload
@@ -232,6 +247,14 @@ running operation), `error`, `gitError` (git itself is missing — it replaces t
 prompt line, and `error` is suppressed when identical so the sentence is not printed twice),
 `pullMode`. `load()`'s failure path clears `repoPath` so the status bar stops naming a path that
 did not load, while `gitclient.lastRepo` is kept in case the folder comes back (GC-025).
+`load()` also maintains `gitclient.recentRepos` (GC-044): a successful load unshifts git's
+canonical path and caps the list at ten, a failed one drops the path that was asked for, so an
+entry whose folder has moved stops being offered while `gitclient.lastRepo` still points at it.
+`openPath(path)` is the one way a repository is switched — the folder dialog, the repository
+breadcrumb's dropdown and the empty state's recents rows all go through it — and `openRepoMenu(at)`
+builds that dropdown from the same `MenuItem` machinery as every other menu, anchored at the
+clicked control's bottom-left corner rather than at the pointer. The title bar's `+` opens the same
+menu until GC-016 gives it tabs.
 
 `run(label, fn, { statusOnly?, rethrow? })` is the only way git actions execute: sets busy,
 runs, then reloads the whole snapshot (or only the status for staging actions), and **re-applies
@@ -454,9 +477,9 @@ the tracked file that step edits (GC-019), and pops back both the
 unnamed stash step 5 parks the tree in for a moment and the named `test stash` a run that died
 between steps 5 and 8 would strand — popped, not dropped, because it holds the mixed working tree
 every later step asserts against (GC-036)). Step 1 also removes
-`gitclient.prefs`: preferences persist in the app's localStorage, so a setting toggled by hand in
-an earlier session (GC-007 left `confirmDirtyCheckout` off) silently disables whole steps
-otherwise.
+`gitclient.prefs`: the per-port profile persists between runs, so a setting toggled by hand in an
+earlier session on that port (GC-007 left `confirmDirtyCheckout` off) would still silently disable
+whole steps — it is just no longer Ricardo's own profile the suite reads (GC-060).
 
 ### Unit tests
 
@@ -475,7 +498,7 @@ register its own auto-cleanup or act-environment hooks, so a component test wire
 devDependencies reaches `out/`: the renderer builds from `index.html` and nothing in that graph
 imports a test file.
 
-Covered today (48 tests, 47 in the node project and 1 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (68 tests, 64 in the node project and 4 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -500,6 +523,15 @@ winning over an `alpha` that sorts before it and over a `zeta` that sorts after 
 first-remote fallback when there is no `origin`. Mutation-checked: reverting the helper to
 `remotes[0]` fails the alpha case. It sits in `src/shared/` next to the module it covers, which
 the existing `src/**/*.test.ts` include already picks up.
+`watch.test.ts` covers the watcher's two path rules (GC-063): the bare `.git` event that made
+GC-011 loop, the `.lock` files, `objects`, `logs`, `COMMIT_EDITMSG` and `node_modules` all ignored;
+`refs`, `HEAD` and `packed-refs` scoping to `refs`; `.git/index`, `MERGE_HEAD` and a working-tree
+file to `tree`; and a backslash path proving the normalisation. `ignored`, `scopeOf` and `toRel`
+are exported for it, `toRel` having been lifted out of the change handler so the test feeds the
+rules the same string the watcher does rather than a second copy of the normalisation. It needs no
+Electron and no build: `npx esbuild --loader=ts --format=esm < src/main/watch.ts` leaves one
+runtime import, `node:fs`, both `electron` and `@shared/types` being type-only. Mutation-checked:
+deleting the bare-`.git` rule fails the guard case and nothing else.
 `repo-hygiene.test.ts` guards the repository rather than the renderer (GC-047): it walks `src/`
 and `tools/` plus the root markdown files, skipping `node_modules/`, `out/`, `dist/` and the
 binary extensions, and fails on any C0 control byte that is not TAB or LF — CR included, because
@@ -510,7 +542,7 @@ its own `/// <reference types="node" />` because the web project does not pull i
 move it and both configs need editing. This is what would have caught GC-042's literal U+0000 the
 day it was written. Mutation-checked: a NUL written into a scratch file under `src/` fails it with
 that file and offset.
-`Preferences.test.tsx` is the first component test and the only one in the `dom` project (GC-046):
+`Preferences.test.tsx` is the first component test in the `dom` project (GC-046):
 it renders the Preferences dialog, clicks the avatars row's checkbox and asserts both that
 `getPrefs().avatars` flipped and that the controlled input reflects it. Two things it does
 differently from `prefs.test.ts`, deliberately: no `vi.resetModules()` — React Testing Library is
@@ -518,6 +550,22 @@ imported statically, so re-importing `prefs.ts` would hand the component a secon
 and every hook in it would throw — and it restores `DEFAULT_PREFS` and clears `localStorage` in
 `afterEach`, because jsdom's storage is real and persists across cases in a file. Mutation-checked:
 replacing the avatars row's `setPrefs` call with a no-op fails it.
+
+`CommitGraph.test.tsx` is the second, and it guards GC-022's folded-refs flip (GC-058), which the
+e2e suite never reaches because no step folds a ref (GC-055). `onMoreEnter` decides the direction
+from three live rects, so the test renders one commit carrying six refs — the default 150px column
+budgets two chips, so four fold into `+4` — and stubs `getBoundingClientRect` on `.graph-body`, on
+the `+N` chip and on the hidden `.more-list`, jsdom reporting every rect as zeroes; only `top`,
+`bottom` and `height` matter. Three cases: room below (no flip), a chip 20px from the container's
+bottom (flip), and a list taller than the whole body opening on whichever side has more room, in
+both directions. Three things a new component test here should copy. The hover is fired as
+`mouseOver`, not `mouseEnter`: React synthesises `onMouseEnter` from the delegated `mouseover`, so
+a non-bubbling `mouseenter` never reaches the handler. `beforeAll` installs a no-op
+`ResizeObserver`, which the virtualisation effect constructs and jsdom does not have. And
+`beforeEach` sets `avatars: false`, which keeps the render clear of `crypto.subtle` and of any
+gravatar.com request through the gate already in `useGravatar`. The assertion is on the `flip-up`
+class rather than a computed `top`/`bottom`, because jsdom applies no stylesheet.
+Mutation-checked: forcing `setMoreUp(null)` unconditionally in `onMoreEnter` fails two of the three.
 
 ## Working conventions learned the hard way
 
@@ -579,7 +627,14 @@ behind one `graphColumns` preference (GC-032); the file-system watcher that refr
 editor's save or a terminal commit, with the bare-`.git` event that made it loop dropped
 (GC-011); the e2e suite waiting on the DOM through `waitFor` instead of 61 fixed sleeps, five
 left and each commented (GC-053); and a unit test for the launcher's attach path that proves it
-against a fake CDP endpoint without starting Electron (GC-059). Write control characters into a source file as an
+against a fake CDP endpoint without starting Electron (GC-059); every launch the launcher makes
+running on its own Electron profile under `<os.tmpdir()>/gitclient-profiles/<port>`, so an
+unattended run can no longer rewrite the last repository, the ref column width or the preferences
+Ricardo sees (GC-060); unit tests for the watcher's ignore and scope rules, the bare-`.git`
+regression among them (GC-063); the recently-opened repositories list behind
+`gitclient.recentRepos`, offered from the repository breadcrumb, the title bar's `+` and the empty
+state, with an entry that no longer loads dropping itself (GC-044); and a component test for the
+folded-refs dropdown flip, the second in the `dom` project (GC-058). Write control characters into a source file as an
 escape, never as the byte itself: a literal one makes git treat the whole file as binary, and
 `git diff`, `git blame`, review and the `.gitattributes` LF rule all silently skip it while
 vitest, `tsc` and the build keep passing. The trap catches generators too: a Node script that

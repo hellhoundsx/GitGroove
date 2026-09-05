@@ -136,6 +136,15 @@ textarea:focus {
 .crumb .value.plain {
   font-weight: 400;
 }
+/* The repository crumb is a real button now (GC-044), so undo the UA's centring and give it the
+   same hover the other toolbar controls have. */
+.crumb.as-button {
+  align-items: flex-start;
+  text-align: left;
+}
+.crumb.as-button:hover .value {
+  color: var(--accent);
+}
 .toolbar .actions {
   display: flex;
   margin: 0 auto;
@@ -694,6 +703,48 @@ textarea:focus {
 .graph-empty .primary {
   margin-top: var(--sp-3);
 }
+/* The recents the breadcrumb menu lists, repeated as clickable rows in the empty state (GC-044).
+   Left-aligned inside the otherwise centred panel, and capped so a deep path cannot widen it. */
+.recent-list {
+  margin: var(--sp-4) auto 0;
+  max-width: 420px;
+  text-align: left;
+}
+.recent-caption {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 var(--sp-2) var(--sp-1);
+}
+.recent-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  width: 100%;
+  height: 26px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--text);
+}
+.recent-row:hover {
+  background: var(--accent-hover);
+  color: var(--text-bright);
+}
+.recent-row .recent-name {
+  flex: none;
+  font-weight: 600;
+}
+.recent-row .recent-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
 
 /* ---- Detail panel --------------------------------------------------------- */
 
@@ -1214,9 +1265,14 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The recents menu puts a full path in the hint, which is longer than the menu's 420px cap, so a
+   hint ellipsizes instead of spilling out of the menu box (GC-044). */
 .ctx-item .ctx-hint {
   color: var(--text-dim);
   font-size: var(--fs-sm);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ctx-sep {
   height: 1px;

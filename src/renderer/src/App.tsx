@@ -16,9 +16,28 @@ import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
 
 const LAST_REPO_KEY = 'gitclient.lastRepo';
+/** Remembered state like `gitclient.lastRepo`, not a preference: the list of paths, newest first (GC-044). */
+const RECENT_REPOS_KEY = 'gitclient.recentRepos';
+const MAX_RECENT = 10;
 /** The pinned branch is per repository, so the key carries the path. */
 const pinKey = (path: string): string => `gitclient.pinned.${path}`;
 const MAX_COMMITS = 2000;
+
+/** Windows hands the same folder back with either separator and either case, so dedupe on this (GC-044). */
+const normRepoPath = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+/** The folder name is the label; the full path is the hint next to it. */
+const folderName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+
+const readRecents = (): string[] => {
+  try {
+    const raw = localStorage.getItem(RECENT_REPOS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((p): p is string => typeof p === 'string' && p.length > 0).slice(0, MAX_RECENT);
+  } catch {
+    return []; // a hand-edited or truncated blob must not break the app
+  }
+};
 
 const isEditable = (t: EventTarget | null): boolean => t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 /** Human-readable error text: strips Electron's IPC wrapper and the error class name. */
@@ -38,6 +57,7 @@ export function App(): JSX.Element {
       return null;
     }
   });
+  const [recents, setRecents] = useState<string[]>(readRecents);
   const [snapshot, setSnapshot] = useState<RepoSnapshot | null>(null);
   const [selected, setSelected] = useState<string | null>(WIP);
   const [fileView, setFileView] = useState<FileViewSource | null>(null);
@@ -59,11 +79,23 @@ export function App(): JSX.Element {
   const closeSearch = useCallback(() => setSearch((s) => ({ ...s, open: false, query: '' })), []);
   const setSearchQuery = useCallback((query: string) => setSearch((s) => ({ ...s, query })), []);
 
+  // The recents list is state here and one JSON blob in localStorage; writing it from an effect
+  // keeps the updaters below pure (GC-044).
+  useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_REPOS_KEY, JSON.stringify(recents));
+    } catch {
+      /* ignore */
+    }
+  }, [recents]);
+
   const load = useCallback(async (path: string) => {
     try {
       const snap = await window.api.loadRepo(path, MAX_COMMITS);
       setSnapshot(snap);
       setRepoPath(snap.info.path);
+      // git hands back the canonical path, so dedupe against that rather than the one asked for.
+      setRecents((prev) => [snap.info.path, ...prev.filter((p) => normRepoPath(p) !== normRepoPath(snap.info.path))].slice(0, MAX_RECENT));
       try {
         localStorage.setItem(LAST_REPO_KEY, snap.info.path);
       } catch {
@@ -74,6 +106,9 @@ export function App(): JSX.Element {
       // The path did not load, so the status bar must stop naming it as the open repository; the
       // remembered path stays in localStorage in case the folder comes back (GC-025).
       setRepoPath(null);
+      // An entry that no longer loads drops out of the list so the menu stops offering it; the
+      // error still shows in the status bar (GC-044).
+      setRecents((prev) => prev.filter((p) => normRepoPath(p) !== normRepoPath(path)));
       setError(msg(e));
     }
   }, []);
@@ -94,16 +129,22 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openRepo = useCallback(async () => {
-    const path = await window.api.openRepoDialog();
-    if (path) {
+  /** Switch to a repository: the folder dialog and the recents list both land here. */
+  const openPath = useCallback(
+    async (path: string) => {
       setFileView(null);
       setSelected(WIP);
       setBusy('Loading repository');
       setError(null);
       await load(path).finally(() => setBusy(null));
-    }
-  }, [load]);
+    },
+    [load],
+  );
+
+  const openRepo = useCallback(async () => {
+    const path = await window.api.openRepoDialog();
+    if (path) await openPath(path);
+  }, [openPath]);
 
   const repo = snapshot?.info.path ?? null;
 
@@ -549,6 +590,24 @@ export function App(): JSX.Element {
 
   const onMenu = useCallback((e: MouseEvent, items: MenuItem[]) => ui.openMenu(e, items), [ui]);
 
+  // The repository breadcrumb and the title bar's `+` both open this list (GC-044). It is the
+  // ordinary context menu, anchored by the caller at the bottom-left corner of whatever was
+  // clicked rather than at the pointer, so it reads as a dropdown hanging off that control.
+  const openRepoMenu = useCallback(
+    (at: { clientX: number; clientY: number }) => {
+      const items: MenuItem[] = recents.map((p) => ({
+        label: folderName(p),
+        hint: p,
+        disabled: repoPath !== null && normRepoPath(p) === normRepoPath(repoPath),
+        onClick: () => void openPath(p),
+      }));
+      if (items.length) items.push({ separator: true });
+      items.push({ label: 'Open repository…', onClick: () => void openRepo() });
+      ui.openMenu(at, items);
+    },
+    [openPath, openRepo, recents, repoPath, ui],
+  );
+
   // ---- keyboard ----------------------------------------------------------------------
   // Every layer on top of the app is closed here and nowhere else: the shortcuts overlay,
   // Preferences, the prompt/confirm modal, the context menu and the toolbar's Pull popover
@@ -611,7 +670,7 @@ export function App(): JSX.Element {
 
   return (
     <div className="app">
-      <TitleBar repoName={snapshot?.info.name ?? null} onOpenRepo={openRepo} />
+      <TitleBar repoName={snapshot?.info.name ?? null} onOpenRepo={openRepo} onRepoMenu={openRepoMenu} />
       <Toolbar
         info={snapshot?.info ?? null}
         busy={busy !== null}
@@ -630,6 +689,7 @@ export function App(): JSX.Element {
         onPull={(mode) => void run('Pulling', () => window.api.pull(repo!, mode))}
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenShortcuts={() => setShortcutsOpen(true)}
+        onRepoMenu={openRepoMenu}
         onPush={() => void run('Pushing', () => window.api.push(repo!, { setUpstream: !headRef?.upstream }))}
         onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
         onStash={() => void stashChanges()}
@@ -715,6 +775,19 @@ export function App(): JSX.Element {
                 {/* With no git there is nothing to open, so name the cause here instead of the prompt (GC-025). */}
                 {gitError ? <div style={{ color: 'var(--danger)' }}>{gitError}</div> : <div>Open a repository to see its commit graph.</div>}
                 {error && error !== gitError && <div style={{ color: 'var(--danger)', marginTop: 8 }}>{error}</div>}
+                {/* The same list the breadcrumb menu offers, so a second repository is one click
+                    away from the empty state too (GC-044). */}
+                {recents.length > 0 && (
+                  <div className="recent-list">
+                    <div className="recent-caption">Recently opened</div>
+                    {recents.map((p) => (
+                      <button key={p} className="recent-row" title={p} onClick={() => void openPath(p)}>
+                        <span className="recent-name">{folderName(p)}</span>
+                        <span className="recent-path">{p}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="primary">
                   <button className="btn primary large" onClick={openRepo}>
                     Open repository…

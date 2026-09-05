@@ -11,6 +11,12 @@
 // Stopping is narrow too: `stopApp(child)` / `stopPort(port)` kill one process tree, never every
 // electron.exe on the machine (GC-035).
 //
+// Every launch made here also gets its own Electron profile, `<os.tmpdir()>/gitclient-profiles/<port>`,
+// through GITCLIENT_USER_DATA (GC-060), so nothing an unattended run stores in `localStorage` — the
+// last repository, the ref column width, the preferences — reaches the profile Ricardo's own app uses.
+// The profile persists between runs on that port, which keeps the gravatar cache warm; only a start
+// outside this launcher (`npm run dev`, a packaged app) uses the real profile.
+//
 // Usage: node tools/launch-app.mjs [--port 9333] [--repo <path>] [--visible] [--keep-running]
 // `--keep-running` skips the `stopPort` that normally frees the DevTools port first, so an app
 // already listening on it keeps running; this launch then **attaches** to that app instead of
@@ -22,12 +28,23 @@
 // spare; `--keep-running` is the name that works (GC-041).
 // Exits 0 once the page target is up, 1 on timeout.
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The Electron profile a launch on this port uses (GC-060). One per port, so the worker (9333), the
+ * e2e suite (GITCLIENT_E2E_PORT) and the backlog reviewer (9334) each keep their own `localStorage`
+ * and none of them writes the one Ricardo sees. An explicit GITCLIENT_USER_DATA in the environment
+ * wins, so a caller can still pin a profile of its own choosing.
+ */
+export function profileDir(port) {
+  return process.env.GITCLIENT_USER_DATA || join(tmpdir(), 'gitclient-profiles', String(port));
+}
 
 /** The real Electron binary, never the `.cmd` shim (running that needs a console window). */
 export function electronBinary(appDir = APP_DIR) {
@@ -109,6 +126,10 @@ export async function launchApp({ port = 9333, repo = null, visible = false, app
   const env = { ...process.env };
   if (visible) delete env.GITCLIENT_STEALTH;
   else env.GITCLIENT_STEALTH = '1';
+  // A `--visible` launch is still an unattended one, so it gets the per-port profile too (GC-060);
+  // only a start that never goes through this launcher keeps Ricardo's own.
+  env.GITCLIENT_USER_DATA = profileDir(port);
+  mkdirSync(env.GITCLIENT_USER_DATA, { recursive: true });
 
   const child = spawn(electronBinary(appDir), ['.', `--remote-debugging-port=${port}`], {
     cwd: appDir,
