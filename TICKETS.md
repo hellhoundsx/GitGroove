@@ -24,12 +24,14 @@ The routine fires every few minutes. Most runs do nothing. A run that finds work
 **batch** of tickets — one is a valid batch — and stays alive until every ticket in it is
 `done` or `blocked`, committed and pushed on `main`.
 
-The session that claims a batch is an **orchestrator**: it writes no ticket code itself. Each
-ticket is implemented by its own subagent, in this one working tree, restricted to that ticket's
-files. The orchestrator owns selection, claiming, all shared verification, both shared documents
-and the commits. That division exists because the expensive checks are singletons — one `out/`
-directory, one DevTools port, one scratch repository — so they can only be run once, centrally,
-after the parallel work is in.
+The session that claims a batch implements every ticket in it **itself, directly, one ticket at
+a time, in this one working tree** — no subagents. Subagents existed here to let several
+tickets' code get written concurrently, but the coordination they need (splitting files up front,
+keeping each one inside its lane, reading back each other's diffs) cost more than the concurrency
+was worth. A batch is still worth taking in one run, because the expensive checks are
+singletons — one `out/` directory, one DevTools port, one scratch repository — so building,
+typechecking and running e2e once for several tickets together is cheaper than paying for each
+separately; that is the only reason to batch now, not parallelism.
 
 1. **Sync.** `git pull --ff-only origin main`. If the pull fails (network, authentication,
    non-fast-forward), stop and report; never work while pushes cannot land. Then
@@ -42,38 +44,33 @@ after the parallel work is in.
    report so Ricardo can inspect; still do not take it over.) Several `in-progress` lines at once
    are normal — a batch claims all of its tickets together.
 3. **Select the batch.** Walk the board top to bottom, which is priority order. A row is
-   eligible when it is `todo` and every ticket in its `Depends on` is `done`. Take the first
-   eligible row, then keep walking and add a later eligible ticket **only if its `Files:` set is
-   disjoint from every ticket already in the batch**. Any shared file and it waits for another
-   run; never try to sequence two tickets over one file. `TICKETS.md` and `CLAUDE.md` never count
-   toward a file set, because the orchestrator is their only writer. Stop at six tickets, or at
-   one if the first eligible ticket is size L. If nothing is eligible, exit. Report which
-   eligible tickets were skipped and on which file each collided.
+   eligible when it is `todo` and every ticket in its `Depends on` is `done`. Take up to six
+   eligible tickets in that order, or just one if the first eligible ticket is size L — there is
+   no file-disjointness requirement any more, since one session working through them in order
+   never touches two tickets' files at the same instant. If nothing is eligible, exit.
 4. **Claim the batch, commit, push.** For every ticket in the batch set the section to
    `in-progress`, update the board row, append a log line `YYYY-MM-DD HH:MM claimed`, then commit
    only that change and push it: `git commit -am "GC-0NN, GC-0MM, ...: claim" && git push origin main`.
    This is the first commit of every working run; the lock is on `main` before any code changes
    exist. If that push is rejected as non-fast-forward, another run claimed first:
    `git reset --hard origin/main` discards the unpublished claim, then stop and report.
-5. **Dispatch**, one subagent per ticket, all in parallel, in a single message. Each is given its
-   ticket's Why / Scope / Out of scope / Acceptance verbatim, **the list of files it owns**, and
-   these bans: nothing outside its file list (other agents are editing this same tree); no
-   `TICKETS.md` or `CLAUDE.md` edits — it reports the stale wording instead; no `npm run build`,
-   no e2e, no app launch, because those are the singletons the orchestrator runs centrally; no
-   git write commands, it leaves its work uncommitted. It **may** run `npm run typecheck` and
-   `npm test`, which are safe concurrently — a typecheck error in a file it does not own is
-   another agent's work in flight, not its problem. Do not give agents separate worktrees:
-   disjoint ownership in one tree is what makes a single central build and one e2e run possible.
-6. **Verify centrally**, serialized, once every agent is done. Read each agent's diff and confirm
-   it stayed in its lane and did what it reported; `git status --porcelain` must show only files
-   the batch owns. `npm run typecheck && npm run build` and `npm test` always, once for the whole
-   batch. `npm run e2e:setup && npm run e2e` when any ticket touches `git.ts`, `ipc.ts`, actions
-   in `App.tsx` or the DetailPanel, or `tools/e2e/*`. For tickets needing the running app, launch
-   through `node tools/launch-app.mjs`, drive it over CDP, screenshot into `docs/screenshots/`
-   and look at it — batching several tickets into one launch. Re-run any mutation or destructive
-   check an agent reports, rather than ticking a box on its word. If a shared check fails and the
-   cause is not obvious, bisect by reverting one ticket's files at a time, not the batch. Tick
-   acceptance boxes only for items actually checked; when a criterion had to be checked by a
+5. **Implement**, one ticket at a time, in board order. For each: re-read its Why / Scope / Out
+   of scope / Acceptance, make the change, and run `npm run typecheck` and `npm test` as a fast
+   local check before moving to the next ticket — cheap enough to repeat per ticket, unlike the
+   build, e2e and app launch, which stay singletons run once for the whole batch in the next step.
+   Committing after each ticket (uncommitted is also fine) makes step 6 easy to bisect if
+   something breaks: whichever ticket was implemented last is the first place to look.
+6. **Verify centrally**, once every ticket in the batch is implemented. `git status --porcelain`
+   should show only files the batch's tickets claim, plus `TICKETS.md`/`CLAUDE.md`. `npm run
+   typecheck && npm run build` and `npm test` always, once for the whole batch. `npm run
+   e2e:setup && npm run e2e` when any ticket touches `git.ts`, `ipc.ts`, actions in `App.tsx` or
+   the DetailPanel, or `tools/e2e/*`. For tickets needing the running app, launch through
+   `node tools/launch-app.mjs`, drive it over CDP, screenshot into `docs/screenshots/` and look at
+   it — batching several tickets into one launch. Re-run any mutation or destructive check a
+   ticket's Verify line names, rather than ticking the box from memory. If a shared check fails
+   and the cause is not obvious, revert the most recently implemented ticket's files first, retest,
+   and work backwards through the batch rather than reverting all of it at once. Tick acceptance
+   boxes only for items actually checked; when a criterion had to be checked by a
    different method than its Verify line names, say which and why in that ticket's log.
 7. **Reflect.** Before closing, list what you noticed during the work that needs fixing or
    deserves work but was outside scope: bugs, missing tests, UX gaps against the GitKraken
@@ -121,9 +118,9 @@ Ready-to-paste routine prompt:
 
 > Open `C:/Users/Ricar/Documents/apps/GitClient`. Read `CLAUDE.md`, then follow the
 > "Routine protocol" in `TICKETS.md` exactly. If any ticket is already `in-progress`, exit and
-> say so. Otherwise claim a batch of eligible `todo` tickets whose files do not overlap,
-> implement them in parallel subagents, verify centrally, take each through to `done` or
-> `blocked` committed and pushed on `main`, and report the batch, final statuses and commit shas.
+> say so. Otherwise claim a batch of eligible `todo` tickets and implement them yourself, one at
+> a time, no subagents; verify centrally, take each through to `done` or `blocked` committed and
+> pushed on `main`, and report the batch, final statuses and commit shas.
 
 ## Review routine (hourly backlog reviewer)
 
