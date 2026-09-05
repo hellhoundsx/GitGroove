@@ -66,6 +66,12 @@ branch, never rewrites published history and never force-pushes. Run every git c
 stored in Git Credential Manager, and an unattended run cannot answer a sign-in window. If a
 push is rejected for authentication, leave the commits local, say so in the report, do not retry.
 
+Ricardo uses this machine while runs happen, often in a full-screen game. **Never steal focus.**
+Never run anything in `tools/gk-recon/*.ps1` (`focus`, `rclick`, `shot`, `cursor`, `esc`) or
+any other OS-level input or screenshot; drive and capture the app over CDP only. Launch the app
+only through `node tools/launch-app.mjs` (stealth by default) once GC-028 has landed; until
+then, run e2e when a ticket requires it but skip optional screenshots rather than pop a window.
+
 Ready-to-paste routine prompt:
 
 > Open `C:/Users/Ricar/Documents/apps/GitClient`. Read `CLAUDE.md`, then follow the
@@ -114,6 +120,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-008 | Remote add, edit and remove | actions | M | P2 | done |
 | GC-009 | Commit search | graph | M | P2 | done |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | in-progress |
+| GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
@@ -803,6 +810,60 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-009 (this ticket): the study's commit search has author filter
     chips; the text field shipped here cannot separate "authored by" from "mentioned in the
     message".
+
+### GC-028 Stealth mode: unattended runs never steal focus or show a window
+
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P0
+- **Depends on:** none
+- **Why:** The routines build, launch and screenshot the app while Ricardo is using the machine,
+  often in a full-screen game, and every launch switches him out of it. Two things grab the
+  foreground today: the console window that `cmd /c start` opens for `electron.cmd`, and the
+  app's own `win.show()` on `ready-to-show`, which activates the window. An unattended run must
+  be invisible: no window, no taskbar entry, no focus change.
+- **Scope:**
+  - `src/main/index.ts`: when `process.env.GITCLIENT_STEALTH === '1'` create the window so it
+    is never shown and never activated. Preferred: Electron offscreen rendering
+    (`webPreferences.offscreen: true`, `show: false`, `skipTaskbar: true`, `focusable: false`,
+    `win.webContents.setFrameRate(10)` to keep CPU low), so no OS window exists at all. If CDP
+    `Page.captureScreenshot` comes back blank in that mode, fall back to: `show: false` and
+    `win.showInactive()` on ready-to-show, `focusable: false`, `skipTaskbar: true`, position
+    off the desktop (`x: -32000, y: -32000`), `webPreferences.backgroundThrottling: false`, and
+    `app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')` before
+    `app.whenReady()` so Chromium keeps painting an occluded window. Record which approach
+    shipped in `CLAUDE.md`. Launches without the variable are unchanged.
+  - New `tools/launch-app.mjs`: spawns `node_modules/electron/dist/electron.exe` directly
+    (resolve the path from `node_modules/electron/path.txt`), never through `electron.cmd` or
+    `cmd /c start`, with `detached: true, stdio: 'ignore', windowsHide: true`, passes
+    `--remote-debugging-port=<port>` (default 9333, `--port <n>`), sets `GITCLIENT_STEALTH=1`
+    unless `--visible` is given, waits up to 40s for `http://localhost:<port>/json` to list a
+    `page` target, and with `--repo <path>` sets `gitclient.lastRepo` over CDP and reloads so
+    callers no longer need a `load.js`. Exits 0 when the page is up, 1 on timeout.
+  - `tools/e2e/run.mjs`: launch through the same code path (import from `launch-app.mjs`), so
+    the e2e suite is stealthy too. `killElectron` stays as it is.
+  - `CLAUDE.md`: the Commands section makes `node tools/launch-app.mjs [--visible] [--repo <path>]`
+    the one way to launch the app for driving and screenshots, drops the `cmd //c start`
+    recipe, and says the `tools/gk-recon/*.ps1` helpers are for the GitKraken study only and
+    must never run unattended.
+- **Out of scope:** lowering CPU priority of builds and tests (a separate ticket if wanted);
+  macOS and Linux beyond not breaking them.
+- **Acceptance:**
+  - [ ] Record the foreground window with PowerShell (`Add-Type` a user32 P/Invoke for
+    `GetForegroundWindow`), run `node tools/launch-app.mjs --repo <e2e repo>` and a CDP `shot`,
+    then read it again: the handle is unchanged and every `electron` process reports an empty
+    `MainWindowTitle`.
+  - [ ] The CDP screenshot is a real render: the PNG is larger than 30 KB (a blank 1400x900
+    frame compresses to a few KB) and shows the graph when opened.
+  - [ ] `npm run e2e` passes with the same foreground check around the whole run, and no console
+    window appears.
+  - [ ] `node tools/launch-app.mjs --visible` still opens the normal, focused window.
+  - [ ] `npm run typecheck && npm run build` pass; `CLAUDE.md` updated as described.
+- **Files:** `src/main/index.ts`, new `tools/launch-app.mjs`, `tools/e2e/run.mjs`, `CLAUDE.md`.
+- **Verify:** typecheck, build, e2e, plus the PowerShell foreground check before and after a
+  stealth launch (keep the check as `tools/e2e/foreground.ps1` so later runs can reuse it).
+- **Log:**
+  - 2026-09-05 17:11 proposed by Ricardo: the runs keep switching him out of a game. P0 because
+    every other ticket's verification pops a window until this lands.
 
 ## Adding a ticket
 
