@@ -137,7 +137,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | done |
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | done |
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | done |
-| GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | todo |
+| GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | in-progress |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
@@ -1372,7 +1372,7 @@ decision is missing.
 
 ### GC-037 Escape with a context menu open also closes the find bar behind it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-034
 - **Why:** GC-034 fixed the dialogs but deliberately left the context menu out. `ContextMenu`
@@ -1400,6 +1400,7 @@ decision is missing.
     with the find bar open, one Escape on an open commit menu left `.ctx-menu` gone *and*
     `.graph-search` gone. The ticket's own scope note ("nothing sits under it") turned out not
     to hold: the find bar and the diff both do.
+  - 2026-09-05 17:54 claimed
 
 ## Reviews
 
