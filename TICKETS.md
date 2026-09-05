@@ -3281,6 +3281,9 @@ decision is missing.
     probe was re-run on the built app over CDP with no click anywhere: `probe.txt` written into the
     scratch tree took the WIP group from `Unstaged Files (5)` to `(6)`, and `git branch probe-branch`
     took the left panel from `LOCAL 3` to `LOCAL 4`, both inside the 4s wait.
+  - 2026-09-06 note (Ricardo's session, not the batch): this batch's code reached `origin/main` one
+    commit early, inside 3dca449 "GC-080, GC-081: file the e2e speed tickets" — see the note on
+    GC-075 for how. 67d0e7f is the real close-out; the code is identical either way.
 
 ### GC-069 The body preview takes width from the summary in a narrow message column
 
@@ -3644,6 +3647,13 @@ decision is missing.
     which turned `DiffView.tsx` into a binary file for git exactly as GC-042 describes. `grep` said
     "Binary file matches" and nothing else complained — typecheck, tests and the build all passed.
     The separator is now `|`.
+  - 2026-09-06 note (Ricardo's session, not the batch): this batch's code reached `origin/main` one
+    commit early, inside 3dca449 "GC-080, GC-081: file the e2e speed tickets". Its staged files
+    (`App.tsx`, `App.test.tsx`, `DiffView.tsx`, `run.mjs`, `setup-testrepo.mjs`) were swept into a
+    `git commit` meant for `TICKETS.md` alone — `git add TICKETS.md` stages one file, but `git commit`
+    takes the whole index; `git commit -- TICKETS.md` is the path-limited form that should have been
+    used. 67d0e7f is the real close-out and the code is identical either way. Left as a note rather
+    than a history rewrite, at Ricardo's choice.
 
 ### GC-076 Every e2e run leaves a commit behind, and the fixture eventually breaks step 16
 
@@ -3723,6 +3733,9 @@ decision is missing.
     stash through the toolbar, which does not restore the index, so README.md and main.txt come back
     unstaged on every run, with or without this change. That is a different drift from the commits
     this ticket removes and it is filed as GC-082.
+  - 2026-09-06 note (Ricardo's session, not the batch): this batch's code reached `origin/main` one
+    commit early, inside 3dca449 "GC-080, GC-081: file the e2e speed tickets" — see the same note on
+    GC-068 and GC-075. 67d0e7f is the real close-out.
 
 ### GC-077 Branch lines join and leave a node at a right angle, not on a diagonal
 
