@@ -2,12 +2,14 @@
 // Launches Electron with a DevTools port, drives the real UI over the Chrome DevTools Protocol and
 // verifies every step against git. Exits non-zero when an assertion fails.
 //
-// Requires Node 22+ (global WebSocket and fetch). Kills any running electron.exe first.
-import { execFileSync, spawn } from 'node:child_process';
+// Requires Node 22+ (global WebSocket and fetch). Kills any running electron.exe first, then
+// launches through tools/launch-app.mjs, which keeps the run invisible (no window, no focus change).
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { killElectron, launchApp } from '../launch-app.mjs';
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const root = process.env.GITCLIENT_E2E_ROOT ?? join(tmpdir(), 'gitclient-e2e');
@@ -15,7 +17,6 @@ const R = join(root, 'testrepo');
 const REMOTE = join(root, 'remote.git');
 const SHOTS = join(root, 'shots');
 const PORT = Number(process.env.GITCLIENT_E2E_PORT ?? 9333);
-const isWin = process.platform === 'win32';
 
 if (!existsSync(R)) {
   console.error(`No test repository at ${R}. Run: node tools/e2e/setup-testrepo.mjs`);
@@ -42,29 +43,14 @@ const step = (n, title) => console.log(`\n### ${n} ${title}`);
 const log = (...a) => console.log('   ', ...a);
 
 // ---- launch the built app ---------------------------------------------------------------------
-const killElectron = () => {
-  try {
-    if (isWin) execFileSync('taskkill', ['/F', '/IM', 'electron.exe'], { stdio: 'ignore' });
-    else execFileSync('pkill', ['-f', 'electron'], { stdio: 'ignore' });
-  } catch {}
-};
+// Stealth by default (see tools/launch-app.mjs): no window, no taskbar entry, no focus change,
+// so a run does not interrupt whoever is using the machine.
 killElectron();
-const electronBin = join(APP, 'node_modules', '.bin', isWin ? 'electron.cmd' : 'electron');
-const child = isWin
-  ? spawn('cmd', ['/c', 'start', '', electronBin, '.', `--remote-debugging-port=${PORT}`], { cwd: APP, detached: true, stdio: 'ignore', windowsHide: true })
-  : spawn(electronBin, ['.', `--remote-debugging-port=${PORT}`], { cwd: APP, detached: true, stdio: 'ignore' });
-child.unref();
-
 let target;
-for (let i = 0; i < 80 && !target; i++) {
-  try {
-    const list = await (await fetch(`http://localhost:${PORT}/json`)).json();
-    target = list.find((t) => t.type === 'page');
-  } catch {}
-  if (!target) await sleep(500);
-}
-if (!target) {
-  console.error('app did not start');
+try {
+  ({ target } = await launchApp({ port: PORT, appDir: APP }));
+} catch (e) {
+  console.error(String(e.message ?? e));
   process.exit(1);
 }
 

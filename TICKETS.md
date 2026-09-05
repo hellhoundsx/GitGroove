@@ -134,9 +134,10 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-008 | Remote add, edit and remove | actions | M | P2 | done |
 | GC-009 | Commit search | graph | M | P2 | done |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
-| GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | in-progress |
+| GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | done |
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | todo |
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | todo |
+| GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
@@ -860,7 +861,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-028 Stealth mode: unattended runs never steal focus or show a window
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** infra | **Size:** S | **Priority:** P0
 - **Depends on:** none
 - **Why:** The routines build, launch and screenshot the app while Ricardo is using the machine,
@@ -895,16 +896,16 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Out of scope:** lowering CPU priority of builds and tests (a separate ticket if wanted);
   macOS and Linux beyond not breaking them.
 - **Acceptance:**
-  - [ ] Record the foreground window with PowerShell (`Add-Type` a user32 P/Invoke for
+  - [x] Record the foreground window with PowerShell (`Add-Type` a user32 P/Invoke for
     `GetForegroundWindow`), run `node tools/launch-app.mjs --repo <e2e repo>` and a CDP `shot`,
     then read it again: the handle is unchanged and every `electron` process reports an empty
     `MainWindowTitle`.
-  - [ ] The CDP screenshot is a real render: the PNG is larger than 30 KB (a blank 1400x900
+  - [x] The CDP screenshot is a real render: the PNG is larger than 30 KB (a blank 1400x900
     frame compresses to a few KB) and shows the graph when opened.
-  - [ ] `npm run e2e` passes with the same foreground check around the whole run, and no console
+  - [x] `npm run e2e` passes with the same foreground check around the whole run, and no console
     window appears.
   - [ ] `node tools/launch-app.mjs --visible` still opens the normal, focused window.
-  - [ ] `npm run typecheck && npm run build` pass; `CLAUDE.md` updated as described.
+  - [x] `npm run typecheck && npm run build` pass; `CLAUDE.md` updated as described.
 - **Files:** `src/main/index.ts`, new `tools/launch-app.mjs`, `tools/e2e/run.mjs`, `CLAUDE.md`.
 - **Verify:** typecheck, build, e2e, plus the PowerShell foreground check before and after a
   stealth launch (keep the check as `tools/e2e/foreground.ps1` so later runs can reuse it).
@@ -912,6 +913,63 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 17:11 proposed by Ricardo: the runs keep switching him out of a game. P0 because
     every other ticket's verification pops a window until this lands.
   - 2026-09-05 17:30 claimed
+  - 2026-09-05 17:35 done. **Offscreen rendering shipped**, the preferred option: with
+    `GITCLIENT_STEALTH=1` the window is created with `webPreferences.offscreen: true`,
+    `skipTaskbar`, `focusable: false`, `paintWhenInitiallyHidden`, `backgroundThrottling: false`
+    and `setFrameRate(10)`, and `ready-to-show` never calls `show()`. No fallback was needed:
+    CDP `Page.captureScreenshot` returns a full render in that mode. New `tools/launch-app.mjs`
+    spawns `node_modules/electron/dist/electron.exe` (path from `node_modules/electron/path.txt`)
+    and exports `launchApp`/`setRepo`/`killElectron`/`electronBinary`; `tools/e2e/run.mjs` now
+    imports it instead of spawning `cmd /c start electron.cmd`. `CLAUDE.md` rewrote the launch
+    section and the same stale recipe in `README.md` was fixed with it (two lines, same change).
+  - 2026-09-05 17:35 verified: `npm run typecheck`, `npm test` (30 pass), `npm run build`,
+    `npm run e2e` ALL PASSED. `tools/e2e/foreground.ps1` (new, kept for later runs) read
+    `foreground=1640694 title=[Need for SpeedT Unbound]` before the e2e run and the identical
+    handle after it, with 0 visible windows owned by any electron process throughout; Ricardo's
+    full-screen game was never interrupted. A stealth `launch-app.mjs --repo <e2e repo>` plus a
+    CDP shot wrote `docs/screenshots/stealth-graph.png`, 77 KB, and it shows the full graph,
+    left panel and staging view, so the render is real.
+  - 2026-09-05 17:35 two corrections to the ticket as written. (1) The acceptance criterion
+    "every electron process reports an empty `MainWindowTitle`" does not discriminate: the app
+    is frameless, so .NET reports an empty `MainWindowTitle` even for a window that is on
+    screen. `foreground.ps1` enumerates real top-level windows per pid instead, which does.
+    (2) `windowsHide: true` as the ticket specified it also suppressed the window on
+    `--visible`: on Windows it puts `SW_HIDE` in the child's `STARTUPINFO` and Chromium honours
+    it for the first window shown. It is now `windowsHide: !visible`.
+  - 2026-09-05 17:35 the `--visible` acceptance box is left unticked: showing the window
+    activates it, and Ricardo was in a full-screen game for the whole run, so exercising it
+    would have broken the very rule this ticket exists to enforce. The path is a two-line
+    difference from the verified one (no `GITCLIENT_STEALTH`, no `windowsHide`) and the bug
+    that would have broken it was found and fixed above. Worth one interactive check.
+
+### GC-035 Stop only the Electron the run started, never every electron.exe
+
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P2
+- **Depends on:** GC-028
+- **Why:** `killElectron()` in `tools/launch-app.mjs` runs `taskkill /F /IM electron.exe`, which
+  kills every Electron process on the machine. The hourly backlog reviewer deliberately runs its
+  own build on port 9334 from a separate worktree and stops it by PID for exactly this reason,
+  and says so in its isolation rules — but a worker's e2e run still kills it, and any dev-mode
+  `npm run dev` window Ricardo has open with it. GC-028 gave every launch a child handle, so the
+  routine now has the PID it needs.
+- **Scope:**
+  - `launchApp` returns a stopper (or `stopApp(child)`) that kills only that process tree
+    (`taskkill /F /T /PID <pid>` on Windows, `process.kill` elsewhere).
+  - `tools/e2e/run.mjs` uses it at the end instead of `killElectron()`. The prologue keeps a
+    broad kill only if a stale instance would hold the DevTools port; prefer detecting a live
+    target on the port and stopping that one.
+  - `CLAUDE.md` replaces the `taskkill //F //IM electron.exe` line with the narrow stop.
+- **Out of scope:** the reviewer routine's own isolation, which already does this.
+- **Acceptance:**
+  - [ ] A second Electron started on another port survives a full `npm run e2e`.
+  - [ ] `npm run e2e` still passes and leaves no electron process of its own behind.
+- **Files:** `tools/launch-app.mjs`, `tools/e2e/run.mjs`, `CLAUDE.md`.
+- **Verify:** start a stealth app on port 9335, run `npm run e2e`, check the 9335 target still
+  answers, then stop it.
+- **Log:**
+  - 2026-09-05 proposed by GC-028 (this ticket): moving the launch into one module made the
+    machine-wide kill it inherited obvious, and the reviewer routine documents it as a hazard.
 
 ## Adding a ticket
 

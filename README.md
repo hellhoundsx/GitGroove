@@ -41,10 +41,12 @@ TypeScript checks for both the Node and browser targets.
 ### Debugging the running app
 
 Launch the built app with a DevTools port and drive it with the same helper used
-for the GitKraken research:
+for the GitKraken research. The launcher is stealthy by default (the window is
+rendered offscreen, so nothing appears on screen or in the taskbar and the
+foreground window never changes); pass `--visible` for the normal window:
 
 ```bash
-npm run build && node_modules/.bin/electron . --remote-debugging-port=9333
+npm run build && node tools/launch-app.mjs --port 9333 --repo /path/to/repo
 ```
 
 ```bash

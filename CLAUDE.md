@@ -67,8 +67,10 @@ src/
     styles/            tokens.css (design tokens), app.css (all component styles, one file)
 docs/reference/gitkraken/   the GitKraken study: 6 notes files + 19 screenshots (README has the index)
 docs/screenshots/           screenshots of OUR app for the README
-tools/gk-recon/             CDP driver + PowerShell helpers used for the study and for driving our app
-tools/e2e/                  setup-testrepo.mjs (scratch repo + bare remote), run.mjs (UI-driven assertions)
+tools/launch-app.mjs        the only way to launch the built app: stealthy by default, --visible to show it
+tools/gk-recon/             CDP driver + PowerShell helpers used for the GitKraken study
+tools/e2e/                  setup-testrepo.mjs (scratch repo + bare remote), run.mjs (UI-driven assertions),
+                            foreground.ps1 (proves a launch stole no focus and showed no window)
 ```
 
 ## Commands
@@ -84,23 +86,35 @@ npm run e2e:setup      # (re)creates the scratch repo under %TEMP%/gitclient-e2e
 npm run e2e            # drives the BUILT app through the UI, asserts against git, exits 1 on failure
 ```
 
-Run the built app with a DevTools port so it can be driven and screenshotted:
+Launch the built app for driving and screenshotting **only** through the launcher:
 
 ```bash
-npm run build && node_modules/.bin/electron . --remote-debugging-port=9333
+npm run build && node tools/launch-app.mjs --repo "$TEMP/gitclient-e2e/testrepo"
+# --port <n>   DevTools port, default 9333
+# --repo <p>   sets gitclient.lastRepo over CDP and reloads, so no load.js is needed
+# --visible    the normal, focused window; without it the launch is stealthy
 ```
 
-On Windows from Git Bash the reliable detached launch is
-`cmd //c start "" "<repo>\node_modules\.bin\electron.cmd" . --remote-debugging-port=9333`,
-then poll `http://localhost:9333/json` until a `page` target appears. Stop it with
+It is **stealthy by default**: it spawns `node_modules/electron/dist/electron.exe` directly
+(never `electron.cmd`, never `cmd /c start`, both of which pop a console window) and sets
+`GITCLIENT_STEALTH=1`, which makes `src/main/index.ts` build the window with
+`webPreferences.offscreen: true` plus `skipTaskbar`, `focusable: false` and a 10fps frame rate.
+Offscreen rendering is the approach that shipped for GC-028: no OS window exists at all, so
+nothing appears in the taskbar and the foreground window never changes, and CDP
+`Page.captureScreenshot` still returns a real render (77 KB for the graph, against a few KB for
+a blank frame). `--visible` drops the variable **and** `windowsHide`, which matters: on Windows
+`windowsHide` puts `SW_HIDE` in the child's `STARTUPINFO` and Chromium honours it for the first
+window it shows, so a visible launch with it set stays invisible.
+
+Ricardo uses this machine while the scheduled routines run, often in a full-screen game, so an
+unattended session must never steal focus: never launch the app any other way, and never run
+`tools/gk-recon/*.ps1` (`focus`, `rclick`, `shot`, `cursor`, `esc`) or any other OS-level input
+or screenshot — those exist for the GitKraken study only. `tools/e2e/foreground.ps1` is the
+check that proves a launch was invisible: it prints the foreground window handle and every
+top-level window owned by an `electron` process, so run it before and after
+(`Get-Process electron | MainWindowTitle` is useless here, a frameless window reports an empty
+title even when it is on screen). Stop the app with
 `taskkill //F //IM electron.exe` (this kills every Electron process on the machine).
-
-Point the running app at a repository without the file dialog:
-
-```bash
-CDP_PORT=9333 node tools/gk-recon/cdp.mjs 0 eval load.js
-# load.js: localStorage.setItem('gitclient.lastRepo', 'C:/path/to/repo'); setTimeout(() => location.reload(), 50)
-```
 
 The app remembers the last repository in `localStorage` (`gitclient.lastRepo`), the ref
 column's width (`gitclient.refColW`, a number of pixels) and the branch pinned to the graph's
@@ -117,7 +131,9 @@ Commands: `targets`, `<t> eval <file.js>` (prints the returned value), `<t> shot
 Synthetic CDP input drives React fine (clicks, hover, contextmenu via dispatched MouseEvent) but
 does **not** open GitKraken's native menus; for those use `rclick.ps1` (real OS click at renderer
 coordinates, assumes a 1920x1080 window at 0,0 with 8px side border and 57px top chrome) and
-`shot.ps1` (OS-level screenshot of the window) after `focus.ps1`. Details in `tools/gk-recon/README.md`.
+`shot.ps1` (OS-level screenshot of the window) after `focus.ps1`. Those three, and `cursor.ps1`
+and `esc.ps1`, take the foreground: they are for a hands-on GitKraken session only and must never
+run in an unattended session. Details in `tools/gk-recon/README.md`.
 
 To repeat the GitKraken study: quit GitKraken, relaunch
 `%LOCALAPPDATA%\gitkraken\app-<version>\gitkraken.exe --remote-debugging-port=9222`, then use the
@@ -303,7 +319,8 @@ the window. Section headers are uppercase via CSS, so tests must compare `textCo
 
 ## Testing
 
-`npm run e2e:setup && npm run e2e` (build first). `setup-testrepo.mjs` creates a repository
+`npm run e2e:setup && npm run e2e` (build first). `run.mjs` launches through
+`tools/launch-app.mjs`, so the whole suite is stealthy. `setup-testrepo.mjs` creates a repository
 with a merge, a tag, three branches, a bare `origin` with everything pushed, and a mixed working
 tree (unstaged edits, untracked file, staged edit, staged deletion, a two-hunk file). `run.mjs`
 kills Electron, launches the built app with the DevTools port, loads the repo through
@@ -374,7 +391,8 @@ width-aware chip fold (GC-006); the Preferences dialog behind one `gitclient.pre
 avatars, default pull mode, the dirty-checkout confirmation and the 72-character counter all
 switchable (GC-007); commit search over the loaded commits from the toolbar button or Ctrl+F,
 dimming non-matches instead of hiding them (GC-009); one table of keyboard shortcuts behind
-`matches(id, event)` with the `?` overlay rendered from it (GC-010).
+`matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
+`tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance
