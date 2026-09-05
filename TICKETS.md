@@ -70,7 +70,7 @@ Ready-to-paste routine prompt:
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
 | GC-001 | Initialise the git repository | infra | S | P0 | done |
-| GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | todo |
+| GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | in-progress |
 | GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | todo |
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | todo |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | todo |
@@ -128,7 +128,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-002 Unit tests for parseDiff and lanes
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P0
 - **Depends on:** GC-001
 - **Why:** These two pure modules carry the most logic-per-line in the app and have no tests.
@@ -151,6 +151,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   `CLAUDE.md` (Commands and Testing sections).
 - **Verify:** `npm test`, `npm run typecheck`.
 - **Log:**
+  - 2026-09-05 15:42 claimed
 
 ### GC-003 Replace native confirm() with the UI confirm modal
 
