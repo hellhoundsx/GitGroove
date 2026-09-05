@@ -142,7 +142,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | done |
 | GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | done |
-| GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
+| GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | in-progress |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
@@ -1565,7 +1565,7 @@ decision is missing.
 
 ### GC-039 An e2e step that guards one Escape, one layer
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-038
 - **Why:** GC-034 and GC-037 both fixed "one Escape closes two things", and both were verified by
@@ -1594,6 +1594,7 @@ decision is missing.
     is now a layer too and is unguarded for the same reason.
   - 2026-09-05 18:25 GR-002 added the missing `Depends on` line (GC-038, the last of the three
     layers this step guards); the template asks for one on every ticket.
+  - 2026-09-05 18:55 claimed
 
 ### GC-042 shortcuts.test.ts is stored as binary because of a raw NUL byte
 
