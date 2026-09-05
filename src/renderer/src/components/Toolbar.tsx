@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import { Archive, ArchiveRestore, ChevronDown, Download, GitBranch, Redo2, RefreshCw, Search, Undo2, Upload, type LucideIcon } from 'lucide-react';
+import { Archive, ArchiveRestore, ChevronDown, Download, GitBranch, Redo2, RefreshCw, Search, Settings, Undo2, Upload, type LucideIcon } from 'lucide-react';
 import type { PullMode, RepoInfo } from '@shared/types';
 import { Icon } from '../ui/icons';
 
@@ -11,6 +11,7 @@ export interface ToolbarHandlers {
   onStash(): void;
   onPop(): void;
   onRefresh(): void;
+  onOpenPreferences(): void;
 }
 
 interface Props extends ToolbarHandlers {
@@ -136,6 +137,7 @@ export function Toolbar(p: Props): JSX.Element {
       </div>
       <div className="actions right">
         <ToolButton label="Search" icon={Search} disabled />
+        <ToolButton label="Preferences" icon={Settings} title="Preferences" onClick={p.onOpenPreferences} />
       </div>
     </div>
   );

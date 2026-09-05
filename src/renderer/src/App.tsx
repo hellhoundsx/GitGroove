@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react';
-import type { CheckoutOptions, Commit, GitRef, PullMode, Remote, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
+import type { CheckoutOptions, Commit, GitRef, Remote, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
@@ -7,11 +7,12 @@ import { DetailPanel, type StagingActions } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
 import { CommitGraph, WIP } from './graph/CommitGraph';
 import { DiffView, type FileViewSource } from './diff/DiffView';
+import { Preferences } from './components/Preferences';
+import { setPrefs, usePrefs } from './prefs';
 import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
 
 const LAST_REPO_KEY = 'gitclient.lastRepo';
-const PULL_MODE_KEY = 'gitclient.pullMode';
 /** The pinned branch is per repository, so the key carries the path. */
 const pinKey = (path: string): string => `gitclient.pinned.${path}`;
 const MAX_COMMITS = 2000;
@@ -24,17 +25,9 @@ const msg = (e: unknown): string =>
     .replace(/^(GitError|Error): /, '')
     .trim();
 
-function readPullMode(): PullMode {
-  try {
-    const v = localStorage.getItem(PULL_MODE_KEY);
-    return v === 'ff-only' || v === 'rebase' ? v : 'ff';
-  } catch {
-    return 'ff';
-  }
-}
-
 export function App(): JSX.Element {
   const ui = useUi();
+  const prefs = usePrefs();
   const [repoPath, setRepoPath] = useState<string | null>(() => {
     try {
       return localStorage.getItem(LAST_REPO_KEY);
@@ -49,7 +42,7 @@ export function App(): JSX.Element {
   const [workdirVersion, setWorkdirVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
   const [error, setError] = useState<string | null>(null);
-  const [pullMode, setPullMode] = useState<PullMode>(readPullMode);
+  const [prefsOpen, setPrefsOpen] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
 
   const load = useCallback(async (path: string) => {
@@ -214,7 +207,7 @@ export function App(): JSX.Element {
   // carries the changes over or refuses, so ask first and offer to stash them out of the way.
   const runCheckout = useCallback(
     async (name: string, doCheckout: () => Promise<void>): Promise<void> => {
-      if (snapshot?.status.entries.length) {
+      if (prefs.confirmDirtyCheckout && snapshot?.status.entries.length) {
         const r = await ui.prompt({
           title: 'Uncommitted changes',
           message: `You have uncommitted changes. Check out ${name} anyway?`,
@@ -240,7 +233,7 @@ export function App(): JSX.Element {
       }
       await run(`Checking out ${name}`, doCheckout);
     },
-    [repo, run, snapshot, ui],
+    [prefs.confirmDirtyCheckout, repo, run, snapshot, ui],
   );
 
   const checkoutRef = useCallback(
@@ -441,15 +434,6 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [snapshot, selected]);
 
-  const changePullMode = (mode: PullMode): void => {
-    setPullMode(mode);
-    try {
-      localStorage.setItem(PULL_MODE_KEY, mode);
-    } catch {
-      /* ignore */
-    }
-  };
-
   return (
     <div className="app">
       <TitleBar repoName={snapshot?.info.name ?? null} onOpenRepo={openRepo} />
@@ -462,10 +446,11 @@ export function App(): JSX.Element {
         hasRemotes={(snapshot?.remotes.length ?? 0) > 0}
         hasChanges={(snapshot?.status.entries.length ?? 0) > 0}
         stashCount={snapshot?.stashes.length ?? 0}
-        pullMode={pullMode}
-        onPullModeChange={changePullMode}
+        pullMode={prefs.pullMode}
+        onPullModeChange={(mode) => setPrefs({ pullMode: mode })}
         onFetch={() => void run('Fetching', () => window.api.fetch(repo!))}
         onPull={(mode) => void run('Pulling', () => window.api.pull(repo!, mode))}
+        onOpenPreferences={() => setPrefsOpen(true)}
         onPush={() => void run('Pushing', () => window.api.push(repo!, { setUpstream: !headRef?.upstream }))}
         onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
         onStash={() => void stashChanges()}
@@ -545,6 +530,7 @@ export function App(): JSX.Element {
         )}
       </div>
       <StatusBar repoPath={repoPath} commitCount={commits.length} busy={busy} error={error} onDismissError={() => setError(null)} />
+      {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} />}
     </div>
   );
 }

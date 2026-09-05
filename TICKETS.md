@@ -110,10 +110,12 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | done |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | done |
 | GC-006 | Resizable ref column | graph | M | P1 | done |
-| GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | in-progress |
+| GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | done |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | todo |
 | GC-009 | Commit search | graph | M | P2 | todo |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
+| GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
+| GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | todo |
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | todo |
@@ -401,7 +403,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-007 Preferences page with Gravatar toggle
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-003
 - **Why:** Gravatar is the only network call from the renderer and must be switchable off.
@@ -416,14 +418,28 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - When avatars are off, `Avatar` renders initials only and makes no request.
 - **Out of scope:** theme selection (GC-013 adds it here).
 - **Acceptance:**
-  - [ ] With avatars off, the network panel shows no gravatar.com requests after a reload.
-  - [ ] Pull mode chosen in the toolbar caret and in Preferences stay in sync.
-  - [ ] `CLAUDE.md` documents `gitclient.prefs` and removes the old key.
+  - [x] With avatars off, the network panel shows no gravatar.com requests after a reload.
+  - [x] Pull mode chosen in the toolbar caret and in Preferences stay in sync.
+  - [x] `CLAUDE.md` documents `gitclient.prefs` and removes the old key.
 - **Files:** new `src/renderer/src/prefs.ts`, `Toolbar.tsx`, `ui/Avatar.tsx`, `App.tsx`,
   `app.css`.
 - **Verify:** build, DevTools network check via CDP, screenshot.
 - **Log:**
   - 2026-09-05 16:32 claimed
+  - 2026-09-05 17:05 done. `prefs.ts` holds a typed `Prefs` record behind one
+    `gitclient.prefs` key, read with a `useSyncExternalStore` `usePrefs()` hook and written
+    with `setPrefs(patch)`; `load()` validates every field so a bad blob falls back to the
+    defaults, and migrates `gitclient.pullMode` once before deleting it. Avatars are gated
+    inside `useGravatar`, the single place both `ui/Avatar.tsx` and the graph node go
+    through. Verified: typecheck, build, 23 unit tests, the full e2e suite (all assertions
+    passed, including the checkout guard), and the built app driven over CDP on the e2e
+    repo — the legacy `gitclient.pullMode` value `rebase` migrated into the blob and the old
+    key was removed; 2 gravatar.com requests with avatars on became 0 after switching them
+    off and reloading, with 13 rows still drawn as initials; the toolbar caret and the
+    Preferences select tracked each other in both directions; the 72-character counter
+    disappeared with its toggle; and with the confirmation off a dirty-tree checkout of
+    `wip-branch` ran with no prompt (`git rev-parse` confirms HEAD moved). Screenshots
+    `docs/screenshots/gc-007-preferences.png` and `gc-007-avatars-off.png` looked at.
 
 ### GC-008 Remote add, edit and remove
 
@@ -777,6 +793,59 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-006 (this ticket): raising the fold budget above two made the
     two-chip assumption baked into the shrink rule visible.
+
+### GC-024 Unit tests for prefs.ts
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-007
+- **Why:** `prefs.ts` decides what every other component reads, and its `load()` is the only
+  code in the renderer that has to survive a hand-edited, truncated or stale `localStorage`
+  value. GC-007 verified the migration by hand over CDP once; nothing stops the next change to
+  `load()` from silently dropping a field or re-reading the legacy key twice.
+- **Scope:**
+  - `src/renderer/src/prefs.test.ts` with a `localStorage` stub, resetting the module between
+    cases (`vi.resetModules()`) because the store is module-level state.
+  - Cases: empty storage gives `DEFAULT_PREFS`; a stored blob round-trips; an unknown or
+    wrongly typed field falls back per field rather than discarding the whole blob; malformed
+    JSON falls back to the defaults; a legacy `gitclient.pullMode` is migrated, written into
+    `gitclient.prefs` and removed; a legacy key alongside an existing blob is ignored;
+    `setPrefs` merges rather than replaces and notifies subscribers.
+- **Out of scope:** rendering `Preferences.tsx` (that would need jsdom, which the vitest config
+  deliberately does not have).
+- **Acceptance:**
+  - [ ] `npm test` covers all seven cases and passes.
+  - [ ] Deleting the migration branch in `load()` fails at least one test.
+- **Files:** new `src/renderer/src/prefs.test.ts`.
+- **Verify:** `npm test`, `npm run typecheck`.
+- **Log:**
+  - 2026-09-05 proposed by GC-007 (this ticket): the migration and the per-field fallbacks were
+    checked once by hand over CDP and have no regression guard.
+
+### GC-025 A readable error when git is not on PATH
+
+- **Status:** todo
+- **Area:** main | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** launching the built app from a shell whose PATH has no `git` puts a bare
+  `spawn git ENOENT` in the status bar and an empty graph, with nothing saying what is wrong or
+  what to do. It happened twice while verifying GC-007 and read as a broken app rather than a
+  missing dependency. Every repository action shells out, so this is the one failure that makes
+  the whole client useless.
+- **Scope:**
+  - In `runGit`, translate a spawn `ENOENT` into a `GitError` naming git specifically: that
+    `git` was not found on PATH and the client needs it installed and on PATH.
+  - Check once at startup (`git --version`) and surface the same message in the empty state
+    instead of the "Open a repository" prompt, so the cause is visible before any action.
+- **Out of scope:** bundling git, or a setting for a git path (a separate ticket if wanted).
+- **Acceptance:**
+  - [ ] Launching with a PATH that has no git shows the named message, not `spawn git ENOENT`.
+  - [ ] With git present, startup is unchanged and costs one `git --version`.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/renderer/src/App.tsx`.
+- **Verify:** typecheck, build, launch once with a stripped PATH and once normally.
+- **Log:**
+  - 2026-09-05 proposed by GC-007 (this ticket): hit `spawn git ENOENT` twice while driving the
+    built app over CDP and had to read the source to work out that PATH was the cause.
 
 ---
 

@@ -4,6 +4,7 @@ import type { FileViewSource } from '../diff/DiffView';
 import { Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
+import { usePrefs } from '../prefs';
 import { useUi } from '../ui/UiContext';
 
 export interface StagingActions {
@@ -64,6 +65,7 @@ const isActive = (open: FileViewSource | null, path: string, staged?: boolean): 
 
 function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit<Props, 'commit' | 'repo' | 'onSelectSha'>): JSX.Element {
   const ui = useUi();
+  const prefs = usePrefs();
   const entries = status?.entries ?? [];
   const operation = status?.operation ?? null;
   const conflicted = entries.filter((e) => e.unstaged === 'conflicted' || e.staged === 'conflicted');
@@ -242,7 +244,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
               }}
               spellCheck
             />
-            <span className={`counter ${summary.length > 72 ? 'over' : ''}`}>{72 - summary.length}</span>
+            {prefs.commitColumnGuide && <span className={`counter ${summary.length > 72 ? 'over' : ''}`}>{72 - summary.length}</span>}
           </div>
           <textarea
             placeholder="Description"

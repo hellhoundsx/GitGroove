@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { usePrefs } from '../prefs';
 
 // Gravatar lookups by SHA-256 of the lowercased email. Results are cached for the session and
 // URLs that returned 404 are remembered so scrolling a virtualised list does not re-request them.
@@ -33,12 +34,16 @@ export function gravatarUrl(email: string, size = 40): Promise<string> {
 export const markAvatarFailed = (url: string): void => void failed.add(url);
 export const avatarFailed = (url: string): boolean => failed.has(url);
 
-/** Resolves to a Gravatar URL for the email, or null while computing / when the avatar is known to be missing. */
+/**
+ * Resolves to a Gravatar URL for the email, or null while computing, when the avatar is known to
+ * be missing, or when avatars are switched off in the preferences (no request is made then).
+ */
 export function useGravatar(email: string | undefined): string | null {
+  const { avatars } = usePrefs();
   const key = email?.trim().toLowerCase() ?? '';
   const [url, setUrl] = useState<string | null>(() => (key ? urls.get(key) ?? null : null));
   useEffect(() => {
-    if (!key) return;
+    if (!key || !avatars) return;
     let cancelled = false;
     void gravatarUrl(key).then((u) => {
       if (!cancelled) setUrl(u);
@@ -46,8 +51,8 @@ export function useGravatar(email: string | undefined): string | null {
     return () => {
       cancelled = true;
     };
-  }, [key]);
-  return url && !failed.has(url) ? url : null;
+  }, [key, avatars]);
+  return avatars && url && !failed.has(url) ? url : null;
 }
 
 export const initialsOf = (name: string): string =>

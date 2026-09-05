@@ -101,10 +101,11 @@ CDP_PORT=9333 node tools/gk-recon/cdp.mjs 0 eval load.js
 # load.js: localStorage.setItem('gitclient.lastRepo', 'C:/path/to/repo'); setTimeout(() => location.reload(), 50)
 ```
 
-The app remembers the last repository in `localStorage` (`gitclient.lastRepo`), the pull
-mode (`gitclient.pullMode`), the ref column's width (`gitclient.refColW`, a number of pixels)
-and the branch pinned to the graph's left column, per repository
-(`gitclient.pinned.<repoPath>`, the branch name).
+The app remembers the last repository in `localStorage` (`gitclient.lastRepo`), the ref
+column's width (`gitclient.refColW`, a number of pixels) and the branch pinned to the graph's
+left column, per repository (`gitclient.pinned.<repoPath>`, the branch name). Everything the
+user can actually set lives in one JSON blob under `gitclient.prefs` (see Preferences below);
+the old `gitclient.pullMode` key is migrated into it on first load and then removed.
 
 ## tools/gk-recon/cdp.mjs (DevTools driver)
 
@@ -189,6 +190,25 @@ input and checkbox, resolves `{ value, checked, choice }` or null) and `confirm(
 and OK stays `.modal-buttons .btn:last-child` so the e2e helpers keep working. `MenuItem`
 supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`. Every confirmation in the
 renderer goes through `useUi().confirm` (GC-003); the native `confirm()` is not used anywhere.
+
+### Preferences (`src/renderer/src/prefs.ts`, `components/Preferences.tsx`)
+
+`prefs.ts` is the single home for user settings (GC-007): a typed `Prefs` record with
+`DEFAULT_PREFS`, persisted as one JSON blob under `gitclient.prefs`, exposed as `usePrefs()` (a
+`useSyncExternalStore` over a module-level store) and mutated with `setPrefs(patch)`, which
+writes and re-renders every reader. `load()` validates each field and falls back to the default,
+so a hand-edited or truncated blob cannot break the app; it also migrates the old
+`gitclient.pullMode` key on first load and deletes it. Settings today: `avatars`,
+`pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`. Remembered *state* (last repository,
+ref column width, the per-repository pin) deliberately stays on its own keys.
+
+Adding a setting means: a field with a default in `prefs.ts`, validation in `load()`, a row in
+`components/Preferences.tsx`, and reading it with `usePrefs()` where it applies. The dialog is
+opened from the toolbar gear (`onOpenPreferences`), reuses the `.modal` styling with its own
+`.pref-*` classes, and every change applies immediately — there is no OK/Cancel.
+
+Avatars are gated inside `useGravatar` itself, the one place both `ui/Avatar.tsx` and the
+graph's `NodeAvatar` go through, so switching them off makes no gravatar.com request at all.
 
 ### Graph (`src/renderer/src/graph`)
 
@@ -314,7 +334,9 @@ calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite
 tests for `parseDiff.ts` and `lanes.ts` (GC-002); every confirmation on the styled modal (GC-003);
 the dirty-tree checkout guard with "Stash and check out" (GC-004); "Pin to Left" giving any local
 branch the leftmost column, remembered per repository (GC-005); the resizable ref column with a
-width-aware chip fold (GC-006).
+width-aware chip fold (GC-006); the Preferences dialog behind one `gitclient.prefs` key, with
+avatars, default pull mode, the dirty-checkout confirmation and the 72-character counter all
+switchable (GC-007).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance
