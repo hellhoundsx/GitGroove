@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import type { GitApi } from '@shared/types';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import type { GitApi, RepoChange } from '@shared/types';
 
 const call =
   <T>(channel: string) =>
@@ -11,6 +11,16 @@ const api: GitApi = {
   openRepoDialog: call('repo:openDialog'),
   loadRepo: call('repo:load'),
   getStatus: call('repo:status'),
+  watchRepo: call('repo:watch'),
+  // The one main -> renderer push (GC-011): it hands back an unsubscribe so a React effect can
+  // clean up and a remount cannot stack listeners on the channel.
+  onRepoChanged: (listener: (change: RepoChange) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, change: RepoChange): void => listener(change);
+    ipcRenderer.on('repo:changed', handler);
+    return () => {
+      ipcRenderer.off('repo:changed', handler);
+    };
+  },
   getCommitFiles: call('commit:files'),
   getCommitFileDiff: call('commit:fileDiff'),
   getWorkdirFileDiff: call('workdir:fileDiff'),

@@ -55,6 +55,7 @@ src/
   main/index.ts        Electron window (1400x900, dark background, overlay title bar), loads out/renderer
   main/git.ts          every git call; spawn('git', BASE_ARGS + args) with LC_ALL=C, GIT_TERMINAL_PROMPT=0
   main/ipc.ts          ipcMain.handle registrations with argument validation
+  main/watch.ts        fs.watch recursive on the repo root, debounced, pushes repo:changed (GC-011)
   preload/index.ts     contextBridge: window.api (GitApi) and window.platform
   preload/index.d.ts   Window typing for the renderer
   shared/types.ts      Commit, GitRef, Stash, Remote, StatusEntry, RepoStatus, RepoSnapshot, GitApi ...
@@ -190,6 +191,27 @@ Awesome icons, Open Sans, bundled Git for Windows shelled out to. Native (Chromi
   covered by `remotes.test.ts`.
 - Credentials rely on the system credential helper; `GIT_TERMINAL_PROMPT=0` prevents hangs.
 
+### The file-system watcher (`src/main/watch.ts`)
+
+One `fs.watch(repo, { recursive: true })` per window, keyed by `webContents` id — **not** chokidar,
+which would be a new dependency: on Windows the recursive watch is ReadDirectoryChangesW, so the
+single watcher on the working-tree root covers `.git/` too (GC-011). Events are filtered, scoped,
+debounced 300ms with the strongest scope winning, then pushed as `repo:changed`. Ignored:
+`node_modules`, `.git/objects`, `.git/logs`, `.git/lfs`, `.git/modules`, `.git/fsmonitor--daemon`,
+`.git/COMMIT_EDITMSG`, every `.git/**.lock`, **and a bare `.git` path**. That last one is the whole
+reason the first implementation looped: our own `git status` writes and removes `.git/index.lock`,
+Windows reports that as a `change` on the `.git` directory itself, and a directory event has no
+second path segment for the ignore list to match, so the renderer reloaded the status, which ran
+`git status` again — a push every 300ms forever on an idle repository. Anything that really
+changes inside `.git` arrives under its own relative path, so dropping the bare event costs
+nothing. `.git/refs`, `HEAD` and `packed-refs` scope to `refs` (full snapshot reload); everything
+else scopes to `tree` (status only). `git check-ignore` is deliberately not used: every git call
+lives in `git.ts`, so the watcher stays pure fs. In the renderer a change that arrives while
+`busy` is set is parked and flushed exactly once when `busy` clears, and the background reload
+calls `window.api.loadRepo` directly rather than `load()`, whose failure path clears the open
+repository (GC-025) — a refresh nobody asked for must never do that; it sets neither `busy` nor
+the error banner.
+
 ### IPC and preload
 
 Channels are grouped by prefix: `repo:*`, `commit:*`, `workdir:*`, `ref:*`, `remote:*`,
@@ -197,6 +219,9 @@ Channels are grouped by prefix: `repo:*`, `commit:*`, `workdir:*`, `ref:*`, `rem
 to validate. `ipc.ts` validates every argument (`str`, `strs`, `int`, `oneOf`). The preload maps
 each `GitApi` method to `ipcRenderer.invoke` with a tiny `call(channel)` helper; adding an API
 means: type in `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`.
+`repo:changed` is the **one main -> renderer push** (GC-011): a `webContents.send` from `watch.ts`,
+subscribed by a hand-written preload entry that returns an unsubscribe so a React effect can clean
+up, not a `call()`. Its companion handler `repo:watch` only points the watcher at a repository.
 
 ### App state and the `run()` wrapper (`App.tsx`)
 
@@ -291,7 +316,9 @@ handler — never a bare `e.key === ...`. `CommitGraph.tsx` imports it as `isSho
 writes and re-renders every reader. `load()` validates each field and falls back to the default,
 so a hand-edited or truncated blob cannot break the app; it also migrates the old
 `gitclient.pullMode` key on first load and deletes it. Settings today: `avatars`,
-`pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`. Remembered *state* (last repository,
+`pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `graphColumns` (GC-032). `graphColumns`
+is the one nested value, so `load()` falls back per column and a `defaults()` helper copies it: a
+bare `{ ...DEFAULT_PREFS }` would hand every caller the same nested object. Remembered *state* (last repository,
 ref column width, the per-repository pin) deliberately stays on its own keys.
 
 Adding a setting means: a field with a default in `prefs.ts`, validation in `load()`, a row in
@@ -323,8 +350,11 @@ a 1px connector from the ref chips into the node, the dashed WIP link (`wipDash`
 rows between WIP and HEAD when the head lane is free, `'toNode'` on the HEAD row), and the node:
 20px circle, Gravatar image clipped by the shared `#gc-node-clip` clipPath, initials fallback.
 
-`CommitGraph` virtualises rows (28px, overscan 12, absolute positioning inside a spacer), keeps
-the selected row visible, and renders chips: a local branch **absorbs its upstream** when both
+`CommitGraph` renders the optional AUTHOR / DATE / TIME / SHA columns after the message when
+`prefs.graphColumns` enables them (GC-032), all off by default, at a fixed 140/150/80px with
+`flex: none` so the message column absorbs the remainder and keeps truncating — the window never
+widens and the graph SVG is untouched; the WIP row leaves the cells empty. It virtualises rows
+(28px, overscan 12, absolute positioning inside a spacer), keeps the selected row visible, and renders chips: a local branch **absorbs its upstream** when both
 point at the same commit (cloud icon appended), at most `chipBudget(refColW)` chips (one per
 75px of ref column, 1 to 6, so the default 150px still shows two) then a `+N` chip
 whose hover shows the rest in a dropdown — flipped above the chip (`.more-list.flip-up`) when
@@ -407,8 +437,16 @@ and the layering guard (GC-039): with the find bar open and focus in its input, 
 menu, a ref-menu prompt and the toolbar Pull popover are each opened over it and closed with one
 real Escape, the find bar keeping its query every time, and only the Escape after that closes the
 find bar itself. Reverting GC-037 or GC-038 locally fails that step.
-It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused
-one flake. All 66 assertions passed on the last three runs. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+It waits on the DOM rather than on fixed sleeps (GC-053): `waitFor(expression, what, max)` polls
+the renderer every 50ms for the state a step needs — a menu present or gone, a modal, the Pull
+popover, the find bar and its readout, the selected row, a file view, a file-row count — and
+`waitIdle` polls the status-bar spinner. Five `sleep` calls are left, each with a comment saying
+what is unobservable there: the two poll intervals, `waitIdle`'s post-spinner reload, `settle`'s
+own window, and one query in step 16 that lands on the same single commit as the one before it.
+A fixed sleep caused one flake, and the 61 of them cost about 19s of idle time per run (64s
+before, 44-46s after). `contextMenuOn` waits for the previous menu to be **gone** before it
+dispatches: a synthetic `contextmenu` fires no `mousedown`, so it does not dismiss a menu that is
+still up, and step 15 opens the same menu four times. All 66 assertions passed on the last three runs. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates (including the
 `push-target` branch step 17 pushes, locally and on the bare origin), and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind, restores `feature.txt`,
@@ -437,7 +475,7 @@ register its own auto-cleanup or act-environment hooks, so a component test wire
 devDependencies reaches `out/`: the renderer builds from `index.html` and nothing in that graph
 imports a test file.
 
-Covered today (45 tests, 44 in the node project and 1 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (48 tests, 47 in the node project and 1 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -536,7 +574,12 @@ stop narrowed to one process tree, so a run no longer kills every Electron on th
 the dialogs (GC-034), the context menu (GC-037) and the toolbar's Pull popover (GC-038), with an
 e2e step that fails if any of the three regresses (GC-039);
 `shortcuts.test.ts` stored as text again, its raw NUL byte replaced by the `\u0000` escape so
-git stops classifying it as binary (GC-042). Write control characters into a source file as an
+git stops classifying it as binary (GC-042); the optional AUTHOR / DATE / TIME / SHA graph columns
+behind one `graphColumns` preference (GC-032); the file-system watcher that refreshes on an
+editor's save or a terminal commit, with the bare-`.git` event that made it loop dropped
+(GC-011); the e2e suite waiting on the DOM through `waitFor` instead of 61 fixed sleeps, five
+left and each commented (GC-053); and a unit test for the launcher's attach path that proves it
+against a fake CDP endpoint without starting Electron (GC-059). Write control characters into a source file as an
 escape, never as the byte itself: a literal one makes git treat the whole file as binary, and
 `git diff`, `git blame`, review and the `.gitattributes` LF rule all silently skip it while
 vitest, `tsc` and the build keep passing. The trap catches generators too: a Node script that

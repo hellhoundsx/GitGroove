@@ -195,14 +195,16 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | done |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | done |
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | done |
-| GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | in-progress |
-| GC-011 | File-system watcher for automatic refresh | main | M | P2 | in-progress |
+| GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | done |
+| GC-011 | File-system watcher for automatic refresh | main | M | P2 | done |
 | GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | todo |
+| GC-063 | Unit tests for the watcher's ignore and scope rules | tests | S | P1 | todo |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | todo |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | todo |
+| GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
@@ -212,13 +214,13 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
-| GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | in-progress |
+| GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | done |
 | GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | done |
 | GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
-| GC-059 | A test for the launcher attach path | tests | S | P3 | in-progress |
+| GC-059 | A test for the launcher attach path | tests | S | P3 | done |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | todo |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
@@ -670,7 +672,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-011 File-system watcher for automatic refresh
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** main | **Size:** M | **Priority:** P2
 - **Depends on:** GC-001
 - **Why:** The snapshot only reloads after an action inside the app. Edits from an editor or
@@ -686,15 +688,42 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - Never fire while `busy` is set; coalesce and fire once after the action completes.
 - **Out of scope:** watching multiple repos, watching submodules.
 - **Acceptance:**
-  - [ ] Editing a file in the e2e repo from a script updates the WIP row within a second.
-  - [ ] `git commit` from a terminal in the e2e repo adds the row without clicking.
-  - [ ] No refresh loop while the app itself stages or commits (check the status-bar spinner
+  - [x] Editing a file in the e2e repo from a script updates the WIP row within a second.
+  - [x] `git commit` from a terminal in the e2e repo adds the row without clicking.
+  - [x] No refresh loop while the app itself stages or commits (check the status-bar spinner
     settles).
 - **Files:** `src/main/index.ts` or new `src/main/watch.ts`, `ipc.ts`, `preload/index.ts`,
   `shared/types.ts`, `App.tsx`.
 - **Verify:** e2e step driving external edits, CPU stays idle when nothing changes.
 - **Log:**
   - 2026-09-05 21:10 claimed
+  - 2026-09-05 21:45 done. New `src/main/watch.ts`: one `fs.watch(repo, { recursive: true })` per window
+    (ReadDirectoryChangesW on Windows, so the one watcher on the working-tree root covers `.git/`
+    too — no chokidar and no new dependency), a static ignore list, a 300ms debounce with the
+    strongest scope winning, pushed as `repo:changed` over `webContents.send`. `repo:watch` points
+    it, the preload subscription returns an unsubscribe, and `App.tsx` parks a change that arrives
+    while `busy` is set and flushes it once when `busy` clears. `git check-ignore` is deliberately
+    not used: every git call lives in `git.ts`, so the watcher stays pure fs.
+  - 2026-09-05 21:45 the first implementation looped and central verification caught it: with the app idle on
+    the scratch repo the renderer received a push roughly every 300ms forever (event count 52 ->
+    67 after 5s -> 97 after a further 10s). A standalone `fs.watch` spy over 6 idle seconds showed
+    exactly two events, 36 times each: `rename .git/index.lock` (already ignored) and `change .git`
+    — the bare directory event, whose second path segment is empty, so the ignore list missed it
+    and it scoped to `tree`. Our own `git status` creates and deletes `.git/index.lock`, Windows
+    reports that as a change on `.git` itself, the renderer reloads the status, and that runs
+    `git status` again. Fixed by dropping any event whose path is a single `.git` token; the
+    one-level-deeper names already cover their own bare directory events. `.git/index` is not
+    rewritten by a status, so it was never the trigger.
+  - 2026-09-05 21:45 verified over CDP against the scratch repo with a listener armed on `onRepoChanged`:
+    idle for 10s produces 0 events (was ~30); writing `gc011-watch.txt` from a shell put it in the
+    WIP list inside a second with exactly one `tree` event (was 17) and the readout moving from
+    "1 3 1" to "2 3 1"; `git commit` from a shell put "GC-011 watcher check" at the top of the
+    graph with no click, on a `refs` event; "Stage all changes" through the UI added one event and
+    the count was unchanged 15 seconds later with the spinner settled. The ticket's Verify line
+    asks for an e2e step driving external edits: this batch did not own `tools/e2e/run.mjs`
+    (GC-053 was rewriting it), so the three criteria were checked over CDP as above instead, and
+    the watcher is exercised in the suite only implicitly. The e2e suite passed 66/66 three times
+    with the watcher live — including while it was looping, which is why GC-063 was filed.
 
 ### GC-012 Lazy loading past 2000 commits
 
@@ -1685,7 +1714,7 @@ decision is missing.
 
 ### GC-032 Optional Author, Date and SHA columns in the graph
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** M | **Priority:** P2
 - **Depends on:** GC-006, GC-007
 - **Why:** The study (`03-graph.md`, Columns) records user-enabled AUTHOR, COMMIT DATE / TIME,
@@ -1705,11 +1734,11 @@ decision is missing.
 - **Out of scope:** the CHANGES column (needs a per-commit diff stat), column reordering, a header
   cog (Preferences is the one home for settings), relative "3 hours ago" dates.
 - **Acceptance:**
-  - [ ] Toggling each column in Preferences adds or removes it live, and the choice survives a
+  - [x] Toggling each column in Preferences adds or removes it live, and the choice survives a
     reload.
-  - [ ] With all three on, the rows stay 28px, the graph SVG width is unchanged and the message
+  - [x] With all three on, the rows stay 28px, the graph SVG width is unchanged and the message
     column still truncates instead of widening the window.
-  - [ ] Screenshot at 1400x900 with all three on, looked at against `02-main-1080.png`.
+  - [x] Screenshot at 1400x900 with all three on, looked at against `02-main-1080.png`.
 - **Files:** `src/renderer/src/prefs.ts`, `src/renderer/src/components/Preferences.tsx`,
   `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
 - **Verify:** typecheck, build, `npm test` (a prefs test if GC-024 has landed), screenshot.
@@ -1717,6 +1746,22 @@ decision is missing.
   - 2026-09-05 proposed by GR-001: the study's optional graph columns are the largest visible gap
     between the two graphs that no ticket covers.
   - 2026-09-05 21:10 claimed
+  - 2026-09-05 21:45 done. Prefs gained `graphColumns { author, date, sha }` (all off, validated per column in
+    `load()`, with a `defaults()` helper because it is the first nested value and the two
+    `{ ...DEFAULT_PREFS }` spreads would otherwise share the exported object); a "Graph" group in
+    Preferences with the three toggles; `CommitGraph` renders AUTHOR / DATE / TIME / SHA after the
+    message at 140/150/80px, `flex: none`, 12px in 60% white, sha in the mono face, the WIP row
+    leaving them empty. Verified over CDP against the scratch repo at 1400x900: with all three on
+    the row height is still 28px and the graph SVG still 76px wide, the message column goes
+    604px -> 234px (exactly the 370px the three columns declare, so nothing widened the window)
+    and `.graph-body` does not scroll horizontally (780 == 780); cells read "Test User",
+    "05/09/2026, 21:32" and a 7-character sha, the WIP cells are empty. Toggling in Preferences
+    adds the columns live and removing them live restores the three original headers and the 604px
+    message column; the choice survived a reload (blob read back from `gitclient.prefs`).
+    Screenshot `docs/screenshots/graph-columns.png`, looked at against the study's column table in
+    `03-graph.md`: labels uppercase at low opacity to the right of the message, message still
+    truncating with an ellipsis. `npm test` 48 passed (a new `prefs.test.ts` case covers the
+    default, the per-column fallback and that the fallback is a copy).
 
 ### GC-033 Global shortcuts from the study: branch, fetch, panels, staging
 
@@ -2470,7 +2515,7 @@ decision is missing.
 
 ### GC-053 e2e waits on the DOM instead of fixed sleeps
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-030
 - **Why:** `CLAUDE.md`'s Testing paragraph records that the suite waits on the status-bar spinner
@@ -2492,8 +2537,8 @@ decision is missing.
   - The assertions and their count stay exactly as they are.
 - **Out of scope:** new assertions, changes to `waitIdle`, running the suite in CI.
 - **Acceptance:**
-  - [ ] `grep -c "await sleep(" tools/e2e/run.mjs` reports 10 or fewer, each with a comment.
-  - [ ] `npm run e2e` passes three times in a row with the same assertion count as before; the
+  - [x] `grep -c "await sleep(" tools/e2e/run.mjs` reports 10 or fewer, each with a comment.
+  - [x] `npm run e2e` passes three times in a row with the same assertion count as before; the
         log line records the wall-clock of a run before and after.
 - **Files:** `tools/e2e/run.mjs`, `CLAUDE.md` (Testing paragraph).
 - **Verify:** `npm run e2e` three times.
@@ -2501,6 +2546,23 @@ decision is missing.
   - 2026-09-05 proposed by GR-003: the suite's own handover says fixed sleeps flaked once, GC-039 added
     eleven more, and GC-030 has since added the `waitFor` helper that makes replacing them cheap.
   - 2026-09-05 21:10 claimed
+  - 2026-09-05 21:45 done. `await sleep(` went from 61 to 5, and each survivor carries a comment: the 50ms
+    `waitFor` poll, the 150ms `waitIdle` poll, `waitIdle`'s 400ms post-spinner reload, `settle`'s
+    own window, and one in step 16 where the sha-prefix query lands on the same single commit as
+    the query before it so nothing observable changes. `waitFor` now polls at 50ms. The assertion
+    count is byte-identical: 67 `check(` calls before and after, 66 assertions reported per run.
+    `contextMenuOn` waits for the previous `.ctx-menu` to be gone before dispatching, which matters
+    because a synthetic `contextmenu` fires no `mousedown` and so does not dismiss a menu that is
+    still up — step 15 opens the same menu four times.
+  - 2026-09-05 21:45 verified: `npm run e2e` passed 66/66 three times in a row on the final tree (45s, 44s,
+    46s wall-clock), and three more times earlier in the run (44s, 44s, 45s). Baseline for the
+    comparison, measured by putting HEAD's `run.mjs` back in place for one run on a clean scratch
+    repo: 64s, also 66/66. So about 19s of idle time per run is gone, matching the ticket's
+    estimate. `node --check tools/e2e/run.mjs` passes.
+  - 2026-09-05 21:45 noted while measuring, evidence for existing tickets rather than new ones: a baseline run
+    crashed on an unhandled ENOENT and left its Electron alive on port 9333, and the next run then
+    died with "Detected unsettled top-level await" after 8 assertions — that is GC-040 exactly, now
+    with a reproduction. Stopped with `stopPort(9333)`, never by image name.
 
 ### GC-058 A component test for the folded-refs dropdown flip
 
@@ -2533,7 +2595,7 @@ decision is missing.
 
 ### GC-059 A test for the launcher attach path
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-054
 - **Why:** `tools/launch-app.mjs` has no tests, and GC-054 put a decision in it that is exactly the
@@ -2552,8 +2614,8 @@ decision is missing.
 - **Out of scope:** testing `launchApp` itself or anything that starts Electron; the e2e suite stays
   the only thing that launches the app.
 - **Acceptance:**
-  - [ ] `npm test` passes with the new file and starts no Electron process.
-  - [ ] Mutation-checked: removing the attach branch from the CLI fails it.
+  - [x] `npm test` passes with the new file and starts no Electron process.
+  - [x] Mutation-checked: removing the attach branch from the CLI fails it.
 - **Files:** new `tools/launch-app.test.ts` (or a path under `src/` if `vitest.config.ts`'s include
   has to stay as it is — say which in the log), possibly `vitest.config.ts`.
 - **Verify:** `npm test` with an `electron.exe` count before and after, then the mutation check.
@@ -2562,6 +2624,24 @@ decision is missing.
     manual launch and `Get-CimInstance` counts, and a fake CDP endpoint proved the same thing in
     seconds without one.
   - 2026-09-05 21:10 claimed
+  - 2026-09-05 21:45 done. The test is `src/renderer/src/launch-app.test.ts`, not `tools/launch-app.test.ts`:
+    `vitest.config.ts`'s node project includes `src/**/*.test.ts` and `tsconfig.web.json` includes
+    `src/renderer/src/**/*`, so `npm test` and `npm run typecheck` both pick it up with no config
+    change — the same reason `repo-hygiene.test.ts` lives there. `vitest.config.ts` is untouched.
+    It carries its own `/// <reference types="node" />`. Case one stands up an http server on an
+    ephemeral port answering `/json` with one `page` target, runs the CLI with `--keep-running`
+    against it, and asserts exit 0, "attached to the app already on port <n>", the target url, that
+    "app ready" is absent, and that no `electron.exe` carries that port. Case two calls the
+    module-private `attachTarget` against a free port and asserts null. `attachTarget` is reached
+    through a byte-for-byte scratch copy of the launcher with one `export` appended, because this
+    ticket did not own `tools/launch-app.mjs`; a one-line export there would let the copy go.
+  - 2026-09-05 21:45 verified centrally: `npm test` 48 passed / 8 files, and 0 `electron.exe` on the machine
+    afterwards. Mutation check re-run by the orchestrator rather than taken on trust: replacing
+    `const running = await attachTarget(port)` with `const running = null` fails the attach case
+    with "expected 'app ready on port ...' to contain 'attached to the app already on port ...'",
+    and reverting restores `git hash-object tools/launch-app.mjs` to 4771249, HEAD's blob, with
+    both cases green again. Do not mutate by deleting the whole `--keep-running` block: the CLI
+    then falls through to `stopPort`, which would kill whatever holds the port.
 
 ### GC-060 Unattended launches write to Ricardo's own app profile
 
@@ -2706,6 +2786,77 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-004: reading the step list for the review showed that the commit
     form and hunk staging, the two most frequent actions, are the two the suite never drives.
+
+
+### GC-063 Unit tests for the watcher's ignore and scope rules
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P1
+- **Depends on:** GC-011
+- **Why:** GC-011's watcher shipped with a refresh loop that nothing in the repository could have
+  caught. `ignored()` and `scopeOf()` in `src/main/watch.ts` are pure functions over a relative
+  path, and the whole defect was one path — a bare `.git`, produced on Windows when our own
+  `git status` writes and removes `.git/index.lock` — falling through the ignore list because its
+  second segment is empty. `npm run typecheck`, 48 unit tests and a full 66-assertion e2e run all
+  passed while the app was pushing a refresh every 300ms forever; only a CDP event counter found
+  it. A table-driven test over these two functions costs minutes and pins the exact rule.
+- **Scope:**
+  - Export `ignored` and `scopeOf` from `src/main/watch.ts` (or move them to a small module the
+    watcher imports) so they can be tested without Electron; the file imports `electron` only as a
+    type today, so a test must not pull the runtime in — check that before choosing.
+  - A `.test.ts` in the `node` project asserting the decision for at least: `.git` (ignored — the
+    regression guard), `.git/index.lock`, `.git/index` (tree), `.git/refs` and
+    `.git/refs/heads/main` and `.git/HEAD` and `.git/packed-refs` (refs), `.git/objects` and
+    `.git/objects/ab/cdef` and `.git/logs/HEAD` and `.git/COMMIT_EDITMSG` (ignored),
+    `.git/MERGE_HEAD` (tree), `node_modules` and `node_modules/pkg/x.js` (ignored), `src/a.txt`
+    (tree), and a backslash-separated path proving the normalisation.
+  - Mutation-check it: removing the bare-`.git` rule must fail the guard case.
+- **Out of scope:** testing the debounce, the `fs.watch` subscription or the IPC push; an e2e step
+  for external edits (that is its own gap, noted in GC-011's log).
+- **Acceptance:**
+  - [ ] `npm test` covers every path above and passes.
+  - [ ] Mutation-checked: deleting the bare-`.git` rule fails the suite.
+  - [ ] The test needs no Electron import and no build.
+- **Files:** `src/main/watch.ts`, new `src/main/watch.test.ts` (or a path under `src/` if the
+  `vitest.config.ts` include has to stay as it is — say which in the log).
+- **Verify:** `npm test`, then the mutation check.
+- **Log:**
+  - 2026-09-05 proposed by GC-011 (this ticket): the watcher's refresh loop passed typecheck, the
+    unit suite and a full e2e run; the defect was one pure-function decision on one path.
+
+### GC-064 An e2e:setup on the shared scratch root wipes a run already using it
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** `tools/e2e/setup-testrepo.mjs` starts with `rmSync(root, { recursive: true, force: true })`
+  on `$GITCLIENT_E2E_ROOT ?? <tmp>/gitclient-e2e`, so a second run that reaches for the default
+  root deletes the repository, the bare origin and the `shots/` directory out from under a suite
+  that is mid-flight. That happened during this batch: a baseline run died at step 15 with 39
+  failing assertions and then an unhandled `ENOENT` on `shots/modal-checkout-dirty.png`, and the
+  root was left holding one empty `testrepo` directory — exactly `rmSync` followed by `mkdirSync`.
+  Two routines share this machine and the hourly reviewer is supposed to pass its own root, so a
+  slip either way is silent and the failure it produces names nothing.
+- **Scope:**
+  - `setup-testrepo.mjs` writes a small lock/marker file into the root (pid and start time) and
+    refuses to wipe a root whose marker belongs to a live process, unless `--force` is passed.
+  - `run.mjs` fails fast with one clear message when `<root>/testrepo` is missing or is not a git
+    repository, instead of running the whole suite against a repository that is not there.
+  - `shot()` creates the screenshots directory if it is absent, so a missing `shots/` cannot end a
+    run in an unhandled exception.
+- **Out of scope:** giving the two routines separate default roots (the reviewer already passes
+  `GITCLIENT_E2E_ROOT`); changing what the suite asserts.
+- **Acceptance:**
+  - [ ] With a live marker in the root, `npm run e2e:setup` refuses and says which pid holds it;
+    with a stale marker it proceeds.
+  - [ ] `npm run e2e` against a root whose `testrepo` is missing exits non-zero with one message
+    naming the path, and runs no steps.
+  - [ ] `npm run e2e` passes with the `shots/` directory deleted beforehand.
+- **Files:** `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
+- **Verify:** the three checks above, then `npm run e2e:setup && npm run e2e` once normally.
+- **Log:**
+  - 2026-09-05 proposed by GC-053 (this ticket): a concurrent `e2e:setup` on the default root
+    destroyed a baseline measurement mid-run and the resulting failure named nothing.
 
 
 ## Reviews

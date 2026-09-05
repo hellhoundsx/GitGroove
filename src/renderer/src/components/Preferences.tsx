@@ -1,6 +1,6 @@
 import { type JSX, type ReactNode } from 'react';
 import type { PullMode } from '@shared/types';
-import { setPrefs, usePrefs, type Prefs } from '../prefs';
+import { setPrefs, usePrefs, type GraphColumns, type Prefs } from '../prefs';
 import { matches } from '../shortcuts';
 
 const PULL_MODES: { mode: PullMode; label: string }[] = [
@@ -32,6 +32,18 @@ function Toggle({ of, label, hint }: { of: 'avatars' | 'confirmDirtyCheckout' | 
   );
 }
 
+/** One of the optional graph columns; nested in `prefs.graphColumns`, so it patches the whole object. */
+function ColumnToggle({ of, label, hint }: { of: keyof GraphColumns; label: string; hint?: string }): JSX.Element {
+  const prefs = usePrefs();
+  return (
+    <Row label={label} hint={hint}>
+      <label className="pref-check">
+        <input type="checkbox" checked={prefs.graphColumns[of]} onChange={(e) => setPrefs({ graphColumns: { ...prefs.graphColumns, [of]: e.target.checked } })} />
+      </label>
+    </Row>
+  );
+}
+
 /** The Preferences dialog, opened from the toolbar gear. Every change applies immediately. */
 export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
   const prefs = usePrefs();
@@ -52,6 +64,12 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
           <div className="pref-group-title">Appearance</div>
           <Toggle of="avatars" label="Author avatars" hint="Fetches Gravatar images. Off means initials only, and no network requests." />
           <Toggle of="commitColumnGuide" label="72-character commit summary counter" hint="Counts down the characters left on the summary line." />
+        </div>
+        <div className="pref-group">
+          <div className="pref-group-title">Graph</div>
+          <ColumnToggle of="author" label="Author column" hint="The commit author's name, after the message." />
+          <ColumnToggle of="date" label="Date / time column" hint="The author date, dd/mm/yyyy and the local time." />
+          <ColumnToggle of="sha" label="SHA column" hint="The commit's abbreviated hash." />
         </div>
         <div className="pref-group">
           <div className="pref-group-title">Behaviour</div>

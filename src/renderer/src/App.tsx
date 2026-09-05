@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react';
-import type { CheckoutOptions, Commit, GitRef, Remote, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react';
+import type { CheckoutOptions, Commit, GitRef, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { defaultRemote } from '@shared/remotes';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
@@ -202,6 +202,61 @@ export function App(): JSX.Element {
     (patch: string, opts: { cached?: boolean; reverse?: boolean }) => run('Applying patch', () => window.api.applyPatch(repo!, patch, opts), { statusOnly: true, rethrow: true }),
     [repo, run],
   );
+
+  // ---- file-system watcher -----------------------------------------------------------
+  // The main process pushes `repo:changed` whenever something moves under the working tree or
+  // .git, so an editor's save and a commit typed in a terminal show up without a click (GC-011).
+  // A change that lands while an action is running is parked instead of applied: `run()` reloads
+  // when it finishes anyway, and refreshing underneath it is how a refresh loop starts.
+  const pendingChange = useRef<RepoChange['scope'] | null>(null);
+  const busyRef = useRef(false);
+
+  const applyChange = useCallback(
+    async (scope: RepoChange['scope']) => {
+      if (!repo) return;
+      try {
+        if (scope === 'tree') {
+          await refreshStatus();
+          return;
+        }
+        // Not `load()`: its failure path clears the open repository (GC-025), which a refresh
+        // nobody asked for must never do, so the snapshot is replaced only when one arrives.
+        const snap = await window.api.loadRepo(repo, MAX_COMMITS);
+        setSnapshot(snap);
+        setWorkdirVersion((v) => v + 1);
+      } catch {
+        /* a background refresh must not raise a banner over the user's work */
+      }
+    },
+    [refreshStatus, repo],
+  );
+
+  const flushChange = useCallback(() => {
+    const scope = pendingChange.current;
+    if (scope === null) return;
+    pendingChange.current = null;
+    void applyChange(scope);
+  }, [applyChange]);
+
+  useEffect(() => {
+    busyRef.current = busy !== null;
+    if (busy === null) flushChange(); // whatever arrived mid-action is applied once, and only here
+  }, [busy, flushChange]);
+
+  useEffect(() => {
+    if (!repo) return;
+    void window.api.watchRepo(repo);
+    const off = window.api.onRepoChanged((change) => {
+      if (change.repo !== repo) return;
+      // 'refs' wins over 'tree': the full reload it asks for covers a status change too.
+      if (pendingChange.current !== 'refs') pendingChange.current = change.scope;
+      if (!busyRef.current) flushChange();
+    });
+    return () => {
+      off();
+      void window.api.watchRepo(null);
+    };
+  }, [repo, flushChange]);
 
   // Close a WIP file view whose file no longer has changes of that kind.
   useEffect(() => {

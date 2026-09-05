@@ -105,8 +105,15 @@ const modalButtons = () => ev(`[...document.querySelectorAll('.modal .modal-butt
 const modalMessage = () => ev(`document.querySelector('.modal .modal-message')?.textContent ?? 'no modal message'`);
 const modalClick = (label) =>
   ev(`(() => { const b = [...document.querySelectorAll('.modal .modal-buttons .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no modal button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)}; b.click(); return 'clicked ' + ${q(label)}; })()`);
-const contextMenuOn = (selector, text) =>
-  ev(`(() => { const rows = [...document.querySelectorAll(${q(selector)})]; const r = ${text === null ? 'rows[0]' : `rows.find(x => x.innerText.replace(/\\s+/g, ' ').includes(${q(text)}))`}; if (!r) return 'row not found: ' + ${q(text ?? selector)}; const b = r.getBoundingClientRect(); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.x + 20, clientY: b.y + b.height / 2, button: 2 })); return 'contextmenu on ' + r.innerText.replace(/\\s+/g, ' ').slice(0, 50); })()`);
+/** Right-click a row and wait for its menu. Waiting for the previous menu to be gone comes first:
+ *  a synthetic contextmenu does not dismiss a menu that is still up, so a bare `.ctx-menu` check
+ *  would be satisfied by the stale one and the click after it would land in the wrong menu (GC-053). */
+const contextMenuOn = async (selector, text) => {
+  await waitNoMenu();
+  const opened = await ev(`(() => { const rows = [...document.querySelectorAll(${q(selector)})]; const r = ${text === null ? 'rows[0]' : `rows.find(x => x.innerText.replace(/\\s+/g, ' ').includes(${q(text)}))`}; if (!r) return 'row not found: ' + ${q(text ?? selector)}; const b = r.getBoundingClientRect(); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.x + 20, clientY: b.y + b.height / 2, button: 2 })); return 'contextmenu on ' + r.innerText.replace(/\\s+/g, ' ').slice(0, 50); })()`);
+  await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, `the context menu on ${text ?? selector}`);
+  return opened;
+};
 const tool = (label) =>
   ev(`(() => { const b = [...document.querySelectorAll('.toolbar .tool-btn')].find(x => x.innerText.trim() === ${q(label)}); if (!b) return 'no tool button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' (' + b.title + ')'; b.click(); return 'clicked toolbar ' + ${q(label)}; })()`);
 const openSection = (title) => ev(`(() => { const h = [...document.querySelectorAll('.section-head')].find(x => x.textContent.toLowerCase().includes(${q(title.toLowerCase())})); if (!h) return 'no section'; if (!h.classList.contains('open')) (h.querySelector('.section-toggle') ?? h).click(); return 'section open'; })()`);
@@ -115,7 +122,7 @@ const sectionAction = (title) =>
 const clickBanner = (re) => ev(`(() => { const b = [...document.querySelectorAll('.banner button')].find(x => ${re}.test(x.innerText)); if (!b) return 'no banner button'; b.click(); return 'clicked ' + b.innerText; })()`);
 const fetchAll = async () => {
   await ev(`document.querySelector('.toolbar .caret-btn')?.click(); 'caret'`);
-  await sleep(300);
+  await waitFor(`!!document.querySelector('.toolbar .popover .popover-row')`, 'the Pull popover to open');
   return ev(`(() => { const b = [...document.querySelectorAll('.popover .popover-row')].find(x => x.innerText.trim() === 'Fetch all'); if (!b) return 'no Fetch all'; if (b.disabled) return 'Fetch all disabled'; b.click(); return 'clicked Fetch all'; })()`);
 };
 /** Type into the commit search field the way a user does (React needs the native setter + input event). */
@@ -128,10 +135,22 @@ const searchState = () =>
 /** The same, from a known scroll position: the rows are virtualised, so the rendered match and
  *  dim counts only compare across a remount when the graph is scrolled the same way (GC-030). */
 const searchStateAtTop = async () => {
-  await ev(`(() => { const b = document.querySelector('.graph-body'); if (b) b.scrollTop = 0; return 'top'; })()`);
-  await sleep(200);
+  // Every row is positioned by its index, so `top: 0px` on the first rendered one is the graph
+  // having re-rendered from the top. The scroll is re-applied on every poll rather than once up
+  // front: the graph remounts when a file view closes and its keep-the-selection-visible effect
+  // can scroll away again just after the first attempt (GC-053).
+  await waitFor(
+    `(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return b.scrollTop === 0 && document.querySelector('.graph-rows')?.firstElementChild?.style.top === '0px'; })()`,
+    'the graph to re-render from the top',
+  );
   return searchState();
 };
+/** The find bar's readout ("N commits", "no matches", "i of n"): the query, the match set, the
+ *  dimming and the selection all land in the same render, so a readout that has moved off the value
+ *  an action started from is the signal that the search has caught up (GC-053). */
+const searchCount = () => ev(`document.querySelector('.graph-search .search-count')?.textContent ?? null`);
+const waitSearch = (before) =>
+  waitFor(`(document.querySelector('.graph-search .search-count')?.textContent ?? null) !== ${q(before)}`, `the search readout to move off ${before}`);
 /** Which UI layers are up right now (GC-039: Escape must close exactly one of them). */
 const layerState = () =>
   ev(
@@ -140,16 +159,24 @@ const layerState = () =>
 const searchBtn = (title) =>
   ev(`(() => { const b = [...document.querySelectorAll('.graph-search .search-btn')].find(x => (x.title ?? '').startsWith(${q(title)})); if (!b) return 'no search button ' + ${q(title)}; if (b.disabled) return 'DISABLED ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
 
-/** Poll a boolean expression in the renderer until it is true (or the wait runs out). */
+/** Poll a boolean expression in the renderer until it is true (or the wait runs out). Every wait on
+ *  a UI state goes through here rather than a fixed sleep, so a slow moment costs the run a few more
+ *  polls instead of turning into a flake no assertion explains (GC-053). */
 const waitFor = async (expression, what, max = 5000) => {
   const start = Date.now();
   while (Date.now() - start < max) {
     if ((await ev(expression)) === true) return true;
-    await sleep(100);
+    await sleep(50); // the poll interval itself: there is nothing to observe between two polls
   }
   check(`waited for ${what}`, false, `still false after ${max}ms: ${expression}`);
   return false;
 };
+/** Wait for a dialog. Every caller has closed the previous one and settled, so this cannot be
+ *  satisfied by the dialog of the step before; the one place where two prompts follow each other
+ *  back to back (step 17's Add remote) waits on the second one's own title instead (GC-053). */
+const waitModal = () => waitFor(`!!document.querySelector('.modal .modal-buttons .btn')`, 'the dialog to open');
+const waitNoModal = () => waitFor(`!document.querySelector('.modal')`, 'the dialog to close');
+const waitNoMenu = () => waitFor(`!document.querySelector('.ctx-menu')`, 'the previous context menu to close');
 
 /** Wait until the app reports no running operation (status bar spinner gone), then a short settle. */
 const waitIdle = async (max = 15000) => {
@@ -157,12 +184,12 @@ const waitIdle = async (max = 15000) => {
   while (Date.now() - start < max) {
     const busy = await ev("!!document.querySelector('.statusbar .busy')");
     if (!busy) break;
-    await sleep(150);
+    await sleep(150); // the poll interval itself: there is nothing to observe between two polls
   }
-  await sleep(400);
+  await sleep(400); // the reload that follows the spinner is not announced anywhere in the DOM
 };
 const settle = async (ms = 600) => {
-  await sleep(ms);
+  await sleep(ms); // the window in which an action gets as far as raising the spinner waitIdle waits on
   await waitIdle();
 };
 const escape = () => send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }).then(() => send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' }));
@@ -220,7 +247,7 @@ check('repo loaded with WIP row and commits', s.rows > 5 && (s.branch ?? '').sta
 
 step(2, 'create branch via toolbar prompt');
 log(await tool('Branch'));
-await sleep(400);
+await waitModal();
 log(await modal('test-branch', true));
 log(await modalOk());
 await settle();
@@ -228,10 +255,9 @@ check('branch created and checked out', git(['branch', '--show-current']) === 't
 
 step(3, 'left panel context menu: checkout main (dirty tree prompts first)');
 log(await contextMenuOn('.left-panel .ref-row', 'main'));
-await sleep(300);
 log('menu:', await menuList());
 log(await menuClick('Checkout main'));
-await sleep(400);
+await waitModal();
 const dirtyPrompt = String(await modal(null, null));
 check('dirty checkout prompts', dirtyPrompt.includes('Uncommitted changes'), dirtyPrompt);
 check('prompt names the branch', String(await modalMessage()).includes('Check out main anyway?'), await modalMessage());
@@ -241,9 +267,8 @@ check('checked out main', git(['branch', '--show-current']) === 'main');
 
 step(4, 'delete branch via menu + confirm');
 log(await contextMenuOn('.left-panel .ref-row', 'test-branch'));
-await sleep(300);
 log(await menuClick('Delete test-branch'));
-await sleep(400);
+await waitModal();
 log(await modalOk());
 await settle();
 check('branch deleted', !git(['branch', '--format=%(refname:short)']).includes('test-branch'));
@@ -251,7 +276,7 @@ check('branch deleted', !git(['branch', '--format=%(refname:short)']).includes('
 step(5, "stash via toolbar: an empty message uses git's default, then a named stash");
 // GC-029: the field is labelled "Message (optional)", so OK must stay enabled while it is empty.
 log(await tool('Stash'));
-await sleep(400);
+await waitModal();
 log(await modal('', true));
 const emptyOk = String(await ev(`(() => { const b = document.querySelector('.modal .modal-buttons .btn:last-child'); return b ? (b.disabled ? 'disabled' : 'enabled') : 'no modal'; })()`));
 check('Stash OK stays enabled on an empty message', emptyOk === 'enabled', emptyOk);
@@ -265,7 +290,7 @@ log(await tool('Refresh'));
 await settle();
 
 log(await tool('Stash'));
-await sleep(400);
+await waitModal();
 log(await modal(NAMED_STASH, true));
 await shot('modal-stash.png');
 log(await modalOk());
@@ -282,7 +307,6 @@ git(['commit', '-qam', 'main change']);
 log(await tool('Refresh'));
 await settle();
 log(await contextMenuOn('.left-panel .ref-row', 'conflict-branch'));
-await sleep(300);
 log(await menuClick('Merge conflict-branch into main'));
 await settle();
 s = await state();
@@ -303,7 +327,6 @@ git(['checkout', '-q', 'main']);
 log(await tool('Refresh'));
 await settle();
 log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
-await sleep(300);
 log(await menuClick('Cherry pick commit'));
 await settle();
 check('cherry-pick applied', git(['log', '--oneline', '-1']).includes('Pickable commit') && existsSync(join(R, `pick-${stamp}.txt`)));
@@ -337,28 +360,25 @@ check('pulled', git(['log', '--oneline', '-1']).includes('Commit from another cl
 
 step(11, 'tag create via commit menu, delete via left panel');
 log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Work on wip branch'));
-await sleep(300);
 log('menu:', await menuList());
 await shot('commit-context-menu.png');
 log(await menuClick('Create tag here'));
-await sleep(400);
+await waitModal();
 log(await modal('t-test', false));
 log(await modalOk());
 await settle();
 check('tag created', git(['tag']).split('\n').includes('t-test'));
 log(await openSection('Tags'));
-await sleep(300);
+await waitFor(`[...document.querySelectorAll('.left-panel .ref-row')].some(r => r.innerText.includes('t-test'))`, 'the Tags section to list t-test');
 log(await contextMenuOn('.left-panel .ref-row', 't-test'));
-await sleep(300);
 log(await menuClick('Delete tag t-test'));
-await sleep(400);
+await waitModal();
 log(await modalOk());
 await settle();
 check('tag deleted', !git(['tag']).split('\n').includes('t-test'));
 
 step(12, 'already-applied cherry-pick: error kept visible, in-progress banner, abort');
 log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
-await sleep(300);
 log(await menuClick('Cherry pick commit'));
 await settle();
 s = await state();
@@ -371,7 +391,6 @@ check('cherry-pick aborted', !existsSync(join(R, '.git', 'CHERRY_PICK_HEAD')) &&
 
 step(13, 'WIP row menu');
 log(await contextMenuOn('.graph-row.wip', null));
-await sleep(300);
 const wipMenu = await menuList();
 check('WIP menu lists staging actions', /Stage all changes/.test(wipMenu) && /Stash changes/.test(wipMenu), wipMenu);
 await escape();
@@ -382,13 +401,14 @@ writeFileSync(join(R, scratch), 'scratch\n');
 log(await tool('Refresh'));
 await settle();
 log(await ev(`(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'no WIP row'; r.click(); return 'WIP row selected'; })()`));
-await sleep(300);
+// only the staging view lists this file, so it cannot be satisfied by the commit that was selected
+await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(scratch)})`, 'the staging list to show the scratch file');
 log(
   await ev(
     `(() => { const rows = [...document.querySelectorAll('.detail-panel .file-row')]; const r = rows.find(x => x.title === ${q(scratch)}); if (!r) return 'file row not found: ' + ${q(scratch)}; const b = r.querySelector('.actions .btn.danger'); if (!b) return 'no discard button'; b.click(); return 'clicked discard on ' + r.title; })()`,
   ),
 );
-await sleep(400);
+await waitModal();
 const discardModal = String(await modal(null, null));
 check('confirm modal replaced the native dialog and names the file', discardModal.includes(`Delete ${scratch}?`), discardModal);
 await shot('modal-discard-file.png');
@@ -403,9 +423,10 @@ log(await tool('Refresh'));
 await settle();
 check('tree parked before the clean-tree checkout', status() === '', status());
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
-await sleep(300);
 log(await menuClick('Checkout wip-branch'));
-await sleep(500);
+// a prompt from the guard would be up before the checkout ever ran, so the new branch reaching the
+// crumb is a strictly later moment than the one the old fixed wait sampled (GC-053)
+await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '').startsWith('wip-branch')`, 'the clean-tree checkout to land', 15000);
 const promptedWhenClean = await ev(`!!document.querySelector('.modal')`);
 await waitIdle();
 check('clean tree checks out with no prompt', promptedWhenClean === false && git(['branch', '--show-current']) === 'wip-branch', `modal=${promptedWhenClean} branch=${git(['branch', '--show-current'])}`);
@@ -417,9 +438,8 @@ writeFileSync(join(R, GUARD_FILE), 'guard\n');
 log(await tool('Refresh'));
 await settle();
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
-await sleep(300);
 log(await menuClick('Checkout wip-branch'));
-await sleep(500);
+await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '').startsWith('wip-branch')`, 'the untracked-only checkout to land', 15000);
 const promptedWhenUntracked = await ev(`!!document.querySelector('.modal')`);
 await waitIdle();
 check(
@@ -437,22 +457,21 @@ await settle();
 const dirtyBefore = status();
 const stashesBefore = git(['stash', 'list']).split('\n').filter(Boolean).length;
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
-await sleep(300);
 log(await menuClick('Checkout wip-branch'));
-await sleep(400);
+await waitModal();
 check('prompt offers all three choices', String(await modalButtons()) === 'Cancel | Stash and check out | Check out anyway', await modalButtons());
 const dirtyMessage = String(await modalMessage());
 check('the prompt counts the file at risk, not the untracked ones', dirtyMessage.includes('in 1 file.'), dirtyMessage);
 await shot('modal-checkout-dirty.png');
 log(await modalClick('Cancel'));
-await sleep(400);
+// the dialog has to be gone before the next one opens, or the wait for it would pass on this one
+await waitNoModal();
 await waitIdle();
 check('cancel leaves HEAD and the tree untouched', git(['branch', '--show-current']) === 'main' && status() === dirtyBefore, `${git(['branch', '--show-current'])} | ${status()}`);
 
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
-await sleep(300);
 log(await menuClick('Checkout wip-branch'));
-await sleep(400);
+await waitModal();
 log(await modalClick('Stash and check out'));
 await settle();
 check(
@@ -472,40 +491,44 @@ await settle();
 step(16, 'commit search: message, sha prefix, next match, Escape');
 const mainOnlySha = git(['log', '--all', '--format=%H', '--grep=Main-only change']).split('\n')[0] ?? '';
 log(await tool('Search'));
-await sleep(300);
+await waitFor(`!!document.querySelector('.graph-search .search-input')`, 'the find bar to open');
 let sr = JSON.parse(await searchState());
 check('search bar opens from the toolbar', sr.open === true, JSON.stringify(sr));
 
+let readout = await searchCount();
 log(await searchType('Main-only'));
-await sleep(300);
+await waitSearch(readout);
 sr = JSON.parse(await searchState());
 check('message search selects the matching commit', sr.sha === mainOnlySha.slice(0, 7), `selected=${sr.sha} expected=${mainOnlySha.slice(0, 7)} | ${sr.count}`);
 check('matches are highlighted and the rest dimmed, nothing hidden', sr.matches >= 1 && sr.dimmed >= 1, JSON.stringify(sr));
 await shot('search-message.png');
 
 log(await searchType(mainOnlySha.slice(0, 6)));
-await sleep(300);
+// this query lands on the same single commit as the one above, so the readout, the selection, the
+// matches and the dimming all stay exactly as they were: nothing observable marks the new query
+await sleep(300); // nothing changes on screen between the two queries, so there is nothing to wait on
 sr = JSON.parse(await searchState());
 check('a sha prefix selects that commit', sr.sha === mainOnlySha.slice(0, 7), `selected=${sr.sha} expected=${mainOnlySha.slice(0, 7)}`);
 check('the sha prefix matches exactly one commit', sr.count === '1 of 1', String(sr.count));
 
 // "feature" appears in three commit messages: the next-match button must move the selection
+readout = await searchCount();
 log(await searchType('feature'));
-await sleep(300);
+await waitSearch(readout);
 const first = JSON.parse(await searchState());
 log(await searchBtn('Next match'));
-await sleep(300);
+await waitSearch(first.count);
 const second = JSON.parse(await searchState());
 check('several matches are counted', /of [2-9]/.test(String(first.count)), `${first.count}`);
 check('next match moves the selection', second.sha !== first.sha && second.count !== first.count, `${first.sha}/${first.count} -> ${second.sha}/${second.count}`);
 
 // clicking a row mid-search moves the position with it, so "next" continues from there
 log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row.match')].pop(); if (!r) return 'no match row'; r.click(); return 'clicked the last match'; })()`));
-await sleep(300);
+await waitSearch(second.count);
 const clicked = JSON.parse(await searchState());
 check('clicking a match moves the position to it', clicked.count === '3 of 3', String(clicked.count));
 log(await searchBtn('Next match'));
-await sleep(300);
+await waitSearch(clicked.count);
 const wrapped = JSON.parse(await searchState());
 check('next continues from the clicked row and wraps', wrapped.count === '1 of 3', `${clicked.count} -> ${wrapped.count}`);
 
@@ -517,7 +540,7 @@ await waitFor(`!!document.querySelector('.file-view')`, 'the diff to replace the
 const inDiff = JSON.parse(await searchState());
 check('opening a diff hides the graph and its search bar', inDiff.open === false, JSON.stringify(inDiff));
 await escape();
-await sleep(400);
+await waitFor(`!document.querySelector('.file-view') && !!document.querySelector('.graph-search')`, 'the graph and its find bar to come back');
 // rows are virtualised, so compare the rendered match/dim counts from the same scroll position
 const back = JSON.parse(await searchStateAtTop());
 check(
@@ -527,17 +550,19 @@ check(
 );
 
 await escape();
-await sleep(300);
+await waitFor(`!document.querySelector('.graph-search')`, 'the find bar to close');
 sr = JSON.parse(await searchState());
 check('Escape closes the search bar and clears the dimming', sr.open === false && sr.dimmed === 0, JSON.stringify(sr));
 
 step(17, 'remotes: add and fetch, rename, edit URL, remove');
 const remoteUrl = REMOTE.replace(/\\/g, '/');
 log(await sectionAction('Add remote'));
-await sleep(400);
+await waitModal();
 log(await modal('upstream', null));
 log(await modalOk());
-await sleep(400);
+// the two prompts follow each other with no settle in between, so this waits on the second one's
+// own title: `.modal` alone would still be showing the name prompt that was just answered (GC-053)
+await waitFor(`document.querySelector('.modal h3')?.textContent === 'Add remote upstream'`, 'the URL prompt to replace the name prompt');
 log(await modal(remoteUrl, null));
 log(await modalOk());
 await settle();
@@ -550,7 +575,6 @@ git(['branch', '-f', 'push-target', 'main']);
 log(await tool('Refresh'));
 await settle();
 log(await contextMenuOn('.left-panel .ref-row', 'push-target'));
-await sleep(300);
 const pushMenu = await menuList();
 check('branch menu lists a push entry per remote', /Push push-target to origin/.test(pushMenu) && /Push push-target to upstream/.test(pushMenu), pushMenu);
 log(await menuClick('Push push-target to upstream'));
@@ -566,29 +590,26 @@ log(await tool('Refresh'));
 await settle();
 
 log(await contextMenuOn('.left-panel .ref-row.remote-group', 'upstream'));
-await sleep(300);
 const remoteMenu = await menuList();
 check('remote menu offers manage actions', /Edit URL/.test(remoteMenu) && /Rename/.test(remoteMenu) && /Remove upstream/.test(remoteMenu), remoteMenu);
 log(await menuClick('Rename'));
-await sleep(400);
+await waitModal();
 log(await modal('mirror', null));
 log(await modalOk());
 await settle();
 check('remote renamed', git(['remote']).split('\n').includes('mirror') && !git(['remote']).split('\n').includes('upstream'), git(['remote']).replace(/\n/g, ' '));
 
 log(await contextMenuOn('.left-panel .ref-row.remote-group', 'mirror'));
-await sleep(300);
 log(await menuClick('Edit URL'));
-await sleep(400);
+await waitModal();
 log(await modal('https://example.invalid/mirror.git', null));
 log(await modalOk());
 await settle();
 check('remote URL updated', git(['remote', 'get-url', 'mirror']) === 'https://example.invalid/mirror.git', git(['remote', 'get-url', 'mirror']));
 
 log(await contextMenuOn('.left-panel .ref-row.remote-group', 'mirror'));
-await sleep(300);
 log(await menuClick('Remove mirror'));
-await sleep(400);
+await waitModal();
 check('removal asks for confirmation', String(await modal(null, null)).includes('Remove remote mirror?'), await modal(null, null));
 log(await modalOk());
 await settle();
@@ -604,48 +625,47 @@ step(18, 'Escape closes exactly one layer: a menu, a dialog and the Pull popover
 // by a throwaway script. Here the find bar is the layer underneath every time: it must survive the
 // Escape that closes the layer on top of it, and only the next Escape may close it.
 log(await tool('Search'));
-await sleep(300);
+await waitFor(`!!document.querySelector('.graph-search .search-input')`, 'the find bar to open');
+readout = await searchCount();
 log(await searchType('feature'));
-await sleep(300);
+await waitSearch(readout);
 let l = JSON.parse(await layerState());
 check('the find bar is open with a query under the layers below', l.search === true && l.query === 'feature', JSON.stringify(l));
 
 // GC-037: a context menu over a commit row, with focus still in the search input
 log(await contextMenuOn('.graph-row.match', null));
-await sleep(300);
 l = JSON.parse(await layerState());
 check('a commit menu opens over the find bar', l.menu === true && l.search === true, JSON.stringify(l));
 await escape();
-await sleep(300);
+await waitNoMenu();
 l = JSON.parse(await layerState());
 check('Escape closes the menu only, the find bar keeps its query', l.menu === false && l.search === true && l.query === 'feature', JSON.stringify(l));
 
 // GC-034: a dialog on top of the find bar (a prompt from the ref menu, cancelled with Escape)
 log(await contextMenuOn('.left-panel .ref-row', 'main'));
-await sleep(300);
 log(await menuClick('Rename main'));
-await sleep(400);
+await waitModal();
 l = JSON.parse(await layerState());
 check('the rename prompt opens over the find bar', l.modal === true && l.menu === false && l.search === true, JSON.stringify(l));
 await escape();
-await sleep(300);
+await waitNoModal();
 l = JSON.parse(await layerState());
 check('Escape closes the dialog only, the find bar keeps its query', l.modal === false && l.search === true && l.query === 'feature', JSON.stringify(l));
 check('the cancelled prompt renamed nothing', git(['branch', '--show-current']) === 'main', git(['branch', '--format=%(refname:short)']).replace(/\n/g, ' '));
 
 // GC-038: the toolbar's Pull popover on top of the find bar
 log(await ev("document.querySelector('.toolbar .caret-btn')?.click(); 'caret'"));
-await sleep(300);
+await waitFor(`!!document.querySelector('.toolbar .popover')`, 'the Pull popover to open');
 l = JSON.parse(await layerState());
 check('the Pull popover opens over the find bar', l.popover === true && l.search === true, JSON.stringify(l));
 await escape();
-await sleep(300);
+await waitFor(`!document.querySelector('.toolbar .popover')`, 'the Pull popover to close');
 l = JSON.parse(await layerState());
 check('Escape closes the popover only, the find bar keeps its query', l.popover === false && l.search === true && l.query === 'feature', JSON.stringify(l));
 
 // with no layer left, the next Escape closes the find bar itself
 await escape();
-await sleep(300);
+await waitFor(`!document.querySelector('.graph-search')`, 'the find bar to close');
 l = JSON.parse(await layerState());
 check('the next Escape closes the find bar', l.search === false, JSON.stringify(l));
 check('no layer is left open', l.menu === false && l.modal === false && l.popover === false, JSON.stringify(l));

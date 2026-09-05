@@ -7,6 +7,7 @@ import { Icon } from '../ui/icons';
 import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
 import { matches as isShortcut } from '../shortcuts';
+import { usePrefs } from '../prefs';
 
 interface Props {
   commits: Commit[];
@@ -68,10 +69,22 @@ function chipsFor(refs: GitRef[]): Chip[] {
 const commitMatches = (c: Commit, q: string): boolean =>
   c.sha.startsWith(q) || c.summary.toLowerCase().includes(q) || c.body.toLowerCase().includes(q) || c.authorName.toLowerCase().includes(q) || c.authorEmail.toLowerCase().includes(q);
 
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/** `dd/mm/yyyy, HH:MM` in the local zone. Built from the parts rather than `toLocaleString`, whose
+ *  field order follows the machine's locale, and without the seconds a 12px cell has no room for. */
+function localDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
 export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate }: Props): JSX.Element {
+  // The optional columns after the message; all off by default (GC-032).
+  const cols = usePrefs().graphColumns;
   // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
   const layout = useMemo(() => layoutGraph(commits, pinnedSha ?? headSha), [commits, headSha, pinnedSha]);
   const refsBySha = useMemo(() => {
@@ -318,6 +331,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
               <span className="readout dim">no changes</span>
             )}
           </div>
+          {/* the WIP row has no author, date or sha of its own; the cells keep the columns aligned */}
+          {cols.author && <div className="col-author" />}
+          {cols.date && <div className="col-date" />}
+          {cols.sha && <div className="col-sha" />}
         </div>
       );
     }
@@ -360,6 +377,17 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
           <span className="summary">{c.summary}</span>
           {c.body && <span className="body">{c.body.split('\n')[0]}</span>}
         </div>
+        {cols.author && (
+          <div className="col-author" title={`${c.authorName} <${c.authorEmail}>`}>
+            {c.authorName}
+          </div>
+        )}
+        {cols.date && (
+          <div className="col-date" title={c.authorDate}>
+            {localDateTime(c.authorDate)}
+          </div>
+        )}
+        {cols.sha && <div className="col-sha">{c.sha.slice(0, 7)}</div>}
       </div>
     );
   };
@@ -423,6 +451,9 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
           Graph
         </div>
         <div className="col-msg">Commit message</div>
+        {cols.author && <div className="col-author">Author</div>}
+        {cols.date && <div className="col-date">Date / Time</div>}
+        {cols.sha && <div className="col-sha">SHA</div>}
       </div>
       <div className="graph-body" ref={bodyRef} onScroll={(e) => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
         <div className="graph-rows" style={{ height: total * ROW_H }}>

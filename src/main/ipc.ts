@@ -13,6 +13,7 @@ import type {
   WorkdirDiffRequest,
 } from '@shared/types';
 import * as git from './git';
+import { watchRepo } from './watch';
 
 function str(value: unknown, what: string): string {
   if (typeof value !== 'string' || value.length === 0) throw new Error(`${what} is required`);
@@ -52,6 +53,10 @@ export function registerIpc(): void {
     return git.loadRepo(repoOf(path), max);
   });
   ipcMain.handle('repo:status', (_e, repo: unknown) => git.getStatus(repoOf(repo)));
+  // The watcher pushes on `repo:changed`; this is only the renderer saying what to watch (GC-011).
+  ipcMain.handle('repo:watch', (event, repo: unknown) => {
+    watchRepo(event.sender, repo === null || repo === undefined ? null : repoOf(repo));
+  });
 
   // commits and diffs
   ipcMain.handle('commit:files', (_e, repo: unknown, sha: unknown) => git.getCommitFiles(repoOf(repo), str(sha, 'A commit sha')));

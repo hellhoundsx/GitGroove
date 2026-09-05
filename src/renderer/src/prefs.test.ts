@@ -60,7 +60,13 @@ describe('load', () => {
   });
 
   it('round-trips a stored blob', async () => {
-    const blob = { avatars: false, pullMode: 'rebase', confirmDirtyCheckout: false, commitColumnGuide: false };
+    const blob = {
+      avatars: false,
+      pullMode: 'rebase',
+      confirmDirtyCheckout: false,
+      commitColumnGuide: false,
+      graphColumns: { author: true, date: true, sha: false },
+    };
     const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify(blob) });
     expect(getPrefs()).toEqual(blob);
   });
@@ -73,7 +79,23 @@ describe('load', () => {
       pullMode: 'rebase',
       confirmDirtyCheckout: DEFAULT_PREFS.confirmDirtyCheckout,
       commitColumnGuide: DEFAULT_PREFS.commitColumnGuide,
+      graphColumns: DEFAULT_PREFS.graphColumns,
     });
+  });
+
+  it('defaults the graph columns to off and falls back per column', async () => {
+    const fresh = await freshPrefs();
+    expect(fresh.getPrefs().graphColumns).toEqual({ author: false, date: false, sha: false });
+
+    // A half-written object keeps the columns it does carry; a value of the wrong shape is ignored
+    // wholesale and every column falls back.
+    const half = await freshPrefs({ [KEY]: JSON.stringify({ graphColumns: { date: true, sha: 'yes' } }) });
+    expect(half.getPrefs().graphColumns).toEqual({ author: false, date: true, sha: false });
+
+    const wrong = await freshPrefs({ [KEY]: JSON.stringify({ graphColumns: 'all' }) });
+    expect(wrong.getPrefs().graphColumns).toEqual(wrong.DEFAULT_PREFS.graphColumns);
+    // A copy, so a patch cannot edit the exported defaults.
+    expect(wrong.getPrefs().graphColumns).not.toBe(wrong.DEFAULT_PREFS.graphColumns);
   });
 
   it('falls back to the defaults when the blob is malformed JSON', async () => {

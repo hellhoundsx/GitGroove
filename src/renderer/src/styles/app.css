@@ -416,7 +416,16 @@ textarea:focus {
 }
 .graph-header .col-msg {
   flex: 1;
+  min-width: 0;
   padding-left: 10px;
+}
+/* Optional columns (GC-032). Fixed widths and `flex: none`, so the message column absorbs the
+   rest and keeps truncating instead of pushing the row past the window. */
+.graph-header .col-author,
+.graph-header .col-date,
+.graph-header .col-sha {
+  flex: none;
+  padding-left: var(--sp-2);
 }
 /* 4px drag handle sitting on the refs/graph boundary; overlaid, so dragging it never reflows
    the header and the rows below stay aligned with it */
@@ -546,6 +555,35 @@ textarea:focus {
 }
 .graph-row .col-msg .readout .del {
   color: var(--danger);
+}
+/* the optional columns: same width in the header and in every row, so the two stay aligned */
+.graph-header .col-author,
+.graph-row .col-author {
+  width: 140px;
+}
+.graph-header .col-date,
+.graph-row .col-date {
+  width: 150px;
+}
+.graph-header .col-sha,
+.graph-row .col-sha {
+  width: 80px;
+}
+.graph-row .col-author,
+.graph-row .col-date,
+.graph-row .col-sha {
+  flex: none;
+  height: 22px;
+  line-height: 22px;
+  padding-left: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.graph-row .col-sha {
+  font-family: var(--font-mono);
 }
 .ref-chip {
   display: inline-flex;

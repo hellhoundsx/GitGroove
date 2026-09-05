@@ -83,6 +83,13 @@ export interface RepoSnapshot {
   remotes: Remote[];
 }
 
+/** A file-system change the main process saw under the watched repository (GC-011). */
+export interface RepoChange {
+  repo: string; // the repository the watcher was pointed at
+  /** 'refs' when the graph moved (`.git/refs`, HEAD, packed-refs), 'tree' when only the status did. */
+  scope: 'tree' | 'refs';
+}
+
 export interface CommitFile {
   path: string;
   origPath?: string;
@@ -150,6 +157,10 @@ export interface GitApi {
   openRepoDialog(): Promise<string | null>;
   loadRepo(path: string, maxCommits?: number): Promise<RepoSnapshot>;
   getStatus(repo: string): Promise<RepoStatus>;
+  /** Point the file-system watcher at a repository, or pass null to stop it (GC-011). */
+  watchRepo(repo: string | null): Promise<void>;
+  /** Subscribe to watcher pushes; the returned function unsubscribes (GC-011). */
+  onRepoChanged(listener: (change: RepoChange) => void): () => void;
   getCommitFiles(repo: string, sha: string): Promise<CommitFile[]>;
   getCommitFileDiff(repo: string, sha: string, path: string): Promise<string>;
   getWorkdirFileDiff(repo: string, req: WorkdirDiffRequest): Promise<string>;
