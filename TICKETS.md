@@ -192,9 +192,9 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | done |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | done |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | done |
-| GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
+| GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | in-progress |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | done |
-| GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | todo |
+| GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | in-progress |
 | GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | todo |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
@@ -210,11 +210,11 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | todo |
-| GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | todo |
+| GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | in-progress |
 | GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | done |
 | GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
-| GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | todo |
+| GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | in-progress |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
@@ -815,7 +815,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-019 Only prompt on checkout when the changes are actually at risk
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** GC-004
 - **Why:** GC-004 triggers its prompt on `status.entries` being non-empty, as that ticket
@@ -842,6 +842,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-004 (this ticket): implementing the guard exactly as GC-004
     specified made an untracked-only tree prompt, which the e2e step 15 dirty case relies on and
     which is measurably noise in real use.
+  - 2026-09-05 20:51 claimed
 
 ### GC-020 Keep the pinned branch's chip visible when chips fold
 
@@ -1171,7 +1172,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-054 --keep-running still spawns a second Electron that cannot bind the port
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P3
 - **Depends on:** GC-041
 - **Why:** `--keep-running` correctly skips `stopPort`, so the app already on the port survives —
@@ -1198,6 +1199,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 proposed by GC-041 (this ticket): verifying the flag left a stray four-process
     Electron tree that had to be killed by pid, the exact situation GC-035 exists to avoid.
+  - 2026-09-05 20:51 claimed
 
 ### GC-055 The scratch repo has no commit with more than two refs, so chip folding is untested
 
@@ -1238,7 +1240,7 @@ decision is missing.
 
 ### GC-022 The +N refs dropdown is clipped by the graph scroll container
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `.ref-chip.more .more-list` is absolutely positioned at `top: 100%` inside the row,
@@ -1263,6 +1265,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-006 (this ticket): the width-aware fold folds more refs at narrow
     widths, and measuring the dropdown while checking that fold showed it clipped at the bottom.
+  - 2026-09-05 20:51 claimed
 
 ### GC-023 Chip shrinking still assumes exactly two chips
 
@@ -2061,7 +2064,7 @@ decision is missing.
 
 ### GC-046 A DOM environment so components can be unit tested
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** M | **Priority:** P3
 - **Depends on:** none
 - **Why:** `vitest.config.ts` runs one project in the `node` environment, which was right while
@@ -2097,6 +2100,7 @@ decision is missing.
   - 2026-09-05 proposed by GC-024 (this ticket): writing the `prefs.ts` tests needed a React stub
     to reach a hook-only subscriber list, and three tickets have already deferred work for want of
     a DOM environment.
+  - 2026-09-05 20:51 claimed
 
 ### GC-048 Long toolbar labels overflow their 52px button
 
