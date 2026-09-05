@@ -227,6 +227,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | in-progress |
 | GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | in-progress |
 | GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | in-progress |
+| GC-077 | Branch lines join and leave a node at a right angle, not on a diagonal | graph | M | P1 | todo |
+| GC-078 | The ref column shows exactly one chip, every other ref folds into +N | graph | S | P1 | todo |
+| GC-079 | Custom scrollbars: 8px flat thumb, no track, no arrow buttons | ui | S | P1 | todo |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | todo |
@@ -3354,7 +3357,7 @@ decision is missing.
 
 - **Status:** todo
 - **Area:** graph | **Size:** S | **Priority:** P3
-- **Depends on:** GC-023, GC-055
+- **Depends on:** GC-023, GC-055, GC-078
 - **Why:** GC-023's first acceptance criterion ("at 100px with four refs on one commit, the first
   chip keeps its name legible") turned out to be unsatisfiable, and not because of the shrink rule
   it was written against. Measured over CDP on a commit carrying four refs: at a 100px ref column
@@ -3388,6 +3391,9 @@ decision is missing.
   - 2026-09-05 23:14 GR-006: now depends on GC-055 as well. Its Verify needs a commit carrying four refs, which
     the fixture lacks; GC-020 and GC-023 each built theirs by hand, and a third ticket doing the same
     is the point at which the fixture should carry it.
+  - 2026-09-06 01:05 GR-007: now depends on GC-078 as well. That ticket makes one chip plus `+N` the shape
+    at every width, so the 100px case here stops being the extreme end of a range and becomes the
+    everyday row with less room; the furniture question (the cloud icon, the `+N` chip) is the same.
 
 ### GC-072 Show in folder is offered on a file the commit deleted, and always fails
 
@@ -3632,6 +3638,151 @@ decision is missing.
   - 2026-09-05 proposed by GC-062 (this ticket): eight verification runs grew the scratch repository
     from 7 commits to 44 and broke a search assertion that has nothing to do with the batch.
   - 2026-09-05 23:35 claimed
+
+### GC-077 Branch lines join and leave a node at a right angle, not on a diagonal
+
+- **Status:** todo
+- **Area:** graph | **Size:** M | **Priority:** P1
+- **Depends on:** GC-002
+- **Why:** Ricardo, reviewing the graph on 2026-09-06: a line that comes out of a branch and joins
+  another lane's node must come down its own lane a little from the top of the row and then turn
+  through ninety degrees into the node, not arrive from the middle on a slant. `GraphCell.tsx`
+  draws both joins as one cubic Bezier across half a row: `curveIn` is
+  `M fx 0 C fx 12.6, x 1.4, x 14` and `curveOut` its mirror below the node, so the line leaves its
+  lane the moment the row starts and arrives at the node from above on a diagonal. Measured on the
+  worktree build over CDP against catena-feed (read-only) and the scratch repository
+  (`%TEMP%/gitclient-review/GR-007/04-fork-rows-zoom4.png`, a 4x clip of the `v1.86.0` row): the
+  lane-1 line reaches the lane-0 node at roughly 45 degrees, with no horizontal run and no visible
+  corner. The study's `03-graph.md` records GitKraken's lines as straight `line` segments plus
+  "curves as paths" but did not measure the curve, so the shape below comes from Ricardo's
+  description and from checking our own render, not from a copied path.
+- **Scope:**
+  - `curveIn(fromLane)` (a lane above this row joining this row's node): a vertical segment in its
+    own lane from `y = 0` down to `y = mid - r`, a quarter arc of radius `r` turning toward the
+    node, then a horizontal segment at `y = mid` (the node's centre line) to the node's edge. As a
+    path: `M fx 0 V (mid - r) A r r 0 0 <sweep> (fx ± r) mid H x`, the sign and sweep chosen by
+    which side the node is on.
+  - `curveOut(toLane)` (this row's node continuing to a parent in another lane below): the mirror
+    image — horizontal at `y = mid` from the node to `tx ∓ r`, a quarter arc turning downward,
+    then vertical from `mid + r` to `ROW_H`.
+  - `r` is a constant next to `LANE_W` and `NODE` in `GraphCell.tsx`. It must leave a visible
+    straight vertical piece above the corner in a 28px row (`r < mid`, so under 14px) and a visible
+    horizontal piece between adjacent lanes (`r < LANE_W`, so under 20px); start at 8px and adjust
+    by looking at the 4x clip, recording the value settled on in the log.
+  - A join that spans several lanes runs horizontally at `y = mid` across the lanes between,
+    crossing their through-lines; the joins are already drawn after the through-lines, so the
+    horizontal reads on top. Keep that order.
+  - A first component test for the cell, `src/renderer/src/graph/GraphCell.test.tsx` in the `dom`
+    project: render a row with one `incoming` lane and one `outgoing` lane and assert each path's
+    `d` has the three-segment shape (starts `M <fx> 0 V`, contains one ` A `, ends `H <x>` for the
+    incoming; starts `M <x> 14 H` and ends `V 28` for the outgoing). Copy `CommitGraph.test.tsx`'s
+    `ResizeObserver` stub only if the render needs it; `GraphCell` itself does not observe.
+- **Out of scope:** the through-lines, `hasChildAbove` / `hasParentBelow`, the dashed WIP link, the
+  chip connector, the node, and anything in `lanes.ts` — the lane assignment is right, only the
+  shape of the join changes. Animating or highlighting lines on hover (study: "hovering a chip
+  highlights its rows") is a later ticket.
+- **Acceptance:**
+  - [ ] On the scratch repository, the `Merge feature into main` row (one incoming and one outgoing
+        join) and the `Change line 2 of a.txt` row (one incoming) show a vertical piece, a rounded
+        corner and a horizontal piece at the node's centre line, checked on a 4x CDP clip
+        (`Page.captureScreenshot` with `clip.scale`) and looked at, not only asserted.
+  - [ ] catena-feed loaded read-only: the `build(semantic): 1.86.0` row's lane-1 join has the same
+        shape, and the lane-1 line above it is still one continuous straight line.
+  - [ ] The `dom` test passes and fails when either path is reverted to the Bezier.
+  - [ ] `npm test` (the `lanes.test.ts` guards untouched), typecheck, build.
+- **Files:** `src/renderer/src/graph/GraphCell.tsx`, `src/renderer/src/graph/GraphCell.test.tsx` (new).
+- **Verify:** build, launch through `tools/launch-app.mjs`, the two 4x clips above saved under
+  `docs/screenshots/` (scratch repository only; catena-feed is looked at, not committed), `npm test`.
+- **Log:**
+  - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session; the diagonal
+    confirmed on the worktree build's 4x clip of the catena-feed `v1.86.0` row.
+
+### GC-078 The ref column shows exactly one chip, every other ref folds into +N
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P1
+- **Depends on:** GC-020, GC-058
+- **Why:** Ricardo, 2026-09-06: the BRANCH / TAG column shows one item per commit, always. On
+  catena-feed's `build(semantic): 1.86.1` row that means `master` alone with `+2` beside it, not
+  `master`, `twfdasdfsadfadf` and `+1`; and a branch always wins over a tag. Today `chipBudget`
+  allows one chip per 75px of column (two at the default 150px, up to six at 400px), so the second
+  chip takes space from the first: the worktree build at 150px renders that row as `mast…`, `t.`
+  and `+1` (`%TEMP%/gitclient-review/GR-007/03-catena-feed-graph.png`, and the 4x clip
+  `04-fork-rows-zoom4.png`), and the scratch repository's `feature` row as `featu…` and
+  `origin/f…`. GC-023 already found the primary chip cannot stay legible while a second chip shares
+  the column (its first acceptance box was left unticked for that reason); one chip is the rule
+  that makes it legible and is what Ricardo asked for. This supersedes the width-aware fold GC-006
+  added: the column's width now decides how much of the one name shows, never how many chips.
+- **Scope:**
+  - `CommitGraph` renders the first chip of the ordered list and, when there are more, the `+N`
+    chip with the rest in its existing hover dropdown, at every column width. `chipBudget` and its
+    "one chip per 75px" comment go; if a constant remains it is `1`.
+  - The order stays what `rank` produces (HEAD, the pinned branch, tracking locals, other locals,
+    remotes, tags), so the visible chip is a branch whenever the commit has one and a tag only when
+    the commit carries nothing but tags. A local branch still absorbs its upstream into one chip
+    with the cloud mark, as today.
+  - `CommitGraph.test.tsx` (GC-058) renders six refs and asserts `+4` on the assumption that 150px
+    budgets two chips; it becomes `+5`, and its comment says why.
+- **Out of scope:** the dropdown's placement (GC-022), the chip order (GC-020), the primary chip's
+  furniture at 100px (GC-071), the fixture's lack of a many-ref commit (GC-055), removing the
+  now-idle `.ref-chip:not(:first-child):not(.more)` shrink rule in `app.css` (harmless, and that
+  file belongs to GC-079 in the same window).
+- **Acceptance:**
+  - [ ] catena-feed loaded read-only: the `build(semantic): 1.86.1` row shows `master` with its
+        cloud mark and a `+2` chip whose dropdown lists `twfdasdfsadfadf` then `v1.86.1`, at 150px
+        and at 400px; the `v1.86.0` row still shows its tag alone.
+  - [ ] Scratch repository: the `Extend feature` row shows `feature` and `+1` (`origin/feature` in
+        the dropdown); the `Merge feature into main` row shows `main` and `+1` with `v0.1.0` folded.
+  - [ ] `master`'s `.chip-name` is not truncated at 150px on that row (`scrollWidth <= clientWidth`).
+  - [ ] `CommitGraph.test.tsx` passes with `+5`; `npm run e2e` passes (no step asserts a chip count).
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/graph/CommitGraph.test.tsx`.
+- **Verify:** build, `npm test`, `npm run e2e`, screenshots of both rows above from the scratch
+  repository into `docs/screenshots/`, the catena-feed row looked at over CDP.
+- **Log:**
+  - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session, with the
+    catena-feed `1.86.1` row as the example; the three-chip render confirmed on the worktree build.
+
+### GC-079 Custom scrollbars: 8px flat thumb, no track, no arrow buttons
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** Ricardo, 2026-09-06: custom scrollbars wherever we can. Every scroll container in the
+  renderer shows Chromium's default classic scrollbar: measured on the worktree build with
+  catena-feed loaded read-only, `.graph-body` and `.left-panel .sections` each lose 15px to it
+  (`offsetWidth - clientWidth`), with arrow buttons at both ends and a light grey thumb on a
+  visibly lighter track (`%TEMP%/gitclient-review/GR-007/05-graph-scrollbar-zoom3.png` and
+  `06-left-scrollbar-zoom3.png`). The study's `02-design-tokens.md` records GitKraken's as 8px
+  thick, thumb `rgba(255,255,255,0.15)`, no border. Ours should be our own values calibrated to
+  that: thin, flat, no buttons, invisible track.
+- **Scope:**
+  - Tokens in `tokens.css`: `--scrollbar-w` (8px), `--scrollbar-thumb` (white at a low alpha),
+    `--scrollbar-thumb-hover` (a step brighter). Our values, not the study's names.
+  - One global rule set in `app.css` using the `::-webkit-scrollbar` family, which is the right
+    tool in Electron: width and height from the token, transparent track and corner, the thumb
+    with a 4px radius and the hover colour, and `::-webkit-scrollbar-button { display: none }`.
+    Do **not** also set the standard `scrollbar-width` / `scrollbar-color`: when either is set,
+    Chromium ignores the `::-webkit-scrollbar` rules, and the standard properties cannot remove the
+    arrow buttons.
+  - Applies everywhere without per-component rules: `.graph-body`, `.left-panel .sections`,
+    `.detail-body`, `.message-box`, `.diff-body` (vertical and the horizontal one a long line
+    produces), `.shortcut-groups`, and any dialog or menu that overflows.
+- **Out of scope:** overlay scrollbars that take no layout space (the graph's `+N` flip in GC-022
+  measures rects and is unaffected by an 8px bar, but an overlay bar over the SHA column would need
+  its own decision), and a light-theme variant (GC-013).
+- **Acceptance:**
+  - [ ] With catena-feed loaded read-only, `.graph-body` and `.left-panel .sections` measure
+        `offsetWidth - clientWidth === 8`, and a 3x CDP clip of each shows a flat thumb, no arrow
+        buttons and no visible track.
+  - [ ] A diff with a line wider than the panel shows an 8px horizontal bar with the same look.
+  - [ ] `npm run e2e` passes: the graph body is 7px wider, nothing in `run.mjs` measures it.
+- **Files:** `src/renderer/src/styles/tokens.css`, `src/renderer/src/styles/app.css`.
+- **Verify:** build, launch, the two measurements and clips above (clips of the scratch repository
+  into `docs/screenshots/`), `npm run e2e`.
+- **Log:**
+  - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session; the 15px
+    default bar with buttons measured and looked at on the worktree build.
+
 
 ## Reviews
 
@@ -4008,3 +4159,63 @@ appends its own section here.
   - notes: `CLAUDE.md`'s "Done" paragraph is current through 1697049 (GC-065, GC-043, GC-023,
     GC-066); its Testing paragraph's 71 assertions and its Unit tests paragraph's 72 tests both match
     this run. GC-070, in progress, will change the Unit tests section's placement paragraphs.
+
+### GR-007 Backlog review 2026-09-06 01:05
+
+- **Status:** done
+- **Window:** ee91d54..496aa94
+- **Log:**
+  - 2026-09-06 01:05 shipped: 3c6918f (GR-006's review), b84ff55 (GC-067 the recents dropdown's
+    "Recently opened" caption as a plain `div.ctx-caption` with `role="presentation"`, the label /
+    hint flex weights swapped and `.ctx-hint.path` ellipsising at its start through `direction: rtl`;
+    GC-062 e2e steps 20 and 21, the commit form and hunk staging, 71 to 88 assertions; GC-070 the
+    launcher and repo-hygiene tests moved to `tools/` on a `tools/**/*.test.ts` include in the node
+    vitest project and in `tsconfig.node.json`) and 496aa94, the claim of GC-068, GC-075 and GC-076,
+    `in-progress` throughout and not touched. Read as a reviewer: the caption is a `div`, so no
+    `.ctx-item` selector in the driver can reach it, as the ticket promised; the RTL trick holds for
+    the paths it will see (Latin letters and neutrals) and would reorder a folder named in a
+    right-to-left script — an edge, noted and not ticketed. The vitest include is `.test.ts` only,
+    so `run.mjs` and `setup-testrepo.mjs` cannot be swept in. Steps 20 and 21 in `run.mjs` were read
+    from the ticket log and the diff stat only, within the time box, not line by line.
+  - health: typecheck ok, tests 72 passed (11 files: 64 node, 8 dom), build ok, in the detached
+    worktree at 496aa94 with `node_modules` junctioned from the main checkout. No e2e run this
+    review: GR-006 ran it twice on the same fixture an hour earlier and the window's only source
+    change is the recents menu.
+  - app: the worktree build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, then
+    catena-feed loaded read-only through `gitclient.lastRepo` (a first attempt with a backslash
+    path lost its separators in the eval and showed the "Repository folder not found" empty state
+    with both recents rows intact — the empty state itself looked right). Stopped afterwards with
+    `stopPort(9334)`; no electron.exe with 9334 on its command line remained. Screenshots in
+    `%TEMP%/gitclient-review/GR-007/`, all looked at: `01-graph.png` (scratch repo, seven rows,
+    the 9334 profile's AUTHOR / DATE / TIME / SHA still on), `02-graph-zoom3.png` (a body zoom that
+    pushed the graph off-screen but exposed the left panel's native scrollbar at 3x),
+    `03-catena-feed-graph.png` (881 commits, `008-page-monitor-port` ahead of `master` in date order
+    in lane 1, master's lineage in column 0; the `1.86.1` row as `mast…` / `t.` / `+1`; 15px native
+    bars on the graph and the left panel), `04-fork-rows-zoom4.png` (a CDP `clip.scale` 4x of the
+    `1.86.1` to `1.86.0` rows: the lane-1 join enters the node on a diagonal with no corner — GC-077;
+    the primary chip truncated beside a second chip — GC-078), `05-graph-scrollbar-zoom3.png` and
+    `06-left-scrollbar-zoom3.png` (arrow buttons, grey thumb, lighter track — GC-079),
+    `07-commit-selected.png` (the `1.86.1` commit: sha, ref list truncated to `origin…`, message box,
+    bot avatar fallback, one parent link, `package.json`), `08-diff.png` (one-hunk version bump,
+    icon rail 7 / 52 / 283 / 0), `09-wip-staging.png` (Unstaged 1 `.env.examples`, Staged 0, the 72
+    counter). Compared with `02-main-1080.png`, `03-commit-selected.png` and `04-diff-view.png` from
+    the study; none of the study's captures shows a fork, so GC-077's shape comes from Ricardo's
+    description checked against our own render.
+  - what's next: Ricardo joined this review's session and asked for three UI changes, which became
+    the tickets below; the rotating-surface pass was spent on the graph geometry and the scrollbars
+    instead of a new panel this time.
+  - tickets: added GC-077 (graph, M, P1: right-angle joins with a rounded corner, plus the first
+    `GraphCell` component test), GC-078 (graph, S, P1: exactly one chip per row at every width, the
+    rest in `+N`, branches before tags — supersedes GC-006's width-aware fold and settles GC-023's
+    unticked box; `CommitGraph.test.tsx` moves from `+4` to `+5`) and GC-079 (ui, S, P1: 8px flat
+    scrollbars everywhere through `::-webkit-scrollbar`, no arrow buttons). All three are P1 because
+    Ricardo asked for them directly, and their file sets are disjoint (`GraphCell.tsx` +
+    `GraphCell.test.tsx`; `CommitGraph.tsx` + `CommitGraph.test.tsx`; `tokens.css` + `app.css`), so
+    one batch can take them together. GC-071 got a log line: after GC-078 the 100px measurement is
+    the same one-chip shape as every other width, so it now depends on GC-078 as well. Board: the
+    three new rows sit at the top of the `todo` block, ahead of GC-049. Nothing else moved; blocked
+    GC-017 and GC-018 still wait on Ricardo's decisions.
+  - notes: `CLAUDE.md`'s "Done" paragraph is current through b84ff55 (GC-067, GC-062, GC-070), and its
+    Unit tests paragraph's 72 tests and Testing paragraph's 88 assertions match. Its Graph section's
+    `chipBudget(refColW)` sentence ("one per 75px of ref column, 1 to 6") and GraphCell's "curves in
+    and out" wording will go stale when GC-078 and GC-077 ship — the worker updates them then.
