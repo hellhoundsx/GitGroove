@@ -221,9 +221,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | done |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
 | GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | done |
-| GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | in-progress |
-| GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | in-progress |
-| GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | in-progress |
+| GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | done |
+| GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | done |
+| GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | done |
 | GC-077 | Branch lines join and leave a node at a right angle, not on a diagonal | graph | M | P1 | todo |
 | GC-078 | The ref column shows exactly one chip, every other ref folds into +N | graph | S | P1 | todo |
 | GC-079 | Custom scrollbars: 8px flat thumb, no track, no arrow buttons | ui | S | P1 | todo |
@@ -233,6 +233,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
+| GC-082 | Popping a stash through the toolbar loses what was staged | actions | S | P2 | todo |
 | GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | todo |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | todo |
@@ -242,6 +243,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
+| GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | todo |
+| GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | done |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
@@ -3214,7 +3217,7 @@ decision is missing.
 
 ### GC-068 A watcher reload that finishes late overwrites a fresher snapshot
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** M | **Priority:** P1
 - **Depends on:** GC-011, GC-046
 - **Why:** `applyChange` in `App.tsx` (GC-011) awaits `window.api.loadRepo` and then calls
@@ -3242,9 +3245,9 @@ decision is missing.
 - **Out of scope:** cancelling the git process, coalescing two loads into one, the watcher's
   debounce and scope rules (GC-063 covers those).
 - **Acceptance:**
-  - [ ] The dom test passes, and fails when the generation check is removed (say so in the log).
-  - [ ] `npm run e2e` still passes: the watcher and the parked-change flush are untouched.
-  - [ ] The watcher probe GR-005 ran still works on the built app: an untracked file created in the
+  - [x] The dom test passes, and fails when the generation check is removed (say so in the log).
+  - [x] `npm run e2e` still passes: the watcher and the parked-change flush are untouched.
+  - [x] The watcher probe GR-005 ran still works on the built app: an untracked file created in the
         scratch working tree changes the WIP counts within two seconds and `git branch x` raises
         the LOCAL count, with no click.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/App.test.tsx` (new).
@@ -3262,6 +3265,22 @@ decision is missing.
     second run of this review passed, so it is a race, not a constant; the Why above stands and the
     "seven-commit scratch repository never sees it" clause no longer does.
   - 2026-09-05 23:35 claimed
+  - 2026-09-06 01:55 done. One `generation` ref in `App`: `load()` captures it before `loadRepo` and
+    drops both its success and its failure path if it moved (the failure path too, or a stale
+    rejection would clear `repoPath` over a repository a newer load had opened — GC-025's path);
+    `refreshStatus()` captures it before `getStatus`; `applyChange()` captures it before its own
+    `loadRepo` (its `tree` branch needs nothing, it delegates to `refreshStatus`); `run()` bumps it
+    first thing. `openPath()` bumps it too, which is one line past the Scope as written: switching
+    repositories is the same class of user action, and without it a background load against the
+    repository being left lands on top of the new one. Dropping is silent, as specified.
+    `App.test.tsx` is the first component test to render `App` (74 unit tests now, 64 node + 10 dom).
+    Mutation-checked centrally, not on the agent's word: replacing all four
+    `if (gen !== generation.current) return;` guards with `if (false) return;` failed both cases and
+    only at the assertion after the stale resolve (`expected +0 to be 1` at App.test.tsx:146 and
+    :162); restoring gave 10/10 dom again. `npm run e2e` passes, 91 assertions. The GR-005 watcher
+    probe was re-run on the built app over CDP with no click anywhere: `probe.txt` written into the
+    scratch tree took the WIP group from `Unstaged Files (5)` to `(6)`, and `git branch probe-branch`
+    took the left panel from `LOCAL 3` to `LOCAL 4`, both inside the 4s wait.
 
 ### GC-069 The body preview takes width from the summary in a narrow message column
 
@@ -3554,7 +3573,7 @@ decision is missing.
 
 ### GC-075 A hunk button acts on the previous diff while the new one loads
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** diff | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `DiffView`'s load effect (`src/renderer/src/diff/DiffView.tsx:36-49`) starts the fetch for
@@ -3578,12 +3597,14 @@ decision is missing.
 - **Out of scope:** a spinner or skeleton design for the loading body, cancelling the in-flight IPC
   call, the commit-file side of the same view (it has no action buttons), GC-052's toolbar.
 - **Acceptance:**
-  - [ ] Over CDP on the scratch repository: stage the second hunk of `big.txt`, click the Staged
+  - [x] Over CDP on the scratch repository: stage the second hunk of `big.txt`, click the Staged
         Files row, and read `.file-view .diff-body` immediately — it shows the loading body, not the
         unstaged side's hunk, and the hunk buttons are disabled until the staged diff arrives.
-  - [ ] Reverting GC-062's content-keyed `waitDiff` in `tools/e2e/run.mjs` back to a chip + hunk
+        (Checked from a recorded render trace rather than an immediate read; see the log.)
+  - [x] Reverting GC-062's content-keyed `waitDiff` in `tools/e2e/run.mjs` back to a chip + hunk
         count wait leaves step 21 passing, which it does not today (say so in the log).
-  - [ ] `npm run e2e` still passes, and no flicker is visible in a screenshot taken mid-load.
+  - [x] `npm run e2e` still passes, and no flicker is visible in a screenshot taken mid-load.
+        (The e2e half holds; the screenshot could not be taken inside the window — see the log.)
 - **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css` (only if the
   empty body between diffs reads badly).
 - **Verify:** build, the CDP check above, `npm run e2e`, a screenshot of the loading body.
@@ -3592,10 +3613,41 @@ decision is missing.
     against a perfectly working app, because the view was still rendering the diff it had before
     the click and the button built its patch from that.
   - 2026-09-05 23:35 claimed
+  - 2026-09-06 01:55 done, but not the way the Scope describes, and the difference is the point.
+    Clearing `text` from the top of the load effect is not enough: an effect runs *after* React has
+    committed the render that changed `view`, so one frame is still painted with the new header over
+    the old side's hunks and the buttons live. That frame was measured, not reasoned about — a
+    MutationObserver installed before the click recorded every rendered state, and the first
+    implementation's trace read
+    `{chip:"Staged",hunks:1,adds:"row 3 edited",loading:false,btns:"Unstage file=enabled"}` between
+    the click and the loading body. So the result is keyed to the view it was loaded for instead:
+    `viewKey` is derived during render from repo, version and the view's own fields, `loaded` holds
+    `{key, text, error}`, and `current = loaded?.key === viewKey ? loaded : null` — a diff belonging
+    to another view can never render, in any frame, and `loading = current === null` gates every
+    action button through `actionsDisabled = busy || loading`. The action error moved to its own
+    `actionError` so a click's failure is still reported. Re-measured after the change, the trace is
+    `Unstaged/row 3 edited` -> `Staged/0 hunks/loading/disabled` -> `Staged/row 35 edited/enabled`,
+    with no disagreeing state.
+    Criterion 2 was checked as a real mutation, both ways: with `waitDiff` cut back to the chip and
+    the hunk count, step 21 passes with this fix in, and with the fix reverted (`git stash`, rebuild)
+    the same suite fails five assertions there — `Unstage hunk empties the index again | M big.txt`,
+    the file view never closing, and `cancelling the discard leaves the working tree exactly as it
+    was | M README.md MM big.txt`. Both files were restored afterwards.
+    Criterion 3, honestly: `npm run e2e` passes (91 assertions, twice), but the screenshot could not
+    be taken inside the window. The stealth launch renders offscreen at 10fps, so
+    `Page.captureScreenshot` returned a frame from after the diff had arrived even when the DOM read
+    `Loading diff…` at request time. The render trace above is the stronger evidence and is what the
+    box is ticked on; `docs/screenshots/gc075-staged-diff.png` records that the staged side lands
+    correctly after the switch. `app.css` was not needed: the loading body reuses the existing
+    `.diff-empty`.
+    One trap worth repeating: the first draft of `viewKey` joined its parts with a literal U+0000,
+    which turned `DiffView.tsx` into a binary file for git exactly as GC-042 describes. `grep` said
+    "Binary file matches" and nothing else complained — typecheck, tests and the build all passed.
+    The separator is now `|`.
 
 ### GC-076 Every e2e run leaves a commit behind, and the fixture eventually breaks step 16
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** Step 10 clones the bare origin into `clone2`, commits `remote-<stamp>.txt` there, pushes
@@ -3624,12 +3676,12 @@ decision is missing.
   `searchStateAtTop()` discipline and it works on the fixture as designed), GC-064's concurrent-root
   marker, GC-055's and GC-056's fixture changes.
 - **Acceptance:**
-  - [ ] `npm run e2e` five times in a row without an intervening `e2e:setup`, all passing, with
+  - [x] `npm run e2e` five times in a row without an intervening `e2e:setup`, all passing, with
         `git rev-list --count HEAD` and `git ls-remote origin` identical before the first and after
         the fifth.
-  - [ ] Killing a run inside step 10 and running again passes, with no `Commit from another clone`
+  - [x] Killing a run inside step 10 and running again passes, with no `Commit from another clone`
         left on `main` or on the bare origin.
-  - [ ] The count invariant fails the run when a commit is added to the fixture by hand.
+  - [x] The count invariant fails the run when a commit is added to the fixture by hand.
 - **Files:** `tools/e2e/run.mjs`, and `tools/e2e/setup-testrepo.mjs` only if the expected count is
   better exported from there than restated.
 - **Verify:** the three checks above, and `npm run e2e:setup && npm run e2e` once normally.
@@ -3637,6 +3689,40 @@ decision is missing.
   - 2026-09-05 proposed by GC-062 (this ticket): eight verification runs grew the scratch repository
     from 7 commits to 44 and broke a search assertion that has nothing to do with the batch.
   - 2026-09-05 23:35 claimed
+  - 2026-09-06 01:55 done, with a correction to the Why: step 10 is not the only source. Measured on
+    a fresh fixture, `main` carries 6 commits at setup and **9** after one run — the run adds three,
+    not one: step 6's `main change`, the `Pickable commit` step 7 cherry-picks, and step 10's
+    `Commit from another clone`. Step 7's cannot be undone where it is made because step 12 needs to
+    find it already applied, so instead of a step-10 self-undo there is one `restoreFixture()` called
+    twice: at the end of the prologue (a run that died mid-scenario) and again as step 22 (the
+    healthy path). It drops commits by **subject match**, the way the GC-062 block matches its own
+    mark, rather than resetting to a baseline sha — a commit somebody added by hand is not the run's
+    to remove, and leaving it is what makes the closing assertion fire instead of silently healing
+    the drift it exists to report. It resets `--soft`, never `--hard` (index and tree hold the
+    fixture's own state), unstages what the dropped commits contributed while leaving README.md and
+    main.txt alone, deletes the scratch files, writes a.txt's unstaged edit back (`main change`
+    absorbs it into a commit, so dropping the commit would otherwise leave the file clean), rewinds
+    wip-branch and the bare origin by ref, deletes branches the fixture does not have and removes
+    `clone2`. `setup-testrepo.mjs` records every branch tip under `refs/e2e/baseline/*` — a namespace
+    `getRefs()` never reads (heads, remotes and tags only) whose commits the branches already reach,
+    so the graph gains no row — and `run.mjs` exits 2 with the `e2e:setup` message on a fixture that
+    predates it, the same shape as the missing-repository guard.
+    Evidence, all three re-run centrally: **(1)** fresh setup, then five runs with no `e2e:setup`
+    between them — all `ALL PASSED`, `rev-list --count HEAD` 6 before and 6 after, `--all` 7 and 7,
+    and `ls-remote` byte-identical (`diff` of the before/after captures was empty). **(2)** a run was
+    killed inside step 10 for real (`Start-Process node tools/e2e/run.mjs`, polled its log for
+    `### 10`, `taskkill /F /T` on that pid), leaving `main` at 8 commits, `pick-*.txt`, `clone2` and
+    the clone's commit already pushed to the bare origin; the next run passed with 91 assertions and
+    `git log --all --grep="Commit from another clone"` was empty in both the working repository and
+    the bare one. **(3)** `git commit --allow-empty -m "a commit somebody added by hand"` then a run:
+    step 22 failed exactly as intended and named itself —
+    `7 commits, the fixture has 6 | run: npm run e2e:setup | drifted: 3e1343e a commit somebody added
+    by hand` — while the other 21 steps still passed, so a drifted fixture no longer surfaces as some
+    unrelated step's flake. The suite is 91 assertions now, up from 88.
+    One thing step 22 deliberately does not assert: the fixture's *staged* half. Step 8 pops the
+    stash through the toolbar, which does not restore the index, so README.md and main.txt come back
+    unstaged on every run, with or without this change. That is a different drift from the commits
+    this ticket removes and it is filed as GC-082.
 
 ### GC-077 Branch lines join and leave a node at a right angle, not on a diagonal
 
@@ -3883,6 +3969,96 @@ decision is missing.
   - 2026-09-06 requested by Ricardo alongside GC-080, with the note that the ceiling is about 5s
     and it is worth doing only once GC-080 has made that a meaningful share of the run.
 
+### GC-082 Popping a stash through the toolbar loses what was staged
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** `stashApply`/`stashPop` in `src/main/git.ts` run `git stash pop` without `--index`, so a
+  stash made from a mixed tree comes back entirely unstaged: what the user had in the index before
+  stashing is silently merged into the working-directory changes. Found while closing GC-076, which
+  needed to know what a finished e2e run leaves behind: the fixture starts with a staged README.md
+  edit and a staged `main.txt` deletion, and after step 5 stashes and step 8 pops through the
+  toolbar, `git status --short` reads ` M README.md` and ` D main.txt` for the rest of the run.
+  Nothing in the suite asserted it, so it went unnoticed. The e2e prologue already knows the right
+  call — it pops its own recovery stashes with `--index` (GC-036) precisely so the fixture survives.
+  Restoring the index is what `git stash pop --index` is for and what GitKraken does; losing it
+  costs the user work they cannot get back without redoing the staging by hand.
+- **Scope:**
+  - `stashApply` and `stashPop` pass `--index`, falling back to the plain form when git refuses it
+    (`--index` fails when the stashed index cannot be reinstated, e.g. a conflicting pop) so a pop
+    that would have worked before does not start failing.
+  - The fallback is not silent: the working directory did come back, but the staging did not, so say
+    so once in the error line rather than reporting success.
+- **Out of scope:** the stash list UI, `stash push --keep-index`, GC-076's fixture assertions (step
+  22 deliberately does not assert the staged half today; it can be tightened once this ships).
+- **Acceptance:**
+  - [ ] Scratch repository: stage one file, edit another, stash through the toolbar, pop through the
+        toolbar — `git status --short` shows the staged file staged again (`M ` not ` M`).
+  - [ ] A pop that cannot restore the index still restores the working tree, and the app says the
+        staging could not be reinstated.
+  - [ ] `npm run e2e` passes; GC-076's step 22 then sees the fixture's own staged half and its
+        `EXPECTED_STATUS` constant is updated to match in the same change.
+- **Files:** `src/main/git.ts`, `tools/e2e/run.mjs` (step 22's expected status), `CLAUDE.md`.
+- **Verify:** typecheck, build, `npm run e2e`, and the two CDP checks above.
+- **Log:**
+  - 2026-09-06 proposed by GC-076 (this ticket): measuring what a finished run leaves in the fixture
+    showed the staged half gone from step 8 onwards, on every run, with or without GC-076.
+
+### GC-083 A diff that fails to load shows an empty body
+
+- **Status:** todo
+- **Area:** diff | **Size:** S | **Priority:** P3
+- **Depends on:** GC-075
+- **Why:** `DiffView`'s body renders one of three things — the loading line, "No textual changes."
+  or the hunks — and all three are gated on there being a `text`. When the load rejects there is no
+  text and none of them match, so `.diff-body` is blank and the only sign of what happened is the
+  small red `.file-view-sub .err` above it. GC-075 made this more reachable rather than less: the
+  previous diff no longer stays on screen, so a failed reload now leaves the panel empty where it
+  used to leave stale content.
+- **Scope:**
+  - A fourth body branch for the error: the message, in the same `.diff-empty` shape as the other
+    three, so the panel says why it is empty instead of just being empty.
+- **Out of scope:** retrying the load, the error line in the sub-header (it stays), the shape of the
+  message `git.ts` produces.
+- **Acceptance:**
+  - [ ] With a diff forced to fail (delete the file from disk between opening two views, or point
+        the view at a path git cannot diff), `.file-view .diff-body` carries the message and is not
+        empty.
+  - [ ] A successful load is unchanged: no extra element in the body.
+- **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css` (only if the
+  message needs its own rule).
+- **Verify:** typecheck, build, the CDP check above, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-075 (this ticket): reworking the load path made the blank-on-error
+    body obvious, and more likely to be seen now that a failed reload clears the previous diff.
+
+### GC-084 Two overlapping actions clear the busy spinner early
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P3
+- **Depends on:** GC-068
+- **Why:** `run()` in `App.tsx` sets `busy` to its own label and clears it to `null` in its `finally`,
+  with nothing tying the clear to the call that set it. If a second action starts while a first is
+  still in flight, whichever finishes first clears the status bar, so the spinner disappears while an
+  operation is still running — and the first call's `setError` can still land over the second's
+  state. GC-068 gave the *reads* an identity so a stale one is dropped; the writes still have none.
+  Not a data-loss bug: git serialises the work and the reload after each action is correct. It is the
+  status bar lying, and the e2e suite's `waitIdle` believing it.
+- **Scope:**
+  - A busy token in the same shape as GC-068's generation counter: `run()` takes one on entry and
+    only clears `busy` (and applies its error) if it still owns it.
+- **Out of scope:** queuing or refusing a second action while one runs, a per-action progress UI,
+  the reads GC-068 already covers.
+- **Acceptance:**
+  - [ ] Two actions started within the same tick leave the spinner up until the later one finishes.
+  - [ ] A unit test in `App.test.tsx` covering it, failing when the token check is removed.
+  - [ ] `npm run e2e` passes: `waitIdle` still settles at the right moment.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/App.test.tsx`.
+- **Verify:** `npm test`, typecheck, build, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-068 (this ticket): giving the background reads a generation counter
+    made it plain that the actions writing `busy` and `error` still have no identity of their own.
 
 ## Reviews
 

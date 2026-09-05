@@ -225,7 +225,8 @@ lives in `git.ts`, so the watcher stays pure fs. In the renderer a change that a
 `busy` is set is parked and flushed exactly once when `busy` clears, and the background reload
 calls `window.api.loadRepo` directly rather than `load()`, whose failure path clears the open
 repository (GC-025) — a refresh nobody asked for must never do that; it sets neither `busy` nor
-the error banner.
+the error banner. That parking rule covers a change which *arrives* during an action; a load that
+*started* before one is handled by the generation counter in `App` instead (GC-068, below).
 
 ### IPC and preload
 
@@ -267,6 +268,15 @@ menu until GC-016 gives it tabs.
 runs, then reloads the whole snapshot (or only the status for staging actions), and **re-applies
 the error after the reload** because git often exits non-zero while leaving a state the panels
 must show (conflicts, an empty cherry-pick). `msg()` strips Electron's IPC prefix from errors.
+A **generation counter** ties every git read to the moment it was asked for (GC-068): `load()`,
+`refreshStatus()` and `applyChange()` capture `generation.current` when they start and drop their
+result — silently, no banner and no spinner — if it has moved on by the time git answers, while
+`run()` and `openPath()` bump it as their first act. `load()`'s failure path is checked too, or a
+stale rejection would clear `repoPath` over a repository a newer load has since opened. Without it a
+background refs reload started before a click resolved after it and replaced the fresh snapshot with
+the one it had captured, so a file the user had just staged showed as unstaged until the next
+file-system event. The *writes* still have no such identity — two overlapping `run()` calls let the
+first to finish clear `busy` — which is GC-084.
 Staging actions are exposed to the DetailPanel as `StagingActions`; menus are built by
 `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`, `remoteMenuItems`.
 
@@ -433,6 +443,19 @@ Stage/Discard hunk (unstaged), Unstage hunk (staged), Stage file / Discard chang
 buttons and reloads when `workdirVersion` changes. It replaces the graph while open; the left
 panel collapses to an icon rail.
 
+What is loaded is **keyed to the view it was loaded for** (GC-075): `viewKey` is derived during
+render from the repo, the version and the view's own fields, `loaded` holds `{key, text, error}`,
+and only `loaded.key === viewKey` is rendered — so `loading` is `current === null` and every action
+button is gated on `actionsDisabled = busy || loading`. The header chip and the buttons come
+straight from `view` and flip the instant it changes, so a diff kept from the previous view would
+sit under a header claiming the other side of the file and `buildHunkPatch` would build against an
+index git had already moved on from; git rejected the patch, but the user saw a failure for a click
+that looked valid. Clearing the text from the load effect is *not* enough and was tried first: an
+effect runs after React has committed the new `view`, which still paints one frame with the new
+header over the old hunks and the buttons live — measured with a MutationObserver over the rendered
+states. Deriving during render is what makes that frame impossible. A click's own failure lives in
+`actionError` so it survives the keying.
+
 ### Detail panel
 
 Staging view: header with discard-all, operation banner (merge/rebase/cherry-pick/revert with
@@ -502,8 +525,8 @@ menu on an unstaged `a.txt` lists Stage, Discard and the three shell actions and
 moves it into the Staged group and into `git status --short` as `M  a.txt`, the staged row's menu
 offers Unstage and neither Stage nor Discard, and Unstage puts it back. Step 19 makes its own edit
 to `a.txt` and checks it back out; the prologue undoes it only when the file is *staged*, the one
-state that step can leave behind, an unstaged edit there being the fixture's own. All 71
-assertions passed on the last three runs. Steps 20 and 21 cover the commit form and hunk staging,
+state that step can leave behind, an unstaged edit there being the fixture's own. All 91
+assertions passed on the last several runs. Steps 20 and 21 cover the commit form and hunk staging,
 the two actions a client is judged on first and the two most fragile git invocations behind them
 (GC-062). Step 20 stages a scratch file from its row's Stage button, types a summary and a
 description into the form, reads the 72-character counter, commits with a real Ctrl+Enter aimed at
@@ -513,16 +536,35 @@ commits again from the button and asserts the subject changed while `git rev-lis
 did not. Step 21 opens the fixture's two-hunk `big.txt`, stages the second hunk and asserts only
 that hunk reached the index while the first is still an unstaged change, unstages it from the
 staged side, then cancels a Discard hunk and asserts the working tree is untouched. Its waits
-compare the **rendered added lines**, not just the chip and the hunk count: `DiffView` starts a new
-load without clearing `text`, so the previous diff stays on screen while the chip and the hunk
-buttons flip immediately, and a count-only wait let Unstage hunk build its patch from the stale
-hunk (GC-075 is the renderer-side fix). Both steps put the repository back themselves — with
+compare the **rendered added lines** rather than the chip and the hunk count. That began as a
+workaround while `DiffView` started a new load without clearing `text`, so the previous diff stayed
+on screen while the chip and the hunk buttons flipped immediately, and a count-only wait let Unstage
+hunk build its patch from the stale hunk. GC-075 fixed that in the renderer, and the pair was
+checked both ways: with `waitDiff` cut back to a chip + count wait, step 21 passes with the fix in
+and fails five assertions with it reverted. The content-keyed wait stays as the stricter assertion. Both steps put the repository back themselves — with
 `git reset --soft`, never `--hard`, because the index the commit consumes holds the fixture's own
 staged `README.md` change and `main.txt` deletion and the working tree holds the unstaged edits
 every earlier step asserts against — and the prologue undoes them when a run dies inside one.
-Note that the fixture still **grows by one commit per run** from step 10's second clone, and past
-roughly forty commits that breaks step 16's virtualised-row assertion; `npm run e2e:setup` resets
-it, and GC-076 is the fix. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+**The run puts the fixture back and then proves it did** (GC-076). Three steps commit to `main` —
+step 6's `main change`, the `Pickable commit` step 7 cherry-picks and step 10's `Commit from another
+clone` — so the fixture used to grow by three commits a run (6 on `main` at setup, 9 after one run,
+44 after a batch's), until step 16 asserted on a virtualised row that history that long had pushed
+out of the rendered window and the flake looked like a regression in whatever ticket was in flight.
+`restoreFixture()` in `run.mjs` undoes all three, and is called twice: at the end of the prologue,
+recovering a run that died mid-scenario, and again as **step 22**, the healthy path. It matches
+commits by **subject**, the way the GC-062 block matches its own mark, rather than resetting to a
+baseline sha — a commit added to the fixture by hand is not the run's to remove, and leaving it is
+what makes step 22 fail loudly and name itself (`7 commits, the fixture has 6 | run: npm run
+e2e:setup | drifted: <sha> <subject>`) instead of silently healing drift it exists to report. It
+resets `--soft`, unstages only what the dropped commits contributed, writes `a.txt`'s unstaged edit
+back (`main change` absorbs it into a commit), rewinds `wip-branch` and the bare origin by ref,
+deletes branches the fixture does not have, and removes `clone2`. `setup-testrepo.mjs` records every
+branch tip under **`refs/e2e/baseline/*`** — a namespace `getRefs()` never reads (heads, remotes and
+tags only) whose commits the branches already reach, so the graph gains no row — and `run.mjs` exits
+2 with the `e2e:setup` message on a fixture that predates it. Step 22 deliberately does not assert
+the fixture's *staged* half: step 8 pops the stash through the toolbar, which does not pass
+`--index`, so the staged `README.md` edit and `main.txt` deletion come back unstaged on every run
+(GC-082). Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates (including the
 `push-target` branch step 17 pushes, locally and on the bare origin), and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind, restores `feature.txt`,
@@ -556,7 +598,7 @@ register its own auto-cleanup or act-environment hooks, so a component test wire
 devDependencies reaches `out/`: the renderer builds from `index.html` and nothing in that graph
 imports a test file.
 
-Covered today (72 tests, 64 in the node project and 8 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (74 tests, 64 in the node project and 10 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -635,6 +677,15 @@ depends on is the real one, and covers the three-click toggle, a bare `click` wi
 an anchor with no `owner` still reopening (the right-click shape), and the owner being forgotten
 after an outside-click dismissal. Both halves of the toggle condition are mutation-checked:
 replacing either with `false` fails exactly one case and no other.
+
+`App.test.tsx` is the fourth, and the first test to render `App` itself (GC-068). It stubs
+`window.api` so `loadRepo` and `getStatus` hand back promises the test resolves by hand, captures the
+`onRepoChanged` listener, delivers a watcher change, clicks the toolbar's Refresh, then resolves the
+action's load *before* the stale one and asserts the staging groups still show the action's counts;
+a second case does the same for a late `getStatus`, so `refreshStatus`'s check is covered too. It
+copies `Preferences.test.tsx`'s `afterEach` and `CommitGraph.test.tsx`'s `ResizeObserver` stub and
+`avatars: false`, and like both it avoids `vi.resetModules()`. Mutation-checked: neutralising the
+four generation guards fails both cases, and only at the assertion after the stale resolve.
 
 ## Working conventions learned the hard way
 
@@ -717,7 +768,13 @@ same weight, so a long third or fourth name no longer takes space from the check
 chip (GC-023); a control that owns a dropdown closing its menu on a second click instead of
 reopening it, for the repository crumb and the title bar's `+` (GC-066); and the study's
 screenshot index recording what each capture really shows, with the two that caught Ricardo's
-desktop instead of GitKraken marked unusable at every citation (GC-065). Write control characters into a source file as an
+desktop instead of GitKraken marked unusable at every citation (GC-065); a generation counter that
+drops a background reload a user action has overtaken, with the first component test for `App`
+behind it (GC-068); the diff keyed to the view it was loaded for, so a hunk from the other side of a
+file can never be on screen — let alone clickable — under a header that has already flipped
+(GC-075); and the e2e run putting the fixture back and asserting that it did, so the suite stops
+growing by three commits a run and a drifted fixture names itself instead of surfacing as step 16's
+flake (GC-076). Write control characters into a source file as an
 escape, never as the byte itself: a literal one makes git treat the whole file as binary, and
 `git diff`, `git blame`, review and the `.gitattributes` LF rule all silently skip it while
 vitest, `tsc` and the build keep passing. The trap catches generators too: a Node script that
