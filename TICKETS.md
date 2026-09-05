@@ -202,8 +202,11 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | in-progress |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | in-progress |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
+| GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | todo |
+| GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | todo |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
+| GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | todo |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
@@ -223,6 +226,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
+| GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | todo |
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
@@ -3011,6 +3015,168 @@ decision is missing.
   - 2026-09-05 22:08 claimed
 
 
+### GC-067 The recents dropdown shrinks the folder name to one letter and shows the path in full
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** GC-044
+- **Why:** On the build at 3e97244, clicking the repository crumb over CDP opened GC-044's recents
+  menu 420px wide with its one entry reading `t…` followed by
+  `C:/Users/Ricar/AppData/Local/Temp/gitclient-review/e2e/testrepo` in full
+  (`%TEMP%/gitclient-review/GR-005/05-recents-dropdown.png`). The name is what the user picks by
+  and the path is context, and the CSS has them the wrong way round: `.ctx-label` is `flex: 1`
+  (a basis of 0, so it gets only what is left) while `.ctx-hint` keeps its content width up to the
+  menu's 420px cap, so a path longer than the cap takes everything and the name loses. GC-044's own
+  screenshot (`docs/screenshots/gc-044-recents-dropdown.png`) shows both names in full because its
+  paths under `%TEMP%/gitclient-e2e` are about 50 characters and fit; ten more characters and the
+  name is gone, which any repository under `Documents/apps/<org>/<project>` will reach. Every other
+  menu carries short hints (shortcuts, remote names), which is why nothing showed it before GC-044
+  put a path there. The study's dropdown is a 250px list of names, name first (`04-panels.md`,
+  "Breadcrumb dropdowns").
+- **Scope:**
+  - The label keeps its full text whenever the menu can hold it: `.ctx-label` stops shrinking
+    before the hint does (`flex: 0 0 auto`, or a shrink weight far below the hint's) and the hint
+    absorbs the shortfall, ellipsised, with the menu still capped at 420px.
+  - A path hint ellipsises at its start so the tail that names the folder stays visible
+    (`direction: rtl; unicode-bidi: plaintext` on the hint, or a middle truncation done in
+    `openRepoMenu`); every other hint keeps its end-ellipsis.
+  - A non-interactive `MenuItem.caption` (a 25px dim uppercase row, like the section headers) so
+    the recents list carries a "Recently opened" header the way the study's dropdown does — the gap
+    GC-044's log named and left. `openRepoMenu` uses it above the list; the separator before
+    "Open repository…" stays.
+- **Out of scope:** the study's search box and Favorites, the menu's colours and radius, the empty
+  state (its rows already show name and path on two lines), GC-066's toggle behaviour.
+- **Acceptance:**
+  - [ ] Over CDP with the scratch repository loaded from `%TEMP%/gitclient-e2e/testrepo`, the
+        crumb menu's `.ctx-label` reads `testrepo` in full and the `.ctx-hint` ends with
+        `/testrepo` (an ellipsis at its start), the menu no wider than 420px; the same with a
+        clone whose folder is named `a-very-long-repository-folder-name-for-the-menu` in the list.
+  - [ ] The commit menu and the branch menu look as before (their hints are short), checked by
+        screenshot.
+  - [ ] The caption row renders above the recents, is not clickable, and Escape still closes the
+        menu as one layer (e2e step 18 passes).
+- **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/ui/ContextMenu.tsx`,
+  `src/renderer/src/App.tsx`.
+- **Verify:** typecheck, build, the CDP checks above, `npm run e2e`, a screenshot of the open
+  dropdown looked at next to `docs/screenshots/gc-044-recents-dropdown.png`.
+- **Log:**
+  - 2026-09-05 22:23 proposed by GR-005: the first unattended look at GC-044's dropdown, from a
+    scratch root eleven characters longer than the worker's, showed the folder name reduced to one
+    letter and the full path kept.
+
+### GC-068 A watcher reload that finishes late overwrites a fresher snapshot
+
+- **Status:** todo
+- **Area:** actions | **Size:** M | **Priority:** P1
+- **Depends on:** GC-011, GC-046
+- **Why:** `applyChange` in `App.tsx` (GC-011) awaits `window.api.loadRepo` and then calls
+  `setSnapshot(snap)` unconditionally; `refreshStatus` does the same with the status. Nothing ties
+  a result to the moment it was asked for. A refs change from outside (a commit or a branch typed
+  in a terminal) starts a background full load, which on catena-feed's 2000 commits takes about a
+  second; a Stage clicked during that second runs, reloads the status and clears `busy`, and then
+  the older promise resolves and replaces the snapshot with one captured before the click: the file
+  shows as unstaged while `git status` says it is staged. The `.git/index` event from the stage
+  was already parked and flushed by then, so nothing heals it until the next file-system event. It
+  needs a slow load to show, which is why the seven-commit scratch repository and the e2e suite
+  never see it; the parked-while-busy rule covers a change that *arrives* during an action, not a
+  load that *started* before one.
+- **Scope:**
+  - One generation counter in `App`: `load()`, `refreshStatus()` and `applyChange()` each read
+    it when they start and drop their result if it has moved on by the time the promise settles;
+    `run()` bumps it when it starts, so a user action always invalidates whatever background work
+    was in flight. Dropping is silent: no banner, no spinner.
+  - The first component test for `App`, `src/renderer/src/App.test.tsx` in the dom project:
+    stub `window.api` with deferred promises for `loadRepo` and `getStatus` (and no-ops for the
+    rest), capture the `onRepoChanged` listener, deliver a `refs` change, click the toolbar
+    Refresh, resolve the second load first and the stale one after it, and assert the staging
+    header shows the second load's counts. Copy `Preferences.test.tsx`'s `afterEach` cleanup and
+    `CommitGraph.test.tsx`'s `ResizeObserver` stub and `avatars: false`.
+- **Out of scope:** cancelling the git process, coalescing two loads into one, the watcher's
+  debounce and scope rules (GC-063 covers those).
+- **Acceptance:**
+  - [ ] The dom test passes, and fails when the generation check is removed (say so in the log).
+  - [ ] `npm run e2e` still passes: the watcher and the parked-change flush are untouched.
+  - [ ] The watcher probe GR-005 ran still works on the built app: an untracked file created in the
+        scratch working tree changes the WIP counts within two seconds and `git branch x` raises
+        the LOCAL count, with no click.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/App.test.tsx` (new).
+- **Verify:** `npm test`, typecheck, build, `npm run e2e`, the CDP probe above.
+- **Log:**
+  - 2026-09-05 22:23 proposed by GR-005: reading GC-011's renderer half found the background
+    reload writing its result without checking that nothing newer had landed since it started.
+
+### GC-069 The body preview takes width from the summary in a narrow message column
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-032
+- **Why:** `.col-msg` lays out `.summary` and `.body` as two flex items that both ellipsise, each
+  at the default `flex: 0 1 auto`, so when the column is short they shrink in proportion to their
+  content widths: a long body preview keeps most of its text while the summary loses its own. On
+  catena-feed read-only at 1400x900 with GC-032's three columns on
+  (`%TEMP%/gitclient-review/GR-005/07-catena-feed-columns.png`) the row for 4b2d549 reads
+  `fix(… Signed-o…` and the row for 5e7d121 `Ref… Signed-o…`: the part that identifies the commit
+  is gone and the decoration stays. The scratch repository shows the same on
+  `Extend … Second paragraph…` (`06-graph-columns.png`). The study's message column shows the
+  summary first and the description only in what is left (`03-graph.md`, Columns).
+- **Scope:**
+  - The summary wins: `.body` gets a far larger `flex-shrink` (and `min-width: 0`) so it
+    collapses first, and it is hidden entirely below a small width (about 40px) rather than left as
+    a lone ellipsis; the summary starts ellipsising only once the body is gone. The row's `title`
+    (summary plus body) stays for hover.
+- **Out of scope:** the column widths GC-032 chose, a resizable message column, wrapping, the WIP
+  row.
+- **Acceptance:**
+  - [ ] Scratch repository, 1400x900, all three columns on: the `Extend feature` row shows its
+        whole summary and a truncated or hidden body; with the columns off the row is unchanged
+        (both fit as before).
+  - [ ] catena-feed read-only, same setup: every row whose summary is narrower than the column
+        shows the whole summary, checked over CDP by comparing each `.summary` element's
+        `scrollWidth` and `clientWidth` for the rendered rows.
+  - [ ] Screenshot looked at next to `docs/screenshots/graph-columns.png`.
+- **Files:** `src/renderer/src/styles/app.css` (and `src/renderer/src/graph/CommitGraph.tsx` only
+  if a wrapper is needed).
+- **Verify:** build, the CDP check above, screenshot at 1400x900 with the columns on.
+- **Log:**
+  - 2026-09-05 22:23 proposed by GR-005: switching GC-032's columns on made the message column
+    narrow enough to show the body preview outliving the summary on every long-bodied commit.
+
+### GC-070 Tests for tools/ live under src/renderer/src
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-059
+- **Why:** `repo-hygiene.test.ts` (GC-047) and `launch-app.test.ts` (GC-059) test the repository
+  and `tools/launch-app.mjs`, but sit in `src/renderer/src/` because `vitest.config.ts` includes
+  only `src/**` and `tsconfig.web.json` is the one project that would type-check them; each
+  carries a `/// <reference types="node" />` and a paragraph explaining the placement, and
+  `CLAUDE.md` repeats both. The convention is that a test lives next to the module it covers; two
+  exceptions with an explanation each is the point where the config should change rather than a
+  third test copying the workaround, and the two files make the renderer's typecheck depend on
+  node types it otherwise never uses.
+- **Scope:**
+  - `vitest.config.ts`: the node project also includes `tools/**/*.test.ts` (alias map unchanged).
+  - `tsconfig.node.json` includes `tools/**/*.test.ts` (it already has the node types);
+    `tsconfig.web.json` is left as it is.
+  - Move the two tests to `tools/launch-app.test.ts` and `tools/repo-hygiene.test.ts`, fix their
+    `ROOT` computations, drop the reference directives and the placement comments, and update the
+    two paragraphs in `CLAUDE.md`'s Unit tests section.
+- **Out of scope:** any change to what either test asserts; moving the renderer tests.
+- **Acceptance:**
+  - [ ] `npm test` reports the same 68 tests in 10 files, the two now under `tools/`;
+        `npx vitest run --project node` finds both.
+  - [ ] `npm run typecheck` passes, and `tsc --noEmit -p tsconfig.web.json --listFiles` lists no
+        file under `tools/` and neither test.
+  - [ ] The hygiene test still fails on a NUL written into a scratch file under `src/` (repeat
+        GC-047's mutation check), so the moved `ROOT` still points at the repository.
+- **Files:** `vitest.config.ts`, `tsconfig.node.json`, `src/renderer/src/launch-app.test.ts`
+  and `src/renderer/src/repo-hygiene.test.ts` (moved to `tools/`), `CLAUDE.md`.
+- **Verify:** `npm test`, `npm run typecheck`, the mutation check above.
+- **Log:**
+  - 2026-09-05 22:23 proposed by GR-005: GC-059 added the second tools test that has to live in the
+    renderer tree and explain why; the config should carry that instead.
+
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -3250,3 +3416,77 @@ appends its own section here.
     66 matches this run. Its Graph section's "the default 150px still shows two" is true of the
     code but not of any unattended screenshot taken since GC-022's check (GC-060 explains why).
     GR-003's log line "chips folding at 150px" describes a 100px column; left as written.
+
+
+### GR-005 Backlog review 2026-09-05 22:23
+
+- **Status:** done
+- **Window:** 850a9cd..3e97244
+- **Log:**
+  - 2026-09-05 22:23 shipped: 243ff28 (GC-032 optional AUTHOR / DATE / TIME / SHA columns behind
+    `prefs.graphColumns` with a per-column fallback and a `defaults()` copy; GC-011 `watch.ts`,
+    one recursive `fs.watch` per window pushing `repo:changed` with a 300ms debounce, the bare
+    `.git` event dropped, the renderer parking a change that arrives while `busy` and flushing
+    it once; GC-053 `waitFor` replacing 61 fixed sleeps in `run.mjs`; GC-059
+    `launch-app.test.ts` proving `--keep-running` attaches against a fake CDP endpoint), 394566f
+    (GC-032's log saying what `02-main-1080.png` could and could not confirm) and 4be7ee1
+    (GC-060 per-port Electron profiles through `GITCLIENT_USER_DATA` set at module scope; GC-063
+    `watch.test.ts` with `toRel`, `ignored` and `scopeOf` exported; GC-044 `gitclient.recentRepos`,
+    the crumb and the title bar's `+` opening the recents menu, the empty state repeating the
+    list; GC-058 `CommitGraph.test.tsx` for the folded-refs flip). 3e97244 is the claim of GC-065,
+    GC-043, GC-023 and GC-066, `in-progress` throughout and not touched. Read as a reviewer: the
+    watcher's renderer half is sound on the path it was written for — `refreshStatus` depends only
+    on `repo`, so the watch effect never restarts mid-debounce, and a change during an action is
+    applied exactly once — but neither `applyChange` nor `refreshStatus` checks that nothing newer
+    landed while its promise was pending, so a slow background load can overwrite a fresher
+    snapshot (GC-068). GC-044 drops a recents entry on any failed load, not only a missing folder,
+    which is what its scope asked for; with git missing from PATH every entry clicked would vanish,
+    left as a note. GC-032's `localDateTime` builds the string from parts rather than
+    `toLocaleString`, which keeps the field order fixed as its comment says. GC-060's profile
+    override runs at module scope before `app.whenReady`, as it must. GC-058's hover is fired as
+    `mouseOver` for the reason its comment gives. GC-059's test lives in the renderer tree with a
+    paragraph explaining why, the second such test (GC-070). Every ticked box in the window has
+    evidence in its log; GC-044's fourth box is unticked with a written reason and GC-065 filed for
+    it; every ticket in the window has a `Depends on` line.
+  - health: typecheck ok, tests 68 passed (10 files: 64 node, 4 dom), build ok, in the detached
+    worktree at 3e97244 with `node_modules` junctioned from the main checkout.
+    `GITCLIENT_E2E_PORT=9336 npm run e2e` against the review's own scratch repository: 66
+    assertions, ALL PASSED, exit 0, the run stopping its own Electron — with the watcher live
+    underneath the whole suite for the first time.
+  - app: the worktree build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, stopped
+    afterwards with `stopPort(9334)` (no electron.exe with 9334 on its command line remained).
+    GC-060 confirmed on the way in: the 9334 profile read `gitclient.refColW` null, `--ref-col-w`
+    150px and `gitclient.prefs` null, so the 100px column GR-004 found is gone and every ref row
+    shows two chips again. Screenshots in `%TEMP%/gitclient-review/GR-005/`, all looked at:
+    `01-graph.png` (seven rows, lanes continuous through the merge, `main` absorbing
+    `origin/main` with the cloud mark and `v0.1.0` beside it, WIP `+1 ✎3 −1`),
+    `02-commit-selected.png` (merge commit: sha, ref list, message box, initials avatar, two
+    parent links, `+1 added`, `feature.txt`), `03-wip-staging.png` (Unstaged 3 / Staged 2,
+    commit form with the 72 counter), `04-diff.png` (two-hunk `big.txt` with Stage / Discard
+    hunk, icon rail 3 / 3 / 1 / 0, the file highlighted in the panel),
+    `05-recents-dropdown.png` (the crumb menu anchored at the crumb's bottom-left, 420px wide,
+    the folder name squeezed to `t…` and the 61-character path shown in full — GC-067),
+    `06-graph-columns.png` (all three columns on: AUTHOR / DATE / TIME / SHA header labels, rows
+    still 28px, `.graph-body` not scrolling horizontally, the `Extend feature` summary truncated
+    while its body preview keeps its width — GC-069), `07-catena-feed-columns.png` (catena-feed
+    read-only with the columns on: 881 commits, `Viewing 341`, 40 rows rendered, dates
+    `27/08/2026, 13:18` and authors in the new cells, gravatars and initials mixed, lanes
+    continuous past `master` and the `v1.86.x` tags, the message column down to about 115px
+    with `fix(… Signed-o…` rows) and `08-preferences.png` (the new GRAPH group with three
+    toggles between Appearance and Behaviour). The watcher was probed live for the first time:
+    an untracked file written into the scratch working tree took the WIP counts from `1 3 1` to
+    `2 3 1` and the staging header to `6 file changes` within 1.5s with no click, `git branch`
+    took LOCAL from 3 to 4 and `Viewing` from 7 to 8, and removing both restored every count;
+    `git status --short` afterwards matched the setup's mixed tree exactly.
+  - tickets: added GC-067 (P1, ui), GC-068 (P1, actions), GC-069 (P2, graph), GC-070 (P3,
+    tests). No existing ticket extended. Board: GC-067 and GC-068 are the first two `todo` rows,
+    ahead of GC-049, because both are defects in work shipped this window; GC-069 sits after
+    GC-061 with the P2 graph work and before GC-062; GC-070 after GC-055 with the P3 test hygiene.
+    No other row moved. Blocked GC-017 and GC-018 still wait on Ricardo's decisions; nothing new
+    to unblock them. The in-progress batch touches `ContextMenu.tsx`, `UiContext.tsx` and
+    `app.css`, which GC-067 also names; it waits for that batch to close, as the protocol already
+    requires.
+  - notes: `CLAUDE.md`'s "Done" paragraph is current through 4be7ee1 (GC-060, GC-063, GC-044,
+    GC-058); its Testing paragraph's 66 assertions and its Unit tests paragraph's 68 tests both
+    match this run. Its Unit tests section documents the renderer-tree placement of the two tools
+    tests as a deliberate choice; GC-070 proposes changing that, and the section changes with it.
