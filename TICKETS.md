@@ -144,7 +144,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | done |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | done |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | done |
-| GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
+| GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | in-progress |
 | GC-025 | A readable error when git is not on PATH | main | S | P2 | done |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | done |
@@ -1457,7 +1457,7 @@ decision is missing.
 
 ### GC-031 Push to a chosen remote when the repository has several
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** GC-008
 - **Why:** GC-008 made a second remote a two-click affair, and the push paths still assume one.
@@ -1487,6 +1487,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-001: GC-008 shipped remote management while every push path still
     hard-codes a single remote, and the tag path picks a different one from the branch path.
+  - 2026-09-05 20:35 claimed
 
 ### GC-032 Optional Author, Date and SHA columns in the graph
 
