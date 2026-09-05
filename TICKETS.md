@@ -109,7 +109,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | done |
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | done |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | done |
-| GC-006 | Resizable ref column | graph | M | P1 | todo |
+| GC-006 | Resizable ref column | graph | M | P1 | in-progress |
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | todo |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | todo |
 | GC-009 | Commit search | graph | M | P2 | todo |
@@ -360,7 +360,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-006 Resizable ref column
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P1
 - **Depends on:** GC-001
 - **Why:** `--ref-col-w` is fixed at 150px and long single branch names clip. GitKraken lets
@@ -379,6 +379,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   `src/renderer/src/styles/tokens.css`.
 - **Verify:** build, screenshots.
 - **Log:**
+  - 2026-09-05 16:22 claimed
 
 ### GC-007 Preferences page with Gravatar toggle
 
