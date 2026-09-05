@@ -111,7 +111,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | done |
 | GC-006 | Resizable ref column | graph | M | P1 | done |
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | done |
-| GC-008 | Remote add, edit and remove | actions | M | P2 | todo |
+| GC-008 | Remote add, edit and remove | actions | M | P2 | in-progress |
 | GC-009 | Commit search | graph | M | P2 | todo |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
@@ -443,7 +443,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-008 Remote add, edit and remove
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** M | **Priority:** P2
 - **Depends on:** GC-003
 - **Why:** Remotes are listed but cannot be managed. Needed before a push-capable workflow is
@@ -462,6 +462,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   `src/shared/types.ts`, `LeftPanel.tsx`, `App.tsx`, `tools/e2e/run.mjs`.
 - **Verify:** e2e.
 - **Log:**
+  - 2026-09-05 16:44 claimed
 
 ### GC-009 Commit search
 
