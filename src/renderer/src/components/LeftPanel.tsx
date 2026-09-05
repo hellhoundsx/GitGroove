@@ -1,5 +1,5 @@
 import { useMemo, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
-import { Archive, Check, ChevronRight, Cloud, GitBranch, Laptop, PanelLeftClose, Tag, type LucideIcon } from 'lucide-react';
+import { Archive, Check, ChevronRight, Cloud, GitBranch, Laptop, PanelLeftClose, Pin, Tag, type LucideIcon } from 'lucide-react';
 import type { GitRef, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
 
@@ -7,6 +7,7 @@ interface Props {
   refs: GitRef[];
   stashes: Stash[];
   remotes: Remote[];
+  pinnedName: string | null; // local branch pinned to the graph's left column
   collapsed: boolean;
   onExpand(): void;
   onCollapse(): void;
@@ -107,12 +108,13 @@ export function LeftPanel(p: Props): JSX.Element {
             <div
               key={r.fullName}
               className={`ref-row ${r.isHead ? 'head' : ''}`}
-              title={r.upstream ? `${r.name} tracks ${r.upstream}` : r.name}
+              title={`${r.upstream ? `${r.name} tracks ${r.upstream}` : r.name}${r.name === p.pinnedName ? '\npinned to the left column' : ''}`}
               onContextMenu={(e) => p.onRefMenu(e, r)}
               onDoubleClick={() => p.onRefActivate(r)}
             >
               <Icon of={r.isHead ? Check : GitBranch} size={12} className="row-icon" />
               <span className="row-name">{r.name}</span>
+              {r.name === p.pinnedName && <Icon of={Pin} size={11} className="row-pin" />}
               <span className="ab">{abText(r)}</span>
             </div>
           ))}

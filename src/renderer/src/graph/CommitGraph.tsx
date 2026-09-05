@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react';
-import { Check, Cloud, Minus, Pencil, Plus, Tag, TriangleAlert } from 'lucide-react';
+import { Check, Cloud, Minus, Pencil, Pin, Plus, Tag, TriangleAlert } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus } from '@shared/types';
 import { layoutGraph, type RowLayout } from './lanes';
 import { GraphCell, LANE_W, ROW_H, laneColor, type WipDash } from './GraphCell';
@@ -11,6 +11,8 @@ interface Props {
   refs: GitRef[];
   status: RepoStatus | null;
   headSha: string | null;
+  pinnedSha: string | null; // branch pinned to column 0; HEAD's lineage takes it when null
+  pinnedName: string | null; // name of that branch, for the pin marker on its chip
   selected: string | null; // sha, or WIP
   onSelect(sha: string): void;
   onCommitMenu(e: MouseEvent, commit: Commit): void;
@@ -38,8 +40,9 @@ function chipsFor(refs: GitRef[]): Chip[] {
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
-export function CommitGraph({ commits, refs, status, headSha, selected, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate }: Props): JSX.Element {
-  const layout = useMemo(() => layoutGraph(commits, headSha), [commits, headSha]);
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate }: Props): JSX.Element {
+  // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
+  const layout = useMemo(() => layoutGraph(commits, pinnedSha ?? headSha), [commits, headSha, pinnedSha]);
   const refsBySha = useMemo(() => {
     const m = new Map<string, GitRef[]>();
     for (const r of refs) {
@@ -100,11 +103,13 @@ export function CommitGraph({ commits, refs, status, headSha, selected, onSelect
     else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
   }, [selected, commits, hasWip]);
 
-  const renderChip = ({ ref: r, upstreamHere }: Chip, color: string): JSX.Element => (
+  const renderChip = ({ ref: r, upstreamHere }: Chip, color: string): JSX.Element => {
+    const isPinned = r.kind === 'head' && r.name === pinnedName;
+    return (
     <span
       key={r.fullName}
       className={`ref-chip ${r.kind} ${r.isHead ? 'head' : ''}`}
-      title={`${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}\nDouble-click to checkout, right-click for actions`}
+      title={`${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions`}
       style={r.kind === 'tag' ? undefined : { background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` }}
       onContextMenu={(e) => {
         e.stopPropagation();
@@ -115,13 +120,15 @@ export function CommitGraph({ commits, refs, status, headSha, selected, onSelect
         onRefActivate(r);
       }}
     >
+      {isPinned && <Icon of={Pin} size={11} className="chip-icon pinned" />}
       {r.isHead && <Icon of={Check} size={11} className="chip-icon" />}
       {r.kind === 'tag' && <Icon of={Tag} size={11} className="chip-icon" />}
       {r.kind === 'remote' && <Icon of={Cloud} size={11} className="chip-icon" />}
       <span className="chip-name">{r.name}</span>
       {upstreamHere && <Icon of={Cloud} size={11} className="chip-icon trailing" />}
     </span>
-  );
+    );
+  };
 
   const renderRow = (index: number): JSX.Element | null => {
     const style = { top: index * ROW_H };

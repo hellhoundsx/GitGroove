@@ -110,6 +110,31 @@ describe('layoutGraph', () => {
     expect(row(pinned.rows, 'head').lane).toBe(1);
   });
 
+  it('keeps both lines continuous when a side branch is pinned', () => {
+    // GC-005: pinning `side` must move its whole lineage to column 0 and push HEAD's to lane 1,
+    // with neither line breaking or forking before the row where they actually meet.
+    const commits = [
+      commit('h2', 'h1'),
+      commit('s2', 's1'),
+      commit('h1', 'base'),
+      commit('s1', 'base'),
+      commit('base'),
+    ];
+    const { rows, laneCount } = layoutGraph(commits, 's2');
+    expect(laneCount).toBe(2);
+
+    expect([row(rows, 's2').lane, row(rows, 's1').lane]).toEqual([0, 0]);
+    expect([row(rows, 'h2').lane, row(rows, 'h1').lane]).toEqual([1, 1]);
+    // No line is handed over early: every row keeps its own lane down to the shared parent.
+    expect(rows.every((r) => r.outgoing.length === 0)).toBe(true);
+    expect(row(rows, 's2').through).toEqual([{ lane: 1, color: 1 }]);
+    expect(row(rows, 'h1').through).toEqual([{ lane: 0, color: 0 }]);
+    // They join on `base`, which sits in the pinned column.
+    const base = row(rows, 'base');
+    expect(base.lane).toBe(0);
+    expect(base.incoming).toEqual([{ lane: 1, color: 1 }]);
+  });
+
   it('ignores a pinned sha that is not in the loaded commits', () => {
     const commits = [commit('c2', 'c1'), commit('c1')];
     expect(layoutGraph(commits, 'nope')).toEqual(layoutGraph(commits));

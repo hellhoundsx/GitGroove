@@ -101,8 +101,9 @@ CDP_PORT=9333 node tools/gk-recon/cdp.mjs 0 eval load.js
 # load.js: localStorage.setItem('gitclient.lastRepo', 'C:/path/to/repo'); setTimeout(() => location.reload(), 50)
 ```
 
-The app remembers the last repository in `localStorage` (`gitclient.lastRepo`) and the pull
-mode (`gitclient.pullMode`).
+The app remembers the last repository in `localStorage` (`gitclient.lastRepo`), the pull
+mode (`gitclient.pullMode`) and the branch pinned to the graph's left column, per repository
+(`gitclient.pinned.<repoPath>`, the branch name).
 
 ## tools/gk-recon/cdp.mjs (DevTools driver)
 
@@ -197,6 +198,8 @@ renderer goes through `useUi().confirm` (GC-003); the native `confirm()` is not 
   fork to an existing lane awaiting them or open a new one.
 - **Column 0 is reserved for HEAD's lineage** by seeding `active[0] = headSha` before the loop,
   so the checked-out branch is always the leftmost straight line and the WIP node sits above it.
+  "Pin to Left" (the ref menu, GC-005) passes another branch's sha instead; the WIP node and its
+  dashed link follow HEAD into whatever lane it lands in.
 - **No early forking**: when two lines share a parent they both continue until the parent's row.
   Forking early handed the checked-out branch's line to a side branch (the bug that split master
   at 1.86.1 on catena-feed). Do not reintroduce it.
@@ -301,7 +304,8 @@ with upstream setup; stash save/apply/pop/drop; tags; remotes listing; context m
 in-progress operation banner with abort; conflicted files group; icon set; Open Sans; palette
 calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite; vitest unit
 tests for `parseDiff.ts` and `lanes.ts` (GC-002); every confirmation on the styled modal (GC-003);
-the dirty-tree checkout guard with "Stash and check out" (GC-004).
+the dirty-tree checkout guard with "Stash and check out" (GC-004); "Pin to Left" giving any local
+branch the leftmost column, remembered per repository (GC-005).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

@@ -284,6 +284,10 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ref-row .row-pin {
+  flex: none;
+  color: var(--accent);
+}
 .left-panel .viewing .icon-btn {
   margin-left: -6px;
 }
@@ -440,6 +444,10 @@ textarea:focus {
 }
 .ref-chip .chip-icon.trailing {
   opacity: 0.6;
+}
+/* the pinned branch keeps its marker at full strength, it is the reason column 0 looks as it does */
+.ref-chip .chip-icon.pinned {
+  opacity: 1;
 }
 /* hovering a chip lets it grow to its full name, overlapping the graph like a tooltip; the cell
    stops clipping while hovered so the expanded chip and the +N list can spill over */

@@ -12,6 +12,8 @@ import type { MenuItem } from './ui/ContextMenu';
 
 const LAST_REPO_KEY = 'gitclient.lastRepo';
 const PULL_MODE_KEY = 'gitclient.pullMode';
+/** The pinned branch is per repository, so the key carries the path. */
+const pinKey = (path: string): string => `gitclient.pinned.${path}`;
 const MAX_COMMITS = 2000;
 
 const isEditable = (t: EventTarget | null): boolean => t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
@@ -48,6 +50,7 @@ export function App(): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
   const [error, setError] = useState<string | null>(null);
   const [pullMode, setPullMode] = useState<PullMode>(readPullMode);
+  const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
 
   const load = useCallback(async (path: string) => {
     try {
@@ -86,6 +89,33 @@ export function App(): JSX.Element {
   }, [load]);
 
   const repo = snapshot?.info.path ?? null;
+
+  // The pin follows the repository, so re-read it whenever a different one is loaded.
+  useEffect(() => {
+    if (!repo) {
+      setPinned(null);
+      return;
+    }
+    try {
+      setPinned(localStorage.getItem(pinKey(repo)));
+    } catch {
+      setPinned(null);
+    }
+  }, [repo]);
+
+  const pinBranch = useCallback(
+    (name: string | null) => {
+      setPinned(name);
+      if (!repo) return;
+      try {
+        if (name === null) localStorage.removeItem(pinKey(repo));
+        else localStorage.setItem(pinKey(repo), name);
+      } catch {
+        /* ignore */
+      }
+    },
+    [repo],
+  );
 
   /** Re-read the working directory status after a mutation. */
   const refreshStatus = useCallback(async () => {
@@ -168,6 +198,9 @@ export function App(): JSX.Element {
   const selectedCommit = useMemo(() => (selected && selected !== WIP ? commits.find((c) => c.sha === selected) ?? null : null), [commits, selected]);
   const headCommit = useMemo(() => (snapshot?.info.headSha ? commits.find((c) => c.sha === snapshot.info.headSha) ?? null : null), [commits, snapshot]);
   const headRef = useMemo(() => snapshot?.refs.find((r) => r.isHead) ?? null, [snapshot]);
+  // Resolved on every snapshot so the pinned lane follows the branch as it gains commits; a pin on a
+  // branch that no longer exists simply stops resolving and column 0 goes back to HEAD's lineage.
+  const pinnedRef = useMemo(() => (pinned ? snapshot?.refs.find((r) => r.kind === 'head' && r.name === pinned) ?? null : null), [pinned, snapshot]);
   const currentBranch = snapshot?.info.branch ?? null;
 
   const select = useCallback((sha: string) => {
@@ -279,6 +312,14 @@ export function App(): JSX.Element {
       items.push({ separator: true });
       items.push({ label: `Create branch from ${r.name}…`, onClick: () => createBranchAt(r.name, r.name) });
       if (r.kind === 'head') {
+        const isPinned = r.name === pinned;
+        items.push({ separator: true });
+        items.push({
+          label: isPinned ? 'Unpin from Left' : 'Pin to Left',
+          hint: isPinned ? 'give column 0 back to the checked-out branch' : 'keep this branch in the leftmost column',
+          onClick: () => pinBranch(isPinned ? null : r.name),
+        });
+        items.push({ separator: true });
         items.push({
           label: `Rename ${r.name}…`,
           onClick: async () => {
@@ -298,7 +339,7 @@ export function App(): JSX.Element {
       items.push({ label: 'Copy branch name', onClick: () => void navigator.clipboard.writeText(r.name) });
       return items;
     },
-    [checkoutRef, createBranchAt, currentBranch, deleteBranch, repo, run, snapshot, ui],
+    [checkoutRef, createBranchAt, currentBranch, deleteBranch, pinBranch, pinned, repo, run, snapshot, ui],
   );
 
   const commitMenuItems = useCallback(
@@ -438,6 +479,7 @@ export function App(): JSX.Element {
               refs={snapshot.refs}
               stashes={snapshot.stashes}
               remotes={snapshot.remotes}
+              pinnedName={pinnedRef?.name ?? null}
               collapsed={leftCollapsed || fileView !== null}
               onExpand={() => (fileView ? setFileView(null) : setLeftCollapsed(false))}
               onCollapse={() => setLeftCollapsed(true)}
@@ -464,6 +506,8 @@ export function App(): JSX.Element {
                 refs={snapshot.refs}
                 status={snapshot.status}
                 headSha={snapshot.info.headSha}
+                pinnedSha={pinnedRef?.sha ?? null}
+                pinnedName={pinnedRef?.name ?? null}
                 selected={selected}
                 onSelect={select}
                 onCommitMenu={(e, c) => onMenu(e, commitMenuItems(c))}

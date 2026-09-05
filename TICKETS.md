@@ -108,19 +108,21 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | done |
 | GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | done |
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | done |
-| GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | in-progress |
+| GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | done |
 | GC-006 | Resizable ref column | graph | M | P1 | todo |
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | todo |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | todo |
 | GC-009 | Commit search | graph | M | P2 | todo |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
+| GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | todo |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
+| GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
 
@@ -304,7 +306,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-005 Pin to Left: any branch can take column 0
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** M | **Priority:** P1
 - **Depends on:** GC-002
 - **Why:** GitKraken offers "Pin to Left" on a branch so its lineage becomes the straight
@@ -319,16 +321,42 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - A small pin icon on the pinned chip (lucide `Pin`).
 - **Out of scope:** pinning tags or remotes.
 - **Acceptance:**
-  - [ ] Pinning a side branch moves its line to column 0 and HEAD's line to another lane with no
+  - [x] Pinning a side branch moves its line to column 0 and HEAD's line to another lane with no
     line breaks or early forks.
-  - [ ] Restarting the app keeps the pin for that repo.
-  - [ ] A lanes unit test covers a pinned sha that is not HEAD.
-  - [ ] Screenshot in `docs/screenshots/pin-to-left.png` checked by eye for lane continuity.
+  - [x] Restarting the app keeps the pin for that repo.
+  - [x] A lanes unit test covers a pinned sha that is not HEAD.
+  - [x] Screenshot in `docs/screenshots/pin-to-left.png` checked by eye for lane continuity.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/graph/lanes.ts`,
   `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/components/LeftPanel.tsx`.
 - **Verify:** `npm test`, build, screenshot against the e2e repo.
 - **Log:**
   - 2026-09-05 16:12 claimed
+  - 2026-09-05 16:40 done. `lanes.ts` needed no change: `layoutGraph(commits, pinnedSha)` already
+    seeds column 0 with any sha, so the whole ticket is UI and persistence. `App.tsx` holds the
+    pinned **branch name** in state, reads it from `gitclient.pinned.<repoPath>` in an effect keyed
+    on the loaded repository and resolves it against `snapshot.refs` on every snapshot, so the lane
+    follows the branch as it gains commits and a pin on a branch that no longer exists simply stops
+    resolving (column 0 goes back to HEAD). `CommitGraph` takes `pinnedSha` (used as
+    `layoutGraph(commits, pinnedSha ?? headSha)`) and `pinnedName` (the lucide `Pin` marker on the
+    chip); `LeftPanel` takes `pinnedName` for the same marker on the branch row. The ref menu gets
+    "Pin to Left" / "Unpin from Left" in its own group, for local branches only, and because both
+    the chips and the left-panel rows already build their menu from `refMenuItems` the entry
+    appears in both places for free.
+    Verified: `npm run typecheck` clean, `npm run build` clean, `npm test` 23/23 — one new lanes
+    test ("keeps both lines continuous when a side branch is pinned") asserts the pinned lineage in
+    lane 0, HEAD's in lane 1, no `outgoing` segment anywhere (the no-early-forking guard under a
+    pin) and the join on the shared parent. `npm run e2e:setup && npm run e2e` re-run because the
+    ref menu changed: 29/29 assertions still pass (the e2e helpers click menu items by label, so
+    the added entry and separators are invisible to them). The UI was then driven over CDP against
+    the e2e repo: pinning `wip-branch` from its chip menu moved it to lane 0 (node cx 18) and
+    `main` to lane 1 (cx 38), put the marker on both the chip and the left-panel row, wrote
+    `gitclient.pinned.<path>=wip-branch`, survived a reload, and unpinning from the left-panel row
+    menu gave column 0 back to `main` and removed the key — 9 checks, all passed. A row-by-row dump
+    of the rendered SVG confirmed every pass-through lane draws a full-height line and no row forks
+    early. Screenshots looked at: `docs/screenshots/pin-to-left.png` (whole window, pinned) and
+    `pin-to-left-graph.png` (2x close-up of the ref and graph columns).
+    Noted for later: a pinned chip can be folded into the `+N` list because chip order still ranks
+    by kind (GC-020), and renaming the pinned branch silently drops the pin (GC-021).
 
 ### GC-006 Resizable ref column
 
@@ -617,6 +645,56 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-004 (this ticket): implementing the guard exactly as GC-004
     specified made an untracked-only tree prompt, which the e2e step 15 dirty case relies on and
     which is measurably noise in real use.
+
+### GC-020 Keep the pinned branch's chip visible when chips fold
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-005
+- **Why:** `CommitGraph` shows at most `MAX_CHIPS = 2` chips and folds the rest behind `+N`, in an
+  order that ranks HEAD, then tracking locals, then other locals, then remotes, then tags. A pinned
+  branch with no upstream therefore falls behind a tracking local and can end up inside the `+N`
+  dropdown, where its pin marker — the explanation for why column 0 looks the way it does — is
+  invisible until the user hovers.
+- **Scope:**
+  - In the `rank` function used to sort `refsBySha`, place the pinned branch immediately after
+    HEAD (and keep it first when it *is* HEAD).
+  - No change to `MAX_CHIPS` or to the folding behaviour itself; that is GC-006.
+- **Out of scope:** pinning tags or remotes, the width-aware fold in GC-006.
+- **Acceptance:**
+  - [ ] On a commit carrying HEAD, a tracking local and the pinned branch, the pinned chip is one
+    of the two shown and its pin marker is visible without hovering.
+  - [ ] Unpinning restores the previous order.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`.
+- **Verify:** build, screenshot of a commit with three or more refs, one of them pinned.
+- **Log:**
+  - 2026-09-05 proposed by GC-005 (this ticket): the pin marker is the only on-screen explanation
+    for the leftmost lane, and the current chip order can hide it.
+
+### GC-021 The pin follows a renamed branch and is dropped with a deleted one
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-005
+- **Why:** The pin is stored by branch name. Renaming the pinned branch from inside the app leaves
+  the stored name dangling, so the graph silently reverts to HEAD in column 0 and the user has to
+  pin again; deleting it leaves a key in `localStorage` that never resolves and is never cleaned up.
+- **Scope:**
+  - After a successful rename in `refMenuItems`, if the renamed branch was pinned, re-pin it under
+    the new name.
+  - After a successful local branch delete, if that branch was pinned, clear the pin and its
+    `localStorage` key.
+  - Both go through the existing `pinBranch` helper; no new storage shape.
+- **Out of scope:** detecting renames made outside the app (that needs GC-011's watcher, and the
+  pin already degrades safely to HEAD there).
+- **Acceptance:**
+  - [ ] Renaming the pinned branch keeps its lineage in column 0 and the key holds the new name.
+  - [ ] Deleting the pinned branch removes `gitclient.pinned.<repoPath>`.
+- **Files:** `src/renderer/src/App.tsx`.
+- **Verify:** build, then drive both paths against the e2e repo and read the key back.
+- **Log:**
+  - 2026-09-05 proposed by GC-005 (this ticket): noticed while wiring the pin through the ref menu,
+    which is the same menu that renames and deletes the branch.
 
 ---
 
