@@ -300,7 +300,10 @@ criteria, files and verification steps. The "Routine protocol" section at the to
 is what a scheduled session follows: it fires every few minutes, exits immediately if any ticket
 is `in-progress`, otherwise claims the first eligible `todo`, commits and pushes the claim to
 `main` first (that is the lock), implements, verifies, then commits and pushes with the ticket
-set to `done` or `blocked`. One ticket in flight at any time. Do not keep a second roadmap here;
+set to `done` or `blocked`. One ticket in flight at any time. A second scheduled task, the
+hourly backlog reviewer, reads what shipped, checks health and the running app against the
+study, and adds `GC` tickets; its own `GR-0NN` review tickets live in the Reviews section of
+`TICKETS.md` and share the same lock. Do not keep a second roadmap here;
 when a ticket ships, update the "Done" paragraph above and the ticket file, not a list in this
 section.
 

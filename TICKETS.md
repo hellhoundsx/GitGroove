@@ -12,7 +12,7 @@ GitKraken, never copy it; never run write operations against Ricardo's real repo
 | Status | Meaning | Who sets it |
 | --- | --- | --- |
 | `todo` | Ready to start. Scope and acceptance criteria are written down. | Ricardo (or a session adding a ticket) |
-| `in-progress` | Claimed by one session. Its presence tells every other run to exit. | The session that claims it |
+| `in-progress` | Claimed by one session (a `GC` ticket or a `GR` review). Its presence tells every other run to exit. | The session that claims it |
 | `done` | Implemented, verified, committed and pushed. | The session that finished it |
 | `blocked` | Cannot proceed without a decision, a design or another ticket. Reason is in the log. | Anyone |
 
@@ -28,15 +28,17 @@ one ticket and stays alive until that ticket is `done` or `blocked`, committed a
    non-fast-forward), stop and report; never work while pushes cannot land. Then
    `git status --porcelain` must be empty. If it is not, a previous run died mid-work: stop and
    report, do not clean up.
-2. **Lock check.** If any ticket is `in-progress`, exit without doing anything. Another run owns
-   it. (If its claim line is older than six hours, mention it in the report so Ricardo can
+2. **Lock check.** If any ticket or review (`GR-0NN`, see "Review routine") is `in-progress`
+   anywhere in this file, exit without doing anything. Another run owns it. (If its claim line is older than six hours, mention it in the report so Ricardo can
    inspect; still do not take it over.)
 3. **Pick.** The first board row that is `todo` and whose `Depends on` tickets are all `done`.
    Any size. If nothing is eligible, exit.
 4. **Claim, commit, push.** Set the ticket to `in-progress`, update the board row, append a log
    line `YYYY-MM-DD HH:MM claimed`, then commit only that change and push it:
    `git commit -am "GC-0NN: claim" && git push origin main`. This is the first commit of
-   every working run; the lock is on `main` before any code changes exist.
+   every working run; the lock is on `main` before any code changes exist. If that push is
+   rejected as non-fast-forward, another run claimed first: `git reset --hard origin/main`
+   discards the unpublished claim, then stop and report.
 5. **Implement** within the ticket's scope. Do not widen it. If something adjacent needs doing,
    add a new `todo` ticket at the end of the file instead.
 6. **Verify.** `npm run typecheck && npm run build` always. `npm test` once GC-002 exists.
@@ -44,16 +46,22 @@ one ticket and stays alive until that ticket is `done` or `blocked`, committed a
    `App.tsx` or the DetailPanel. For UI changes, launch the built app, load the e2e repo, take a
    CDP screenshot to `docs/screenshots/` and look at it before calling it done. Tick the
    acceptance boxes only for items actually checked.
-7. **Close out, commit, push.** Set the ticket to `done` (or `blocked` with a one-line reason),
+7. **Reflect.** Before closing, list what you noticed during the work that needs fixing or
+   deserves work but was outside scope: bugs, missing tests, UX gaps against the GitKraken
+   study, convention drift from `CLAUDE.md`. Add each as a new `todo` ticket with the full
+   template, a board row at the position its priority deserves (bugs are P0 or P1) and a log
+   line `proposed by GC-0NN (this ticket): <reason>`. Deduplicate against existing tickets
+   first. Zero new tickets is fine; never more than three per run.
+8. **Close out, commit, push.** Set the ticket to `done` (or `blocked` with a one-line reason),
    update the board row, append a log line saying what was done and how it was verified. Update
    `CLAUDE.md` if a convention, command or the roadmap changed. Then
    `git add -A && git commit -m "GC-0NN: <ticket title>" && git push origin main`.
-   Intermediate commits during the work are fine; the final one must leave no ticket
-   `in-progress`.
-8. **Report** the ticket id, its final status and the commit shas.
+   Intermediate commits during the work are fine; the final one must leave no `in-progress`
+   line anywhere in this file.
+9. **Report** the ticket id, its final status, the commit shas and any tickets added in step 7.
 
 Commit message format: `GC-0NN: <imperative summary>`. The routine never checks out another
-branch, never rewrites history and never force-pushes. Run every git command with
+branch, never rewrites published history and never force-pushes. Run every git command with
 `GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`: pushing relies on a GitHub token already
 stored in Git Credential Manager, and an unattended run cannot answer a sign-in window. If a
 push is rejected for authentication, leave the commits local, say so in the report, do not retry.
@@ -64,6 +72,33 @@ Ready-to-paste routine prompt:
 > "Routine protocol" in `TICKETS.md` exactly. If a ticket is already `in-progress`, exit and
 > say so. Otherwise take one ticket through to `done` or `blocked`, committed and pushed on
 > `main`, and report the ticket id, final status and commit shas.
+
+## Review routine (hourly backlog reviewer)
+
+A second scheduled session, `gitclient-backlog-review`, fires once an hour and plays product
+owner. It never implements anything. It uses the same lock: if any `in-progress` line exists it
+exits; otherwise it claims by adding a review ticket `GR-0NN` with status `in-progress` to the
+Reviews section at the end of this file, commits and pushes that claim, and only then works.
+Review tickets have no board row and are never picked by the ticket routine.
+
+What a review does, time-boxed to about twenty minutes:
+
+- Reads every `GC` commit since the previous review (`git log`, `git show`) as a reviewer:
+  bugs, weak tests, scope creep, drift from `CLAUDE.md`, acceptance boxes ticked without
+  evidence in the ticket log.
+- Runs `npm run typecheck`, `npm test` and `npm run build`; any failure becomes a P0 bug ticket.
+- Builds and launches the app on the e2e repo, screenshots the graph, a commit, the staging view
+  and a diff into `%TEMP%/gitclient-review/GR-0NN/` (never into the repository), looks at them
+  and compares against `docs/reference/gitkraken/`.
+- Checks backlog hygiene: `blocked` tickets that can now be unblocked, `todo` tickets that are
+  no longer concrete, wrong dependencies, board order.
+
+It then adds zero to five `GC` tickets with the full template and a log line
+`proposed by GR-0NN: <reason>`, may extend the scope of an existing `todo` ticket instead of
+duplicating it, may reorder `todo` board rows (reason in the review log), and never changes
+any status except its own review ticket's. It closes by setting the review ticket `done` with
+a log of what shipped, health results, screenshots looked at and tickets added, updates the
+"Done" paragraph of `CLAUDE.md` when needed, then commits `GR-0NN: backlog review` and pushes.
 
 ## Board
 
@@ -534,3 +569,12 @@ Copy a section, give it the next `GC-0NN`, fill every field, add a row to the bo
 is only `todo` when its scope, acceptance criteria and verification steps are concrete enough
 that a session with no other context could finish it. Otherwise mark it `blocked` and say what
 decision is missing.
+
+---
+
+## Reviews
+
+Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
+`GR-0NN`, never appear on the board and are never picked by the ticket routine; their
+`in-progress` status is the same lock the worker respects. Each review appends its own section
+here.
