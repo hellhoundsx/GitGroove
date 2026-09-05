@@ -224,12 +224,12 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | done |
 | GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | done |
 | GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | done |
-| GC-077 | Branch lines join and leave a node at a right angle, not on a diagonal | graph | M | P1 | todo |
-| GC-078 | The ref column shows exactly one chip, every other ref folds into +N | graph | S | P1 | todo |
-| GC-079 | Custom scrollbars: 8px flat thumb, no track, no arrow buttons | ui | S | P1 | todo |
-| GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
-| GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
-| GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | todo |
+| GC-077 | Branch lines join and leave a node at a right angle, not on a diagonal | graph | M | P1 | in-progress |
+| GC-078 | The ref column shows exactly one chip, every other ref folds into +N | graph | S | P1 | in-progress |
+| GC-079 | Custom scrollbars: 8px flat thumb, no track, no arrow buttons | ui | S | P1 | in-progress |
+| GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | in-progress |
+| GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | in-progress |
+| GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | in-progress |
 | GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
@@ -2421,7 +2421,7 @@ decision is missing.
 
 ### GC-049 Branch context menu is missing its tip-commit actions, mainly Reset
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** Ricardo right-clicked a local branch row in GitKraken's left panel (not the currently
@@ -2484,6 +2484,7 @@ decision is missing.
   - 2026-09-05 requested by Ricardo with a screenshot of GitKraken's left-panel branch menu;
     checked against the existing `docs/reference/gitkraken/05-menus-shortcuts.md` notes and the
     current `refMenuItems` / `commitMenuItems` split in `App.tsx` before writing this ticket.
+  - 2026-09-06 01:54 claimed
 
 ### GC-050 Resizable left and detail panels, widths remembered
 
@@ -2835,7 +2836,7 @@ decision is missing.
 
 ### GC-061 A detached HEAD has no marker in the graph
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-020
 - **Why:** With `git checkout --detach HEAD~1` in the scratch repository and a Refresh, the
@@ -2878,6 +2879,7 @@ decision is missing.
   - 2026-09-05 proposed by GR-004: detaching HEAD in the scratch repository left the graph with
     no indication of the checked-out commit; the breadcrumb says "detached HEAD" and nothing
     says where.
+  - 2026-09-06 01:54 claimed
 
 ### GC-062 The e2e suite never commits through the commit form or stages a hunk
 
@@ -3287,7 +3289,7 @@ decision is missing.
 
 ### GC-069 The body preview takes width from the summary in a narrow message column
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-032
 - **Why:** `.col-msg` lays out `.summary` and `.body` as two flex items that both ellipsise, each
@@ -3320,6 +3322,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 22:23 proposed by GR-005: switching GC-032's columns on made the message column
     narrow enough to show the body preview outliving the summary on every long-bodied commit.
+  - 2026-09-06 01:54 claimed
 
 ### GC-070 Tests for tools/ live under src/renderer/src
 
@@ -3739,7 +3742,7 @@ decision is missing.
 
 ### GC-077 Branch lines join and leave a node at a right angle, not on a diagonal
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P1
 - **Depends on:** GC-002
 - **Why:** Ricardo, reviewing the graph on 2026-09-06: a line that comes out of a branch and joins
@@ -3794,10 +3797,11 @@ decision is missing.
 - **Log:**
   - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session; the diagonal
     confirmed on the worktree build's 4x clip of the catena-feed `v1.86.0` row.
+  - 2026-09-06 01:54 claimed
 
 ### GC-078 The ref column shows exactly one chip, every other ref folds into +N
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P1
 - **Depends on:** GC-020, GC-058
 - **Why:** Ricardo, 2026-09-06: the BRANCH / TAG column shows one item per commit, always. On
@@ -3839,10 +3843,11 @@ decision is missing.
 - **Log:**
   - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session, with the
     catena-feed `1.86.1` row as the example; the three-chip render confirmed on the worktree build.
+  - 2026-09-06 01:54 claimed
 
 ### GC-079 Custom scrollbars: 8px flat thumb, no track, no arrow buttons
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** Ricardo, 2026-09-06: custom scrollbars wherever we can. Every scroll container in the
@@ -3880,6 +3885,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session; the 15px
     default bar with buttons measured and looked at on the worktree build.
+  - 2026-09-06 01:54 claimed
 
 ### GC-080 The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead
 
