@@ -140,7 +140,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | done |
 | GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
-| GC-024 | Unit tests for prefs.ts | tests | S | P2 | in-progress |
+| GC-024 | Unit tests for prefs.ts | tests | S | P2 | done |
 | GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | todo |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
@@ -161,6 +161,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | todo |
+| GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | todo |
 | GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
@@ -1144,7 +1145,7 @@ decision is missing.
 
 ### GC-024 Unit tests for prefs.ts
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-007
 - **Why:** `prefs.ts` decides what every other component reads, and its `load()` is the only
@@ -1162,14 +1163,26 @@ decision is missing.
 - **Out of scope:** rendering `Preferences.tsx` (that would need jsdom, which the vitest config
   deliberately does not have).
 - **Acceptance:**
-  - [ ] `npm test` covers all seven cases and passes.
-  - [ ] Deleting the migration branch in `load()` fails at least one test.
+  - [x] `npm test` covers all seven cases and passes.
+  - [x] Deleting the migration branch in `load()` fails at least one test.
 - **Files:** new `src/renderer/src/prefs.test.ts`.
 - **Verify:** `npm test`, `npm run typecheck`.
 - **Log:**
   - 2026-09-05 proposed by GC-007 (this ticket): the migration and the per-field fallbacks were
     checked once by hand over CDP and have no regression guard.
   - 2026-09-05 18:35 claimed
+  - 2026-09-05 18:40 done: `src/renderer/src/prefs.test.ts` adds the seven cases (defaults on
+    empty storage, blob round-trip, per-field fallback with an unknown and a wrongly typed
+    field, malformed JSON, the legacy `gitclient.pullMode` migration writing the blob and
+    removing the key, the legacy key ignored when a blob exists, and `setPrefs` merging,
+    persisting and notifying). `load()` runs at import, so each case seeds a `localStorage`
+    stub and re-imports through `vi.resetModules()`; the subscriber list is reachable only
+    through `usePrefs`, so React's `useSyncExternalStore` is stubbed with `vi.mock` to capture
+    the `subscribe` callback rather than exporting anything new from `prefs.ts`. Verified:
+    `npm test` 37 passed (30 before), `npm run typecheck`, `npm run build`. Mutation-checked by
+    deleting the migration branch in `load()`: the migration case fails, and `prefs.ts` was
+    restored byte-identical afterwards. No e2e and no screenshot: the ticket adds a test file
+    and touches no main-process code, no action and no UI.
 
 ### GC-026 One dialog with several fields instead of chained prompts
 
@@ -1734,6 +1747,45 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-002: the commit view is the one panel where the study keeps the
     working-directory changes visible and ours drops them.
+
+### GC-046 A DOM environment so components can be unit tested
+
+- **Status:** todo
+- **Area:** tests | **Size:** M | **Priority:** P3
+- **Depends on:** none
+- **Why:** `vitest.config.ts` runs one project in the `node` environment, which was right while
+  the only covered modules were pure (`parseDiff`, `lanes`, `shortcuts`, `prefs`). Three tickets
+  have now put work out of scope purely because there is no DOM: GC-002 ("component tests"),
+  GC-024 ("rendering `Preferences.tsx` would need jsdom") and GC-039 ("a jsdom unit test of
+  `App`'s handler"). GC-024 also had to stub React's `useSyncExternalStore` to reach `prefs.ts`'s
+  subscriber list, because the only door to it is a hook. Every behaviour that lives in a
+  component is therefore guarded by the e2e suite alone, which needs a build and a launch.
+- **Scope:**
+  - `jsdom` and `@testing-library/react` (plus `@testing-library/jest-dom` if its matchers are
+    used) as devDependencies, pinned to versions whose peer ranges accept React 19 and Vite 7 —
+    the version constraints in `CLAUDE.md` still hold, nothing may force a Vite or plugin bump.
+  - `vitest.config.ts` gains a second project (or a per-file `environment` override) so
+    `src/**/*.test.ts` keeps running in `node` and `src/**/*.test.tsx` runs in `jsdom` with
+    `@vitejs/plugin-react` applied; `tsconfig.web.json` already covers `.tsx` under
+    `src/renderer/src`.
+  - One proof test, `src/renderer/src/components/Preferences.test.tsx`: render the dialog,
+    toggle the avatars row, assert `getPrefs().avatars` flipped and that the row reflects it.
+  - `CLAUDE.md`'s Testing section documents the split and which file extension picks which
+    environment.
+- **Out of scope:** porting existing e2e steps to component tests, snapshot testing, a coverage
+  threshold, testing `App.tsx` as a whole (it reaches for `window.api`).
+- **Acceptance:**
+  - [ ] `npm test` runs both projects and passes, with the existing 37 node tests untouched.
+  - [ ] `npm run typecheck` passes with the new `.tsx` test included.
+  - [ ] The proof test fails if the Preferences avatars row stops calling `setPrefs`.
+- **Files:** `vitest.config.ts`, `package.json`, new
+  `src/renderer/src/components/Preferences.test.tsx`, `CLAUDE.md`.
+- **Verify:** `npm test`, `npm run typecheck`, `npm run build` (the build must not pick up the
+  new devDependencies).
+- **Log:**
+  - 2026-09-05 proposed by GC-024 (this ticket): writing the `prefs.ts` tests needed a React stub
+    to reach a hook-only subscriber list, and three tickets have already deferred work for want of
+    a DOM environment.
 
 ## Reviews
 

@@ -376,7 +376,7 @@ jsdom and no React plugin in that config. `tsconfig.web.json` already includes t
 `src/renderer/src/**/*`, so `npm run typecheck` type-checks the tests too; import `describe`,
 `it` and `expect` from `vitest` explicitly rather than turning on globals.
 
-Covered today (30 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (37 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -386,6 +386,16 @@ recycled, and `maxLane`). The early-forking guard was mutation-checked: reintrod
 fails three of these tests. `shortcuts.test.ts` guards the binding table: unique ids, Ctrl and
 Cmd both accepted, `?` and Shift+/ but not Ctrl+?, the graph arrows rejecting modifiers so
 Ctrl+ArrowDown does not move the selection, and Enter versus Shift+Enter in the find bar.
+`prefs.test.ts` covers `prefs.ts` (GC-024): the defaults on empty storage, a blob round-trip,
+per-field fallback for an unknown or wrongly typed field, malformed JSON, the legacy
+`gitclient.pullMode` migration writing the blob and removing the old key, that same key ignored
+when a blob already exists, and `setPrefs` merging, persisting and notifying. Two things it has
+to do that a new test in this file should copy: `load()` runs at import time, so a case seeds a
+`localStorage` stub and then re-imports the module through `vi.resetModules()` rather than
+reaching for a reset function; and the subscriber list is reachable only through `usePrefs`, so
+React's `useSyncExternalStore` is stubbed with `vi.mock` to capture the `subscribe` callback,
+which keeps `prefs.ts` free of exports that exist only for tests. Mutation-checked: deleting the
+migration branch in `load()` fails the migration case.
 
 ## Working conventions learned the hard way
 
@@ -411,7 +421,8 @@ with upstream setup; stash save/apply/pop/drop; tags; remotes listed and managed
 rename, remove — GC-008); context menus everywhere;
 in-progress operation banner with abort; conflicted files group; icon set; Open Sans; palette
 calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite; vitest unit
-tests for `parseDiff.ts` and `lanes.ts` (GC-002); every confirmation on the styled modal (GC-003);
+tests for `parseDiff.ts` and `lanes.ts` (GC-002) and for `prefs.ts` (GC-024); every
+confirmation on the styled modal (GC-003);
 the dirty-tree checkout guard with "Stash and check out" (GC-004); "Pin to Left" giving any local
 branch the leftmost column, remembered per repository (GC-005); the resizable ref column with a
 width-aware chip fold (GC-006); the Preferences dialog behind one `gitclient.prefs` key, with
