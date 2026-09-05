@@ -455,8 +455,23 @@ export function App(): JSX.Element {
   const onMenu = useCallback((e: MouseEvent, items: MenuItem[]) => ui.openMenu(e, items), [ui]);
 
   // ---- keyboard ----------------------------------------------------------------------
+  // Every dialog is a layer on top of the app: the shortcuts overlay, Preferences and the
+  // prompt/confirm modal. Escape closes the topmost one and nothing else, which is why no
+  // dialog handles Escape itself.
+  const dialogOpen = shortcutsOpen || prefsOpen || ui.dialogOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // A dialog owns the keyboard while it is up: it closes on Escape (and the overlay also on
+      // `?`), and every other key is swallowed so nothing moves or closes behind it.
+      if (dialogOpen) {
+        if (matches('dialogCancel', e) || (shortcutsOpen && matches('help', e))) {
+          e.preventDefault();
+          if (shortcutsOpen) setShortcutsOpen(false);
+          else if (prefsOpen) setPrefsOpen(false);
+          else ui.closeDialog();
+        }
+        return;
+      }
       // Ctrl+F works from anywhere, including the commit message field
       if (matches('openSearch', e)) {
         if (!snapshot) return;
@@ -466,17 +481,8 @@ export function App(): JSX.Element {
         return;
       }
       if (isEditable(e.target)) return;
-      // The overlay swallows everything except closing itself, so the graph does not scroll
-      // behind it.
-      if (shortcutsOpen) {
-        if (matches('escape', e) || matches('help', e)) {
-          e.preventDefault();
-          setShortcutsOpen(false);
-        }
-        return;
-      }
       if (matches('help', e)) {
-        if (!prefsOpen) setShortcutsOpen(true);
+        setShortcutsOpen(true);
         return;
       }
       if (matches('escape', e)) {
@@ -496,7 +502,7 @@ export function App(): JSX.Element {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [snapshot, selected, search.open, openSearch, closeSearch, shortcutsOpen, prefsOpen]);
+  }, [snapshot, selected, search.open, openSearch, closeSearch, dialogOpen, shortcutsOpen, prefsOpen, ui]);
 
   return (
     <div className="app">

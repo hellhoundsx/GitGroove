@@ -13,12 +13,18 @@ export interface Ui {
   openMenu(at: { clientX: number; clientY: number; preventDefault?(): void }, items: MenuItem[]): void;
   prompt(options: PromptOptions): Promise<PromptResult | null>;
   confirm(options: ConfirmOptions): Promise<boolean>;
+  /** True while a prompt or confirm modal is up, so `App` knows a dialog owns the keyboard. */
+  dialogOpen: boolean;
+  /** Cancels the open modal, resolving it with `null`. A no-op when none is open. */
+  closeDialog(): void;
 }
 
 const noop: Ui = {
   openMenu: () => undefined,
   prompt: async () => null,
   confirm: async () => false,
+  dialogOpen: false,
+  closeDialog: () => undefined,
 };
 
 const UiContext = createContext<Ui>(noop);
@@ -57,7 +63,13 @@ export function UiProvider({ children }: { children: ReactNode }): JSX.Element {
     [prompt],
   );
 
-  const value = useMemo<Ui>(() => ({ openMenu, prompt, confirm }), [openMenu, prompt, confirm]);
+  // Escape is handled once, in `App`, for every layer; the modal only has to say it is there
+  // and offer a way to cancel it.
+  const closeDialog = useCallback(() => modal?.resolve(null), [modal]);
+  const value = useMemo<Ui>(
+    () => ({ openMenu, prompt, confirm, dialogOpen: modal !== null, closeDialog }),
+    [openMenu, prompt, confirm, modal, closeDialog],
+  );
   const closeMenu = useCallback(() => setMenu(null), []);
 
   return (

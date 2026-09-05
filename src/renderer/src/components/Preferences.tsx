@@ -41,8 +41,9 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
+      // Escape is `App`'s job, so it closes this dialog and nothing behind it.
       onKeyDown={(e) => {
-        if (matches('dialogCancel', e) || matches('dialogConfirm', e)) onClose();
+        if (matches('dialogConfirm', e)) onClose();
       }}
     >
       <div className="modal prefs" role="dialog" aria-modal="true" aria-labelledby="prefs-title">

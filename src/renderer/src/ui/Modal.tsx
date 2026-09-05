@@ -56,8 +56,9 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onResolve(null);
       }}
+      // Escape is not handled here: `App`'s window listener closes the topmost layer, so one
+      // keystroke never also closes the diff or the find bar behind this dialog.
       onKeyDown={(e) => {
-        if (matches('dialogCancel', e)) onResolve(null);
         if (matches('dialogConfirm', e) && !(e.target instanceof HTMLTextAreaElement)) {
           e.preventDefault();
           ok();

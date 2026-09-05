@@ -191,10 +191,16 @@ must show (conflicts, an empty cherry-pick). `msg()` strips Electron's IPC prefi
 Staging actions are exposed to the DetailPanel as `StagingActions`; menus are built by
 `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`, `remoteMenuItems`.
 
-Keyboard: ArrowUp/Down move the selection across WIP + commits, Escape closes the shortcuts
-overlay, then the search bar, then the file view, Ctrl+F opens the graph's commit search (from
-anywhere, including the commit form) and `?` opens the shortcuts overlay. The search bar's open
-flag lives in `App.tsx` as `{ open, tick }`: `tick` changes on every request to open it so a
+Keyboard: ArrowUp/Down move the selection across WIP + commits, Ctrl+F opens the graph's commit
+search (from anywhere, including the commit form) and `?` opens the shortcuts overlay.
+**Escape closes exactly one layer** (GC-034), decided in one place: `App.tsx` computes
+`dialogOpen = shortcutsOpen || prefsOpen || ui.dialogOpen`, and while a dialog is up its window
+handler closes the topmost one (the overlay also on `?`) and swallows every other key, so the
+graph does not move and the diff does not close behind it; with no dialog, Escape closes the
+search bar, then the file view. No dialog handles Escape itself — `Modal` and `Preferences`
+only keep `dialogConfirm`, and `UiProvider` exposes `dialogOpen`/`closeDialog()` so `App` can
+see and cancel the modal it owns. The context menu is still outside this (GC-037). The search
+bar's open flag lives in `App.tsx` as `{ open, tick }`: `tick` changes on every request to open it so a
 second Ctrl+F refocuses a bar that is already showing. **No handler compares a key name of its
 own** (GC-010): every one asks `matches(id, event)` from `src/renderer/src/shortcuts.ts`.
 Double-clicking a branch chip or a left-panel branch row checks it out (matches GitKraken).
@@ -207,7 +213,8 @@ pop, all inside one `run()`; the stash is popped back if the checkout itself fai
 
 `UiProvider` gives `useUi()` with `openMenu(event, items)` (DOM context menu, viewport-clamped,
 closes on outside click / Escape / wheel / resize), `prompt(options)` (modal with optional text
-input and checkbox, resolves `{ value, checked, choice }` or null) and `confirm(options)`.
+input and checkbox, resolves `{ value, checked, choice }` or null), `confirm(options)`, and the
+pair `dialogOpen` / `closeDialog()` that lets `App` own Escape for every layer (GC-034).
 `PromptOptions.secondary` adds a third button between Cancel and OK which resolves with
 `choice: 'secondary'` (GC-004's "Stash and check out"); `PromptOptions.required` defaults to true and
 only the stash prompt sets it false, so a prompt whose label says "(optional)" keeps OK and Enter
@@ -397,7 +404,8 @@ switchable (GC-007); commit search over the loaded commits from the toolbar butt
 dimming non-matches instead of hiding them (GC-009); one table of keyboard shortcuts behind
 `matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
 `tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); the stash
-prompt's "(optional)" message really being optional, on a per-prompt `required` flag (GC-029).
+prompt's "(optional)" message really being optional, on a per-prompt `required` flag (GC-029);
+Escape closing exactly one layer, decided once in `App.tsx` (GC-034).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

@@ -136,7 +136,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
 | GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | done |
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | done |
-| GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | in-progress |
+| GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | done |
+| GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | todo |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
@@ -1324,7 +1325,7 @@ decision is missing.
 
 ### GC-034 Escape inside a dialog also closes the diff behind it
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `Preferences` and `Modal` handle Escape on their own backdrop, but the event keeps
@@ -1341,10 +1342,10 @@ decision is missing.
 - **Out of scope:** focus trapping, a general modal stack, the context menu (it closes on its
   own and nothing sits under it).
 - **Acceptance:**
-  - [ ] With a file diff open, opening Preferences and pressing Escape closes only Preferences;
+  - [x] With a file diff open, opening Preferences and pressing Escape closes only Preferences;
     a second Escape closes the diff.
-  - [ ] Same with a prompt or confirm modal, and with the find bar open instead of the diff.
-  - [ ] The e2e suite still passes (it drives modals with Escape and with the buttons).
+  - [x] Same with a prompt or confirm modal, and with the find bar open instead of the diff.
+  - [x] The e2e suite still passes (it drives modals with Escape and with the buttons).
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/ui/Modal.tsx`,
   `src/renderer/src/components/Preferences.tsx`.
 - **Verify:** typecheck, build, e2e, and the two acceptance cases driven over CDP.
@@ -1354,6 +1355,51 @@ decision is missing.
     own Escape handling — with `README.md`'s diff open, opening Preferences and pressing Escape
     left `.modal.prefs` gone *and* `.diff-body` gone in the same keystroke.
   - 2026-09-05 17:45 claimed
+  - 2026-09-05 18:05 done. Escape is now decided in one place. `UiContext` exposes
+    `dialogOpen` (a prompt/confirm modal is up) and `closeDialog()`; `App` computes
+    `dialogOpen = shortcutsOpen || prefsOpen || ui.dialogOpen` and, while it is true, its window
+    handler closes exactly the topmost layer on Escape (and the overlay on `?`) and swallows
+    every other key, so nothing behind a dialog scrolls or closes. `Modal` and `Preferences`
+    no longer handle `dialogCancel` themselves and the shortcuts overlay's special case in
+    `App` folded into the same guard, as the scope asked. The overlay's own text was corrected
+    with it: Esc is now "Close the find bar, the open diff or a popover" and the Dialogs group's
+    Esc is "Close or cancel the dialog". Verified: typecheck, build, `npm test` (30 passed),
+    `npm run e2e` (49 assertions, all passed), and a CDP script driving the four acceptance
+    cases against the built app — diff behind Preferences, diff behind the Create-branch prompt
+    (cancelled, no branch created), find bar behind Preferences, and the overlay over a diff
+    closed with both Escape and `?` — 14 checks, all passed, screenshot
+    `docs/screenshots/escape-layers.png`.
+
+### GC-037 Escape with a context menu open also closes the find bar behind it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** GC-034
+- **Why:** GC-034 fixed the dialogs but deliberately left the context menu out. `ContextMenu`
+  closes itself from its own capture-phase `window` listener without stopping the event, so
+  `App`'s handler still runs and closes the find bar (or the open diff) underneath. One Escape
+  does two things again, this time with a menu on top.
+- **Scope:**
+  - An open context menu is a layer like the dialogs: Escape closes the menu and nothing else.
+  - Reuse GC-034's mechanism rather than adding a second one — the menu is already owned by
+    `UiProvider`, so it can join the flag `App` reads instead of growing its own special case.
+  - A menu must not swallow the keys a dialog does: with a menu open the graph arrows and
+    Ctrl+F may keep working, or may not, but the choice is made once and written down.
+- **Out of scope:** keyboard navigation inside the menu (arrow keys, Enter to activate an item),
+  focus trapping.
+- **Acceptance:**
+  - [ ] With the find bar open, right-clicking a commit row and pressing Escape closes only the
+    menu; a second Escape closes the find bar.
+  - [ ] Same with a file diff open instead of the find bar.
+  - [ ] The e2e suite still passes (several steps dismiss menus).
+- **Files:** `src/renderer/src/ui/ContextMenu.tsx`, `src/renderer/src/ui/UiContext.tsx`,
+  `src/renderer/src/App.tsx`.
+- **Verify:** typecheck, build, e2e, and the two acceptance cases driven over CDP.
+- **Log:**
+  - 2026-09-05 proposed by GC-034 (this ticket): confirmed over CDP against the fixed build —
+    with the find bar open, one Escape on an open commit menu left `.ctx-menu` gone *and*
+    `.graph-search` gone. The ticket's own scope note ("nothing sits under it") turned out not
+    to hold: the find bar and the diff both do.
 
 ## Reviews
 

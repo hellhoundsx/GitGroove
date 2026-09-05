@@ -64,7 +64,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       {
         id: 'escape',
         keys: ['Esc'],
-        description: 'Close this list, the find bar, the open diff or a popover',
+        description: 'Close the find bar, the open diff or a popover',
         match: (e) => e.key === 'Escape',
       },
     ],
@@ -139,7 +139,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       {
         id: 'dialogCancel',
         keys: ['Esc'],
-        description: 'Cancel the dialog',
+        description: 'Close or cancel the dialog',
         whileTyping: true,
         match: (e) => e.key === 'Escape',
       },
