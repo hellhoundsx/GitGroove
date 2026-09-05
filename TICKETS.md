@@ -139,7 +139,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | done |
 | GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | done |
 | GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
-| GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
+| GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | in-progress |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
@@ -948,7 +948,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-035 Stop only the Electron the run started, never every electron.exe
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P2
 - **Depends on:** GC-028
 - **Why:** `killElectron()` in `tools/launch-app.mjs` runs `taskkill /F /IM electron.exe`, which
@@ -974,6 +974,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 proposed by GC-028 (this ticket): moving the launch into one module made the
     machine-wide kill it inherited obvious, and the reviewer routine documents it as a hazard.
+  - 2026-09-05 18:13 claimed
 
 ### GC-036 The e2e prologue leaves the named stash a run that dies mid-scenario creates
 
