@@ -147,7 +147,8 @@ Awesome icons, Open Sans, bundled Git for Windows shelled out to. Native (Chromi
   branch), discard (`checkout --` + `clean -f`), `apply --cached/--reverse --recount` for hunks,
   commit via `--file=-` on stdin (empty summary means `--no-edit` to conclude a merge), checkout
   (`--detach`, `--track` with fallback to the existing local branch), branch create/delete/
-  rename, merge `--no-edit`, rebase, cherry-pick, revert, reset soft/mixed/hard, tags, fetch
+  rename, remote add (followed by a fetch of that remote) / remove / set-url / rename, merge
+  `--no-edit`, rebase, cherry-pick, revert, reset soft/mixed/hard, tags, fetch
   `--all --prune`, pull (`--no-rebase` | `--ff-only` | `--rebase`), push (`-u <remote> <branch>`
   when setting upstream, `--force-with-lease` for force), stash push/apply/pop/drop.
 - Credentials rely on the system credential helper; `GIT_TERMINAL_PROMPT=0` prevents hangs.
@@ -285,11 +286,15 @@ and already-applied: git leaves it in progress and the message must stay visible
 (`Fetch all` lives in the Pull caret popover), pull after a commit from a second clone, tag create
 and delete, WIP menu, a per-file delete through the confirm modal, and the dirty-checkout guard
 (clean tree raises no prompt; Cancel changes nothing; "Stash and check out" lands on the branch
-with the tree re-applied). It waits for the status-bar spinner (`waitIdle`) rather than fixed
-sleeps; a fixed sleep caused one flake. All 29 assertions passed on the last run. Screenshots
-land in `<root>/shots/`. The run is re-entrant (prologue aborts in-progress operations, removes
-the refs it creates, and drops the `e2e checkout guard` stash a run interrupted in step 15 would
-leave behind).
+with the tree re-applied), and remote management (add a second remote pointing at the bare origin
+and fetch it, rename it, edit its URL, remove it, origin untouched). It waits for the status-bar
+spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused one flake. All 38 assertions
+passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+aborts in-progress operations, removes the refs and the remotes it creates, and drops the
+`e2e checkout guard` stash a run interrupted in step 15 would leave behind). Step 1 also removes
+`gitclient.prefs`: preferences persist in the app's localStorage, so a setting toggled by hand in
+an earlier session (GC-007 left `confirmDirtyCheckout` off) silently disables whole steps
+otherwise.
 
 ### Unit tests
 
@@ -328,7 +333,8 @@ fails three of these tests.
 Done: layout shell; open repo; virtualised graph with lanes, refs, WIP row and dashed HEAD link;
 commit details and file lists; unified diff with hunk staging; stage/unstage/discard/commit/amend;
 branch create/checkout/rename/delete; merge, rebase, cherry-pick, revert, reset; fetch/pull/push
-with upstream setup; stash save/apply/pop/drop; tags; remotes listing; context menus everywhere;
+with upstream setup; stash save/apply/pop/drop; tags; remotes listed and managed (add, edit URL,
+rename, remove — GC-008); context menus everywhere;
 in-progress operation banner with abort; conflicted files group; icon set; Open Sans; palette
 calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite; vitest unit
 tests for `parseDiff.ts` and `lanes.ts` (GC-002); every confirmation on the styled modal (GC-003);

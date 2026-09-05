@@ -403,13 +403,45 @@ export function App(): JSX.Element {
     [actions, snapshot, stashChanges, ui],
   );
 
+  const addRemote = useCallback(async () => {
+    const r = await ui.prompt({ title: 'Add remote', label: 'Remote name', placeholder: 'upstream', okLabel: 'Next' });
+    if (!r || !r.value.trim()) return;
+    const name = r.value.trim();
+    const u = await ui.prompt({ title: `Add remote ${name}`, label: 'URL', placeholder: 'https://github.com/owner/repo.git', okLabel: 'Add' });
+    if (!u || !u.value.trim()) return;
+    await run(`Adding remote ${name}`, () => window.api.remoteAdd(repo!, name, u.value.trim()));
+  }, [repo, run, ui]);
+
   const remoteMenuItems = useCallback(
     (rem: Remote): MenuItem[] => [
       { label: `Fetch ${rem.name}`, onClick: () => run(`Fetching ${rem.name}`, () => window.api.fetch(repo!, rem.name)) },
       { separator: true },
+      {
+        label: 'Edit URL…',
+        onClick: async () => {
+          const r = await ui.prompt({ title: `Edit ${rem.name}`, label: 'URL', defaultValue: rem.fetchUrl, okLabel: 'Save' });
+          if (r && r.value.trim() && r.value.trim() !== rem.fetchUrl) await run(`Updating ${rem.name}`, () => window.api.remoteSetUrl(repo!, rem.name, r.value.trim()));
+        },
+      },
+      {
+        label: 'Rename…',
+        onClick: async () => {
+          const r = await ui.prompt({ title: 'Rename remote', label: 'New name', defaultValue: rem.name, okLabel: 'Rename' });
+          if (r && r.value.trim() && r.value.trim() !== rem.name) await run(`Renaming ${rem.name}`, () => window.api.remoteRename(repo!, rem.name, r.value.trim()));
+        },
+      },
+      {
+        label: `Remove ${rem.name}`,
+        danger: true,
+        onClick: async () => {
+          if (!(await ui.confirm({ title: `Remove remote ${rem.name}?`, message: 'Its remote-tracking branches are deleted locally. The remote repository is untouched.', okLabel: 'Remove', danger: true }))) return;
+          await run(`Removing ${rem.name}`, () => window.api.remoteRemove(repo!, rem.name));
+        },
+      },
+      { separator: true },
       { label: 'Copy remote URL', onClick: () => void navigator.clipboard.writeText(rem.fetchUrl) },
     ],
-    [repo, run],
+    [repo, run, ui],
   );
 
   const onMenu = useCallback((e: MouseEvent, items: MenuItem[]) => ui.openMenu(e, items), [ui]);
@@ -473,6 +505,7 @@ export function App(): JSX.Element {
               onStashMenu={(e, s) => onMenu(e, stashMenuItems(s))}
               onStashActivate={(s) => void run('Applying stash', () => window.api.stashApply(repo, s.index))}
               onRemoteMenu={(e, rem) => onMenu(e, remoteMenuItems(rem))}
+              onAddRemote={() => void addRemote()}
             />
             {fileView ? (
               <DiffView

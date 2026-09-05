@@ -167,6 +167,10 @@ export interface GitApi {
   createTag(repo: string, req: CreateTagRequest): Promise<void>;
   deleteTag(repo: string, name: string): Promise<void>;
   // remotes
+  remoteAdd(repo: string, name: string, url: string): Promise<void>;
+  remoteRemove(repo: string, name: string): Promise<void>;
+  remoteSetUrl(repo: string, name: string, url: string): Promise<void>;
+  remoteRename(repo: string, oldName: string, newName: string): Promise<void>;
   fetch(repo: string, remote?: string): Promise<void>;
   pull(repo: string, mode: PullMode): Promise<void>;
   push(repo: string, req: PushRequest): Promise<void>;

@@ -1,5 +1,5 @@
 import { useMemo, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
-import { Archive, Check, ChevronRight, Cloud, GitBranch, Laptop, PanelLeftClose, Pin, Tag, type LucideIcon } from 'lucide-react';
+import { Archive, Check, ChevronRight, Cloud, GitBranch, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
 import type { GitRef, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
 
@@ -16,6 +16,7 @@ interface Props {
   onStashMenu(e: MouseEvent, stash: Stash): void;
   onStashActivate(stash: Stash): void; // double-click: apply
   onRemoteMenu(e: MouseEvent, remote: Remote): void;
+  onAddRemote(): void;
 }
 
 interface SectionProps {
@@ -23,19 +24,28 @@ interface SectionProps {
   icon: LucideIcon;
   count: number;
   defaultOpen?: boolean;
+  /** Optional button on the right of the header, e.g. "Add remote". */
+  action?: { icon: LucideIcon; title: string; onClick(): void };
   children: ReactNode;
 }
 
-function Section({ title, icon, count, defaultOpen = false, children }: SectionProps): JSX.Element {
+function Section({ title, icon, count, defaultOpen = false, action, children }: SectionProps): JSX.Element {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <>
-      <button className={`section-head ${open ? 'open' : ''}`} onClick={() => setOpen((o) => !o)}>
-        <Icon of={ChevronRight} size={12} className="chev" />
-        <Icon of={icon} size={13} className="section-icon" />
-        <span>{title}</span>
-        <span className="count">{count}</span>
-      </button>
+      <div className={`section-head ${open ? 'open' : ''}`}>
+        <button className="section-toggle" onClick={() => setOpen((o) => !o)}>
+          <Icon of={ChevronRight} size={12} className="chev" />
+          <Icon of={icon} size={13} className="section-icon" />
+          <span>{title}</span>
+          <span className="count">{count}</span>
+        </button>
+        {action && (
+          <button className="section-action" title={action.title} aria-label={action.title} onClick={action.onClick}>
+            <Icon of={action.icon} size={12} />
+          </button>
+        )}
+      </div>
       {open && children}
     </>
   );
@@ -120,7 +130,7 @@ export function LeftPanel(p: Props): JSX.Element {
           ))}
           {local.length === 0 && <div className="ref-row dim">No local branches</div>}
         </Section>
-        <Section title="Remote" icon={Cloud} count={remoteCount} defaultOpen>
+        <Section title="Remote" icon={Cloud} count={remoteCount} defaultOpen action={{ icon: Plus, title: 'Add remote', onClick: p.onAddRemote }}>
           {[...remoteGroups.entries()].map(([remoteName, list]) => {
             const remote = p.remotes.find((r) => r.name === remoteName);
             return (

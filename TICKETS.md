@@ -111,7 +111,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | done |
 | GC-006 | Resizable ref column | graph | M | P1 | done |
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | done |
-| GC-008 | Remote add, edit and remove | actions | M | P2 | in-progress |
+| GC-008 | Remote add, edit and remove | actions | M | P2 | done |
 | GC-009 | Commit search | graph | M | P2 | todo |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
@@ -127,6 +127,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
+| GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
 
@@ -443,7 +444,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-008 Remote add, edit and remove
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** M | **Priority:** P2
 - **Depends on:** GC-003
 - **Why:** Remotes are listed but cannot be managed. Needed before a push-capable workflow is
@@ -456,13 +457,30 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - After add, run `fetch <name>` and reload the snapshot.
 - **Out of scope:** credential prompts (system helper only, as today).
 - **Acceptance:**
-  - [ ] e2e: add a second remote pointing at the bare origin, fetch, rename, remove; asserted
+  - [x] e2e: add a second remote pointing at the bare origin, fetch, rename, remove; asserted
     with `git remote -v`.
 - **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
   `src/shared/types.ts`, `LeftPanel.tsx`, `App.tsx`, `tools/e2e/run.mjs`.
 - **Verify:** e2e.
 - **Log:**
   - 2026-09-05 16:44 claimed
+  - 2026-09-05 17:00 done. `remoteAdd` (add then `fetch --prune <name>`), `remoteRemove`,
+    `remoteSetUrl` and `remoteRename` in `git.ts`, four `remote:*` handlers with `str`
+    validation, preload entries and `GitApi` types. The left panel's Remote section header now
+    carries an "Add remote" button (`Section` grew an optional `action`; the header is a row
+    with a `.section-toggle` button inside it, so `.section-head` is no longer a button) and
+    the remote's context menu gained Edit URL…, Rename… and a danger Remove behind the confirm
+    modal. Add asks for the name and then the URL in two prompts; a single dialog with two
+    fields is GC-026.
+  - 2026-09-05 17:00 verified: `npm run typecheck`, `npm run build`, `npm test` (23 passing),
+    `npm run e2e` green — 16 steps, 38 assertions, including the new step 16 (add + fetch,
+    rename, edit URL, remove, origin untouched). Screenshot of the remote menu and the new
+    header button in `docs/screenshots/remote-menu.png`, looked at.
+  - 2026-09-05 17:00 harness fix made on the way: the suite inherited `gitclient.prefs` from
+    the app's localStorage, so a preference toggled by hand in an earlier session (here
+    `confirmDirtyCheckout: false`, left over from GC-007) silently disabled steps 3 and 15.
+    Step 1 now removes the key before loading the repository, so every run starts on the
+    defaults. The app itself was not changed for this.
 
 ### GC-009 Commit search
 
@@ -822,6 +840,34 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-007 (this ticket): the migration and the per-field fallbacks were
     checked once by hand over CDP and have no regression guard.
+
+### GC-026 One dialog with several fields instead of chained prompts
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `ui.prompt` takes exactly one text field, so "Add remote" (GC-008) asks for the name,
+  waits for OK, then opens a second dialog for the URL. Cancelling the second one leaves nothing
+  behind but the two-step flow reads as a bug, and the same shape will come up again (clone with
+  a URL and a target folder, an annotated tag with a name and a message).
+- **Scope:**
+  - `PromptOptions` accepts several fields (label, placeholder, default value, required) and
+    resolves an object keyed by field name; the single-field form keeps working unchanged so no
+    existing caller or e2e helper has to move.
+  - `Modal` renders the fields stacked, focuses the first, and disables OK until every required
+    field is non-empty.
+  - "Add remote" becomes one dialog asking for the name and the URL together.
+- **Out of scope:** checkboxes per field, validation of URL syntax, a clone dialog.
+- **Acceptance:**
+  - [ ] Add remote is one dialog with two fields; the e2e step 16 fills both and clicks OK once.
+  - [ ] Every other prompt caller behaves as it does today.
+- **Files:** `src/renderer/src/ui/Modal.tsx`, `src/renderer/src/ui/UiContext.tsx`,
+  `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** `npm run typecheck`, `npm run build`, `npm run e2e`, and a screenshot of the
+  dialog.
+- **Log:**
+  - 2026-09-05 proposed by GC-008 (this ticket): adding a remote needs a name and a URL, and the
+    prompt modal can only ask for one thing at a time.
 
 ### GC-025 A readable error when git is not on PATH
 

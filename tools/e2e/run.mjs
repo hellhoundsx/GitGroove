@@ -119,7 +119,9 @@ const contextMenuOn = (selector, text) =>
   ev(`(() => { const rows = [...document.querySelectorAll(${q(selector)})]; const r = ${text === null ? 'rows[0]' : `rows.find(x => x.innerText.replace(/\\s+/g, ' ').includes(${q(text)}))`}; if (!r) return 'row not found: ' + ${q(text ?? selector)}; const b = r.getBoundingClientRect(); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.x + 20, clientY: b.y + b.height / 2, button: 2 })); return 'contextmenu on ' + r.innerText.replace(/\\s+/g, ' ').slice(0, 50); })()`);
 const tool = (label) =>
   ev(`(() => { const b = [...document.querySelectorAll('.toolbar .tool-btn')].find(x => x.innerText.trim() === ${q(label)}); if (!b) return 'no tool button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' (' + b.title + ')'; b.click(); return 'clicked toolbar ' + ${q(label)}; })()`);
-const openSection = (title) => ev(`(() => { const h = [...document.querySelectorAll('.section-head')].find(x => x.textContent.toLowerCase().includes(${q(title.toLowerCase())})); if (!h) return 'no section'; if (!h.classList.contains('open')) h.click(); return 'section open'; })()`);
+const openSection = (title) => ev(`(() => { const h = [...document.querySelectorAll('.section-head')].find(x => x.textContent.toLowerCase().includes(${q(title.toLowerCase())})); if (!h) return 'no section'; if (!h.classList.contains('open')) (h.querySelector('.section-toggle') ?? h).click(); return 'section open'; })()`);
+const sectionAction = (title) =>
+  ev(`(() => { const b = [...document.querySelectorAll('.left-panel .section-action')].find(x => (x.title ?? '') === ${q(title)}); if (!b) return 'no section action ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
 const clickBanner = (re) => ev(`(() => { const b = [...document.querySelectorAll('.banner button')].find(x => ${re}.test(x.innerText)); if (!b) return 'no banner button'; b.click(); return 'clicked ' + b.innerText; })()`);
 const fetchAll = async () => {
   await ev(`document.querySelector('.toolbar .caret-btn')?.click(); 'caret'`);
@@ -151,6 +153,8 @@ git(['branch', '-D', 'conflict-branch']);
 git(['branch', '-D', 'test-branch']);
 git(['tag', '-d', 't-test']);
 rmSync(join(root, 'clone2'), { recursive: true, force: true });
+git(['remote', 'remove', 'upstream']);
+git(['remote', 'remove', 'mirror']);
 // step 15 parks the working tree in a stash and leaves a scratch file; drop both if a run died there
 const GUARD_FILE = 'guard-checkout.txt';
 const GUARD_STASH = 'e2e checkout guard';
@@ -164,7 +168,9 @@ const stamp = Date.now();
 
 // ---- scenario -----------------------------------------------------------------------------------------------
 step(1, 'load test repo');
-await ev(`localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
+// Preferences persist in the app's localStorage, so a hand-toggled setting from an earlier
+// session would silently change what the later steps see: start every run from the defaults.
+await ev(`localStorage.removeItem('gitclient.prefs'); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
 await settle();
 let s = await state();
 check('repo loaded with WIP row and commits', s.rows > 5 && (s.branch ?? '').startsWith('main'), JSON.stringify(s));
@@ -380,6 +386,54 @@ rmSync(join(R, GUARD_FILE), { force: true });
 git(['stash', 'pop', '-q']);
 log(await tool('Refresh'));
 await settle();
+
+step(16, 'remotes: add and fetch, rename, edit URL, remove');
+const remoteUrl = REMOTE.replace(/\\/g, '/');
+log(await sectionAction('Add remote'));
+await sleep(400);
+log(await modal('upstream', null));
+log(await modalOk());
+await sleep(400);
+log(await modal(remoteUrl, null));
+log(await modalOk());
+await settle();
+check('remote added and fetched', git(['remote']).split('\n').includes('upstream') && git(['for-each-ref', '--format=%(refname)', 'refs/remotes/upstream']).includes('refs/remotes/upstream/main'), git(['remote', '-v']).replace(/\n/g, ' '));
+check('the new remote shows in the left panel', String(await ev(`[...document.querySelectorAll('.left-panel .ref-row.remote-group .row-name')].map(x => x.textContent).join(',')`)).includes('upstream'));
+await shot('remotes-added.png');
+
+log(await contextMenuOn('.left-panel .ref-row.remote-group', 'upstream'));
+await sleep(300);
+const remoteMenu = await menuList();
+check('remote menu offers manage actions', /Edit URL/.test(remoteMenu) && /Rename/.test(remoteMenu) && /Remove upstream/.test(remoteMenu), remoteMenu);
+log(await menuClick('Rename'));
+await sleep(400);
+log(await modal('mirror', null));
+log(await modalOk());
+await settle();
+check('remote renamed', git(['remote']).split('\n').includes('mirror') && !git(['remote']).split('\n').includes('upstream'), git(['remote']).replace(/\n/g, ' '));
+
+log(await contextMenuOn('.left-panel .ref-row.remote-group', 'mirror'));
+await sleep(300);
+log(await menuClick('Edit URL'));
+await sleep(400);
+log(await modal('https://example.invalid/mirror.git', null));
+log(await modalOk());
+await settle();
+check('remote URL updated', git(['remote', 'get-url', 'mirror']) === 'https://example.invalid/mirror.git', git(['remote', 'get-url', 'mirror']));
+
+log(await contextMenuOn('.left-panel .ref-row.remote-group', 'mirror'));
+await sleep(300);
+log(await menuClick('Remove mirror'));
+await sleep(400);
+check('removal asks for confirmation', String(await modal(null, null)).includes('Remove remote mirror?'), await modal(null, null));
+log(await modalOk());
+await settle();
+check(
+  'remote removed with its tracking branches',
+  !git(['remote']).split('\n').includes('mirror') && git(['for-each-ref', '--format=%(refname)', 'refs/remotes/mirror']) === '',
+  `${git(['remote']).replace(/\n/g, ' ')} | ${git(['for-each-ref', '--format=%(refname)', 'refs/remotes/mirror'])}`,
+);
+check('origin survived', git(['remote']).split('\n').includes('origin'), git(['remote', '-v']).replace(/\n/g, ' '));
 
 await shot('final.png');
 

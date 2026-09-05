@@ -108,6 +108,14 @@ export function registerIpc(): void {
   ipcMain.handle('ref:deleteTag', (_e, repo: unknown, name: unknown) => git.deleteTag(repoOf(repo), str(name, 'A tag name')).then(() => undefined));
 
   // remotes
+  ipcMain.handle('remote:add', (_e, repo: unknown, name: unknown, url: unknown) => git.remoteAdd(repoOf(repo), str(name, 'A remote name'), str(url, 'A remote URL')));
+  ipcMain.handle('remote:remove', (_e, repo: unknown, name: unknown) => git.remoteRemove(repoOf(repo), str(name, 'A remote name')).then(() => undefined));
+  ipcMain.handle('remote:setUrl', (_e, repo: unknown, name: unknown, url: unknown) =>
+    git.remoteSetUrl(repoOf(repo), str(name, 'A remote name'), str(url, 'A remote URL')).then(() => undefined),
+  );
+  ipcMain.handle('remote:rename', (_e, repo: unknown, oldName: unknown, newName: unknown) =>
+    git.remoteRename(repoOf(repo), str(oldName, 'A remote name'), str(newName, 'A remote name')).then(() => undefined),
+  );
   ipcMain.handle('remote:fetch', (_e, repo: unknown, remote: unknown) => git.fetch(repoOf(repo), typeof remote === 'string' && remote ? remote : undefined));
   ipcMain.handle('remote:pull', (_e, repo: unknown, mode: unknown) => git.pull(repoOf(repo), oneOf<PullMode>(mode, ['ff', 'ff-only', 'rebase'], 'Pull mode')));
   ipcMain.handle('remote:push', (_e, repo: unknown, req: unknown) => {

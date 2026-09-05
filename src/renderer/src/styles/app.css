@@ -210,19 +210,25 @@ textarea:focus {
 .section-head {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
   height: 30px;
   padding: 0 var(--sp-2);
   border-top: 1px solid var(--border);
+}
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
   cursor: pointer;
-  width: 100%;
 }
-.section-head:hover {
+.section-toggle:hover {
   color: var(--text-bright);
 }
 .section-head .chev {
@@ -239,6 +245,22 @@ textarea:focus {
 .section-head .count {
   margin-left: auto;
   font-weight: 700;
+}
+.section-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-left: var(--sp-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.section-action:hover {
+  background: var(--bg-panel-raised);
+  color: var(--text-bright);
 }
 .ref-row {
   display: flex;

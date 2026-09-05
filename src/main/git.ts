@@ -491,6 +491,18 @@ export async function fetch(cwd: string, remote?: string): Promise<void> {
   await runGit(cwd, remote ? ['fetch', '--prune', remote] : ['fetch', '--all', '--prune']);
 }
 
+/** Add a remote and fetch it, so its branches appear straight away. */
+export async function remoteAdd(cwd: string, name: string, url: string): Promise<void> {
+  await runGit(cwd, ['remote', 'add', name, url]);
+  await runGit(cwd, ['fetch', '--prune', name]);
+}
+
+export const remoteRemove = (cwd: string, name: string): Promise<string> => runGit(cwd, ['remote', 'remove', name]);
+
+export const remoteSetUrl = (cwd: string, name: string, url: string): Promise<string> => runGit(cwd, ['remote', 'set-url', name, url]);
+
+export const remoteRename = (cwd: string, oldName: string, newName: string): Promise<string> => runGit(cwd, ['remote', 'rename', oldName, newName]);
+
 export async function pull(cwd: string, mode: PullMode): Promise<void> {
   const flag = mode === 'rebase' ? '--rebase' : mode === 'ff-only' ? '--ff-only' : '--no-rebase';
   await runGit(cwd, ['pull', flag]);
