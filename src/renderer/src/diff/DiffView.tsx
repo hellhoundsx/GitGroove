@@ -3,6 +3,7 @@ import type { FileChangeKind } from '@shared/types';
 import { buildHunkPatch, parseUnifiedDiff, type DiffHunk, type FileDiff } from './parseDiff';
 import { X } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
+import { useUi } from '../ui/UiContext';
 
 export type FileViewSource =
   | { source: 'commit'; sha: string; path: string; kind: FileChangeKind }
@@ -26,6 +27,7 @@ function splitPath(path: string): [string, string] {
 }
 
 export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageFile, onDiscardFile, onApplyPatch }: Props): JSX.Element {
+  const ui = useUi();
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -83,9 +85,11 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
           <button
             className="btn danger"
             disabled={busy}
-            onClick={() => {
-              if (confirm('Discard this hunk from the working directory? This cannot be undone.')) void run(() => onApplyPatch(patch, { reverse: true }));
-            }}
+            onClick={() =>
+              void ui
+                .confirm({ title: `Discard this hunk from ${name}?`, message: 'Discard this hunk from the working directory? This cannot be undone.', okLabel: 'Discard hunk', danger: true })
+                .then((ok) => void (ok && run(() => onApplyPatch(patch, { reverse: true }))))
+            }
           >
             Discard hunk
           </button>
@@ -116,10 +120,15 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
             <button
               className="btn danger"
               disabled={busy}
-              onClick={() => {
-                if (confirm(untracked ? `Delete ${view.path}? This cannot be undone.` : `Discard all changes to ${view.path}? This cannot be undone.`))
-                  void run(() => onDiscardFile(view.path, untracked));
-              }}
+              onClick={() =>
+                void ui
+                  .confirm(
+                    untracked
+                      ? { title: `Delete ${name}?`, message: `Delete ${view.path}? This cannot be undone.`, okLabel: 'Delete file', danger: true }
+                      : { title: `Discard changes to ${name}?`, message: `Discard all changes to ${view.path}? This cannot be undone.`, okLabel: 'Discard changes', danger: true },
+                  )
+                  .then((ok) => void (ok && run(() => onDiscardFile(view.path, untracked))))
+              }
             >
               {untracked ? 'Delete file' : 'Discard changes'}
             </button>

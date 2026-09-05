@@ -4,6 +4,7 @@ import type { FileViewSource } from '../diff/DiffView';
 import { Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
+import { useUi } from '../ui/UiContext';
 
 export interface StagingActions {
   stage(paths: string[]): Promise<void>;
@@ -62,6 +63,7 @@ const isActive = (open: FileViewSource | null, path: string, staged?: boolean): 
   !!open && open.path === path && (open.source === 'commit' || staged === undefined || open.staged === staged);
 
 function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit<Props, 'commit' | 'repo' | 'onSelectSha'>): JSX.Element {
+  const ui = useUi();
   const entries = status?.entries ?? [];
   const operation = status?.operation ?? null;
   const conflicted = entries.filter((e) => e.unstaged === 'conflicted' || e.staged === 'conflicted');
@@ -111,9 +113,16 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
           className="icon-btn danger"
           title="Discard all changes"
           disabled={entries.length === 0 || busy}
-          onClick={() => {
-            if (confirm('Discard ALL uncommitted changes and delete untracked files? This cannot be undone.')) void run(() => actions.discard(entries));
-          }}
+          onClick={() =>
+            void ui
+              .confirm({
+                title: 'Discard all uncommitted changes?',
+                message: 'Untracked files will be deleted. This cannot be undone.',
+                okLabel: 'Discard everything',
+                danger: true,
+              })
+              .then((ok) => void (ok && run(() => actions.discard(entries))))
+          }
         >
           <Icon of={Trash2} size={14} />
         </button>
@@ -176,9 +185,15 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile }: Omit
                 className="btn danger"
                 disabled={busy}
                 title={e.unstaged === 'untracked' ? 'Delete file' : 'Discard changes'}
-                onClick={() => {
-                  if (confirm(e.unstaged === 'untracked' ? `Delete ${e.path}?` : `Discard changes to ${e.path}?`)) void run(() => actions.discard([e]));
-                }}
+                onClick={() =>
+                  void ui
+                    .confirm(
+                      e.unstaged === 'untracked'
+                        ? { title: `Delete ${e.path}?`, message: 'The untracked file will be deleted. This cannot be undone.', okLabel: 'Delete', danger: true }
+                        : { title: `Discard changes to ${e.path}?`, message: 'This cannot be undone.', okLabel: 'Discard', danger: true },
+                    )
+                    .then((ok) => void (ok && run(() => actions.discard([e]))))
+                }
               >
                 ✕
               </button>

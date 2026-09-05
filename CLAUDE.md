@@ -179,8 +179,8 @@ GitKraken; a confirmation for dirty trees was discussed but not added).
 `UiProvider` gives `useUi()` with `openMenu(event, items)` (DOM context menu, viewport-clamped,
 closes on outside click / Escape / wheel / resize), `prompt(options)` (modal with optional text
 input and checkbox, resolves `{ value, checked }` or null) and `confirm(options)`. `MenuItem`
-supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`. Native `confirm()` is
-still used inside DiffView and DetailPanel for a few destructive actions.
+supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`. Every confirmation in the
+renderer goes through `useUi().confirm` (GC-003); the native `confirm()` is not used anywhere.
 
 ### Graph (`src/renderer/src/graph`)
 
@@ -247,7 +247,8 @@ and menus, stash and pop, a real merge conflict with banner + message + abort, c
 and already-applied: git leaves it in progress and the message must stay visible), push, fetch
 (`Fetch all` lives in the Pull caret popover), pull after a commit from a second clone, tag create
 and delete, WIP menu. It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps;
-a fixed sleep caused one flake. All 22 assertions passed on the last run. Screenshots land in
+a fixed sleep caused one flake, and a per-file delete through the confirm modal. All 24 assertions
+passed on the last run. Screenshots land in
 `<root>/shots/`. The run is re-entrant (prologue aborts in-progress operations and removes the
 refs it creates).
 
@@ -291,7 +292,7 @@ branch create/checkout/rename/delete; merge, rebase, cherry-pick, revert, reset;
 with upstream setup; stash save/apply/pop/drop; tags; remotes listing; context menus everywhere;
 in-progress operation banner with abort; conflicted files group; icon set; Open Sans; palette
 calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite; vitest unit
-tests for `parseDiff.ts` and `lanes.ts` (GC-002).
+tests for `parseDiff.ts` and `lanes.ts` (GC-002); every confirmation on the styled modal (GC-003).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

@@ -1072,6 +1072,7 @@ textarea:focus {
   font-size: var(--fs-lg);
   font-weight: 600;
   color: var(--text-bright);
+  overflow-wrap: anywhere;
 }
 .modal-message {
   margin: 0;

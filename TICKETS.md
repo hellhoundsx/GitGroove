@@ -71,7 +71,7 @@ Ready-to-paste routine prompt:
 | --- | --- | --- | --- | --- | --- |
 | GC-001 | Initialise the git repository | infra | S | P0 | done |
 | GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | done |
-| GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | in-progress |
+| GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | done |
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | todo |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | todo |
 | GC-006 | Resizable ref column | graph | M | P1 | todo |
@@ -178,7 +178,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-003 Replace native confirm() with the UI confirm modal
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-001
 - **Why:** Four destructive actions still use the browser `confirm()` dialog, which looks
@@ -189,14 +189,32 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - Wording stays the same. The modal title names the file where one applies.
 - **Out of scope:** new confirmations (that is GC-004).
 - **Acceptance:**
-  - [ ] `grep -rn "confirm(" src/renderer` finds only `useUi` calls.
-  - [ ] e2e still passes; the WIP discard flow in `run.mjs` may need to click the modal button
+  - [x] `grep -rn "confirm(" src/renderer` finds only `useUi` calls.
+  - [x] e2e still passes; the WIP discard flow in `run.mjs` may need to click the modal button
     instead of accepting a native dialog.
 - **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
   `tools/e2e/run.mjs`.
 - **Verify:** `npm run typecheck && npm run build && npm run e2e:setup && npm run e2e`.
 - **Log:**
   - 2026-09-05 15:55 claimed
+  - 2026-09-05 16:07 done. All four native `confirm()` calls now go through `useUi().confirm`
+    with a danger primary button: `DiffView` discard-hunk ("Discard this hunk from `<name>`?")
+    and discard/delete file ("Discard changes to `<name>`?" / "Delete `<name>`?"), `DetailPanel`
+    discard-all and the per-file `✕`. The native one-liner became the modal message, so the
+    wording is unchanged and the title names the file. Discard-all reuses the exact title,
+    message and "Discard everything" label of the identical action already in the WIP menu
+    (`App.tsx`), so the same action no longer asks two different questions. `.modal h3` got
+    `overflow-wrap: anywhere` because titles can now carry a path. The promise handlers are
+    `.then((ok) => void (ok && run(...)))`: an `ok && run(...)` arrow returns `false | Promise`,
+    which TS rejects for a `void`-returning `then`.
+    Verified: `npm run typecheck` clean, `npm run build` clean, `npm test` 22/22,
+    `grep -rn "confirm(" src/renderer` shows only `useUi` calls. e2e: added step 14, which
+    creates an untracked file, clicks the per-file `✕` in the detail panel, asserts the modal
+    title is `Delete <file>?` and that OK deletes it — 24/24 assertions passed. The other three
+    sites were driven over CDP against the scratch repo: each modal was read back with the
+    right title, message and button, Cancel left `git status --short` unchanged. Screenshots:
+    `docs/screenshots/confirm-modal.png` (per-file delete) and `confirm-modal-hunk.png`
+    (discard hunk over the diff), both looked at.
 
 ### GC-004 Confirm checkout when the working tree is dirty
 

@@ -293,6 +293,27 @@ await sleep(300);
 const wipMenu = await menuList();
 check('WIP menu lists staging actions', /Stage all changes/.test(wipMenu) && /Stash changes/.test(wipMenu), wipMenu);
 await escape();
+
+step(14, 'per-file delete confirms with the UI modal, not a native dialog');
+const scratch = `scratch-${stamp}.txt`;
+writeFileSync(join(R, scratch), 'scratch\n');
+log(await tool('Refresh'));
+await settle();
+log(await ev(`(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'no WIP row'; r.click(); return 'WIP row selected'; })()`));
+await sleep(300);
+log(
+  await ev(
+    `(() => { const rows = [...document.querySelectorAll('.detail-panel .file-row')]; const r = rows.find(x => x.title === ${q(scratch)}); if (!r) return 'file row not found: ' + ${q(scratch)}; const b = r.querySelector('.actions .btn.danger'); if (!b) return 'no discard button'; b.click(); return 'clicked discard on ' + r.title; })()`,
+  ),
+);
+await sleep(400);
+const discardModal = String(await modal(null, null));
+check('confirm modal replaced the native dialog and names the file', discardModal.includes(`Delete ${scratch}?`), discardModal);
+await shot('modal-discard-file.png');
+log(await modalOk());
+await settle();
+check('untracked file deleted after confirming', !existsSync(join(R, scratch)) && !status().includes(scratch), status());
+
 await shot('final.png');
 
 ws.close();
