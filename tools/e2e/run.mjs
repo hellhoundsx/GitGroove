@@ -192,6 +192,15 @@ for (let i = 0; i < 5; i++) {
   if (!/^WIP on /.test(git(['stash', 'list', '-1', '--format=%gs']))) break;
   git(['stash', 'pop', '--index', '-q']);
 }
+// step 5 creates this named stash and step 8 pops it, asserting the list is then empty; a run that
+// died between the two leaves it behind. Pop rather than drop (GC-036): the stash holds the mixed
+// working tree every later step asserts against, so dropping it would empty the list but gut the run.
+const NAMED_STASH = 'test stash';
+for (let i = 0; i < 5; i++) {
+  const idx = git(['stash', 'list']).split('\n').findIndex((l) => l.includes(NAMED_STASH));
+  if (idx < 0) break;
+  git(['stash', 'pop', '--index', '-q', `stash@{${idx}}`]);
+}
 const stamp = Date.now();
 
 // ---- scenario -----------------------------------------------------------------------------------------------
@@ -251,11 +260,11 @@ await settle();
 
 log(await tool('Stash'));
 await sleep(400);
-log(await modal('test stash', true));
+log(await modal(NAMED_STASH, true));
 await shot('modal-stash.png');
 log(await modalOk());
 await settle();
-check('stash created and tree clean', git(['stash', 'list']).includes('test stash') && status() === '', status());
+check('stash created and tree clean', git(['stash', 'list']).includes(NAMED_STASH) && status() === '', status());
 
 step(6, 'merge with a real conflict, then abort');
 git(['checkout', '-qb', 'conflict-branch']);

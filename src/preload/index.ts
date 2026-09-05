@@ -7,6 +7,7 @@ const call =
     ipcRenderer.invoke(channel, ...args);
 
 const api: GitApi = {
+  checkGit: call('repo:checkGit'),
   openRepoDialog: call('repo:openDialog'),
   loadRepo: call('repo:load'),
   getStatus: call('repo:status'),

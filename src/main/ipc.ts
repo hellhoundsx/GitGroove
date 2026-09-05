@@ -37,6 +37,8 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: st
 const repoOf = (v: unknown): string => str(v, 'A repository path');
 
 export function registerIpc(): void {
+  ipcMain.handle('repo:checkGit', () => git.checkGit());
+
   ipcMain.handle('repo:openDialog', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const options: Electron.OpenDialogOptions = { title: 'Open repository', properties: ['openDirectory'] };

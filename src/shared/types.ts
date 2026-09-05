@@ -67,6 +67,13 @@ export interface RepoInfo {
   branch: string | null;
 }
 
+/** The result of the startup `git --version` probe (GC-025). */
+export interface GitAvailability {
+  available: boolean;
+  version?: string; // "git version 2.45.0" when it ran
+  error?: string; // why it did not, ready to show
+}
+
 export interface RepoSnapshot {
   info: RepoInfo;
   commits: Commit[];
@@ -139,6 +146,7 @@ export interface StashSaveRequest {
 }
 
 export interface GitApi {
+  checkGit(): Promise<GitAvailability>;
   openRepoDialog(): Promise<string | null>;
   loadRepo(path: string, maxCommits?: number): Promise<RepoSnapshot>;
   getStatus(repo: string): Promise<RepoStatus>;

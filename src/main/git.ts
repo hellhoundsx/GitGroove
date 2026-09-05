@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type {
   ApplyPatchOptions,
@@ -12,6 +13,7 @@ import type {
   CreateTagRequest,
   DiscardRequest,
   FileChangeKind,
+  GitAvailability,
   GitRef,
   PullMode,
   PushRequest,
@@ -51,9 +53,21 @@ interface RunOptions {
 
 const BASE_ARGS = ['--no-pager', '-c', 'core.quotepath=off', '-c', 'color.ui=never'];
 
+/**
+ * What the status bar and the empty state say when git itself is missing: Node only offers
+ * `spawn git ENOENT`, which names neither git nor the fix, and every action here shells out (GC-025).
+ */
+export const GIT_MISSING_MESSAGE = 'git was not found on PATH. GitClient runs the system git for every operation: install Git, make sure "git" is on PATH, then restart GitClient.';
+
 /** Run git in the given working directory and return stdout. */
 export function runGit(cwd: string, args: string[], opts: RunOptions = {}): Promise<string> {
   return new Promise((resolvePromise, reject) => {
+    // Node reports the same ENOENT when the cwd does not exist as when the binary is missing, so
+    // rule the folder out first: a moved or mistyped repository must not read as a missing git (GC-025).
+    if (!existsSync(cwd)) {
+      reject(new GitError(`Repository folder not found: ${cwd}`, args, '', null));
+      return;
+    }
     const child = spawn('git', [...BASE_ARGS, ...args], {
       cwd,
       windowsHide: true,
@@ -65,7 +79,7 @@ export function runGit(cwd: string, args: string[], opts: RunOptions = {}): Prom
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (d: string) => (out += d));
     child.stderr.on('data', (d: string) => (err += d));
-    child.on('error', (e) => reject(new GitError(e.message, args, '', null)));
+    child.on('error', (e) => reject(new GitError((e as NodeJS.ErrnoException).code === 'ENOENT' ? GIT_MISSING_MESSAGE : e.message, args, '', null)));
     child.on('close', (code) => {
       if (code === 0 || (opts.okCodes ?? []).includes(code ?? -1)) resolvePromise(out);
       else {
@@ -82,6 +96,21 @@ export function runGit(cwd: string, args: string[], opts: RunOptions = {}): Prom
 // ---------------------------------------------------------------------------
 // Repository overview
 // ---------------------------------------------------------------------------
+
+/**
+ * One `git --version` at startup so a missing git is named before any action is tried (GC-025).
+ * It runs in the home directory, which always exists, rather than in the last repository: a stale
+ * path there would fail with the folder message and hide the real cause.
+ */
+export async function checkGit(): Promise<GitAvailability> {
+  const home = homedir();
+  const cwd = home && existsSync(home) ? home : process.cwd();
+  try {
+    return { available: true, version: (await runGit(cwd, ['--version'])).trim() };
+  } catch (e) {
+    return { available: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 export async function getRepoInfo(cwd: string): Promise<RepoInfo> {
   const top = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).trim();

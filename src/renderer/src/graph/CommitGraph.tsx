@@ -81,11 +81,14 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
       list.push(r);
       m.set(r.sha, list);
     }
-    // checked-out branch first, then tracking locals, other locals, remotes, tags
-    const rank = (r: GitRef): number => (r.isHead ? 0 : r.kind === 'head' ? (r.upstream ? 1 : 2) : r.kind === 'remote' ? 3 : 4);
+    // checked-out branch first, then the pinned branch, then tracking locals, other locals,
+    // remotes, tags. The pin outranks a tracking local because its marker explains why column 0
+    // looks the way it does, and folding it into `+N` hides that until the user hovers (GC-020).
+    const rank = (r: GitRef): number =>
+      r.isHead ? 0 : r.kind === 'head' ? (r.name === pinnedName ? 1 : r.upstream ? 2 : 3) : r.kind === 'remote' ? 4 : 5;
     for (const list of m.values()) list.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
     return m;
-  }, [refs]);
+  }, [refs, pinnedName]);
 
   const graphWidth = Math.max(3, layout.laneCount) * LANE_W + 16;
   const headRowIndex = headSha ? layout.rows.findIndex((r) => r.sha === headSha) : -1;

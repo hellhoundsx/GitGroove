@@ -44,6 +44,7 @@ export function App(): JSX.Element {
   const [workdirVersion, setWorkdirVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
   const [error, setError] = useState<string | null>(null);
+  const [gitError, setGitError] = useState<string | null>(null); // git itself is missing (GC-025)
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [pullOpen, setPullOpen] = useState(false);
@@ -69,11 +70,21 @@ export function App(): JSX.Element {
       }
     } catch (e) {
       setSnapshot(null);
+      // The path did not load, so the status bar must stop naming it as the open repository; the
+      // remembered path stays in localStorage in case the folder comes back (GC-025).
+      setRepoPath(null);
       setError(msg(e));
     }
   }, []);
 
   useEffect(() => {
+    // One `git --version`, before anything is attempted: every action shells out, so a missing git
+    // makes the whole client useless and the empty state has to say so rather than show a bare
+    // ENOENT after the first action (GC-025).
+    void window.api
+      .checkGit()
+      .then((r) => setGitError(r.available ? null : r.error ?? null))
+      .catch((e) => setGitError(msg(e)));
     if (repoPath) {
       setBusy('Loading repository');
       setError(null);
@@ -620,8 +631,9 @@ export function App(): JSX.Element {
             <div className="graph-empty">
               <div>
                 <div style={{ fontSize: 'var(--fs-xl)', color: 'var(--text)' }}>GitClient</div>
-                <div>Open a repository to see its commit graph.</div>
-                {error && <div style={{ color: 'var(--danger)', marginTop: 8 }}>{error}</div>}
+                {/* With no git there is nothing to open, so name the cause here instead of the prompt (GC-025). */}
+                {gitError ? <div style={{ color: 'var(--danger)' }}>{gitError}</div> : <div>Open a repository to see its commit graph.</div>}
+                {error && error !== gitError && <div style={{ color: 'var(--danger)', marginTop: 8 }}>{error}</div>}
                 <div className="primary">
                   <button className="btn primary large" onClick={openRepo}>
                     Open repository…

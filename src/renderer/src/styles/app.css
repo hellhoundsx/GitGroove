@@ -143,8 +143,16 @@ textarea:focus {
 .toolbar .actions.right {
   margin: 0 var(--sp-2) 0 0;
 }
+/* Sized to its label, not to a fixed 52px: "Preferences" is wider than that and used to spill
+   out of the button and into the "Shortcuts" label next to it (GC-048). 52px stays as the
+   minimum so the short labels keep the old grid, the 6px padding is what holds the gap between
+   two neighbours' text, and `flex: none` is required because the explicit min-width replaces the
+   flex item's default `min-width: auto` and would otherwise let a narrow window squeeze the
+   label out again. */
 .tool-btn {
-  width: 52px;
+  min-width: 52px;
+  flex: none;
+  padding: 0 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -153,6 +161,7 @@ textarea:focus {
   color: var(--text);
   font-size: var(--fs-xs);
   line-height: 1;
+  white-space: nowrap;
 }
 .tool-btn svg {
   width: 18px;

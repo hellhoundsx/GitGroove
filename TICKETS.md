@@ -1,4 +1,4 @@
-# GitClient tickets in-progress | in-progress | in-progress | in-progress | in-progress | in-progress |
+# GitClient tickets done || done || done || done || done || done ||
 
 The backlog of work that can be started right now, in a form an unattended session can pick
 up. Every ticket has exactly one status. The per-ticket `Status:` line is the source of truth;
@@ -145,9 +145,9 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | done |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | done |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
-| GC-025 | A readable error when git is not on PATH | main | S | P2 | todo |
+| GC-025 | A readable error when git is not on PATH | main | S | P2 | done |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
-| GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | todo |
+| GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | done |
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | todo |
 | GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | todo |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
@@ -162,18 +162,20 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
-| GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | todo |
+| GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | todo |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | todo |
-| GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | todo |
+| GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | done |
 | GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
-| GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | todo |
+| GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
+| GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | todo |
+| GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
-| GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | todo |
+| GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -795,7 +797,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-020 Keep the pinned branch's chip visible when chips fold
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-005
 - **Why:** `CommitGraph` shows at most `MAX_CHIPS = 2` chips and folds the rest behind `+N`, in an
@@ -809,15 +811,25 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - No change to `MAX_CHIPS` or to the folding behaviour itself; that is GC-006.
 - **Out of scope:** pinning tags or remotes, the width-aware fold in GC-006.
 - **Acceptance:**
-  - [ ] On a commit carrying HEAD, a tracking local and the pinned branch, the pinned chip is one
+  - [x] On a commit carrying HEAD, a tracking local and the pinned branch, the pinned chip is one
     of the two shown and its pin marker is visible without hovering.
-  - [ ] Unpinning restores the previous order.
+  - [x] Unpinning restores the previous order.
 - **Files:** `src/renderer/src/graph/CommitGraph.tsx`.
 - **Verify:** build, screenshot of a commit with three or more refs, one of them pinned.
 - **Log:**
   - 2026-09-05 proposed by GC-005 (this ticket): the pin marker is the only on-screen explanation
     for the leftmost lane, and the current chip order can hide it.
   - 2026-09-05 20:12 claimed
+  - 2026-09-05 20:34 done. `rank` places the pinned local immediately after HEAD (`isHead` still
+    short-circuits first, so a pinned checked-out branch stays first), and `pinnedName` joined the
+    memo's dependency array. Verified over CDP against the scratch repo with two extra branches at
+    main's tip — `aaa-tracks` tracking origin/main and `zzz-pinned` without an upstream — at the
+    default 150px column: unpinned the visible chips are `main`, `aaa-tracks` with `zzz-pinned`
+    folded into `+1` (the reported bug, and also the proof that unpinning restores the old order);
+    pinned they are `main`, `zzz-pinned` with its pin marker rendered and `aaa-tracks` folded
+    instead. Both branches were deleted and the pin key cleared afterwards. Note for GC-023: with
+    three chips at 150px the names shrink to "ma..." and "z.", which is that ticket's shrink-weight
+    bug, not this one's.
 
 ### GC-021 The pin follows a renamed branch and is dropped with a deleted one
 
@@ -1007,7 +1019,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-036 The e2e prologue leaves the named stash a run that dies mid-scenario creates
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** Step 5 creates a stash called `test stash` and step 8 pops it, asserting
@@ -1024,9 +1036,9 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Out of scope:** a general "reset the scratch repo" prologue, and re-running
   `setup-testrepo.mjs` from `run.mjs`.
 - **Acceptance:**
-  - [ ] Interrupting a run after step 5 and re-running it passes, with step 8 still asserting an
+  - [x] Interrupting a run after step 5 and re-running it passes, with step 8 still asserting an
         empty stash list.
-  - [ ] A normal back-to-back `npm run e2e` still passes.
+  - [x] A normal back-to-back `npm run e2e` still passes.
 - **Files:** `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e`, kill it after step 5 (or create the stash by hand with
   `git stash push -u -m "test stash"`), then `npm run e2e` again and read step 8.
@@ -1035,6 +1047,14 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     made the same gap for `test stash` obvious; it is the only remaining stash the suite can
     strand.
   - 2026-09-05 20:12 claimed
+  - 2026-09-05 20:34 done. The prologue gained a third bounded stash guard next to the other two: it
+    finds a leftover `test stash` by index in `git stash list` and pops it with `--index`, restoring
+    the mixed working tree every later step asserts against instead of dropping it. Step 5's two
+    `'test stash'` literals now share the guard's `NAMED_STASH` constant so they cannot drift.
+    Verified by stranding the stash by hand (`git stash push -u -m "test stash"`, leaving the tree
+    clean) and re-running the suite: it passed, step 8's `git stash list === ''` assertion held, and
+    the list was empty at the end. Without the guard that entry would have survived step 8's pop and
+    failed it. Two further back-to-back runs pass, 62 assertions each.
 
 ### GC-040 A crashed e2e run leaves its own Electron alive
 
@@ -1068,7 +1088,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-041 The launcher documents --keep-alive but checks --keep-running
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** infra | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** The usage line at the top of `tools/launch-app.mjs` reads
@@ -1083,8 +1103,8 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     for attaching a second app alongside one that is already up.
 - **Out of scope:** new launcher flags.
 - **Acceptance:**
-  - [ ] The documented flag is the flag the code reads.
-  - [ ] Passing it against a busy port leaves the process on that port alone.
+  - [x] The documented flag is the flag the code reads.
+  - [x] Passing it against a busy port leaves the process on that port alone.
 - **Files:** `tools/launch-app.mjs`.
 - **Verify:** launch on a port, then launch again with the flag and confirm the first pid is still
   the one on that port.
@@ -1092,6 +1112,73 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-035 (this ticket): the CLI's `killElectron()` call became
     `stopPort(port)` and the flag guarding it turned out not to be the one the header names.
   - 2026-09-05 20:12 claimed
+  - 2026-09-05 20:34 done. The header now documents `--keep-running`, the spelling the code reads, and
+    says what it does (skip the `stopPort` that frees the DevTools port). `--keep-alive` appeared
+    nowhere else in the repository: `tools/e2e/run.mjs` imports `launchApp`/`stopPort` directly and
+    never goes through the CLI arg block, so no caller needed changing. Verified by launching on
+    port 9333 (pid 37948), launching again with `--keep-running` and finding pid 37948 still on the
+    port, then launching once more without the flag and finding a different pid — so the flag is
+    load-bearing in both directions. Noted while doing it: the flagged launch still spawns a second
+    Electron that cannot bind the port and lingers; filed as GC-054.
+
+### GC-054 --keep-running still spawns a second Electron that cannot bind the port
+
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P3
+- **Depends on:** GC-041
+- **Why:** `--keep-running` correctly skips `stopPort`, so the app already on the port survives —
+  GC-041 verified that. But the CLI then spawns its own Electron anyway, which cannot bind the
+  DevTools port that is already taken. The readiness probe is satisfied by the *other* app answering
+  `/json`, so the launcher prints "app ready" and exits 0 while leaving a second, unreachable
+  Electron process tree that nothing will ever stop. Observed while verifying GC-041: a four-process
+  group had to be killed by hand with `taskkill //F //T //PID`. Every use of the flag leaks one such
+  tree, which matters on a machine where the rule (GC-035) is never to kill Electron broadly.
+- **Scope:**
+  - With `--keep-running`, if the port already answers `/json`, attach to that app instead of
+    spawning: skip the spawn, report which pid holds the port, and exit 0.
+  - If the port does not answer, behave exactly as today.
+- **Out of scope:** what the flag does about `stopPort`, new flags, and the `launchApp` module API
+  that `tools/e2e/run.mjs` uses.
+- **Acceptance:**
+  - [ ] With an app on the port, a `--keep-running` launch adds no new electron.exe process tree.
+  - [ ] The pid on the port is unchanged and the command still exits 0.
+  - [ ] With a free port the flag changes nothing about a normal launch.
+- **Files:** `tools/launch-app.mjs`.
+- **Verify:** launch on a port, count electron.exe trees with
+  `Get-CimInstance Win32_Process -Filter "Name='electron.exe'"`, launch again with the flag, count
+  again, then stop the one app narrowly.
+- **Log:**
+  - 2026-09-05 proposed by GC-041 (this ticket): verifying the flag left a stray four-process
+    Electron tree that had to be killed by pid, the exact situation GC-035 exists to avoid.
+
+### GC-055 The scratch repo has no commit with more than two refs, so chip folding is untested
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `setup-testrepo.mjs` pushes only `main` with `-u`, so `feature` and `wip-branch` have no
+  upstream and never absorb their remote chip. The busiest row in the scratch repo therefore carries
+  exactly two chips, which is `chipBudget(150)` at the default width — nothing ever folds. The `+N`
+  chip, its hover dropdown, the chip order and the shrink weights consequently have no e2e or
+  screenshot coverage at all. Verifying GC-020 required creating two branches by hand first, and
+  GC-023's acceptance ("four refs on one commit") cannot be checked against the fixture as it stands.
+- **Scope:**
+  - Give `setup-testrepo.mjs` one commit carrying four or more refs: a tracking local, a
+    non-tracking local and a tag alongside the checked-out branch, named so the ordering is
+    unambiguous.
+  - Update any existing step in `run.mjs` whose expected branch, ref or left-panel count the new
+    refs change.
+- **Out of scope:** new assertions about folding itself (GC-020, GC-022 and GC-023 own those), and
+  the e2e prologue.
+- **Acceptance:**
+  - [ ] A commit in the scratch repo carries at least four refs, so `+N` renders at 150px.
+  - [ ] `npm run e2e` passes back to back and stays re-entrant.
+- **Files:** `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e:setup && npm run e2e` twice, plus a screenshot showing a folded `+N`.
+- **Log:**
+  - 2026-09-05 proposed by GC-020 (this ticket): the acceptance case could not be reproduced against
+    the fixture without adding two branches by hand, which showed the fold has no coverage.
+
 
 ## Adding a ticket
 
@@ -1224,7 +1311,7 @@ decision is missing.
 
 ### GC-025 A readable error when git is not on PATH
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** main | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** launching the built app from a shell whose PATH has no `git` puts a bare
@@ -1247,9 +1334,9 @@ decision is missing.
     the home directory) so it cannot be confused by a stale last-repository path.
 - **Out of scope:** bundling git, or a setting for a git path (a separate ticket if wanted).
 - **Acceptance:**
-  - [ ] Launching with a PATH that has no git shows the named message, not `spawn git ENOENT`.
-  - [ ] With git present, startup is unchanged and costs one `git --version`.
-  - [ ] `gitclient.lastRepo` pointing at a folder that does not exist shows the folder
+  - [x] Launching with a PATH that has no git shows the named message, not `spawn git ENOENT`.
+  - [x] With git present, startup is unchanged and costs one `git --version`.
+  - [x] `gitclient.lastRepo` pointing at a folder that does not exist shows the folder
     message, not `spawn git ENOENT`, and the empty state still offers "Open repository...".
 - **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/renderer/src/App.tsx`.
 - **Verify:** typecheck, build, launch once with a stripped PATH and once normally.
@@ -1261,6 +1348,18 @@ decision is missing.
     PATH and had just loaded another repository; a dead folder and a missing binary need two
     different messages, and GC-044 will hand this code stale paths on purpose.
   - 2026-09-05 20:12 claimed
+  - 2026-09-05 20:34 done. `runGit` rejects with "Repository folder not found: <path>" before spawning when
+    `cwd` is missing, and maps a spawn ENOENT to the new `GIT_MISSING_MESSAGE`; `checkGit()` runs one
+    `git --version` in the home directory at startup, exposed as the argument-less `repo:checkGit`
+    channel; `App` keeps it in `gitError`, which replaces the empty state's prompt line and is
+    de-duplicated against `error`, and `load()`'s catch now clears `repoPath` so the status bar
+    stops naming a path that did not load. Verified by launching the built app stealthily twice and
+    reading the DOM over CDP: with git removed from PATH the empty state and status bar both carry
+    the named sentence, `Open repository…` is still there and the page contains no "ENOENT"
+    (screenshot `docs/screenshots/git-missing-empty-state.png`); with git present and a
+    `gitclient.lastRepo` that does not exist, the message is the folder one, the prompt line is
+    unchanged and the status bar reads "No repository open". Also typecheck, build, `npm test`
+    (39 pass) and `npm run e2e` (62 assertions), which exercises the normal startup path.
 
 ### GC-029 The stash message says "optional" but the modal refuses an empty one
 
@@ -1860,7 +1959,7 @@ decision is missing.
 
 ### GC-048 Long toolbar labels overflow their 52px button
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `.tool-btn` is a fixed `width: 52px` with no rule on the label, so a label wider than
@@ -1876,9 +1975,9 @@ decision is missing.
 - **Out of scope:** hiding the labels at narrow widths, a toolbar overflow menu, changing which
   buttons the toolbar shows.
 - **Acceptance:**
-  - [ ] For every `.tool-btn`, the label's rect is inside the button's rect, measured over CDP.
-  - [ ] Neighbouring labels have a visible gap at 1400px and at 1000px.
-  - [ ] A screenshot of the toolbar shows each icon centred over its own label.
+  - [x] For every `.tool-btn`, the label's rect is inside the button's rect, measured over CDP.
+  - [x] Neighbouring labels have a visible gap at 1400px and at 1000px.
+  - [x] A screenshot of the toolbar shows each icon centred over its own label.
 - **Files:** `src/renderer/src/styles/app.css`.
 - **Verify:** build, launch through `node tools/launch-app.mjs`, measure every `.tool-btn` and its
   label rect over CDP at two window widths, and look at a screenshot of the toolbar.
@@ -1887,10 +1986,19 @@ decision is missing.
     trip showed "Shortcuts" and "Preferences" running together; measuring confirmed the labels
     overflow their fixed-width buttons.
   - 2026-09-05 20:12 claimed
+  - 2026-09-05 20:34 done. `.tool-btn` is now `min-width: 52px` with `flex: none`, `padding: 0 6px`
+    and `white-space: nowrap`, so short labels keep the old 52px grid and only wider ones grow.
+    Measured over CDP: every label rect is inside its button, every icon is centred over its own
+    label, and the tightest neighbouring pair is exactly the reported one, "Shortcuts | Preferences",
+    now at a 12px gap ("Preferences" is a 55.7px label in a 67.7px button). The narrow-window
+    criterion was checked by constraining the toolbar flex container to 1000, 800 and 600px rather
+    than resizing the window, because an offscreen window rejects `Browser.setWindowBounds`; under
+    all three the button keeps its width and the gap stays 12px, which is what `flex: none` is for.
+    Screenshot `docs/screenshots/toolbar-labels.png` shows the three right-hand labels separated.
 
 ### GC-047 A test that fails on a raw control byte in a source file
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-042
 - **Why:** GC-042 fixed one literal U+0000 that a session had written straight into
@@ -1913,10 +2021,10 @@ decision is missing.
 - **Out of scope:** a git hook, a lint rule, any CI wiring, checking encodings or trailing
   whitespace.
 - **Acceptance:**
-  - [ ] `npm test` passes on a clean tree.
-  - [ ] Putting a raw NUL back into any file under `src/` makes it fail, and the message names
+  - [x] `npm test` passes on a clean tree.
+  - [x] Putting a raw NUL back into any file under `src/` makes it fail, and the message names
     that file and the offset (mutation-check it, then revert).
-  - [ ] The walk skips `node_modules/` and `out/`, and the whole suite still runs well under a
+  - [x] The walk skips `node_modules/` and `out/`, and the whole suite still runs well under a
     second.
 - **Files:** new `src/renderer/src/repo-hygiene.test.ts`, `CLAUDE.md` (Testing section).
 - **Verify:** `npm test`, `npm run typecheck`, plus the mutation check above.
@@ -1930,6 +2038,15 @@ decision is missing.
     file earlier the same day. Three occurrences in one day is why the scope covers the root
     markdown files and not only `src/`.
   - 2026-09-05 20:12 claimed
+  - 2026-09-05 20:34 done. New `src/renderer/src/repo-hygiene.test.ts` walks `src/` and `tools/` plus
+    the three root markdown files, skipping `node_modules/`, `out/`, `dist/`, `.git/` and the binary
+    extensions, and fails on any C0 byte that is not TAB or LF (CR included). It carries its own
+    `/// <reference types="node" />` because `tsconfig.web.json` does not pull in the node types.
+    Two tests: one guards the walk itself, one is the byte scan. `npm test` is 39 tests in ~240ms.
+    Mutation-checked twice, once by the implementer and once independently at close-out: a scratch
+    file written with `String.fromCharCode(0)` (byte dump confirming the NUL at offset 19) fails the
+    suite with "src/renderer/src/__mutcheck.ts: control character (0x00) at byte offset 19"; after
+    deleting it, 39 pass again.
 
 ### GC-049 Branch context menu is missing its tip-commit actions, mainly Reset
 

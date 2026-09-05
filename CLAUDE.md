@@ -93,6 +93,7 @@ npm run build && node tools/launch-app.mjs --repo "$TEMP/gitclient-e2e/testrepo"
 # --port <n>   DevTools port, default 9333
 # --repo <p>   sets gitclient.lastRepo over CDP and reloads, so no load.js is needed
 # --visible    the normal, focused window; without it the launch is stealthy
+# --keep-running  skip freeing the port first, so an app already on it is left running (GC-041)
 ```
 
 It is **stealthy by default**: it spawns `node_modules/electron/dist/electron.exe` directly
@@ -152,7 +153,12 @@ Awesome icons, Open Sans, bundled Git for Windows shelled out to. Native (Chromi
 ### Main process (`src/main/git.ts`)
 
 - `runGit(cwd, args, { input?, okCodes? })` spawns git with `--no-pager -c core.quotepath=off -c
-  color.ui=never`. Non-zero exit rejects with `GitError`; the message is stderr, or the last six
+  color.ui=never`. It rejects **before** spawning when `cwd` does not exist
+  ("Repository folder not found: <path>"), and maps a spawn `ENOENT` to `GIT_MISSING_MESSAGE`
+  ("git was not found on PATH..."). Node reports the same `spawn git ENOENT` for a missing binary
+  and a missing cwd, so the `existsSync` guard is the only thing that tells a moved repository
+  apart from an uninstalled git (GC-025). `checkGit()` runs one `git --version` at startup in the
+  home directory — never in the last repository, whose path may be stale. Non-zero exit rejects with `GitError`; the message is stderr, or the last six
   stdout lines when stderr is empty (merge/cherry-pick conflicts report on stdout).
 - Log: `git log --exclude=refs/stash --all --date-order --max-count=N --format=<fields joined by
   \x1f, records by \x1e>`. **Date order is deliberate**: it reproduces GitKraken's row order
@@ -179,7 +185,8 @@ Awesome icons, Open Sans, bundled Git for Windows shelled out to. Native (Chromi
 ### IPC and preload
 
 Channels are grouped by prefix: `repo:*`, `commit:*`, `workdir:*`, `ref:*`, `remote:*`,
-`stash:*`. `ipc.ts` validates every argument (`str`, `strs`, `int`, `oneOf`). The preload maps
+`stash:*`. `repo:checkGit` is the one handler taking no arguments, so the only one with nothing
+to validate. `ipc.ts` validates every argument (`str`, `strs`, `int`, `oneOf`). The preload maps
 each `GitApi` method to `ipcRenderer.invoke` with a tiny `call(channel)` helper; adding an API
 means: type in `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`.
 
@@ -188,7 +195,10 @@ means: type in `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, ent
 State: `snapshot` (info, commits, refs, status, stashes, remotes), `selected` (sha or the `WIP`
 sentinel), `fileView` (`{source:'commit', sha, path, kind}` or `{source:'wip', path, staged, kind}`),
 `leftCollapsed`, `workdirVersion` (bumped to make the DiffView reload), `busy` (label of the
-running operation), `error`, `pullMode`.
+running operation), `error`, `gitError` (git itself is missing — it replaces the empty state's
+prompt line, and `error` is suppressed when identical so the sentence is not printed twice),
+`pullMode`. `load()`'s failure path clears `repoPath` so the status bar stops naming a path that
+did not load, while `gitclient.lastRepo` is kept in case the folder comes back (GC-025).
 
 `run(label, fn, { statusOnly?, rethrow? })` is the only way git actions execute: sets busy,
 runs, then reloads the whole snapshot (or only the status for staging actions), and **re-applies
@@ -303,7 +313,9 @@ point at the same commit (cloud icon appended), at most `chipBudget(refColW)` ch
 75px of ref column, 1 to 6, so the default 150px still shows two) then a `+N` chip
 whose hover shows the rest in a dropdown; hovering a chip expands it to its full name over the
 graph (per-chip hover, not per-cell, otherwise the `+N` chip moves away from the pointer).
-Chip order: HEAD, tracking locals, other locals, remotes, tags.
+Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
+second so its marker survives the fold into `+N`, where it would explain the leftmost lane only on
+hover (GC-020).
 
 Commit search (GC-009) is a find bar `CommitGraph` draws above its header when `searchOpen`:
 matching is client-side over the loaded commits on summary, body, author name, author email and
@@ -373,8 +385,10 @@ find bar itself. Reverting GC-037 or GC-038 locally fails that step.
 It waits for the status-bar spinner (`waitIdle`) rather than fixed sleeps; a fixed sleep caused
 one flake. All 62 assertions passed on the last run. Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates, and drops the
-`e2e checkout guard` stash a run interrupted in step 15 would leave behind, and pops back the
-unnamed stash step 5 parks the tree in for a moment). Step 1 also removes
+`e2e checkout guard` stash a run interrupted in step 15 would leave behind, and pops back both the
+unnamed stash step 5 parks the tree in for a moment and the named `test stash` a run that died
+between steps 5 and 8 would strand — popped, not dropped, because it holds the mixed working tree
+every later step asserts against (GC-036)). Step 1 also removes
 `gitclient.prefs`: preferences persist in the app's localStorage, so a setting toggled by hand in
 an earlier session (GC-007 left `confirmDirtyCheckout` off) silently disables whole steps
 otherwise.
@@ -387,7 +401,7 @@ jsdom and no React plugin in that config. `tsconfig.web.json` already includes t
 `src/renderer/src/**/*`, so `npm run typecheck` type-checks the tests too; import `describe`,
 `it` and `expect` from `vitest` explicitly rather than turning on globals.
 
-Covered today (37 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (39 tests): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -407,6 +421,16 @@ reaching for a reset function; and the subscriber list is reachable only through
 React's `useSyncExternalStore` is stubbed with `vi.mock` to capture the `subscribe` callback,
 which keeps `prefs.ts` free of exports that exist only for tests. Mutation-checked: deleting the
 migration branch in `load()` fails the migration case.
+`repo-hygiene.test.ts` guards the repository rather than the renderer (GC-047): it walks `src/`
+and `tools/` plus the root markdown files, skipping `node_modules/`, `out/`, `dist/` and the
+binary extensions, and fails on any C0 control byte that is not TAB or LF — CR included, because
+`.gitattributes` pins the working copy to LF. The message names the file and the byte offset, so
+the fix is obvious from the output alone. It lives under `src/renderer/src/` only so the existing
+`vitest.config.ts` include and `tsconfig.web.json` cover it with no config change, and it carries
+its own `/// <reference types="node" />` because the web project does not pull in the node types;
+move it and both configs need editing. This is what would have caught GC-042's literal U+0000 the
+day it was written. Mutation-checked: a NUL written into a scratch file under `src/` fails it with
+that file and offset.
 
 ## Working conventions learned the hard way
 
@@ -440,6 +464,13 @@ width-aware chip fold (GC-006); the Preferences dialog behind one `gitclient.pre
 avatars, default pull mode, the dirty-checkout confirmation and the 72-character counter all
 switchable (GC-007); commit search over the loaded commits from the toolbar button or Ctrl+F,
 dimming non-matches instead of hiding them (GC-009); the commit search surviving a diff opening over the graph, its query owned by `App` (GC-030);
+a named message when git is missing from PATH, told apart from a repository folder that no longer
+exists (GC-025); the pinned branch's chip ranking second so the fold cannot hide its marker
+(GC-020); the e2e prologue recovering the named stash a run interrupted between steps 5 and 8
+strands (GC-036); the launcher's header naming `--keep-running`, the flag it actually reads
+(GC-041); a byte-level test that fails on a raw control byte in any source or root markdown file
+(GC-047); toolbar buttons sized to their labels so "Shortcuts" and "Preferences" no longer run
+together (GC-048);
 one table of keyboard shortcuts behind
 `matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
 `tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); every

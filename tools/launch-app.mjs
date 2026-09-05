@@ -11,7 +11,11 @@
 // Stopping is narrow too: `stopApp(child)` / `stopPort(port)` kill one process tree, never every
 // electron.exe on the machine (GC-035).
 //
-// Usage: node tools/launch-app.mjs [--port 9333] [--repo <path>] [--visible] [--keep-alive]
+// Usage: node tools/launch-app.mjs [--port 9333] [--repo <path>] [--visible] [--keep-running]
+// `--keep-running` skips the `stopPort` that normally frees the DevTools port first, so an app
+// already listening on it keeps running and this launch comes up alongside it. The header used to
+// name it `--keep-alive` while the code read `--keep-running`, so the documented spelling silently
+// stopped the process it promised to spare; `--keep-running` is the name that works (GC-041).
 // Exits 0 once the page target is up, 1 on timeout.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
