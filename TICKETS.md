@@ -146,17 +146,35 @@ must never disturb the worker, so it obeys strict isolation:
   It never touches `CLAUDE.md` or any other file; a stale "Done" paragraph becomes a note in
   the review log instead.
 
-What a review does, time-boxed to about twenty minutes:
+What a review does, time-boxed to about twenty minutes. It is a product owner's pass, not only a
+code reviewer's: the UI and "what should we build next" steps below get at least as much of the
+budget as reading the diffs, because a session with an `in-progress` lock spends its whole time
+on one ticket's code and nobody else is looking at the app as a whole or asking what belongs on
+the board next.
 
 - Reads every `GC` commit on `origin/main` since the previous review (`git log`, `git show`)
   as a reviewer: bugs, weak tests, scope creep, drift from `CLAUDE.md`, acceptance boxes ticked
   without evidence in the ticket log.
 - Runs `npm run typecheck`, `npm test` and `npm run build` in the worktree; any failure
   becomes a P0 bug ticket.
-- Once GC-028 has landed, launches the worktree's build on its own scratch repo through
-  `node tools/launch-app.mjs --port 9334`, screenshots the graph, a commit, the staging view and
-  a diff into `%TEMP%/gitclient-review/GR-0NN/` (never into the repository), looks at them and
-  compares against `docs/reference/gitkraken/`. Until then this step is skipped and the log says so.
+- **Looks at the running app, broadly, not only at what the window's tickets touched.** Launches
+  the worktree's build on its own scratch repo through `node tools/launch-app.mjs --port 9334`,
+  and screenshots a representative spread: the graph, a commit, the staging view, a diff, and
+  whichever panels, menus or modals the window's commits changed — plus, on a rotating basis so
+  every surface gets revisited every few reviews even when nothing recently touched it, one it
+  did not pick last time (a context menu, a popover, the Preferences dialog, an empty state, the
+  left panel, a resize/reflow at a second window width). Screenshots land in
+  `%TEMP%/gitclient-review/GR-0NN/` (never in the repository). Look at every one of them next to
+  the matching `docs/reference/gitkraken/` screenshot and note, the way Ricardo reviews them
+  himself (`CLAUDE.md`, "Working conventions"): lane continuity, chip behaviour, spacing, icon
+  quality, truncation, alignment, density. A visual mismatch, an inconsistency between two
+  screens, or a rough edge is worth a ticket on its own even when nothing is functionally broken
+  — do not wait for a bug to justify a UI ticket.
+- **Asks what's next, not only what broke.** Re-reads `docs/reference/gitkraken/06-feature-inventory.md`
+  and the other study notes against the current `todo` board and the "State of the roadmap"
+  paragraph in `CLAUDE.md`, and spends real attention on which GitKraken behaviour or UI polish
+  detail closest to shipping would most improve the app next — not just gaps that happen to
+  surface as a side effect of the code review. This is where most new tickets should come from.
 - Checks backlog hygiene: `blocked` tickets that can now be unblocked, `todo` tickets that are
   no longer concrete, wrong dependencies, board order.
 
@@ -164,7 +182,10 @@ It then adds zero to five `GC` tickets with the full template and a log line
 `proposed by GR-0NN: <reason>`, may extend the scope of an existing `todo` ticket instead of
 duplicating it, may reorder `todo` board rows (reason in the review log), and never changes
 any ticket that is `in-progress`, `done` or `blocked` (except to unblock one with a log
-line). Its commit is `GR-0NN: backlog review`.
+line). **At least one ticket per review should come from the UI/screenshot pass or the
+what's-next pass above**, not only from the code-review pass, whenever either surfaced a
+plausible candidate — say in the log when neither did rather than forcing a weak ticket to hit
+the count. Its commit is `GR-0NN: backlog review`.
 
 ## Board
 
