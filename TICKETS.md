@@ -1762,6 +1762,13 @@ decision is missing.
     `03-graph.md`: labels uppercase at low opacity to the right of the message, message still
     truncating with an ellipsis. `npm test` 48 passed (a new `prefs.test.ts` case covers the
     default, the per-column fallback and that the fallback is a copy).
+  - 2026-09-05 21:50 on the screenshot comparison, precisely: `02-main-1080.png` has the optional
+    columns switched off (its header is BRANCH / TAG, GRAPH, COMMIT MESSAGE and then the settings
+    cog), so it could only confirm the header treatment — uppercase, low-opacity, left-aligned
+    labels on the same 22px header row — which ours matches, and the 28px row pitch. It cannot
+    show what GitKraken's AUTHOR / DATE / TIME / SHA cells look like, so the cell widths, the 12px
+    60% text and the date format are our own values from the study's column table in `03-graph.md`,
+    not a match against that image.
 
 ### GC-033 Global shortcuts from the study: branch, fetch, panels, staging
 
