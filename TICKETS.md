@@ -109,13 +109,14 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | done |
 | GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | done |
 | GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | done |
-| GC-006 | Resizable ref column | graph | M | P1 | in-progress |
+| GC-006 | Resizable ref column | graph | M | P1 | done |
 | GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | todo |
 | GC-008 | Remote add, edit and remove | actions | M | P2 | todo |
 | GC-009 | Commit search | graph | M | P2 | todo |
 | GC-010 | Keyboard shortcuts overlay | ui | S | P2 | todo |
 | GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | todo |
 | GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | todo |
+| GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | todo |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
@@ -123,6 +124,7 @@ a log of what shipped, health results, screenshots looked at and tickets added, 
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
+| GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
 
@@ -360,7 +362,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-006 Resizable ref column
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** M | **Priority:** P1
 - **Depends on:** GC-001
 - **Why:** `--ref-col-w` is fixed at 150px and long single branch names clip. GitKraken lets
@@ -372,14 +374,30 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - Chip folding (`MAX_CHIPS`, `+N`) adapts to the width so more chips show when there is room.
 - **Out of scope:** resizing the left or detail panels.
 - **Acceptance:**
-  - [ ] Dragging changes the width live without layout jumps in the graph SVG.
-  - [ ] Width survives a reload.
-  - [ ] Screenshot at 150px and 300px in `docs/screenshots/`.
+  - [x] Dragging changes the width live without layout jumps in the graph SVG.
+  - [x] Width survives a reload.
+  - [x] Screenshot at 150px and 300px in `docs/screenshots/`.
 - **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`,
   `src/renderer/src/styles/tokens.css`.
 - **Verify:** build, screenshots.
 - **Log:**
   - 2026-09-05 16:22 claimed
+  - 2026-09-05 done. `CommitGraph` owns the width: state seeded from `gitclient.refColW`,
+    written to `--ref-col-w` on `.graph-panel` (so the token stays the default) and persisted
+    on pointer-up. The handle is a 4px `.col-resize` absolutely positioned on the column
+    boundary inside the header, matching the study's "10px handle at the header's right edge"
+    without adding width of its own, so nothing reflows while dragging. Pointer capture drives
+    the drag, clamped to 100-400px; double-click resets to 150. Chip folding now uses
+    `chipBudget(width)` (one chip per 75px, 1 to 6) in place of the fixed `MAX_CHIPS = 2`,
+    so 150px still shows two.
+    Verified: `npm run typecheck`, `npm test` (23 passed), `npm run build`, and
+    `npm run e2e` (all 29 assertions passed) all clean. Drove the built app over CDP with a
+    real mouse drag: 150 -> 300 -> clamped 100 -> clamped 400 -> double-click 150, reading back
+    the inline variable, the `localStorage` value and both column boxes each time. Header and
+    row `.col-ref` stayed the same width and the graph SVG stayed 76px wide throughout, so
+    there is no layout jump; a reload came back at 300px. Chip fold measured live: 1 chip + `+N`
+    at 100px, 4 + `+N` at 300px. Screenshots `docs/screenshots/graph-ref-col-150.png` and
+    `graph-ref-col-300.png` looked at: full branch names read at 300px where 150px clipped them.
 
 ### GC-007 Preferences page with Gravatar toggle
 
@@ -705,6 +723,59 @@ Copy a section, give it the next `GC-0NN`, fill every field, add a row to the bo
 is only `todo` when its scope, acceptance criteria and verification steps are concrete enough
 that a session with no other context could finish it. Otherwise mark it `blocked` and say what
 decision is missing.
+
+
+### GC-022 The +N refs dropdown is clipped by the graph scroll container
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** `.ref-chip.more .more-list` is absolutely positioned at `top: 100%` inside the row,
+  and the row lives in `.graph-body`, which is `overflow: auto`. A commit in the lower part of
+  the viewport therefore has its folded refs cut off by the scroll container: measured on the e2e
+  repository with the body clamped to 220px, the list extended 174px below the container's bottom
+  edge and that part was not drawn. The chips inside it are the only way to reach a folded ref's
+  context menu, so they are unreachable for those rows. GC-006 makes this more visible, because a
+  narrow column folds more refs.
+- **Scope:**
+  - Flip the list above the chip when opening downwards would cross `.graph-body`'s bottom edge,
+    the way `ContextMenu` already clamps itself to the viewport.
+  - Keep it a hover affordance; no change to what it contains or to the fold budget.
+- **Out of scope:** turning the `+N` list into a real menu through `useUi().openMenu` (a bigger
+  change to how refs are reached, and it would lose the hover preview).
+- **Acceptance:**
+  - [ ] On the last row of a full graph, the whole folded list is visible.
+  - [ ] On rows with room below, it still opens downwards.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** build, then measure the list's rect against `.graph-body`'s rect over CDP for a top
+  row and a bottom row.
+- **Log:**
+  - 2026-09-05 proposed by GC-006 (this ticket): the width-aware fold folds more refs at narrow
+    widths, and measuring the dropdown while checking that fold showed it clipped at the bottom.
+
+### GC-023 Chip shrinking still assumes exactly two chips
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-006
+- **Why:** `.ref-chip:nth-child(2):not(.more)` gives the second chip `flex-shrink: 50` so the
+  primary ref stays readable, which was written when the column always showed two chips. GC-006
+  lets a wide column show up to six, and chips three and beyond shrink at the default weight of 1,
+  the same as the first, so a long third or fourth name now takes space from the checked-out
+  branch's chip instead of giving way.
+- **Scope:**
+  - Replace the `nth-child(2)` rule with one that gives every chip after the first the same
+    heavy shrink weight (`.ref-chip:not(:first-child):not(.more)`).
+  - Confirm the primary chip still wins at 100px with four or more refs on the commit.
+- **Out of scope:** the chip order itself (GC-020) and the fold budget (GC-006).
+- **Acceptance:**
+  - [ ] At 100px with four refs on one commit, the first chip keeps its name legible.
+  - [ ] At 400px nothing shrinks that did not have to.
+- **Files:** `src/renderer/src/styles/app.css`.
+- **Verify:** build, screenshot a commit with four refs at both ends of the width range.
+- **Log:**
+  - 2026-09-05 proposed by GC-006 (this ticket): raising the fold budget above two made the
+    two-chip assumption baked into the shrink rule visible.
 
 ---
 

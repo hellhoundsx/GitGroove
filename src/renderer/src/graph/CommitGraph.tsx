@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Check, Cloud, Minus, Pencil, Pin, Plus, Tag, TriangleAlert } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus } from '@shared/types';
 import { layoutGraph, type RowLayout } from './lanes';
@@ -23,7 +23,25 @@ interface Props {
 
 export const WIP = 'WIP';
 const OVERSCAN = 12;
-const MAX_CHIPS = 2;
+
+// Ref column width: dragged between MIN and MAX, double-click resets to DEFAULT.
+const REF_COL_KEY = 'gitclient.refColW';
+const REF_COL_DEFAULT = 150;
+const REF_COL_MIN = 100;
+const REF_COL_MAX = 400;
+/** Roughly one chip per 75px, so the default 150px keeps the two chips it has always shown. */
+const chipBudget = (width: number): number => Math.max(1, Math.min(6, Math.floor(width / 75)));
+
+const clampRefCol = (w: number): number => Math.min(REF_COL_MAX, Math.max(REF_COL_MIN, Math.round(w)));
+
+function readRefColW(): number {
+  try {
+    const v = Number(localStorage.getItem(REF_COL_KEY));
+    return Number.isFinite(v) && v > 0 ? clampRefCol(v) : REF_COL_DEFAULT;
+  } catch {
+    return REF_COL_DEFAULT;
+  }
+}
 
 /** A ref chip to draw; a local branch absorbs its upstream when both point at the same commit. */
 interface Chip {
@@ -73,6 +91,43 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     return c;
   }, [status]);
   const hasChanges = counts.add + counts.mod + counts.del + counts.conflict > 0;
+
+  // ---- ref column width ---------------------------------------------------
+  const [refColW, setRefColW] = useState(readRefColW);
+  const [resizing, setResizing] = useState(false);
+  const dragRef = useRef<{ x: number; w: number } | null>(null);
+  const maxChips = chipBudget(refColW);
+
+  const persistRefColW = useCallback((w: number): void => {
+    try {
+      localStorage.setItem(REF_COL_KEY, String(w));
+    } catch {
+      /* private mode: the width just does not survive the reload */
+    }
+  }, []);
+
+  const onResizeDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    e.preventDefault();
+    dragRef.current = { x: e.clientX, w: refColW };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setResizing(true);
+  };
+  const onResizeMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    const d = dragRef.current;
+    if (!d) return;
+    setRefColW(clampRefCol(d.w + (e.clientX - d.x)));
+  };
+  const onResizeUp = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setResizing(false);
+    persistRefColW(refColW);
+  };
+  const onResizeReset = (): void => {
+    setRefColW(REF_COL_DEFAULT);
+    persistRefColW(REF_COL_DEFAULT);
+  };
 
   // ---- virtualisation -----------------------------------------------------
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -186,11 +241,11 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     return (
       <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
         <div className="col-ref">
-          {chips.slice(0, MAX_CHIPS).map((chip) => renderChip(chip, color))}
-          {chips.length > MAX_CHIPS && (
+          {chips.slice(0, maxChips).map((chip) => renderChip(chip, color))}
+          {chips.length > maxChips && (
             <span className="ref-chip more" title="More refs on this commit">
-              +{chips.length - MAX_CHIPS}
-              <span className="more-list">{chips.slice(MAX_CHIPS).map((chip) => renderChip(chip, color))}</span>
+              +{chips.length - maxChips}
+              <span className="more-list">{chips.slice(maxChips).map((chip) => renderChip(chip, color))}</span>
             </span>
           )}
           {rowRefs.length > 0 && <span className="ref-line" style={{ background: color }} />}
@@ -221,7 +276,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   }
 
   return (
-    <div className="graph-panel">
+    <div className={`graph-panel ${resizing ? 'resizing' : ''}`} style={{ '--ref-col-w': `${refColW}px` } as CSSProperties}>
       {/* shared clip for the round avatars inside every row's svg */}
       <svg width={0} height={0} style={{ position: 'absolute' }} aria-hidden="true">
         <defs>
@@ -232,6 +287,19 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
       </svg>
       <div className="graph-header">
         <div className="col-ref">Branch / Tag</div>
+        {/* absolutely positioned on the column boundary so it adds no width of its own and the
+            header stays aligned with every row */}
+        <div
+          className="col-resize"
+          role="separator"
+          aria-orientation="vertical"
+          title="Drag to resize the branch column, double-click to reset"
+          onPointerDown={onResizeDown}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeUp}
+          onPointerCancel={onResizeUp}
+          onDoubleClick={onResizeReset}
+        />
         <div className="col-graph" style={{ width: graphWidth }}>
           Graph
         </div>

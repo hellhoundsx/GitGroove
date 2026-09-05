@@ -31,6 +31,7 @@
   --row-h: 28px;
   --node-size: 20px;
   --lane-w: 20px;
+  /* default only: the graph panel overrides --ref-col-w on its own root while it is resized */
   --ref-col-w: 150px;
 
   /* Surfaces: a short grey ramp, warm-neutral, stepping ~10 per level */

@@ -102,7 +102,8 @@ CDP_PORT=9333 node tools/gk-recon/cdp.mjs 0 eval load.js
 ```
 
 The app remembers the last repository in `localStorage` (`gitclient.lastRepo`), the pull
-mode (`gitclient.pullMode`) and the branch pinned to the graph's left column, per repository
+mode (`gitclient.pullMode`), the ref column's width (`gitclient.refColW`, a number of pixels)
+and the branch pinned to the graph's left column, per repository
 (`gitclient.pinned.<repoPath>`, the branch name).
 
 ## tools/gk-recon/cdp.mjs (DevTools driver)
@@ -212,10 +213,17 @@ rows between WIP and HEAD when the head lane is free, `'toNode'` on the HEAD row
 
 `CommitGraph` virtualises rows (28px, overscan 12, absolute positioning inside a spacer), keeps
 the selected row visible, and renders chips: a local branch **absorbs its upstream** when both
-point at the same commit (cloud icon appended), at most `MAX_CHIPS = 2` chips then a `+N` chip
+point at the same commit (cloud icon appended), at most `chipBudget(refColW)` chips (one per
+75px of ref column, 1 to 6, so the default 150px still shows two) then a `+N` chip
 whose hover shows the rest in a dropdown; hovering a chip expands it to its full name over the
 graph (per-chip hover, not per-cell, otherwise the `+N` chip moves away from the pointer).
 Chip order: HEAD, tracking locals, other locals, remotes, tags.
+
+The ref column is resizable (GC-005's neighbour, GC-006): `CommitGraph` holds the width in state,
+writes it to `--ref-col-w` on `.graph-panel` (`tokens.css` only carries the 150px default) and
+persists it to `gitclient.refColW` on pointer-up. The 4px `.col-resize` handle is absolutely
+positioned on the column boundary inside `.graph-header`, so dragging it reflows nothing; the
+drag uses pointer capture, clamps to 100-400px, and double-clicking resets to 150px.
 
 ### Diff (`src/renderer/src/diff`)
 
@@ -305,7 +313,8 @@ in-progress operation banner with abort; conflicted files group; icon set; Open 
 calibrated to the reference; chip folding, hover expansion, `+N` list; e2e suite; vitest unit
 tests for `parseDiff.ts` and `lanes.ts` (GC-002); every confirmation on the styled modal (GC-003);
 the dirty-tree checkout guard with "Stash and check out" (GC-004); "Pin to Left" giving any local
-branch the leftmost column, remembered per repository (GC-005).
+branch the leftmost column, remembered per repository (GC-005); the resizable ref column with a
+width-aware chip fold (GC-006).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance
