@@ -46,6 +46,7 @@ export function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [pullOpen, setPullOpen] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
   // The search bar over the graph. `searchTick` changes on every request to open it so that
   // Ctrl+F refocuses the field even when the bar is already showing.
@@ -456,11 +457,12 @@ export function App(): JSX.Element {
 
   // ---- keyboard ----------------------------------------------------------------------
   // Every layer on top of the app is closed here and nowhere else: the shortcuts overlay,
-  // Preferences, the prompt/confirm modal and the context menu. Escape closes the topmost one
-  // and nothing else, which is why no layer handles Escape itself. The listener runs in the
-  // capture phase so that when it does close a layer it can stop the event before any React
-  // handler underneath sees it — the find bar's input closes itself on Escape otherwise.
-  const layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen;
+  // Preferences, the prompt/confirm modal, the context menu and the toolbar's Pull popover
+  // (whose open flag lives here for exactly that reason). Escape closes the topmost one and
+  // nothing else, which is why no layer handles Escape itself. The listener runs in the capture
+  // phase so that when it does close a layer it can stop the event before any React handler
+  // underneath sees it — the find bar's input closes itself on Escape otherwise.
+  const layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // The topmost layer owns the keyboard while it is up: it closes on Escape (and the overlay
@@ -474,7 +476,8 @@ export function App(): JSX.Element {
           if (shortcutsOpen) setShortcutsOpen(false);
           else if (prefsOpen) setPrefsOpen(false);
           else if (ui.dialogOpen) ui.closeDialog();
-          else ui.closeMenu();
+          else if (ui.menuOpen) ui.closeMenu();
+          else setPullOpen(false);
         }
         return;
       }
@@ -523,7 +526,9 @@ export function App(): JSX.Element {
         hasChanges={(snapshot?.status.entries.length ?? 0) > 0}
         stashCount={snapshot?.stashes.length ?? 0}
         pullMode={prefs.pullMode}
+        pullOpen={pullOpen}
         onPullModeChange={(mode) => setPrefs({ pullMode: mode })}
+        onPullOpenChange={setPullOpen}
         onFetch={() => void run('Fetching', () => window.api.fetch(repo!))}
         onPull={(mode) => void run('Pulling', () => window.api.pull(repo!, mode))}
         onOpenPreferences={() => setPrefsOpen(true)}

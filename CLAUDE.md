@@ -193,8 +193,8 @@ Staging actions are exposed to the DetailPanel as `StagingActions`; menus are bu
 
 Keyboard: ArrowUp/Down move the selection across WIP + commits, Ctrl+F opens the graph's commit
 search (from anywhere, including the commit form) and `?` opens the shortcuts overlay.
-**Escape closes exactly one layer** (GC-034, GC-037), decided in one place: `App.tsx` computes
-`layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen`, and while a layer is up
+**Escape closes exactly one layer** (GC-034, GC-037, GC-038), decided in one place: `App.tsx`
+computes `layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen`, and while a layer is up
 its window handler closes the topmost one (the overlay also on `?`) and swallows every other
 window-level shortcut, so the graph does not move and the diff does not close behind it; with no
 layer, Escape closes the search bar, then the file view. That handler runs in the **capture
@@ -203,8 +203,12 @@ it — the find bar's input closes itself on Escape otherwise, and one Escape wo
 layers. Every other key still reaches the focused element, which is what keeps a modal's input
 and its Enter handler working. No layer handles Escape itself — `Modal` and `Preferences` only
 keep `dialogConfirm`, `ContextMenu` closes on an outside click, a scroll, a resize or a blur but
-never on a key, and `UiProvider` exposes `dialogOpen`/`closeDialog()` and `menuOpen`/`closeMenu()`
-so `App` can see and close the modal and the menu it owns. The search
+never on a key, `UiProvider` exposes `dialogOpen`/`closeDialog()` and `menuOpen`/`closeMenu()`
+so `App` can see and close the modal and the menu it owns, and the toolbar's Pull popover keeps
+only its outside-click handler because its open flag was lifted into `App` as `pullOpen` and is
+passed back down as `pullOpen` + `onPullOpenChange` (GC-038). No `window` keydown listener
+exists anywhere in the renderer outside `App.tsx`; a new layer joins `layerOpen` rather than
+growing a listener of its own. The search
 bar's open flag lives in `App.tsx` as `{ open, tick }`: `tick` changes on every request to open it so a
 second Ctrl+F refocuses a bar that is already showing. **No handler compares a key name of its
 own** (GC-010): every one asks `matches(id, event)` from `src/renderer/src/shortcuts.ts`.
@@ -411,8 +415,8 @@ dimming non-matches instead of hiding them (GC-009); one table of keyboard short
 `matches(id, event)` with the `?` overlay rendered from it (GC-010); stealth launches through
 `tools/launch-app.mjs` so unattended runs never steal focus or show a window (GC-028); the stash
 prompt's "(optional)" message really being optional, on a per-prompt `required` flag (GC-029);
-Escape closing exactly one layer, decided once in `App.tsx`, for the dialogs (GC-034) and for the
-context menu (GC-037).
+Escape closing exactly one layer, decided once in `App.tsx`, for the dialogs (GC-034), the
+context menu (GC-037) and the toolbar's Pull popover (GC-038).
 
 **The backlog lives in `TICKETS.md`** (root). Every piece of startable work is a ticket
 `GC-0NN` with one status (`todo`, `in-progress`, `done`, `blocked`), scope, acceptance

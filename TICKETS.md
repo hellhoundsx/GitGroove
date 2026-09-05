@@ -138,7 +138,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | done |
 | GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | done |
 | GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | done |
-| GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | in-progress |
+| GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | todo |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
@@ -1424,7 +1424,7 @@ decision is missing.
 
 ### GC-038 Escape with the Pull popover open also closes the find bar behind it
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Why:** GC-037 made the context menu a layer, but the toolbar's Pull-options popover still
   closes itself from its own `window` keydown listener in `Toolbar.tsx`, which does not stop the
@@ -1438,10 +1438,10 @@ decision is missing.
     popover behind `UiProvider`) is the design decision the ticket has to make.
 - **Out of scope:** keyboard navigation inside the popover; any other toolbar behaviour.
 - **Acceptance:**
-  - [ ] With the find bar open, opening the Pull caret and pressing Escape closes only the
+  - [x] With the find bar open, opening the Pull caret and pressing Escape closes only the
     popover; a second Escape closes the find bar.
-  - [ ] Clicking outside the popover still closes it, and picking a pull mode still works.
-  - [ ] The e2e suite still passes (step 14 opens this popover for `Fetch all`).
+  - [x] Clicking outside the popover still closes it, and picking a pull mode still works.
+  - [x] The e2e suite still passes (step 14 opens this popover for `Fetch all`).
 - **Files:** `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/App.tsx`.
 - **Verify:** typecheck, build, e2e, and the acceptance case driven over CDP.
 - **Log:**
@@ -1449,6 +1449,20 @@ decision is missing.
     with the find bar open and the Pull popover up, one Escape left `.popover` gone *and*
     `.graph-search` gone.
   - 2026-09-05 18:05 claimed
+  - 2026-09-05 18:12 done. Design decision: the flag was lifted, not the popover. `pullOpen`
+    now lives in `App` beside `prefsOpen`/`shortcutsOpen`, is passed to `Toolbar` as
+    `pullOpen` + `onPullOpenChange`, and joins `layerOpen` and the topmost-layer chain
+    (below the context menu). `Toolbar` lost its `window` keydown listener and its
+    `matches` import, and keeps only the outside-click handler, which is nobody else's
+    business. A `grep` for `keydown` afterwards found no `window` listener left anywhere in
+    the renderer outside `App.tsx`, so GC-034, GC-037 and this ticket close the whole class.
+    Verified: typecheck, build, `npm test` (30 passed), `npm run e2e` twice (49 assertions,
+    all passed, including the `Fetch all` step that drives this popover), and the acceptance
+    cases driven over CDP against the built app — with the find bar up, opening the caret and
+    pressing Escape left `.popover` gone and `.graph-search` still there, a second Escape
+    closed the find bar, an outside mousedown still closed the popover, and picking
+    "fast-forward only" changed the Pull button's default and closed the popover. Screenshot:
+    `docs/screenshots/gc-038-pull-popover-over-search.png` (popover drawn over the find bar).
 
 ### GC-039 An e2e step that guards one Escape, one layer
 
@@ -1463,17 +1477,21 @@ decision is missing.
     gone while `.graph-search` is still there, then presses Escape again and asserts the find
     bar is gone.
   - The same for a dialog on top of the find bar (a prompt from a ref menu, cancelled with
-    Escape), so GC-034 is guarded too.
+    Escape), so GC-034 is guarded too, and for the toolbar's Pull popover on top of the find
+    bar, so GC-038 is guarded too.
   - Re-entrant like the rest of the suite: it must leave no dialog, menu or find bar open.
 - **Out of scope:** a jsdom unit test of `App`'s handler (the suite has no React environment).
 - **Acceptance:**
   - [ ] The new step passes on the current build and its assertions are counted in the total.
   - [ ] Reverting GC-037 (giving `ContextMenu` its Escape listener back) fails the step.
+  - [ ] Reverting GC-038 (giving `Toolbar` its Escape listener back) fails the step.
 - **Files:** `tools/e2e/run.mjs`, `CLAUDE.md` (the Testing paragraph's step list).
 - **Verify:** `npm run e2e` twice in a row, and once against a locally reverted GC-037.
 - **Log:**
   - 2026-09-05 proposed by GC-037 (this ticket): the acceptance cases were driven over CDP from a
     scratch script and thrown away, leaving the fix unguarded.
+  - 2026-09-05 18:12 scope extended by GC-038 (not a new ticket, same defect class): the popover
+    is now a layer too and is unguarded for the same reason.
 
 ## Reviews
 

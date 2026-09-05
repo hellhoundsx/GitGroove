@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useRef, type JSX } from 'react';
 import { Archive, ArchiveRestore, ChevronDown, Download, GitBranch, Keyboard, Redo2, RefreshCw, Search, Settings, Undo2, Upload, type LucideIcon } from 'lucide-react';
 import type { PullMode, RepoInfo } from '@shared/types';
 import { Icon } from '../ui/icons';
-import { matches } from '../shortcuts';
 
 export interface ToolbarHandlers {
   onFetch(): void;
@@ -28,7 +27,9 @@ interface Props extends ToolbarHandlers {
   stashCount: number;
   pullMode: PullMode;
   searchOpen: boolean;
+  pullOpen: boolean;
   onPullModeChange(mode: PullMode): void;
+  onPullOpenChange(open: boolean): void;
 }
 
 const PULL_MODES: { mode: PullMode; label: string }[] = [
@@ -48,8 +49,11 @@ function ToolButton({ label, icon, title, disabled, active, onClick }: { label: 
 
 export function Toolbar(p: Props): JSX.Element {
   const noRepo = !p.info;
-  const [pullOpen, setPullOpen] = useState(false);
   const pullRef = useRef<HTMLDivElement>(null);
+  // The popover is a layer, so its flag lives in App with the other layers' and Escape is
+  // handled there and nowhere else (GC-038). Only the outside click, which is nobody else's
+  // business, stays here.
+  const { pullOpen, onPullOpenChange: setPullOpen } = p;
 
   useEffect(() => {
     if (!pullOpen) return;
@@ -57,16 +61,9 @@ export function Toolbar(p: Props): JSX.Element {
       if (pullRef.current && e.target instanceof Node && pullRef.current.contains(e.target)) return;
       setPullOpen(false);
     };
-    const onKey = (e: KeyboardEvent): void => {
-      if (matches('escape', e)) setPullOpen(false);
-    };
     window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [pullOpen]);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [pullOpen, setPullOpen]);
 
   const pullLabel = PULL_MODES.find((m) => m.mode === p.pullMode)?.label ?? 'Pull';
   const remoteHint = !p.hasRemotes ? 'No remotes configured' : !p.hasUpstream ? 'Current branch has no upstream' : undefined;
@@ -98,7 +95,7 @@ export function Toolbar(p: Props): JSX.Element {
         <span className="tool-sep" />
         <div className="split-btn" ref={pullRef}>
           <ToolButton label="Pull" icon={Download} title={remoteHint ?? pullLabel} disabled={noRepo || p.busy || !p.hasRemotes} onClick={() => p.onPull(p.pullMode)} />
-          <button className="caret-btn" title="Pull options" disabled={noRepo || p.busy} onClick={() => setPullOpen((o) => !o)}>
+          <button className="caret-btn" title="Pull options" disabled={noRepo || p.busy} onClick={() => setPullOpen(!pullOpen)}>
             <Icon of={ChevronDown} size={11} />
           </button>
           {pullOpen && (
