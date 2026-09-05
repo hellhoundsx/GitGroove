@@ -141,7 +141,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | done |
-| GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | todo |
+| GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | in-progress |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
@@ -1596,7 +1596,7 @@ decision is missing.
 
 ### GC-042 shortcuts.test.ts is stored as binary because of a raw NUL byte
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** GC-010's `src/renderer/src/shortcuts.test.ts` contains a literal U+0000 byte inside a
@@ -1622,6 +1622,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-002: the GC-010 commit could not be reviewed as a diff because git
     stores the test file as binary; the working copy had to be read instead.
+  - 2026-09-05 18:45 claimed
 
 ### GC-043 Context menu on file rows in the detail panel
 
