@@ -223,12 +223,12 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | done |
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | done |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
-| GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | todo |
+| GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | in-progress |
 | GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | todo |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | todo |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | todo |
-| GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | todo |
+| GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | in-progress |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
@@ -247,7 +247,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
 | GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
-| GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | todo |
+| GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | in-progress |
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
@@ -2870,7 +2870,7 @@ decision is missing.
 
 ### GC-062 The e2e suite never commits through the commit form or stages a hunk
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-053
 - **Why:** Eighteen e2e steps cover branches, stashes, conflicts, cherry-picks, push, pull,
@@ -2912,6 +2912,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-004: reading the step list for the review showed that the commit
     form and hunk staging, the two most frequent actions, are the two the suite never drives.
+  - 2026-09-05 22:39 claimed
 
 
 ### GC-063 Unit tests for the watcher's ignore and scope rules
@@ -3105,7 +3106,7 @@ decision is missing.
 
 ### GC-067 The recents dropdown shrinks the folder name to one letter and shows the path in full
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-044
 - **Why:** On the build at 3e97244, clicking the repository crumb over CDP opened GC-044's recents
@@ -3151,6 +3152,7 @@ decision is missing.
   - 2026-09-05 22:23 proposed by GR-005: the first unattended look at GC-044's dropdown, from a
     scratch root eleven characters longer than the worker's, showed the folder name reduced to one
     letter and the full path kept.
+  - 2026-09-05 22:39 claimed
 
 ### GC-068 A watcher reload that finishes late overwrites a fresher snapshot
 
@@ -3231,7 +3233,7 @@ decision is missing.
 
 ### GC-070 Tests for tools/ live under src/renderer/src
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-059
 - **Why:** `repo-hygiene.test.ts` (GC-047) and `launch-app.test.ts` (GC-059) test the repository
@@ -3263,6 +3265,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 22:23 proposed by GR-005: GC-059 added the second tools test that has to live in the
     renderer tree and explain why; the config should carry that instead.
+  - 2026-09-05 22:39 claimed
 
 
 ### GC-071 The primary ref chip is unreadable at the minimum column width
