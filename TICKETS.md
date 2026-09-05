@@ -141,6 +141,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
 | GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
 | GC-024 | Unit tests for prefs.ts | tests | S | P2 | todo |
+| GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | todo |
 | GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | todo |
 | GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | todo |
 | GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | todo |
@@ -150,6 +151,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | todo |
 | GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | todo |
 | GC-011 | File-system watcher for automatic refresh | main | M | P2 | todo |
+| GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
+| GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -162,6 +165,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
+| GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1382,6 +1386,10 @@ decision is missing.
   - All outside editable fields except Ctrl+Shift+M, which works from anywhere like Ctrl+F.
     Disabled states follow the toolbar (no repo, busy, no remotes).
   - Every entry lands in `shortcuts.ts`, so the GC-010 overlay lists them.
+  - `Shortcut.whileTyping` is set on seven entries of the table but read by nothing (GR-002):
+    make the `App.tsx` handler consult it — entries with the flag fire from editable fields, the
+    rest do not — instead of a per-shortcut `isEditable` check, so the eight new bindings and the
+    existing ones share one rule.
 - **Out of scope:** Ctrl+P command palette, undo/redo (GC-018), zoom, J/K/H/L vim keys,
   Shift+Up/Down topological stepping, user-configurable bindings.
 - **Acceptance:**
@@ -1395,6 +1403,9 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-001: the study's key bindings table has eight body-scope shortcuts
     we lack; GC-010's table makes them cheap and self-documenting.
+  - 2026-09-05 18:25 scope extended by GR-002: `whileTyping` exists in the table but no handler
+    reads it; this ticket adds the bindings that need the distinction, so it owns making the
+    flag live rather than a separate hygiene ticket.
 
 ---
 
@@ -1541,6 +1552,7 @@ decision is missing.
 
 - **Status:** todo
 - **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-038
 - **Why:** GC-034 and GC-037 both fixed "one Escape closes two things", and both were verified by
   a throwaway CDP script that was not kept. Nothing in `npm run e2e` or `npm test` fails if the
   layering regresses; the next change to the keyboard handler can quietly undo either fix.
@@ -1565,6 +1577,162 @@ decision is missing.
     scratch script and thrown away, leaving the fix unguarded.
   - 2026-09-05 18:12 scope extended by GC-038 (not a new ticket, same defect class): the popover
     is now a layer too and is unguarded for the same reason.
+  - 2026-09-05 18:25 GR-002 added the missing `Depends on` line (GC-038, the last of the three
+    layers this step guards); the template asks for one on every ticket.
+
+### GC-042 shortcuts.test.ts is stored as binary because of a raw NUL byte
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** GC-010's `src/renderer/src/shortcuts.test.ts` contains a literal U+0000 byte inside a
+  string (the "no shortcut matches a NUL key" case, `key('<NUL>')` at byte offset 790) instead of
+  the escape `' '`. Git's binary heuristic therefore classifies the whole file as binary:
+  `git ls-files --eol` reports `i/-text w/-text` for it, `git show 5c108db -- <file>` prints
+  "Binary files differ", `git diff`, `git blame` and any code review see no content, and the
+  `* text=auto eol=lf` rule in `.gitattributes` skips it, so its line endings are never
+  normalised. Vitest and TypeScript read it fine, which is why nothing failed. Found by GR-002
+  while trying to review the test as a diff.
+- **Scope:**
+  - Replace the raw byte with the `' '` escape; the assertion stays the same.
+  - Confirm no other tracked text file is affected: `git ls-files --eol | grep -v '\.png'` must
+    show no `i/-text` entry.
+- **Out of scope:** any change to the bindings, the matchers or the overlay.
+- **Acceptance:**
+  - [ ] `git ls-files --eol src/renderer/src/shortcuts.test.ts` reports `i/lf w/lf`.
+  - [ ] `git show HEAD -- src/renderer/src/shortcuts.test.ts` shows a text diff.
+  - [ ] `npm test` still reports 30 passed.
+  - [ ] No other tracked non-PNG file is `i/-text`.
+- **Files:** `src/renderer/src/shortcuts.test.ts`.
+- **Verify:** `npm test`, `npm run typecheck`, `git ls-files --eol`, `git show HEAD -- <file>`.
+- **Log:**
+  - 2026-09-05 proposed by GR-002: the GC-010 commit could not be reviewed as a diff because git
+    stores the test file as binary; the working copy had to be read instead.
+
+### GC-043 Context menu on file rows in the detail panel
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P2
+- **Depends on:** GC-003
+- **Why:** The study's file rows carry a context menu (`05-menus-shortcuts.md`, "File rows":
+  Stage / Unstage / Discard, Copy file path, Open file, Open in external editor, Show in folder,
+  Ignore file / extension / folder, Blame, History). Ours have none: on the build at 94b7ea1 a
+  `contextmenu` event dispatched on `.detail-panel .file-row` over CDP opened nothing, while every
+  other row in the app (commit, chip, left-panel branch, remote, stash, WIP) has a menu, so the
+  file list is the one place where a right-click does nothing. The hover `Stage` / `✕` buttons
+  are the only way to act on a single file and they need the pointer on the row. A side effect:
+  GC-037's second acceptance box ("same with a file diff open") is unticked because no menu
+  trigger exists while a diff is open, and the detail panel stays up beside a diff, so this menu
+  makes that case testable.
+- **Scope:**
+  - Right-click on a staging-view file row opens `useUi().openMenu` with: Stage or Unstage
+    (whichever applies to the row; conflicted rows get Stage as "mark resolved"), Discard changes
+    (Delete file for an untracked one) through the same confirm modal the `✕` button uses, a
+    separator, Open file, Show in folder, Copy file path (repository-relative). Commit-view file
+    rows get Open file (disabled when the path no longer exists in the working tree), Show in
+    folder and Copy file path.
+  - Open file and Show in folder need the main process: `shell.openPath` and
+    `shell.showItemInFolder` behind two channels `shell:openPath` / `shell:showItemInFolder` with
+    `str` validation that also rejects any path outside the loaded repository (resolve, then
+    prefix check), preload entries and the `GitApi` (or a small `ShellApi`) types.
+  - The items are built the way the other menus are (`commitMenuItems` and friends in `App.tsx`,
+    or a `fileMenuItems` next to `StagingActions`), so the same wording and confirm texts are
+    reused, not duplicated.
+- **Out of scope:** Ignore file / extension / folder (writes `.gitignore`; its own ticket if
+  wanted), Blame, History, Open in external editor (needs an editor preference), multi-select.
+- **Acceptance:**
+  - [ ] Right-click on an unstaged, a staged, an untracked and a commit file row each show the
+        right items; the item that does not apply (Unstage on an unstaged file) is absent, not
+        disabled.
+  - [ ] Stage from the menu changes `git status --short`; Discard from the menu goes through the
+        confirm modal and Cancel changes nothing.
+  - [ ] Copy file path puts the repository-relative path on the clipboard (read back with
+        `navigator.clipboard.readText()` over CDP).
+  - [ ] The `shell:*` channels reject a path outside the repository.
+  - [ ] e2e step: stage `a.txt` from its row menu, assert `git status --short`, then unstage it
+        the same way.
+- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/App.tsx`,
+  `src/main/ipc.ts`, `src/preload/index.ts`, `src/preload/index.d.ts`, `src/shared/types.ts`,
+  `tools/e2e/run.mjs`, `CLAUDE.md` (the IPC channel groups).
+- **Verify:** typecheck, build, e2e, screenshot of the menu over the staging list.
+- **Log:**
+  - 2026-09-05 proposed by GR-002: dumping every context menu over CDP against the study showed
+    the file rows as the only row type without one.
+
+### GC-044 Recently opened repositories from the repository breadcrumb
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P2
+- **Depends on:** none
+- **Why:** The study's repository breadcrumb opens a dropdown (`04-panels.md`, "Dropdowns";
+  `09-repo-dropdown.png`) with a search box, Favorites, Recently opened and Open Repo
+  Management, the new-tab page lists recent repositories, and `06-feature-inventory.md` marks
+  "tabs + recents" as Build. Ours remembers exactly one path (`gitclient.lastRepo`) and the
+  `repository` crumb in `Toolbar.tsx` is a static `div` with no handler (checked over CDP), so
+  switching between two repositories means the folder dialog every time.
+- **Scope:**
+  - `gitclient.recentRepos`: a JSON array of absolute paths, most recent first, at most 10,
+    deduplicated on the normalised path, updated by `load()` in `App.tsx` on every successful
+    load. It is remembered state on its own key, like `gitclient.lastRepo`, not a preference.
+  - The repository crumb becomes a button. Clicking it opens a menu through `useUi().openMenu`
+    anchored at the crumb's bottom-left corner (the helper takes `clientX` / `clientY`) listing
+    the recents (folder name as the label, full path as the hint, the loaded one disabled), a
+    separator and "Open repository…" (the existing dialog). Picking an entry calls `load(path)`.
+  - The empty state ("Open a repository to see its commit graph.") lists the same recents as
+    clickable rows above its button.
+  - An entry whose folder no longer loads is removed from the list; the error still shows in the
+    status bar as today.
+- **Out of scope:** favourites, a search box in the dropdown, the branch breadcrumb dropdown,
+  multi-tab (GC-016 should reuse this list when it lands).
+- **Acceptance:**
+  - [ ] After loading two repositories the crumb menu lists both, most recent first, and picking
+        the other one loads it (status bar name and `Viewing N` change).
+  - [ ] The list survives a reload and never exceeds 10 entries.
+  - [ ] Picking a path that no longer exists shows the error and drops the entry.
+  - [ ] Screenshot of the open dropdown looked at next to the study's `09-repo-dropdown.png` for
+        layout only; the styling is ours.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/Toolbar.tsx`,
+  `src/renderer/src/styles/app.css`, `CLAUDE.md` (the remembered-state keys paragraph).
+- **Verify:** typecheck, build, then over CDP against the scratch repository and a second clone
+  of it (loading a real repository read-only is fine, writing to one is not), reading
+  `localStorage.getItem('gitclient.recentRepos')` back after each step.
+- **Log:**
+  - 2026-09-05 proposed by GR-002: the breadcrumb is inert and only one repository is remembered,
+    where the study has a recents dropdown and a recents list on the new-tab page.
+
+### GC-045 Commit view banner linking back to the working directory changes
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** The study's commit view starts with a blue banner "N file change in working
+  directory" and a "View Change" button that jumps back to the WIP row (`04-panels.md`, "Detail
+  panel: commit view", item 1). Ours shows nothing about pending changes once a commit is
+  selected: on a tree with five changes the panel header reads only `commit: b4220d4`
+  (GR-002's `02-commit-selected.png`). The counts survive in the graph's WIP row, but not in the
+  panel the user is reading, and getting back means finding row 0.
+- **Scope:**
+  - In `CommitView`, when `status.entries` is non-empty, a `.banner` row above the message box:
+    "N file changes in the working directory" (singular for one) with a "View changes" button
+    that selects the WIP row (`onSelectSha(WIP)`; the `WIP` sentinel is exported by
+    `CommitGraph.tsx`). Conflicted entries count too. The `status` prop has to reach the commit
+    view; the staging view already receives it.
+  - Own styling in `app.css` (an informational variant of the existing `.banner`); no colour
+    lifted from the study.
+- **Out of scope:** listing the changed files in the banner, a mode that keeps WIP selected.
+- **Acceptance:**
+  - [ ] With a dirty tree and a commit selected, the banner shows the same count as the staging
+        header "N file changes on <branch>", and the button selects the WIP row and shows the
+        staging view.
+  - [ ] With a clean tree there is no banner.
+  - [ ] Screenshot looked at next to the study's `03-commit-selected.png`.
+- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/styles/app.css`,
+  `src/renderer/src/App.tsx` (only to pass `status` through).
+- **Verify:** typecheck, build, then over CDP: select a commit, read `.detail-panel .banner`,
+  click its button, assert `.graph-row.wip.selected`.
+- **Log:**
+  - 2026-09-05 proposed by GR-002: the commit view is the one panel where the study keeps the
+    working-directory changes visible and ours drops them.
 
 ## Reviews
 
@@ -1607,3 +1775,63 @@ appends its own section here.
     them.
   - notes: `CLAUDE.md`'s "Unit tests" section still says "Covered today (22 tests)" although
     GC-005 added a 23rd; the "Done" paragraph itself is current through GC-009.
+
+### GR-002 Backlog review 2026-09-05 18:25
+
+- **Status:** done
+- **Window:** a288c69..9052efe
+- **Log:**
+  - 2026-09-05 18:25 shipped: GC-010 (one `shortcuts.ts` table, `matches(id, e)`, the `?`
+    overlay, 30 unit tests), GC-028 (offscreen stealth launcher `tools/launch-app.mjs`,
+    `foreground.ps1`), GC-029 (per-prompt `required`), GC-034 / GC-037 / GC-038 (Escape closes
+    one layer, decided once in `App.tsx` from a capture-phase listener), and GC-035, which landed
+    at 18:19 while this review was running: the window was extended to it and its two
+    follow-ups GC-040 and GC-041 were read for deduplication (GC-041 is the `--keep-alive` /
+    `--keep-running` mismatch this review had also found). GC-035 was `in-progress` at the start
+    of the review and was not touched. Read as a reviewer: the layer handler is sound — it
+    returns without `preventDefault` for every key but Escape, so a modal's input keeps working,
+    and the effect re-subscribing whenever `ui` changes is harmless; `escape` and `dialogCancel`
+    are two table entries with the same predicate, one used inside the layer branch and one
+    outside (cosmetic); `Shortcut.whileTyping` is set on seven entries and read nowhere (folded
+    into GC-033); GC-010's test file is stored as binary because of a raw NUL byte, so its diff
+    could not be reviewed and the working copy was read instead (GC-042). GC-028's launcher CLI
+    killed every `electron.exe` unless `--keep-running` was passed; this review passed the flag
+    so the worker's instances on 9333 and 9335 survived, and GC-035 has since narrowed the stop
+    to `stopPort`. GC-037's second acceptance box is unticked with a written reason (no menu
+    trigger exists while a diff is open); GC-043 would make that case testable. Every other
+    acceptance box matches evidence in the ticket log. Template drift: GC-038 (done) has no
+    `Depends on` line; GC-039 (todo) had none either and got one.
+  - health: typecheck ok, tests 30 passed (3 files), build ok — in the detached worktree at
+    94b7ea1 with `node_modules` junctioned from the main checkout. `npm run e2e` was not run: at
+    94b7ea1 its prologue still called `killElectron()` and would have taken the worker's run
+    down. From 9052efe on, `run.mjs` frees only its own port, so the next review can run
+    `GITCLIENT_E2E_PORT=9336 npm run e2e` against its own scratch repository safely.
+  - app: the worktree build ran offscreen on port 9334 against `%TEMP%/gitclient-review/e2e`
+    (stopped afterwards by pid; the worker's instances were never touched). Screenshots in
+    `%TEMP%/gitclient-review/GR-002/`, all looked at: `01-graph.png` (seven rows, lanes
+    continuous, WIP row with `+1 ✎3 −1`, `main` absorbing `origin/main` with the cloud mark,
+    chips truncating at 150px), `02-commit-selected.png` (merge commit: sha, refs, message box,
+    author + date, two parent links, `+1 added`, file list), `03-wip-staging.png` (Unstaged 3 /
+    Staged 2 with kind icons, commit form with the 72 counter), `04-diff.png` (two-hunk
+    `big.txt` with Stage / Discard hunk, left panel collapsed to the icon rail with counts, the
+    file highlighted in the detail panel) and `05-catena-feed-graph.png` (catena-feed loaded
+    read-only: 881 commits, `Viewing 341`, 6 local and 52 remote branches, gravatars and
+    initials mixed, tag chips, no lane break, 40 rows rendered for a 24,696px spacer). Against
+    the study: row pitch 28px, header 22px, ref row 26px, detail header 36px all match
+    `03-graph.md` / `04-panels.md`; left panel 220px against 215, chip 20px against 22 are our
+    calibrated values. Every context menu was dumped over CDP: commit, checked-out chip, remote
+    chip, tag chip, left-panel local and remote branch, remote group and WIP all match the
+    study's core subset (remote-branch delete really is `push --delete` behind the confirm
+    modal), but the file rows have no menu at all (GC-043); the left-panel filter works and
+    updates `Viewing N`; the breadcrumbs are static (GC-044); the commit view has no
+    working-directory banner (GC-045).
+  - tickets: added GC-042 (P2, tests), GC-043 (P2, ui), GC-044 (P2, ui), GC-045 (P3, ui);
+    extended GC-033 with the dead `whileTyping` flag; added the missing `Depends on` to GC-039.
+    Board: GC-042 right after GC-024 (both small test hygiene, and it unblocks reviewing that
+    file); GC-043 and GC-044 after GC-011, because automatic refresh is the larger everyday gap
+    and both are half-day features; GC-045 after GC-033 with the other small P3s. GC-040 and
+    GC-041 stay where the worker put them. Blocked GC-017 and GC-018 still wait on Ricardo's
+    decisions; nothing new to unblock them.
+  - notes: `CLAUDE.md`'s "Done" paragraph is current through GC-035. Its launcher block in
+    Commands lists `--port`, `--repo` and `--visible` but not the flag that keeps a running
+    instance alive; GC-041 settles the flag's name and can add the line.
