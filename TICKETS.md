@@ -154,6 +154,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | todo |
 | GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | todo |
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | todo |
+| GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -162,6 +163,7 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | todo |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | todo |
+| GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | todo |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | todo |
 | GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | todo |
 | GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
@@ -169,6 +171,8 @@ line). Its commit is `GR-0NN: backlog review`.
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
+| GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
+| GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
@@ -1230,15 +1234,29 @@ decision is missing.
     `git` was not found on PATH and the client needs it installed and on PATH.
   - Check once at startup (`git --version`) and surface the same message in the empty state
     instead of the "Open a repository" prompt, so the cause is visible before any action.
+  - Tell a missing repository folder apart from a missing git (GR-003): Node reports the same
+    `spawn git ENOENT` when the `cwd` handed to `spawn` does not exist as when the binary is
+    missing, so a `gitclient.lastRepo` whose folder was moved, deleted or mistyped shows the
+    git message and the status bar shows the dead path as the repository name. `runGit` (or
+    `openRepo` before its first call) checks `existsSync(cwd)` first and rejects with a
+    `GitError` naming the folder, for example "Repository folder not found: <path>", and the
+    startup `git --version` probe runs with a `cwd` that always exists (the app directory or
+    the home directory) so it cannot be confused by a stale last-repository path.
 - **Out of scope:** bundling git, or a setting for a git path (a separate ticket if wanted).
 - **Acceptance:**
   - [ ] Launching with a PATH that has no git shows the named message, not `spawn git ENOENT`.
   - [ ] With git present, startup is unchanged and costs one `git --version`.
+  - [ ] `gitclient.lastRepo` pointing at a folder that does not exist shows the folder
+    message, not `spawn git ENOENT`, and the empty state still offers "Open repository...".
 - **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/renderer/src/App.tsx`.
 - **Verify:** typecheck, build, launch once with a stripped PATH and once normally.
 - **Log:**
   - 2026-09-05 proposed by GC-007 (this ticket): hit `spawn git ENOENT` twice while driving the
     built app over CDP and had to read the source to work out that PATH was the cause.
+  - 2026-09-05 scope extended by GR-003: loading a path with its backslashes stripped (a scripting
+    slip) showed `spawn git ENOENT` in the empty state and the status bar although git was on
+    PATH and had just loaded another repository; a dead folder and a missing binary need two
+    different messages, and GC-044 will hand this code stale paths on purpose.
 
 ### GC-029 The stash message says "optional" but the modal refuses an empty one
 
@@ -1973,6 +1991,175 @@ decision is missing.
     checked against the existing `docs/reference/gitkraken/05-menus-shortcuts.md` notes and the
     current `refMenuItems` / `commitMenuItems` split in `App.tsx` before writing this ticket.
 
+### GC-050 Resizable left and detail panels, widths remembered
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P2
+- **Depends on:** GC-006
+- **Why:** The study gives both side panels a drag handle: the left panel is 215px and resizes
+  from its right edge, the detail panel is 400px and resizes from its left edge
+  (`01-layout.md`, "Horizontal panels"; `04-panels.md`). Ours are two fixed tokens,
+  `--left-panel-w: 220px` and `--detail-panel-w: 400px` in `tokens.css`, read by
+  `.left-panel` and the detail panel in `app.css`, and nothing drags them; only the ref column
+  inside the graph resizes (GC-006). On catena-feed loaded read-only at 1400x900 (GR-003's
+  `05-catena-feed-wip.png`) sixteen of the visible branch names truncate at 220px
+  ("(FEED-406)-payout-spe..."), while the detail panel spends 400px on a one-file staging list,
+  and the user can trade neither for graph width.
+- **Scope:**
+  - Two 4px handles styled and driven like GC-006's `.col-resize`: on the right edge of
+    `.left-panel` and the left edge of the detail panel, pointer capture, `col-resize` cursor,
+    no text selection while dragging. Extract the drag into one hook
+    (`src/renderer/src/ui/useDragWidth.ts`) that `CommitGraph` uses too, so there is one
+    implementation of clamp, persist and double-click reset.
+  - Widths live in `App` state and are written to `--left-panel-w` / `--detail-panel-w` on the
+    app root; `tokens.css` keeps only the defaults. Clamp the left panel to 160-420px and the
+    detail panel to 300-720px; double-click resets to the default.
+  - Persisted on pointer-up as remembered state on their own keys, `gitclient.leftPanelW` and
+    `gitclient.detailPanelW` (numbers of pixels, like `gitclient.refColW`), not in `prefs`.
+  - While a file view is open the left panel is the 43px icon rail and its handle is not shown;
+    the detail panel's handle keeps working there.
+  - `CLAUDE.md`: the remembered-state paragraph and the tokens sentence.
+- **Out of scope:** the vertical drag handle between left-panel sections, resizing the commit
+  form, collapsing the detail panel (GC-033's Ctrl+K), a minimum window size.
+- **Acceptance:**
+  - [ ] Dragging the left handle 100px right makes `.left-panel` 100px wider and the graph panel
+        100px narrower (rects measured over CDP); the same for the detail handle dragged left.
+  - [ ] Reload keeps both widths; double-click on a handle resets it and removes its key.
+  - [ ] Dragging past a clamp stops at the limit; the window never scrolls horizontally.
+  - [ ] With a diff open the icon rail is still 43px with no handle, and the detail handle works.
+  - [ ] Screenshot at 1400x900 with the left panel at 320px on catena-feed (read-only), looked at
+        next to `08-left-panel-expanded.png` for layout only.
+- **Files:** `src/renderer/src/App.tsx`, new `src/renderer/src/ui/useDragWidth.ts`,
+  `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/components/LeftPanel.tsx`,
+  `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/styles/app.css`,
+  `src/renderer/src/styles/tokens.css`, `CLAUDE.md`.
+- **Verify:** typecheck, build, CDP rect measurements before and after each drag, reload, screenshot.
+- **Log:**
+  - 2026-09-05 proposed by GR-003: both side panels are draggable in the study and fixed here; on a
+    real repository the left panel truncates most branch names with no way to widen it.
+
+### GC-051 Left panel folders for slash-separated branch names
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P3
+- **Depends on:** none
+- **Why:** The study's expanded left panel folds branch names on their slashes: "Branch names
+  with slashes group into collapsible folders", with remotes shown as folders and their branches
+  nested one level deeper (`04-panels.md`, "Left panel expanded"; `08-left-panel-expanded.png`).
+  `LeftPanel.tsx` groups remote branches by their remote (`r.name.split('/')[0]`) and lists
+  everything else flat, so on catena-feed `origin/feat/prompt-lab-critique` is one row called
+  `feat/prompt-lab-critique` among 52 siblings, and a repository using `feature/*`,
+  `release/*` and `hotfix/*` gets one long list with the prefix repeated on every row.
+- **Scope:**
+  - Build a tree per section from the name segments: LOCAL, each remote under REMOTE (the remote
+    row stays the first level) and TAGS. A folder row shows a chevron, a folder icon, the segment
+    and the count of refs beneath it; leaf rows keep today's `ref-row` class, checked-out tint,
+    ahead/behind badge, double-click checkout and context menu. 16px indent per level.
+  - Folders start expanded; the collapsed set is component state keyed by
+    `<section>/<folder path>` and lasts for the session only.
+  - The filter matches the full ref name as it does now; while a filter is active every folder
+    holding a match is shown open, and folders with no match are hidden with their rows.
+  - "Viewing N" keeps counting refs, not folders. Stashes are unchanged.
+- **Out of scope:** persisting the collapsed set, hide/solo toggles, the drag handle between
+  sections, a folder context menu, drag-and-drop (GC-015).
+- **Acceptance:**
+  - [ ] With local `feat/a` and `feat/b` (created with git in the scratch repository, then
+        Refresh), LOCAL shows a `feat` folder with count 2 and the rows `a` and `b` beneath it;
+        clicking the chevron collapses it; double-clicking `a` checks out `feat/a`; right-clicking
+        `a` opens the ref menu with "Delete feat/a".
+  - [ ] Filter `b` shows only the `feat` folder, open, with `b`; clearing it restores the list.
+  - [ ] Names without a slash render exactly as today.
+  - [ ] e2e step: create the two branches with git, Refresh, assert the folder row and the nested
+        rows, delete the branches; the prologue removes them if a run dies in between.
+- **Files:** `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/styles/app.css`,
+  `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, e2e, screenshot of catena-feed's REMOTE section (read-only)
+  looked at next to `08-left-panel-expanded.png`.
+- **Log:**
+  - 2026-09-05 proposed by GR-003: the study folds slash-separated names into folders and ours lists
+    them flat; catena-feed's remote already carries a `feat/` name and real repositories carry many.
+
+### GC-052 Diff view: next and previous hunk, ignore whitespace, word wrap
+
+- **Status:** todo
+- **Area:** diff | **Size:** M | **Priority:** P3
+- **Depends on:** GC-007
+- **Why:** The study's file view toolbar has previous/next change arrows, an ignore-whitespace
+  toggle and a word-wrap toggle next to the Hunk | Inline | Split modes (`04-panels.md`, "File
+  view"). Our `DiffView` header has the file name, the counts, Stage file / Discard changes and
+  the close button (GR-003's `04-diff.png`) and nothing else: a long line makes the whole
+  `.diff-body` scroll sideways because `.hunk-lines .code pre` is `white-space: pre` with no
+  alternative, a whitespace-only reformat shows every line as changed, and a file with many hunks
+  is read by scrolling. Split view has its own ticket (GC-014); these three are independent of it.
+- **Scope:**
+  - Header buttons: previous hunk and next hunk (scroll the hunk's `.hunk-head` into view,
+    wrapping around at the ends, disabled with one hunk or none), "Ignore whitespace" and "Wrap"
+    toggles with a pressed state.
+  - Both toggles persist as preferences `diffIgnoreWhitespace` and `diffWordWrap` (default
+    `false`, validated in `load()`, two rows in Preferences under a "Diff" group), so the header
+    and the dialog show the same value.
+  - Wrap: a `.wrap` class on `.diff-body` switching the code cells to `white-space: pre-wrap`
+    with `overflow-wrap: anywhere`; line numbers keep their column.
+  - Ignore whitespace: `getCommitFileDiff` and `getWorkdirFileDiff` take an optional
+    `{ ignoreWhitespace }` (type in `shared/types.ts`, validated in `ipc.ts`, passed through the
+    preload) that adds `-w` to the diff command; the synthesised untracked-file diff ignores it.
+    While it is on, Stage hunk / Discard hunk are disabled with a title saying the patch would not
+    apply (a `-w` diff is not a valid input for `git apply`); Stage file, Discard changes and
+    Unstage file keep working because they do not go through a patch.
+- **Out of scope:** Split and Inline modes (GC-014), intra-line highlights, Blame and History,
+  keyboard bindings for the new buttons (GC-033 owns the table), a per-file override.
+- **Acceptance:**
+  - [ ] On the scratch repository's two-hunk `big.txt`, next scrolls the second hunk header into
+        view, next again returns to the first, previous goes back.
+  - [ ] A file whose only change is trailing spaces (added by a script) shows its hunk with the
+        toggle off and no hunks with it on, and the hunk buttons are disabled while it is on.
+  - [ ] A 300-character line makes `.diff-body` scroll horizontally with Wrap off
+        (`scrollWidth > clientWidth` over CDP) and not with it on.
+  - [ ] Both toggles survive a reload and match their rows in Preferences; `prefs.test.ts`
+        covers the two new fields' fallback.
+- **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css`,
+  `src/renderer/src/prefs.ts`, `src/renderer/src/prefs.test.ts`,
+  `src/renderer/src/components/Preferences.tsx`, `src/main/git.ts`, `src/main/ipc.ts`,
+  `src/preload/index.ts`, `src/shared/types.ts`, `CLAUDE.md` (Preferences list).
+- **Verify:** typecheck, build, `npm test`, e2e, then the three CDP checks above and a screenshot
+  of the header with Wrap on, looked at next to `04-diff-view.png` for layout only.
+- **Log:**
+  - 2026-09-05 proposed by GR-003: the study's file view toolbar has three small controls that need
+    no new view mode, and ours has none of them; long lines currently scroll the whole diff body.
+
+### GC-053 e2e waits on the DOM instead of fixed sleeps
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-030
+- **Why:** `CLAUDE.md`'s Testing paragraph records that the suite waits on the status-bar spinner
+  because a fixed sleep once caused a flake, yet `tools/e2e/run.mjs` at 766b4de has 58
+  `await sleep(...)` calls, eleven of them added by GC-039's step 18 alone (300-400ms after
+  every menu, prompt, popover and Escape). Each one is a bet that React and the CDP round trip
+  finish inside the delay: they do on this machine today, and the reviewer's run on 9336 passed
+  60/60 at 512ce06, but the review routine runs beside the worker's build and e2e, and a slower
+  moment turns any of them into a flake that no assertion explains. The sleeps also add up to
+  about twenty seconds of idle time per run. GC-030 already added the tool for this: a
+  `waitFor(expression, what, max)` helper that polls the renderer every 100ms and records a
+  failed check on timeout, used twice in step 16.
+- **Scope:**
+  - Use `waitFor` everywhere a sleep is waiting for a UI state: `.ctx-menu` present or gone,
+    `.modal`, `.toolbar .popover`, `.graph-search` and its value, the selected row,
+    `.file-view`, a file-row count. Where nothing observable changes, keep the sleep and say why
+    in a comment on that line.
+  - Let `waitFor` poll at 50ms so the common case settles faster than the sleeps it replaces.
+  - The assertions and their count stay exactly as they are.
+- **Out of scope:** new assertions, changes to `waitIdle`, running the suite in CI.
+- **Acceptance:**
+  - [ ] `grep -c "await sleep(" tools/e2e/run.mjs` reports 10 or fewer, each with a comment.
+  - [ ] `npm run e2e` passes three times in a row with the same assertion count as before; the
+        log line records the wall-clock of a run before and after.
+- **Files:** `tools/e2e/run.mjs`, `CLAUDE.md` (Testing paragraph).
+- **Verify:** `npm run e2e` three times.
+- **Log:**
+  - 2026-09-05 proposed by GR-003: the suite's own handover says fixed sleeps flaked once, GC-039 added
+    eleven more, and GC-030 has since added the `waitFor` helper that makes replacing them cheap.
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -2074,3 +2261,67 @@ appends its own section here.
   - notes: `CLAUDE.md`'s "Done" paragraph is current through GC-035. Its launcher block in
     Commands lists `--port`, `--repo` and `--visible` but not the flag that keeps a running
     instance alive; GC-041 settles the flag's name and can add the line.
+
+### GR-003 Backlog review 2026-09-05 20:11
+
+- **Status:** done
+- **Window:** 9052efe..766b4de
+- **Log:**
+  - 2026-09-05 20:11 shipped: GC-024 (`prefs.test.ts`, seven tests: defaults, blob round trip,
+    per-field fallback, malformed JSON, the legacy migration in both directions, and `setPrefs`
+    merging, persisting and notifying, reached through a `vi.mock('react')` of
+    `useSyncExternalStore`), GC-042 (one byte: the raw NUL in `shortcuts.test.ts` became the
+    `\u0000` escape and the file is text again), GC-039 (a `layerState()` helper and e2e step
+    18 guarding GC-034, GC-037 and GC-038; 49 assertions became 60), GR-002's own follow-up
+    replacing two stray NULs in this file, and GC-030, which landed at 20:06 while this review was
+    waiting for a clean `TICKETS.md`: the window was extended to it, its diff read (the query
+    moved into `App`'s `search` state, `closeSearch` the only thing clearing it, Escape and
+    the toolbar button closing the diff first, `lastNeedle` seeded from the first render so a
+    remount does not re-select; e2e step 16 gained the round trip through a
+    `searchStateAtTop()` that compares from a fixed scroll position because the rows are
+    virtualised, plus a `waitFor` helper) and its two follow-up tickets GC-048 (toolbar labels
+    overflow their 52px button) and GC-049 (branch menu missing the tip-commit group, requested by
+    Ricardo) read for deduplication — neither overlaps a ticket below. GC-030 was `in-progress`
+    for most of the review and was not touched. Read as a reviewer: GC-024's `freshPrefs()`
+    re-import is the right way round the import-time `load()`, and its `not.toBe(DEFAULT_PREFS)`
+    line guards the defaults object against mutation; the React mock exports only
+    `useSyncExternalStore`, which is all `prefs.ts` imports, so it fails loudly rather than
+    silently if that ever changes. GC-039's step 18 does what its log says and its 60 assertions
+    were reproduced here; its mutation checks rest on the log alone, as they need source edits to
+    repeat. Its one weakness is eleven new fixed `sleep(300)` waits (GC-053). GC-030's
+    `waitFor` records a failed check and lets the step continue on timeout, which is the right
+    shape for a suite that reports every assertion. GC-042 leaves its second acceptance box
+    unticked with a written reason, correctly. Every ticket in the window has a `Depends on` line
+    and every ticked box has evidence in its log.
+  - health: typecheck ok, tests 37 passed (4 files), build ok, in the detached worktree at
+    512ce06 with `node_modules` junctioned from the main checkout (766b4de landed after the
+    worktree was cut; its own log reports typecheck, build, 37 tests and 63 e2e assertions). For
+    the first time a review also ran `npm run e2e`, on port 9336 against its own scratch
+    repository: 60 assertions at 512ce06, ALL PASSED, exit 0, and the run stopped its own Electron.
+  - app: the worktree build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, stopped
+    afterwards by pid. Screenshots in `%TEMP%/gitclient-review/GR-003/`, all looked at:
+    `01-graph.png` (seven rows, lanes continuous through the merge, chips folding at 150px,
+    `main` absorbing `origin/main`, WIP `+1 ✎3 −1`), `02-commit-selected.png` (merge commit:
+    sha, refs, message box, initials avatar, two parent links, `+1 added`, `feature.txt`),
+    `03-wip-staging.png` (Unstaged 3 / Staged 2, commit form with the 72 counter),
+    `04-diff.png` (two-hunk `big.txt`, Stage / Discard hunk, icon rail with counts, the file
+    highlighted in the panel) and `05-catena-feed-wip.png` (catena-feed read-only: 881 commits,
+    `Viewing 341`, 6 local and 52 remote branches; the checked-out `008-page-monitor-port` runs
+    straight down column 0 to v1.86.0 while master's four newer commits sit in lane 1 and join
+    there, which is the right shape; sixteen visible branch names truncate at 220px). Against the
+    study: the file view has no previous/next change, ignore-whitespace or wrap control (GC-052);
+    neither side panel resizes where the study drags both (GC-050); slash-separated branch names
+    stay flat where the study folds them (GC-051). A first load with a mangled path put
+    `spawn git ENOENT` in the empty state and the status bar for a folder that does not exist,
+    the same text GC-025 fixes for a missing git, so GC-025 was extended instead of a new ticket.
+  - tickets: added GC-050 (P2, ui), GC-051 (P3, ui), GC-052 (P3, diff), GC-053 (P3, tests);
+    extended GC-025 with the missing-folder case. Board: GC-050 after the worker's GC-049 as the
+    last P2 (half-day study gaps, with recents and the branch menu ahead of it because they are
+    the more frequent needs); GC-053 after GC-036 with the other e2e hygiene; GC-051 and GC-052
+    after GC-045 with the small study-gap P3s. No existing row moved. Blocked GC-017 and GC-018
+    still wait on Ricardo's decisions; nothing new to unblock them.
+  - notes: `CLAUDE.md`'s "Done" paragraph is current through GC-030. Its Testing paragraph says
+    "All 62 assertions passed on the last run" while GC-030's log says 63 for the same run; one
+    of the two is off by one and the next ticket touching `run.mjs` (GC-053 fits) should count
+    and fix it. The launcher header still names `--keep-alive` while the code reads
+    `--keep-running` (GC-041 stands).
