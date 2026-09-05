@@ -1587,14 +1587,14 @@ decision is missing.
 - **Depends on:** none
 - **Why:** GC-010's `src/renderer/src/shortcuts.test.ts` contains a literal U+0000 byte inside a
   string (the "no shortcut matches a NUL key" case, `key('<NUL>')` at byte offset 790) instead of
-  the escape `' '`. Git's binary heuristic therefore classifies the whole file as binary:
+  the escape `'\u0000'`. Git's binary heuristic therefore classifies the whole file as binary:
   `git ls-files --eol` reports `i/-text w/-text` for it, `git show 5c108db -- <file>` prints
   "Binary files differ", `git diff`, `git blame` and any code review see no content, and the
   `* text=auto eol=lf` rule in `.gitattributes` skips it, so its line endings are never
   normalised. Vitest and TypeScript read it fine, which is why nothing failed. Found by GR-002
   while trying to review the test as a diff.
 - **Scope:**
-  - Replace the raw byte with the `' '` escape; the assertion stays the same.
+  - Replace the raw byte with the `'\u0000'` escape; the assertion stays the same.
   - Confirm no other tracked text file is affected: `git ls-files --eol | grep -v '\.png'` must
     show no `i/-text` entry.
 - **Out of scope:** any change to the bindings, the matchers or the overlay.
