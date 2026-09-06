@@ -264,6 +264,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
 | GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | in-progress |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
+| GC-133 | The graph and the commit panel format the same timestamp two different ways | ui | S | P2 | todo |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
 | GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
 | GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | done |
@@ -311,6 +312,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
 | GC-129 | A stash message cannot be edited once the stash is made | actions | S | P3 | todo |
+| GC-134 | remoteCopyOf is inline and untested, and its comment justifies a state git forbids | tests | S | P3 | todo |
+| GC-135 | Nothing says how long ago anything happened, and the stash date is fetched and thrown away | ui | M | P3 | todo |
 | GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | todo |
 | GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | todo |
 | GC-122 | The graph does not scroll while a branch is being dragged | graph | S | P3 | todo |
@@ -4697,12 +4700,19 @@ decision is missing.
     checks out through `runCheckout`.
   - Lift the chip markup into one component both `CommitGraph.tsx` and `DetailPanel.tsx` render,
     rather than duplicating it — after GC-078 has settled what a chip row looks like.
+  - Make `commit: <short sha>` in the same header bar copy the full sha when clicked, with a
+    `cursor: pointer` and a title saying so. The study's `04-panels.md` point 2 has that line
+    clickable to copy; today it is a bare `div.detail-head` with `cursor: auto` and no title
+    (GR-015, measured at `5f705ee`). The commit menu's "Copy commit sha" stays — this is the same
+    action offered where the sha is already on screen.
 - **Out of scope:** the `+N` fold (the panel wraps instead), hover expansion, the WIP view's header,
   the `title` tooltip (it can stay as the full list).
 - **Acceptance:**
   - [ ] On the fixture's merge commit (`main`, `origin/main`, `v0.1.0`) the header shows two chips,
         `main` with the cloud mark and `v0.1.0`; no `HEAD -> `, no `tag: `, no ellipsis at 400px.
   - [ ] A commit with no refs shows no ref row and leaves no empty space where one would be.
+  - [ ] Clicking `commit: <sha>` in the header copies the full sha, and the cursor and the title
+        say it is clickable.
   - [ ] Right-click on the `main` chip opens the branch menu; `npm test` and `npm run e2e` pass.
 - **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/graph/CommitGraph.tsx`
   (the chip component moves out), `src/renderer/src/styles/app.css`.
@@ -4711,6 +4721,8 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-008: from the screenshot pass — the third review in a row to see this
     line truncated, and the study's panel does not have it at all.
+  - 2026-09-06 extended by GR-015: the clickable `commit:` sha, from the same header bar and the
+    same paragraph of the study, added here rather than as a ticket of its own.
 
 ### GC-088 Branch breadcrumb dropdown: switch branches from the toolbar
 
@@ -6936,6 +6948,150 @@ decision is missing.
 
 ---
 
+### GC-133 The graph and the commit panel format the same timestamp two different ways
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** Two file-local helpers format `authorDate`, and they disagree by design. `localDateTime`
+  (`src/renderer/src/graph/CommitGraph.tsx:98`) builds `dd/mm/yyyy, HH:MM` from the date's parts,
+  and its own comment says why: `toLocaleString`'s "field order follows the machine's locale".
+  `formatDate` (`src/renderer/src/components/DetailPanel.tsx:81`) is `d.toLocaleString()` — exactly
+  the call the graph rejected — and it is what the commit view's author line renders
+  (`DetailPanel.tsx:346`). On this machine nothing looks wrong, because Electron reports
+  `navigator.language` as `en-GB`: measured in the running app at `5f705ee`, the DATE / TIME cell
+  reads `06/09/2026, 09:14` and the author line `06/09/2026, 09:14:32`, side by side on one screen
+  (GR-015's `10-date-column.png`). Change the OS region and only one of them moves — for that same
+  commit `toLocaleString('en-US')` is `9/6/2026, 9:14:32 AM` and `toLocaleString('ja-JP')` is
+  `2026/9/6 9:14:32`, while the graph column still says `06/09/2026, 09:14`. The app should not
+  hold two answers to "how do we write a timestamp", and the one that is locale-dependent is the
+  one it never chose.
+- **Scope:**
+  - One module, `src/renderer/src/time.ts`, exporting the graph's `dd/mm/yyyy, HH:MM` and a
+    seconds-carrying sibling for the detail panel, so the two differ in what they show and never in
+    field order.
+  - `CommitGraph.tsx` and `DetailPanel.tsx` import it; both local helpers go.
+  - A `.ts` unit test beside it — it needs no DOM: a fixed ISO string formats to a fixed string
+    whatever the machine's locale is, an unparseable string comes back unchanged (both helpers
+    already promise that), and single-digit parts stay zero-padded.
+  - While that author line is being touched, its inline `style={{ color: 'var(--text-muted)' }}`
+    (`DetailPanel.tsx:346`) becomes a class in `app.css`, which is where every other colour lives.
+- **Out of scope:** relative times (GC-135); a date-format preference (`04-panels.md` notes
+  GitKraken has one, and there is no evidence yet that this app wants one); the WIP view.
+- **Acceptance:**
+  - [ ] `grep -rn "toLocale" src/renderer/src` prints nothing outside `time.ts`, and `time.ts` does
+        not call it either.
+  - [ ] One commit renders the same `dd/mm/yyyy` field order in the DATE / TIME cell and in the
+        commit panel's author line, and a test asserts the exact strings rather than re-deriving
+        them from `Intl`.
+  - [ ] `npm test` passes with a higher count than 184; `npm run e2e` passes.
+- **Files:** `src/renderer/src/time.ts` (new), `src/renderer/src/time.test.ts` (new),
+  `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
+  `src/renderer/src/styles/app.css`.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, and a CDP screenshot of a selected
+  commit with `graphColumns.date` on, showing both timestamps at once.
+- **Log:**
+  - 2026-09-06 proposed by GR-015: from the code-review pass, confirmed in the running app — the
+    graph deliberately refused `toLocaleString` and the panel calls it, and only this machine's
+    `en-GB` hides the difference.
+
+---
+
+### GC-134 remoteCopyOf is inline and untested, and its comment justifies a state git forbids
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-112
+- **Why:** GC-112's `remoteCopyOf` (`src/renderer/src/App.tsx:815`) answers "where else does this
+  branch live", and it is the only thing between a delete confirmation and a checkbox naming the
+  wrong remote. Every comparable decision in this codebase was pulled out of its component so a
+  test could hold it — `fitPanels`, `reachedWidth`, `continuesRange`, `alignHunks`, `wordDiff`,
+  `canDropRef` — and the closest relative of all, `defaultRemote`, already sits in
+  `src/shared/remotes.ts` with its own `remotes.test.ts`. `remoteCopyOf` is a `useCallback` in the
+  middle of a 1,300-line component instead, and the window that shipped it added no unit test at
+  all (184 tests before, 184 after). Its e2e cover, step 33, exercises one path: one remote,
+  upstream present. Untested are the two branches the comment is proudest of — the same-name
+  fallback for a branch pushed without `-u`, and a pruned upstream falling through to it. And the
+  reason given for the sort is not true: the comment says the longest match wins "because `origin`
+  and `origin/fork` are both legal remote names", but git refuses that pair in both directions —
+  `git remote add origin/fork` while `origin` exists is
+  `fatal: remote name 'origin/fork' is a subset of existing remote 'origin'`, and adding `foo`
+  after `foo/bar` is the same fatal the other way round (both verified at `5f705ee`). The sort is
+  harmless and may stay; the justification beside it is one a later session would believe.
+- **Scope:**
+  - Move `remoteCopyOf` into `src/shared/remotes.ts` as a pure function over the refs, the remotes
+    and the branch, and call it from `App.tsx`. There is no React in it, and `remotes.ts` is
+    already where a menu label and a git call are made to agree.
+  - Correct the comment: what the split has to survive is a **branch** name with slashes
+    (`origin` + `feature/x` gives `origin/feature/x`), which it already does; git makes the nested
+    *remote* case unreachable.
+  - Extend `src/shared/remotes.test.ts`: the upstream wins when the snapshot lists it; a pruned
+    upstream falls through to a same-name remote ref; a branch on no remote answers `null`; a
+    slashed branch name splits at the remote and not at the first slash; a branch whose only copy
+    is on a remote the snapshot does not list answers `null`.
+- **Out of scope:** changing which remote is chosen when several carry the same branch name (the
+  label names it, so the answer is readable), offering more than one copy at once, and the tag
+  menu's separate per-remote shape.
+- **Acceptance:**
+  - [ ] `grep -n remoteCopyOf src/renderer/src/App.tsx` shows an import and its call sites, no
+        definition.
+  - [ ] The five cases above are named tests in `src/shared/remotes.test.ts`, and `npm test` passes
+        with a higher count than 184.
+  - [ ] No comment in the tree claims `origin` and `origin/fork` can coexist.
+  - [ ] `npm run e2e` still passes step 33 unchanged.
+- **Files:** `src/shared/remotes.ts`, `src/shared/remotes.test.ts`, `src/renderer/src/App.tsx`.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GR-015: from the code-review pass; the convention the rest of the
+    codebase follows, plus a justification checked against git and found false.
+
+---
+
+### GC-135 Nothing says how long ago anything happened, and the stash date is fetched and thrown away
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P3
+- **Depends on:** GC-133
+- **Why:** `grep -rn "ago" src/renderer/src` finds nothing: every timestamp in this app is an
+  absolute instant. The study's `06-feature-inventory.md` has
+  `Timeline / Time / DateTime | 24 | Relative and formatted dates | Build`, and with GC-128 filed
+  against RepoManagement it is now one of the last **Build** rows with nothing shipped against it
+  at all. The sharpest instance is the stash list: `Stash.date` is declared in `shared/types.ts`,
+  `getStashes` fills it from `%ci`, and `LeftPanel.tsx:219-224` renders the index and the message
+  and drops it on the floor. A stash list is exactly where "how old is this" is the question being
+  asked, and the answer is already in the snapshot. The commit view's author line is the second:
+  `authored 06/09/2026, 09:14:32` gives the instant, and a history is read for the distance.
+- **Scope:**
+  - `relativeTime(iso, now)` in the `src/renderer/src/time.ts` GC-133 creates: "just now",
+    "N minutes / hours / days ago" with singular and plural right, then the absolute date past a
+    threshold. Pure, with `now` injected so the test does not depend on the clock.
+  - The left panel's stash row renders it in a dim trailing span, and the absolute form joins the
+    message already on the row's `title`.
+  - The commit view's author line reads `authored 3 hours ago`, with the absolute string as its
+    `title`.
+  - Boundary tests: 59s, 60s, 23h, 24h, the threshold itself, and a date in the **future**, which a
+    commit made under a skewed clock produces and which must not render as "-1 minutes ago".
+- **Out of scope:** the graph's DATE / TIME column, which stays exactly as it is — the study names
+  that column "COMMIT DATE / TIME" and a column exists to be read down and compared; a preference
+  choosing between the two forms; the WIP row; translating the words.
+- **Acceptance:**
+  - [ ] A stash made a minute ago shows a relative age in the left panel, and hovering the row
+        shows the absolute date beside its message.
+  - [ ] The commit view's author line shows the relative form with the absolute on hover.
+  - [ ] The DATE / TIME column renders byte-for-byte what it renders today.
+  - [ ] The boundary tests above exist, `npm test` passes, and `npm run e2e` passes.
+- **Files:** `src/renderer/src/time.ts`, `src/renderer/src/time.test.ts`,
+  `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
+  `src/renderer/src/styles/app.css`.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, then a stash made by hand in the
+  scratch repo (the fixture has none at rest) and CDP screenshots of the expanded Stashes section
+  and of a selected commit into `docs/screenshots/`.
+- **Log:**
+  - 2026-09-06 proposed by GR-015: from the what's-next pass; the study's DateTime row is `Build`
+    with nothing shipped, and `Stash.date` is already loaded on every snapshot and never drawn.
+
+---
+
 ### GC-125 Radio buttons are the last unstyled OS control, now that the checkboxes are ours
 
 - **Status:** done
@@ -8262,3 +8418,103 @@ appends its own section here.
     found; `TICKETS.md` was clean in `git status` before this write and is the only file staged.
     The review's Electron on 9334 was found by command line and stopped by PID before the e2e run
     took 9335, and both ports were confirmed free afterwards.
+
+### GR-015 Backlog review 2026-09-06 10:20
+
+- **Status:** done
+- **Window:** 416d357..5f705ee
+- **Log:**
+  - 2026-09-06 10:20 shipped: five commits, two worker batches and one review. `dbcf2b8` is GR-014.
+    `9bb593d` implements **GC-125**, **GC-126**, **GC-107** and **GC-112**; `01c8b1f`/`60da035`
+    claim and implement **GC-130** and **GC-131**; `5f705ee` is the worker's claim of GC-132,
+    GC-027, GC-033 and GC-045, all four `in-progress` and none of them touched here. Read as a
+    reviewer: **GC-131** is the best-shaped piece in the window, and the ordering is why —
+    `confirmWithOption` is written first and `confirm` becomes one line of it
+    (`(await confirmWithOption(o)).confirmed`), so there is no second modal path to keep in step,
+    and `checked: confirmed && r.checked` makes "false whenever `confirmed` is" true by
+    construction rather than by every caller remembering. It also cleaned up after GC-112, which
+    had landed 26 minutes earlier writing `ui.prompt({ input: false, checkbox })` at two call
+    sites — the smell that produced the ticket, fixed in the same window that created it.
+    **GC-112**'s ordering is right and commented: local delete first, remote only if it succeeded,
+    the remote half through a plain `run()` so its failure reports without pretending the local one
+    was undone. **GC-107** is small and correct; leaving the row out on a deleted file rather than
+    disabling it follows GC-072, and `restoreFile` documenting that `git checkout <sha> -- <path>`
+    stages what it writes — one command, not a flag that can be dropped — is why the confirmation
+    can honestly say so. **GC-130**'s `LIVE_DIFF` and the atomic find-check-click in `hunkAction`
+    are the right shape for the race they close. Two things I would not have let past unremarked:
+    the window added **no unit test at all** (184 before, 184 after) while adding `remoteCopyOf`,
+    a decision function of exactly the kind this codebase has always extracted and tested — that
+    became GC-134, together with a justification in its comment that I checked against git and
+    found false. Everything else in the window matches `CLAUDE.md`, and the acceptance boxes I
+    spot-checked have evidence in their logs.
+  - health: at `5f705ee`, in the detached worktree at `%TEMP%/gitclient-review/wt` with
+    `node_modules` junctioned — **typecheck ok, 184 tests passed (17 files)** in 1.65s, **build
+    ok**. e2e was not re-run: GR-014 ran it at `416d357` and the two GC commits since add steps
+    30-33 rather than changing the harness, so the budget went to the app instead. `MAIN` was
+    never built, tested or launched; its only change from this session is `TICKETS.md`.
+  - app: the `5f705ee` build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, fixture
+    recreated first, every `gitclient.*` key except `lastRepo`/`recentRepos` cleared over CDP.
+    Screenshots in `%TEMP%/gitclient-review/GR-015/`, all looked at. `01-graph-1400.png`: nine
+    rows, lanes continuous, right-angle joins, `wip-branch +1`, `main +4`, the WIP row's
+    one-added / three-modified / one-deleted counts agreeing with the panel's 3 unstaged and 2
+    staged. `03-delete-branch-option.png` is
+    GC-112 and GC-131 together, driven for real from the left panel's `release` row: "Delete branch
+    release?" over a single body row "Also delete release on origin", the box measured at 14x14 and
+    the backdrop at the `--backdrop` token's `rgba(0,0,0,.5)`, focus on the danger button.
+    `04-commit-file-menu.png` is GC-107: "Restore file from this commit" with `c1743b1` as its
+    hint, danger-tinted, above the separator and the two shell rows. `06-tag-menu.png` and
+    `07-tag-delete-option.png` are the one-remote tag shape, and `08-tag-delete-result.png` is that
+    delete carried through with the box ticked — TAGS fell to 1 and `main` to `+3` and the status
+    bar stayed clean, because `git push --delete` of a ref a **file** remote does not have exits 0
+    with a warning. Worth knowing for whoever writes the tag half of GC-091: unlike the branch
+    checkbox, which is offered only when the snapshot proves the copy exists, the tag checkbox is
+    offered whenever there is exactly one remote and nothing knows whether the tag was ever pushed.
+    Against a real host that is an error after a delete that succeeded, which is GC-091's case
+    exactly; I left it in GC-091's territory rather than opening a ticket on a shape I could not
+    reproduce locally. `05-pull-popover.png` is GC-125 landed: three radios, the checked one
+    `rgb(77,136,255)` with a white dot at `border-radius: 50%`, the other two on `--bg-panel-raised`,
+    all 14px.
+  - rotation: **the keyboard shortcuts overlay**, which no review had looked at since GC-010
+    shipped it, and the tabs bar's `+`. `09-shortcuts-overlay.png`: five labelled groups, keycaps
+    aligned in one column, the body at `508/508` so nothing is cut, and the "while the find bar has
+    focus" / "while the summary or description has focus" qualifiers reading as captions rather
+    than rows. It is healthy and it is thin — ten bindings, which is what GC-033 is currently
+    `in-progress` to change, so nothing to file. The `+` is not the dead affordance it looks like:
+    `TitleBar.tsx:25` says it opens the recents menu until GC-016 gives the bar real tabs, and it
+    does.
+  - what's next: re-read `06-feature-inventory.md` against the board. With GC-128 filed against
+    RepoManagement, `Timeline / Time / DateTime | Relative and formatted dates | Build` is one of
+    the last **Build** rows with nothing shipped at all, and the app confirms it —
+    `grep -rn "ago" src/renderer/src` finds nothing, and `Stash.date` is loaded from `%ci` on every
+    snapshot and never drawn. That became GC-135. Still unticketed and named once here rather than
+    carried, as GR-014 did: Compare against working directory (Commit row), Blame / History /
+    Export changes to patch (Files row), and the CHANGES optional graph column
+    (`03-graph.md` lists four, we have three).
+  - tickets: added **GC-133** (ui, S, **P2**, code review confirmed in the running app: the graph's
+    `localDateTime` was written specifically to avoid `toLocaleString` because its field order
+    follows the machine, and `DetailPanel`'s `formatDate` is `toLocaleString` — measured
+    `06/09/2026, 09:14` in the DATE cell against `06/09/2026, 09:14:32` in the author line on this
+    `en-GB` machine, `9/6/2026, 9:14:32 AM` and `2026/9/6 9:14:32` for the same instant elsewhere),
+    **GC-134** (tests, S, P3, code review) and **GC-135** (ui, M, P3, what's-next). Extended
+    **GC-087** with the clickable `commit: <sha>` from the same header bar and the same paragraph
+    of `04-panels.md` — measured as a bare `div.detail-head` with `cursor: auto` — rather than
+    opening a fourth ticket on one line of one file. Board: GC-133 goes directly under GC-128, the
+    only other open P2, so a worker picking in board order reaches both before the P3 polish;
+    GC-134 and GC-135 go under GC-129 at the tail of the newest P3 run. Nothing else moved and no
+    other ticket was edited.
+  - hygiene: no `todo` ticket has gone vague. `blocked` is GC-017, GC-018 and GC-081; none can be
+    unblocked from here and all three want a decision from Ricardo. Dependencies read correctly:
+    GC-133 on nothing, GC-134 on GC-112 (the code it moves), GC-135 on GC-133 (they share
+    `time.ts`, and GC-133 creates it). GC-128 remains the right head of the open work.
+  - notes: `CLAUDE.md` is current at `5f705ee` and its numbers were checked rather than trusted —
+    "184 tests today" matches the run exactly, and "34 steps, 206 assertions, ~32s" matches the
+    four steps this window's commits added (30-33, plus the fixture check renumbered to 34).
+    `confirmWithOption`, the fully qualified remote tag delete, `remoteCopyOf`, "Restore file from
+    this commit" and the live-button wait all appear in the handover and all match the code. This
+    review did not edit `CLAUDE.md`.
+  - isolation: GC-132, GC-027, GC-033 and GC-045 were `in-progress` throughout and were not
+    touched. `MAIN` was never built, tested or launched and its working tree was left exactly as
+    found; `TICKETS.md` was clean in `git status` before this write and is the only file staged.
+    The review's Electron was found on 9334 by command line and stopped by PID, and the port was
+    confirmed free afterwards. The only writes outside `%TEMP%` were none: the tag deleted in the
+    scratch repo to observe GC-112 was restored at its original sha and its remote copy cleared.
