@@ -267,6 +267,9 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | GC-193 | A tab and a toolbar button answer the pointer with 25% of alpha and nothing else | ui | S | P2 | in-progress |
 | GC-194 | The two crumbs open menus and draw nothing that says so | ui | S | P2 | in-progress |
 | GC-195 | A scrolling modal puts its scrollbar 17px inside its own border | ui | S | P2 | in-progress |
+| GC-202 | A rejected push draws the least useful line git wrote and hides the four that explain it | ui | S | P1 | todo |
+| GC-200 | The lane band's flat edge and the node's arc leave a crescent of untinted row between them | ui | S | P2 | todo |
+| GC-203 | `--force-with-lease` is implemented, typed and validated, and no call site can reach it | actions | S | P2 | todo |
 | GC-197 | The staging view's two file lists cannot be collapsed, so Staged is unreachable past 20 files | ui | S | P2 | todo |
 | GC-196 | The detail panel's second design pass: an audit against the study before anything changes | ui | M | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
@@ -276,6 +279,8 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | todo |
 | GC-198 | `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk | infra | S | P3 | todo |
 | GC-199 | A stash row carries five things at a 220px panel and the message gets 48px of them | ui | S | P3 | todo |
+| GC-201 | The lane band is a flat wash where it should read as light coming off the lane | ui | S | P3 | todo |
+| GC-204 | Blame: the file view's third mode, and the last Build row of the study's file panel | diff | M | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
 
@@ -1014,6 +1019,289 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
+### GC-200 The lane band's flat edge and the node's arc leave a crescent of untinted row between them
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** GC-186 put the band right of the node on every row, which is the study's own shape
+  (`03-graph.md` line 45), and it reads as the lane. Where it fails is at the one pixel the two are
+  supposed to meet. `Band` in `GraphCell.tsx` draws `rect x={x + NODE / 2 - 1}` — a **flat** left
+  edge at the node's drawn radius — with `height={BAND_H}` = 22, while the node is a 20px circle
+  whose stroke reaches r = 10. Measured in the running app on 2026-09-06: a commit row's node is
+  `cx 18, r 9` and its band is `x 27, y 3, w 49, h 22`. At x = 27 the circle's outer boundary spans
+  only ±sqrt(10² − 9²) = ±4.36px of the row, so between y 3 and y 9.6, and again between y 18.4 and
+  y 25, the band's square corner stands clear of the arc with the row's own background showing
+  through. Two crescents, one above the meeting point and one below. A **taller** band makes them
+  bigger, not smaller, which is why this cannot be tuned away with `BAND_H`.
+  Zoomed captures at 10x are in `%TEMP%/gitclient-review/GR-025/`: `03-commit-node-zoom.png` is a
+  filled commit node and `02-node-zoom.png` the dashed WIP node, where the wedges are widest
+  because that circle is unfilled against the selected row's accent wash.
+  The study points at a fix as well as the defect: the same line records "a wider app-background
+  **mask** hides lines behind the node", so GitKraken treats the node's neighbourhood as its own
+  region rather than butting a rectangle against a circle.
+- **Scope:**
+  - Make the band and the node meet with nothing showing between them. The straightforward option,
+    since `Band` is already drawn **first** in all three cell kinds and every line and node paints
+    over it, is to start the rect at the node's **centre** (`x`) rather than at `x + NODE / 2 - 1`
+    and let the circle cover what it overlaps. Any answer is fine as long as the acceptance below
+    holds; say in the comment which was chosen and why.
+  - Check all three cell kinds. The commit node is filled (`--bg-panel-raised`); the stash and WIP
+    nodes are filled too (`--bg-panel` / `--bg-app`) but stroked **dashed**, so a band running under
+    them must not show through the gaps in the dash as a tinted ring — read the pixels, do not
+    assume.
+  - A `GraphCell` test pinning the band's geometry against the node's, so the relationship is a
+    number rather than a screenshot.
+- **Out of scope:** the band's paint, which is GC-201; its height, its tint and whether it is drawn
+  at all, all of which GC-186 settled; the chip connector left of the node (GC-186), which is a
+  separate 2px line; and the selected row's accent wash.
+- **Acceptance:**
+  - [ ] On a commit row, a stash row and the WIP row, no row-background pixel lies between the
+        node's outer edge and the band, at any y the band covers — read back over CDP or asserted
+        in a unit test, not eyeballed.
+  - [ ] A dashed node (stash, WIP) shows no band through the gaps in its stroke.
+  - [ ] Every line and node still paints over the band: GC-186's "drawn first" property is
+        unchanged in all three cell kinds.
+  - [ ] `npm run typecheck` and `npm test` pass; no colour added to a stylesheet.
+- **Files:** `src/renderer/src/graph/GraphCell.tsx`,
+  `src/renderer/src/graph/GraphCell.test.tsx` (or the nearest existing home)
+- **Verify:** build, launch through `tools/launch-app.mjs`, and capture `Page.captureScreenshot`
+  clips at `scale: 10` around a commit node, a stash node and the WIP node, before and after, and
+  look at all six.
+- **Log:**
+  - 2026-09-06 proposed by GR-025, from Ricardo's inbox: the band butts a square corner against a
+    circle, so at the measured `cx 18, r 9` / `x 27, h 22` the two touch at exactly one point and
+    leave about 6.6px of untinted row above and below it.
+
+---
+
+### GC-201 The lane band is a flat wash where it should read as light coming off the lane
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-200
+- **Why:** GC-186's band is right and Ricardo says so — the ask is the next step, not a correction.
+  Today it is one rectangle at `BAND_TINT = 0.1` of the lane colour, the same opacity from the
+  node's edge to the cell's, which is what makes it read as a printed rectangle: it has a hard
+  right edge in the middle of the row and nothing about it says which end the lane is at. The
+  GitKraken capture Ricardo compared it against reads as the row being lit from the lane rather
+  than as a block laid on it. `03-graph.md` line 45 records only a "background band
+  (`commit-bg-color`, 50% lane tint)", so the study settles the *place* and not the paint; this is
+  our own call, which is why it is a ticket and not a bug.
+  It is filed after GC-200 because that ticket decides where the band's left edge is, and a
+  gradient's first stop is exactly that edge.
+- **Scope:**
+  - Give the band a gradient, strongest at the node and falling away to the right, so the row reads
+    as lane light. An SVG `linearGradient` per lane colour is the direct route; a `color-mix` on the
+    lane variable is the other. Whichever is used, the paint must come from the **same lane
+    variable** the flat fill uses — no new colour literal, in the component or in a stylesheet
+    (`CLAUDE.md`, Styling).
+  - Keep every one of GC-186's promises, and say so in the comment: drawn **first** in all three
+    cell kinds so every line and node paints over it; on **every** row, not only the selected and
+    WIP ones; the height and the right edge unchanged unless the work says otherwise.
+  - Check it in **both themes**: a tint calibrated on the dark ramp is not the same tint on the
+    light one (GC-175), and a gradient that reads as light on dark can read as a smudge on light.
+  - Screenshots of the graph in both themes, before and after, in `docs/screenshots/`.
+- **Out of scope:** the band's geometry at the node (GC-200), the selected row's accent wash, the
+  chip connector, and the lane colours themselves.
+- **Acceptance:**
+  - [ ] The band's paint varies across its width and is built from the row's lane variable; no hex
+        or `rgba()` literal was added anywhere.
+  - [ ] Drawn first in all three cell kinds, on every row, with every line and node over it —
+        unchanged from GC-186 and asserted, not assumed.
+  - [ ] Screenshots of the graph before and after in both themes, at 100%, looked at side by side.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/graph/GraphCell.tsx`, possibly
+  `src/renderer/src/styles/tokens.css`
+- **Verify:** build, launch through `tools/launch-app.mjs` on a repository with several lanes,
+  screenshot the graph in dark and in light at full scale, and compare against
+  `%TEMP%/gitclient-review/GR-025/01-graph.png`, which is the flat band as it ships today.
+- **Log:**
+  - 2026-09-06 proposed by GR-025, from Ricardo's inbox: the band landed and reads well, and the
+    remaining complaint is that one opacity across the whole cell reads as a printed rectangle
+    rather than as light off the lane.
+
+---
+
+### GC-202 A rejected push draws the least useful line git wrote and hides the four that explain it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** Reproduced in the running app on 2026-09-06 on the review's own scratch repository, by
+  amending a commit already on `origin` and pressing Push. git wrote seven lines, all of which
+  crossed IPC intact and all of which are sitting on the status bar button's `title`:
+  `! [rejected]        main -> main (non-fast-forward)`, then
+  `error: failed to push some refs to '<url>'`, then four `hint:` lines ending "use 'git pull'
+  before pushing again". What is **drawn** is
+  `error: failed to push some refs to 'C:\Users\...\remote.git'` and nothing else — the one line
+  that names no cause and no remedy, with the path eating most of the width. Screenshot:
+  `%TEMP%/gitclient-review/GR-025/11-push-rejected.png`.
+  Two separate things put it there. `headline()` in `StatusBar.tsx` picks the first line matching
+  `/^(error|fatal):|CONFLICT|failed/i`, and for a push that is the `error:` line rather than the
+  `! [rejected] … (non-fast-forward)` line above it. And GC-169 built exactly the surface this
+  needs — a summary on the bar, the whole of git's message in `AuthErrorDialog`, opened by clicking
+  the summary — but wired `onErrorDetails` to credential failures alone, so every other multi-line
+  failure still dismisses on a click and keeps its explanation in a tooltip. A `title` is not where
+  a remedy belongs: nothing on screen says there is more to read.
+  This is the half of Ricardo's inbox item that stands on its own — it makes **every** push, pull,
+  merge and rebase failure legible, whatever is decided about force pushing in GC-203.
+- **Scope:**
+  - `headline()` picks the line that says *why*. A rejection's reason is on the `! [rejected]`
+    line; keep the existing matches for the cases where they are already right (`fatal:`,
+    `CONFLICT`). Unit-tested against real git output for at least: a non-fast-forward push, a
+    fetch-first rejection, a merge conflict, an auth failure and a single-line error.
+  - The details dialog opens for any failure whose message has more than one line, not only for a
+    credential one: `onErrorDetails` is set whenever there is more to show, and the bar says so — a
+    click must not silently dismiss a message the user has not read all of. Keep GC-169's rule that
+    an ordinary one-line error still dismisses on a click.
+  - `AuthErrorDialog` is the wrong name once it shows more than auth failures; rename it for what it
+    is, or say in the log why it stays.
+  - No change to what `git.ts` sends: the whole message already crosses.
+- **Out of scope:** force pushing (GC-203); the advisory/notice split (GC-091), which is about
+  severity and not about length; and any new IPC.
+- **Acceptance:**
+  - [ ] A push rejected as non-fast-forward draws a line naming the rejection, not "failed to push
+        some refs", asserted on the rendered text.
+  - [ ] The same failure offers the whole of git's message, hints included, in the dialog, reached
+        without hovering anything.
+  - [ ] A one-line failure behaves exactly as it does today: one line, click dismisses.
+  - [ ] A credential failure is unchanged — GC-169's summary line and its dialog both still work.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/components/StatusBar.tsx`,
+  `src/renderer/src/components/StatusBar.test.tsx` (or the nearest existing home),
+  `src/renderer/src/App.tsx`, `src/renderer/src/components/AuthErrorDialog.tsx`,
+  `src/renderer/src/styles/app.css`
+- **Verify:** build, launch through `tools/launch-app.mjs` against a scratch repository whose branch
+  has been amended after pushing, press Push, and read the drawn line and the dialog back over CDP.
+  Never against a real repository.
+- **Log:**
+  - 2026-09-06 proposed by GR-025, from Ricardo's inbox: measured in the app, git's seven lines
+    reach the renderer and sit on a `title` while the bar draws the one line that explains nothing.
+
+---
+
+### GC-203 `--force-with-lease` is implemented, typed and validated, and no call site can reach it
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P2
+- **Depends on:** GC-202
+- **Why:** Ricardo amended a commit that was already on the remote and the app had no way to publish
+  it. Confirmed in the source: `PushRequest.force` is a typed field in `shared/types.ts`, `ipc.ts`
+  validates it (`force: !!r.force`) and `push()` in `git.ts` turns it into `--force-with-lease` —
+  the safe form, which refuses when the remote has moved since the last fetch. All five call sites
+  in `App.tsx` pass only `remote`, `branch` and `setUpstream`: the toolbar button (line 2354), its
+  popover, the branch menu's two rows (1675, 1689) and the tag menu's (1540, 1543). So the
+  capability has never been reachable from the UI, and a grep for `force` outside `deleteBranch`
+  finds it only in the type, the handler and the git call.
+  Amending a published commit is the ordinary case, not an exotic one, and it is the one the
+  staging form's own Amend checkbox leads people into.
+- **Scope:**
+  - A way to force a push, using the `--force-with-lease` that already exists — never `--force`.
+    The natural home is the Push popover, which already carries the push's options, with the branch
+    menu's rows a second candidate; pick one and say why in the log rather than adding it
+    everywhere.
+  - Behind a confirmation through `useUi().confirm` (`CLAUDE.md`, UI layer — the native `confirm()`
+    is not used), whose wording says what is being overwritten and names the remote and branch, the
+    way every other row that pushes names its remote rather than an upstream ref (GC-114).
+  - The rejection GC-202 makes legible is the natural way in: a user who has just been told the push
+    was rejected as non-fast-forward is the one who needs this. Whether the dialog offers it
+    directly is a judgement call — decide it and say why, but do not make a destructive action a
+    one-click follow-on from an error message without a confirmation of its own.
+  - The amend path: the staging form offers Amend with nothing saying the commit being amended is
+    already published. Say so where the checkbox is — the branch's ahead/behind is already in the
+    snapshot, so "this commit is on `<remote>`; amending it will need a force push" is a derivation
+    and not a new git call. If that turns out to need more than a line, file it and say so here.
+- **Out of scope:** `--force` without a lease, ever; force-pushing tags; deleting a remote branch
+  (GC-112 owns that); and the message a rejection draws (GC-202).
+- **Acceptance:**
+  - [ ] A force push is reachable from the UI, runs `--force-with-lease`, and is asserted by reading
+        the command git received rather than by the push appearing to work.
+  - [ ] It asks first, through the app's own modal, and the question names the remote and the
+        branch.
+  - [ ] Cancelling runs nothing.
+  - [ ] A force push whose lease is stale — the remote moved after the last fetch — fails and
+        reports, rather than overwriting.
+  - [ ] The amend hint appears only when the commit being amended is on a remote, and never costs a
+        git call.
+  - [ ] `npm run typecheck` and `npm test` pass; the e2e suite still passes.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/Toolbar.tsx`,
+  `src/renderer/src/components/DetailPanel.tsx`, `tools/e2e/run.mjs`, `CLAUDE.md`
+- **Verify:** build, and drive it against the **e2e scratch repository only** (`CLAUDE.md`, rule 2):
+  amend a commit that is on the fixture's bare `remote.git`, force push, and assert with
+  `git -C remote.git rev-parse` that the remote ref moved. Never against `catena-feed` or
+  `kyushu-route`.
+- **Log:**
+  - 2026-09-06 proposed by GR-025, from Ricardo's inbox: he could not publish an amended commit;
+    the flag that would have done it safely is implemented and validated and reachable from nowhere
+    in the renderer.
+
+---
+
+### GC-204 Blame: the file view's third mode, and the last Build row of the study's file panel
+
+- **Status:** todo
+- **Area:** diff | **Size:** M | **Priority:** P3
+- **Depends on:** none
+- **Why:** `04-panels.md` records the file view's toolbar as "centre toggle **File View | Diff
+  View**, right side **Blame | History**". GC-166 built History and put it exactly there, and its
+  Out of scope named the remaining one outright: "Blame, which needs `git blame` porcelain parsing
+  and a per-line gutter and is its own ticket". Nobody wrote that ticket. It has been carried as
+  "worth a later look" by GR-018 and four reviews after it, and every reason to defer it has now
+  gone: the surface exists, the segmented control exists, the load-keyed-to-identity discipline
+  exists (GC-075, GC-152), and `time.ts` already answers how a timestamp is written.
+  `06-feature-inventory.md` lists this row as Build, and with History shipped it is the only part of
+  it still missing.
+  It is the question a client is opened for that the graph cannot answer: not "when did this file
+  change" (History) but "who wrote **this line**, and in which commit".
+- **Scope:**
+  - `git.ts`: `getBlame(cwd, path, rev?)` over `git blame --porcelain`, parsed into one record per
+    line — sha, author name, author time, and the line's text — with the porcelain format's
+    repeated-header abbreviation handled (a sha's header block is written once and later lines of
+    the same sha carry only the sha). Answers a typed array in `shared/types.ts`; a binary file and
+    a path git will not blame are answered rather than thrown.
+  - `ipc.ts` + preload: `repo:blame`, path validated the way `repo:fileLog` is, and it wants the
+    containment-only check GC-198 is adding rather than a bare `str` — take that dependency if
+    GC-198 has landed, and say so if it has not.
+  - A `Blame` entry in `DiffView`'s `Diff | History` control, so the file view has three modes and
+    not two. It is a **mode**, exactly as History is: keyed by the identity it was chosen for,
+    compared during render, costing no new layer and no new Escape case, and leaving the diff's own
+    load untouched so switching back reloads nothing (GC-014, GC-166).
+  - The body: the file's lines with a left gutter carrying the commit, grouped so a run of lines
+    from one commit is marked once rather than repeated on every line. Clicking a gutter entry hands
+    the sha up through `onOpenCommit`, the way a History row already does.
+  - Every diff-only control disabled with one reason while Blame is showing, GC-188's rule and
+    GC-166's `HISTORY_OFF` generalised to say which mode is up.
+  - A unit test for the porcelain parser against captured output, including the abbreviated repeat,
+    an uncommitted line (`0000000…`), and a file with one line.
+- **Out of scope:** File View (the whole file with syntax highlighting), which needs a highlighter
+  the app does not have; blame of the working-tree copy's uncommitted lines beyond marking them as
+  not committed; `-C`/`-M` rename-detection flags; blaming a directory; and any change to the diff
+  or history bodies.
+- **Acceptance:**
+  - [ ] Blame on a fixture file attributes every line to the sha `git blame --porcelain` gives for
+        it, asserted against git rather than by eye.
+  - [ ] A run of consecutive lines from one commit is marked once, and the line numbers still run
+        1..N.
+  - [ ] Clicking a gutter entry opens that commit's diff of the same file, and the header still
+        names the file.
+  - [ ] Switching Diff to Blame and back issues no second diff load, asserted on the request count.
+  - [ ] A file git cannot blame (binary, or absent at that revision) says so in the body rather than
+        rendering an empty one — the guard GC-180 established.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/main/git.ts`, `src/main/git.test.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
+  `src/shared/types.ts`, `src/renderer/src/diff/DiffView.tsx`,
+  `src/renderer/src/diff/DiffView.test.tsx`, `src/renderer/src/styles/app.css`, `CLAUDE.md`
+- **Verify:** `npm test`, then build and launch through `tools/launch-app.mjs` on the e2e fixture,
+  open a file with commits from more than one author, switch to Blame and read the gutter back over
+  CDP against `git blame --porcelain` run on the same file.
+- **Log:**
+  - 2026-09-06 proposed by GR-025: GC-166 shipped History into the slot the study shares between
+    Blame and History and named Blame as its own ticket; this is that ticket, and it is the last
+    Build row of `06-feature-inventory.md`'s file panel still unbuilt.
+
+---
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -1021,127 +1309,130 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
 
-### GR-024 Backlog review 2026-09-06 18:35
+### GR-025 Backlog review 2026-09-06 19:35
 
 - **Status:** done
-- **Window:** aa593d9..7e75deb
+- **Window:** 7e75deb..c97776b
 - **Log:**
-  - 2026-09-06 18:35 inbox: **six items in Pending**, all six investigated and all six ticketed —
-    they are Ricardo's own look at the app after GC-142/GC-143 landed, and five of the six were
-    reproduced and measured in the built app rather than only read in the source. Nothing was
-    declined, nothing left in Pending, and `INBOX.md` is rewritten at the end of this run with the
-    six moved to Handled. Item by item, in the order they were written:
-  - inbox 1 (file rows print folder and name as two things) **-> GC-192**. Confirmed and measured:
-    `gapPx: 8` between `src/renderer/src/components/` and `DetailPanel.tsx`, which is
-    `.file-row`'s own `gap: var(--sp-2)` falling between the two halves of one path. Ricardo asked
-    that the file view's header be checked with it: it is **not** affected — `DiffView.tsx` puts
-    both spans inside one `.path` span and the measured gap there is `0`. His second point holds
-    on both surfaces though: at the 300px panel minimum `.dir` kept its full 170px unclipped while
-    `.name` was cut from 83px to 53px, and the file view's `.path` ellipsises the whole run at its
-    end, so the filename is what is lost there too. The study is on his side —
-    `04-panels.md` line 70 records the two-part treatment and no gap.
-  - inbox 2 (the right sidebar wants another design pass) **-> GC-196**, written the way he asked
-    for it: the audit is the first deliverable and the code changes follow it, with the acceptance
-    box requiring the finding list to precede the first edit in the commit order. Four of the
-    findings that same look would produce are carved off as tickets of their own — GC-191,
-    GC-192 and GC-197 — so GC-196 is only the judgement call that is left: spacing, the type
-    scale, the group heads' weight, the file rows' hover actions and the commit form's
-    composition, against `04-panels.md`'s line-by-line description of both views.
-  - inbox 3 (the crumbs open menus and draw no chevron) **-> GC-194**. Confirmed in the built app:
-    both `.crumb.as-button` controls are `owner`-anchored dropdowns (GC-044, GC-066, GC-096) and
-    neither draws a glyph, while the same window draws `ChevronDown` on the recents button,
-    `.pref-select` and the split buttons' `.caret-btn`. Filed S/P2 with the anchor and the
-    ahead/behind badge named, since the chevron must not move the menu or fight the badge.
-  - inbox 4 (the Preferences scrollbar looks bad) **-> GC-195**, and it is exactly the diagnosis he
-    gave. Measured with Preferences open on a 1400x620 window, where the body genuinely scrolls
-    (`scrollHeight 802` against `clientHeight 464`): the 8px bar's right edge is **17px** from the
-    modal's right edge and the checkbox column is **0px** from its left edge. Filed as the
-    decision he asked for — a padded scroll box, or the padding moved onto the body's children —
-    with `.modal.shortcuts` and `.modal.auth-error` in scope, since both scroll too.
-  - inbox 5 (hover on the tabs and the toolbar buttons) **-> GC-193**. Measured, and the stronger
-    half of his complaint is the true one: a toolbar button hovers from
-    `rgba(255,255,255,0.75)` to `rgb(255,255,255)` with `backgroundColor` staying
-    `rgba(0,0,0,0)`, and the **selected** tab's hovered and idle computed styles are identical —
-    `rgb(255,255,255)` on `rgb(51,55,63)` both ways — because `.tab.selected` already sets the
-    brightest text there is. On his ask to check GitKraken: the study's Row states table puts its
-    hover row at `rgba(77,136,255,0.10)`, which is what `--accent-hover` was calibrated against
-    and what `.file-row:hover` already uses, but it records **no** hover treatment for
-    GitKraken's toolbar icon buttons or its tab strip. So the ticket is written as the app's own
-    vocabulary applied consistently, not as a measurement to match, and says so.
-  - inbox 6 (the commit title is unreadable with many changed files) **-> GC-191, filed P1**, and it
-    is this review's headline. His diagnosis was right and the numbers are worse than the symptom
-    he described. On a throwaway repository with a 29-file commit, at 1400x900:
-    `.message-box` rendered **12px of clientHeight against a scrollHeight of 160**, and its `h2`
-    — the summary alone — wanted **100px** and got 12, which is the one clipped half-line he saw.
-    He asked that the staging view be checked with it, and that is where the worse finding is:
-    with 29 unstaged files, `.detail-body` measured `scrollHeight 1084` against
-    `clientHeight 756` and `.commit-form` sat **entirely below the fold, 328px down** — 201px of
-    summary field, description and commit button that cannot be reached without scrolling past
-    every changed file. Same cause both times, exactly as he said: `overflow: auto` on a flex item
-    gives it an automatic minimum size of zero, so `.message-box` is the only block in
-    `.detail-body` that can be crushed and `.file-list`, having no overflow, cannot shrink below
-    its rows. The one-line-message case is in the acceptance, since a bare `min-height` would
-    break it.
-  - shipped: **four commits, two of them code.** `aa593d9` is GR-023, `f848e03` and the current
-    `1cfb619` are claims, `1e78e42` is GC-180/181/182/151/150/152 at 27 files and +1197/-54, and
-    `7e75deb` is GC-186/185/187/188/159/165 at 24 files and +525/-115. Read as a reviewer, both
-    hold up. `CONFLICT_STAGES` in `shared/types.ts` is correct against git's own stage numbering
-    for all seven unmerged codes — `AU`/`UD` have stage 2 only, `UA`/`DU` stage 3 only, `DD`
-    neither — which is the table an offered-then-failing menu row would come from.
-    `resolveConflictWith` runs the `add` only after the checkout resolves, so a half-resolved path
-    is not recorded. GC-159's `remoteUrlToWeb` is the sound shape: host-agnostic, `file:` refused
-    by name, an `http:` remote keeping its own scheme so an intranet link is not rewritten dead,
-    `user@` and an ssh port stripped, and the scp branch refusing a one-character host so a
-    Windows drive letter cannot pass as one; `isWebUrl` is one `new URL().protocol` check and both
-    channels that can reach `openExternal` ask it, which is the right place for it. No new ticket
-    came out of the code-review pass.
-  - health: at `7e75deb` in the detached worktree with `node_modules` junctioned — **typecheck ok,
-    479 tests passed (25 files)** in 9.44s, **build ok** into the worktree's own `out/`. `MAIN` was
-    never built, tested or launched.
-  - app: the worktree's build ran offscreen on 9334 against the review's own scratch root, and
-    then against a throwaway 29-file repository under `%TEMP%` built for the two inbox items that
-    need one. Nine screenshots in `%TEMP%/gitclient-review/GR-024/`, all looked at. `01` is the
-    graph, and GC-186's band is there on every row, right of the node, at a tint that reads as the
-    lane rather than as a stripe. `02` is a commit, `06` a diff with GC-152's `commit: <sha>`
-    sub-header and a live Unified | Split. `04` is the one that carries this review: it shows both
-    inbox 1 and inbox 6 in one frame — the folder and filename split by 8px, and the message box
-    cut through the middle of its glyphs. `09` is the staging view at 29 files with the commit form
-    nowhere on screen. `07` is the **Preferences dialog**, this run's rotation surface, captured
-    short enough to scroll for inbox 4; while there I re-checked GR-023's note and
-    `.pref-group-title` does carry its `border-bottom`, at `rgba(255,255,255,0.08)`, which is
-    faint but present on all four groups.
-  - tickets: added **GC-191** (ui, S, P1), **GC-192**, **GC-193**, **GC-194**, **GC-195** (ui, S,
-    P2), **GC-196** (ui, M, P2) and **GC-197** (ui, S, P2). Six are the inbox items and do not
-    count against the reviewer's own budget; **GC-197 is this review's own**, from the
-    what's-next pass: `04-panels.md` line 62 calls the staging view's two lists "collapsible" and
-    ours are not, and with 29 unstaged files the Unstaged list measured 788px, putting the Staged
-    head — the group you are staging into — below the fold. It is GC-153's answer one panel over.
-    Deduplicated against every open row: nothing touches the detail panel's vertical composition,
-    the crumbs, the modal gutter or either hover row; GC-183 is the graph's readout and stays
-    separate; GC-175 is the light theme's boundaries and is `in-progress`, so GC-193's
-    two-theme check is written to respect whatever it lands.
-  - board: **GC-191 goes to the very top**, above the two P1s the worker is holding. GC-189's
-    hazard has a safe order that works — this run followed it and `MAIN`'s `node_modules` is
-    intact at 109 entries with `.bin` present, checked before and after — while GC-191 has no
-    workaround at all: the commit form is the app's primary action and it is off the panel. The
-    other six rows go into the P2 block under GC-190, ordered by how visible each is with how
-    little it costs: GC-192, GC-194, GC-193, GC-195, GC-197, then GC-196, which depends on the
-    first two and on GC-197 being carved out of it. Nothing already on the board moved, and no
-    `in-progress` row or section was touched.
+  - 2026-09-06 19:35 inbox: **three items in Pending**, all three investigated, all three
+    reproduced in the built app or confirmed in the source, and all three ticketed — as four
+    tickets, because the third item names two halves that stand apart. Nothing declined, nothing
+    left in Pending. Item by item:
+  - inbox 1 (the band should read as light off the lane, not a flat wash) **-> GC-201**. Confirmed
+    as written: `Band` is one rect at `BAND_TINT = 0.1`, the same opacity from the node's edge to
+    the cell's, measured on the fixture as `x 27, y 3, w 49, h 22, opacity 0.1, fill var(--lane-0)`.
+    His constraint is right and is carried into the acceptance verbatim: the paint must come from
+    the same lane variable, so an SVG `linearGradient` or a `color-mix` and never a literal, with
+    GC-186's three promises — drawn first in all three cell kinds, on every row, height and right
+    edge unchanged — asserted rather than assumed. Filed P3 and **after GC-200**, because that
+    ticket moves the band's left edge and a gradient's first stop is exactly that edge. One thing
+    added from the study he did not have: `03-graph.md` line 45 records the *place* and the 50%
+    selected-row tint and says nothing about the paint, so the gradient is our own call.
+  - inbox 2 (the band does not attach to the circle) **-> GC-200**, and his geometry is exactly
+    right. Measured in the running app: node `cx 18, r 9` — stroke width 2, so the outer edge is at
+    r = 10 — against a band starting at `x 27` with `h 22`. At x = 27 the circle spans only
+    ±sqrt(10² − 9²) = ±4.36px, so the band's square corner stands clear of the arc from y 3 to
+    y 9.6 and again from y 18.4 to y 25. Two 10x clips are the evidence and both are unmistakable:
+    `03-commit-node-zoom.png` (a filled commit node) and `02-node-zoom.png` (the dashed WIP node on
+    a selected row, where the wedges are widest). His proposed fix — run the band from the node's
+    **centre** and let the circle paint over it — is sound and is written as the straightforward
+    option rather than as the requirement: `Band` is already drawn first in all three cell kinds.
+    His ask to check the WIP and stash nodes is in the scope and in an acceptance box of its own,
+    with the reason he could not have known: both are filled as well as dashed
+    (`--bg-panel` / `--bg-app`), so the risk is a tinted ring through the gaps in the dash rather
+    than a band showing through the middle. The study is on his side too — the same line records "a
+    wider app-background **mask** hides lines behind the node", so GitKraken does not butt a
+    rectangle against a circle either.
+  - inbox 3 (an amended commit could not be pushed) **-> GC-202 and GC-203**, split at the seam he
+    drew himself. His reading of the code is exactly correct: `PushRequest.force` is typed,
+    `ipc.ts` validates it as `force: !!r.force`, `push()` turns it into `--force-with-lease`, and
+    all five call sites in `App.tsx` (2354, the popover, 1675, 1689, 1540/1543) pass only `remote`,
+    `branch` and `setUpstream` — a grep for `force` outside `deleteBranch` finds it in the type, the
+    handler and the git call and nowhere else. That half is **GC-203**, P2, behind a confirmation
+    through `useUi().confirm`, `--force-with-lease` only and never `--force`, with his amend-path
+    observation in scope: the ahead/behind is already in the snapshot, so warning at the Amend
+    checkbox is a derivation and not a git call.
+    The other half is the better ticket and is filed **P1 as GC-202**, because I reproduced it and
+    it is worse *and* smaller than it looked. Amending a pushed commit in the review's own scratch
+    repository and pressing Push in the app: git wrote seven lines and **all seven crossed IPC
+    intact** — they are sitting on the status bar button's `title` — while the bar drew
+    `error: failed to push some refs to 'C:\Users\...\remote.git'`, which is the one line naming
+    neither the cause nor the remedy, with the path taking most of the width
+    (`11-push-rejected.png`). So this is not a message that was lost, it is two wiring faults:
+    `headline()` matches `^(error|fatal):|CONFLICT|failed` and so prefers the `error:` line over the
+    `! [rejected] main -> main (non-fast-forward)` line above it, and GC-169's details dialog —
+    which already exists and already shows the whole of git's message — is wired to
+    `onErrorDetails` for credential failures alone, so every other multi-line failure dismisses on a
+    click with its hints in a tooltip. Fixing it makes every push, pull, merge and rebase failure
+    legible, whatever is decided about GC-203, which is why it goes first and why GC-203 depends
+    on it.
+  - shipped: **four commits, one of them code.** `1cfb619` and `c97776b` are claims, `eb29407` is
+    GR-024, and `aa4c569` is GC-189/190/173/166/171/175 at 33 files and +1416/-409. Read as a
+    reviewer, it holds up. `getFileLog` is the same `--date-order` traversal and the same
+    `LOG_FORMAT`, and GC-166 extracted `parseCommits` so the two cannot drift — the right move.
+    `scopeOf`'s new `config` case cannot loop, for the reason its own comment gives: a full reload
+    reads config and never writes it. `revisitTab` drops the empty tab with a `setTabs` and touches
+    neither `gitclient.tabs` nor the reopen stack, which is correct since neither holds an empty
+    tab. `DiffView`'s `nav` and `hist` are both derived during render against the identity they
+    were chosen for, which is GC-075's discipline applied without an effect. The one thing I would
+    have written differently is not worth a ticket: the history is keyed `repo|path` with no
+    `version`, so a commit made while a file view is open leaves the list one commit short until
+    the view is reopened — deliberate ("a visit to it is not a fetch"), narrow, and self-correcting.
+    No new ticket came out of the code-review pass.
+  - health: at `c97776b` in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    495 tests passed (26 files)** in 15.29s, **build ok** into the worktree's own `out/`, whose
+    mtime I checked against `MAIN`'s to confirm nothing was written there. `MAIN` was never built,
+    tested or launched.
+  - app: the worktree's build ran offscreen on 9334 against the review's own scratch root. Eleven
+    captures in `%TEMP%/gitclient-review/GR-025/`, all looked at. `01` is the graph with GC-186's
+    band; `02` and `03` are the 10x node clips that carry GC-200. `04` commit, `05` staging, `06` a
+    diff. `07` is **GC-166's History list**, this window's new surface, working: two rows for
+    `a.txt` with summary, author, GC-135's relative time and the short sha, and the diff-only
+    controls correctly greyed with `HISTORY_OFF` on them. `08`–`10` are this run's rotation, the
+    **light theme** (GC-175) — graph, commit view and the branch context menu, which is the surface
+    GR-024 did not take. It reads as intended: the ramp is subtle by construction, since the dark
+    ratios it reproduces are 1.16:1 between adjoining surfaces. I measured text contrast rather
+    than judging it, and it is sound — graph message 8.87:1, ref row 9.90, statusbar path 5.47,
+    graph author 5.15; the weakest is `.ctx-hint` at 3.35:1, which is a 12px hint and the same
+    role dark gives its dimmest alpha, so I am recording it here rather than filing it. `11` is
+    the rejected push behind GC-202.
+  - tickets: added **GC-200** (ui, S, P2), **GC-201** (ui, S, P3), **GC-202** (ui, S, P1),
+    **GC-203** (actions, S, P2) and **GC-204** (diff, M, P3). The first four are the inbox and do
+    not count against the reviewer's own budget; **GC-204 is this review's own**, from the
+    what's-next pass. `04-panels.md` puts Blame and History in one slot of the file view's header,
+    GC-166 shipped History into exactly that slot last night, and GC-166's own Out of scope says
+    "Blame … is its own ticket" — which nobody then wrote, though GR-018 and four reviews after it
+    all named it as "worth a later look". Every reason to defer it has gone: the surface, the
+    segmented control, the identity-keyed load and `time.ts` all exist, and it is the last Build row
+    of `06-feature-inventory.md`'s file panel still missing. Deduplicated against every open row:
+    nothing touches the band, the push path, the status bar's headline or the file view's modes;
+    GC-198 is the containment check GC-204 wants and is named as a soft dependency rather than
+    duplicated.
+  - board: **GC-202 goes above every open todo**, at P1 — a push rejected as non-fast-forward is
+    an ordinary situation with no explanation and no way through, and the fix is small because the
+    message and the dialog both already exist. Then **GC-200** and **GC-203** in the P2 block ahead
+    of GC-197 and GC-196: GC-200 is on every row of the main screen and is a few lines of geometry,
+    and GC-203 sits with the ticket it depends on. **GC-201** and **GC-204** go into the P3 block
+    after GC-199, before the two blocked L tickets. Nothing already on the board moved.
   - hygiene: `blocked` is GC-017, GC-018 and GC-081, none unblockable from here for the reasons
-    GR-022 gave. Six tickets went `in-progress` at `1cfb619` while this review was running
-    (GC-189, GC-190, GC-173, GC-166, GC-171, GC-175); the board was re-read immediately before
-    this write and every new id is above all of them, so nothing collides. No `todo` has gone
-    vague.
-  - notes: `CLAUDE.md` at `7e75deb` says "479 tests today", which matched the run exactly, and its
-    GC-186 paragraphs — the band right of the node on every row, the connector as a 2px line —
-    are current. GR-020's finding about the GC-135 paragraph still stands and is still carried by
-    GC-171, now `in-progress`. Flagged here rather than edited; the reviewer never touches
+    GR-022 gave. Six tickets are `in-progress` at `c97776b` (GC-191, GC-192, GC-193, GC-194,
+    GC-195, GC-177), claimed while this review was preparing; the board was re-read immediately
+    before this write and no new id collides with any of them. No `todo` has gone vague; GC-196's
+    dependency on GC-191 and GC-192 still reads correctly now that both are being implemented.
+  - notes: `CLAUDE.md` at `c97776b` says "495 tests today", which matched this run exactly, and its
+    GC-166, GC-171, GC-173, GC-175 and GC-190 paragraphs are all current. GR-020's finding about
+    the GC-135 paragraph is settled — GC-171 shipped and `CLAUDE.md` now states the `--row-when-w`
+    rule and retracts the old "at 300px the name is back at its natural width" claim by name.
+    Nothing stale found this run. Flagged here rather than edited; the reviewer never touches
     `CLAUDE.md`.
-  - isolation: `MAIN` was never built, tested or launched, and its working tree was left as found;
-    this write waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean and stages only those
-    two. The only repositories written to were the review's own scratch root and a throwaway
-    29-file repository under `%TEMP%` created for this run; `catena-feed` and `kyushu-route` were
-    **not opened**. The review's Electron on 9334 was found by command line and stopped by PID
-    tree, leaving nothing on the port; four unrelated `electron.exe` processes belonging to
-    another tree were left alone, which is what rule 4 exists for.
+  - isolation: `MAIN` was never built, tested or launched, and its working tree — which held
+    twenty-one of the worker's uncommitted source edits and screenshots throughout — was left
+    exactly as found; this write waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean and
+    stages only those two. The worktree was added and removed through
+    `tools/scratch-worktree.mjs` (GC-189), which reported `node_modules: 109 entries` on the way in
+    and asserted `.bin` on the way out. The only repository written to was the review's own scratch
+    root, where a commit was amended to produce the rejected push and then reset back to
+    `772b41b` so the next run's fixture is undrifted; `catena-feed` and `kyushu-route` were **not
+    opened**. The review's Electron on 9334 was found by command line and stopped by PID tree,
+    leaving nothing listening on the port; four unrelated `electron.exe` processes belonging to
+    `MAIN`'s checkout were left alone, which is what rule 4 exists for.

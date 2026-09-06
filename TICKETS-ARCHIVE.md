@@ -12896,3 +12896,128 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
     `catena-feed` was **not opened** this run, and the clone that verified GC-128 pulled from the
     fixture's own bare `remote.git`, never from a real remote. The review's Electron on 9334 was
     found by command line and stopped by PID tree; zero remained afterwards.
+
+### GR-024 Backlog review 2026-09-06 18:35
+
+- **Status:** done
+- **Window:** aa593d9..7e75deb
+- **Log:**
+  - 2026-09-06 18:35 inbox: **six items in Pending**, all six investigated and all six ticketed —
+    they are Ricardo's own look at the app after GC-142/GC-143 landed, and five of the six were
+    reproduced and measured in the built app rather than only read in the source. Nothing was
+    declined, nothing left in Pending, and `INBOX.md` is rewritten at the end of this run with the
+    six moved to Handled. Item by item, in the order they were written:
+  - inbox 1 (file rows print folder and name as two things) **-> GC-192**. Confirmed and measured:
+    `gapPx: 8` between `src/renderer/src/components/` and `DetailPanel.tsx`, which is
+    `.file-row`'s own `gap: var(--sp-2)` falling between the two halves of one path. Ricardo asked
+    that the file view's header be checked with it: it is **not** affected — `DiffView.tsx` puts
+    both spans inside one `.path` span and the measured gap there is `0`. His second point holds
+    on both surfaces though: at the 300px panel minimum `.dir` kept its full 170px unclipped while
+    `.name` was cut from 83px to 53px, and the file view's `.path` ellipsises the whole run at its
+    end, so the filename is what is lost there too. The study is on his side —
+    `04-panels.md` line 70 records the two-part treatment and no gap.
+  - inbox 2 (the right sidebar wants another design pass) **-> GC-196**, written the way he asked
+    for it: the audit is the first deliverable and the code changes follow it, with the acceptance
+    box requiring the finding list to precede the first edit in the commit order. Four of the
+    findings that same look would produce are carved off as tickets of their own — GC-191,
+    GC-192 and GC-197 — so GC-196 is only the judgement call that is left: spacing, the type
+    scale, the group heads' weight, the file rows' hover actions and the commit form's
+    composition, against `04-panels.md`'s line-by-line description of both views.
+  - inbox 3 (the crumbs open menus and draw no chevron) **-> GC-194**. Confirmed in the built app:
+    both `.crumb.as-button` controls are `owner`-anchored dropdowns (GC-044, GC-066, GC-096) and
+    neither draws a glyph, while the same window draws `ChevronDown` on the recents button,
+    `.pref-select` and the split buttons' `.caret-btn`. Filed S/P2 with the anchor and the
+    ahead/behind badge named, since the chevron must not move the menu or fight the badge.
+  - inbox 4 (the Preferences scrollbar looks bad) **-> GC-195**, and it is exactly the diagnosis he
+    gave. Measured with Preferences open on a 1400x620 window, where the body genuinely scrolls
+    (`scrollHeight 802` against `clientHeight 464`): the 8px bar's right edge is **17px** from the
+    modal's right edge and the checkbox column is **0px** from its left edge. Filed as the
+    decision he asked for — a padded scroll box, or the padding moved onto the body's children —
+    with `.modal.shortcuts` and `.modal.auth-error` in scope, since both scroll too.
+  - inbox 5 (hover on the tabs and the toolbar buttons) **-> GC-193**. Measured, and the stronger
+    half of his complaint is the true one: a toolbar button hovers from
+    `rgba(255,255,255,0.75)` to `rgb(255,255,255)` with `backgroundColor` staying
+    `rgba(0,0,0,0)`, and the **selected** tab's hovered and idle computed styles are identical —
+    `rgb(255,255,255)` on `rgb(51,55,63)` both ways — because `.tab.selected` already sets the
+    brightest text there is. On his ask to check GitKraken: the study's Row states table puts its
+    hover row at `rgba(77,136,255,0.10)`, which is what `--accent-hover` was calibrated against
+    and what `.file-row:hover` already uses, but it records **no** hover treatment for
+    GitKraken's toolbar icon buttons or its tab strip. So the ticket is written as the app's own
+    vocabulary applied consistently, not as a measurement to match, and says so.
+  - inbox 6 (the commit title is unreadable with many changed files) **-> GC-191, filed P1**, and it
+    is this review's headline. His diagnosis was right and the numbers are worse than the symptom
+    he described. On a throwaway repository with a 29-file commit, at 1400x900:
+    `.message-box` rendered **12px of clientHeight against a scrollHeight of 160**, and its `h2`
+    — the summary alone — wanted **100px** and got 12, which is the one clipped half-line he saw.
+    He asked that the staging view be checked with it, and that is where the worse finding is:
+    with 29 unstaged files, `.detail-body` measured `scrollHeight 1084` against
+    `clientHeight 756` and `.commit-form` sat **entirely below the fold, 328px down** — 201px of
+    summary field, description and commit button that cannot be reached without scrolling past
+    every changed file. Same cause both times, exactly as he said: `overflow: auto` on a flex item
+    gives it an automatic minimum size of zero, so `.message-box` is the only block in
+    `.detail-body` that can be crushed and `.file-list`, having no overflow, cannot shrink below
+    its rows. The one-line-message case is in the acceptance, since a bare `min-height` would
+    break it.
+  - shipped: **four commits, two of them code.** `aa593d9` is GR-023, `f848e03` and the current
+    `1cfb619` are claims, `1e78e42` is GC-180/181/182/151/150/152 at 27 files and +1197/-54, and
+    `7e75deb` is GC-186/185/187/188/159/165 at 24 files and +525/-115. Read as a reviewer, both
+    hold up. `CONFLICT_STAGES` in `shared/types.ts` is correct against git's own stage numbering
+    for all seven unmerged codes — `AU`/`UD` have stage 2 only, `UA`/`DU` stage 3 only, `DD`
+    neither — which is the table an offered-then-failing menu row would come from.
+    `resolveConflictWith` runs the `add` only after the checkout resolves, so a half-resolved path
+    is not recorded. GC-159's `remoteUrlToWeb` is the sound shape: host-agnostic, `file:` refused
+    by name, an `http:` remote keeping its own scheme so an intranet link is not rewritten dead,
+    `user@` and an ssh port stripped, and the scp branch refusing a one-character host so a
+    Windows drive letter cannot pass as one; `isWebUrl` is one `new URL().protocol` check and both
+    channels that can reach `openExternal` ask it, which is the right place for it. No new ticket
+    came out of the code-review pass.
+  - health: at `7e75deb` in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    479 tests passed (25 files)** in 9.44s, **build ok** into the worktree's own `out/`. `MAIN` was
+    never built, tested or launched.
+  - app: the worktree's build ran offscreen on 9334 against the review's own scratch root, and
+    then against a throwaway 29-file repository under `%TEMP%` built for the two inbox items that
+    need one. Nine screenshots in `%TEMP%/gitclient-review/GR-024/`, all looked at. `01` is the
+    graph, and GC-186's band is there on every row, right of the node, at a tint that reads as the
+    lane rather than as a stripe. `02` is a commit, `06` a diff with GC-152's `commit: <sha>`
+    sub-header and a live Unified | Split. `04` is the one that carries this review: it shows both
+    inbox 1 and inbox 6 in one frame — the folder and filename split by 8px, and the message box
+    cut through the middle of its glyphs. `09` is the staging view at 29 files with the commit form
+    nowhere on screen. `07` is the **Preferences dialog**, this run's rotation surface, captured
+    short enough to scroll for inbox 4; while there I re-checked GR-023's note and
+    `.pref-group-title` does carry its `border-bottom`, at `rgba(255,255,255,0.08)`, which is
+    faint but present on all four groups.
+  - tickets: added **GC-191** (ui, S, P1), **GC-192**, **GC-193**, **GC-194**, **GC-195** (ui, S,
+    P2), **GC-196** (ui, M, P2) and **GC-197** (ui, S, P2). Six are the inbox items and do not
+    count against the reviewer's own budget; **GC-197 is this review's own**, from the
+    what's-next pass: `04-panels.md` line 62 calls the staging view's two lists "collapsible" and
+    ours are not, and with 29 unstaged files the Unstaged list measured 788px, putting the Staged
+    head — the group you are staging into — below the fold. It is GC-153's answer one panel over.
+    Deduplicated against every open row: nothing touches the detail panel's vertical composition,
+    the crumbs, the modal gutter or either hover row; GC-183 is the graph's readout and stays
+    separate; GC-175 is the light theme's boundaries and is `in-progress`, so GC-193's
+    two-theme check is written to respect whatever it lands.
+  - board: **GC-191 goes to the very top**, above the two P1s the worker is holding. GC-189's
+    hazard has a safe order that works — this run followed it and `MAIN`'s `node_modules` is
+    intact at 109 entries with `.bin` present, checked before and after — while GC-191 has no
+    workaround at all: the commit form is the app's primary action and it is off the panel. The
+    other six rows go into the P2 block under GC-190, ordered by how visible each is with how
+    little it costs: GC-192, GC-194, GC-193, GC-195, GC-197, then GC-196, which depends on the
+    first two and on GC-197 being carved out of it. Nothing already on the board moved, and no
+    `in-progress` row or section was touched.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081, none unblockable from here for the reasons
+    GR-022 gave. Six tickets went `in-progress` at `1cfb619` while this review was running
+    (GC-189, GC-190, GC-173, GC-166, GC-171, GC-175); the board was re-read immediately before
+    this write and every new id is above all of them, so nothing collides. No `todo` has gone
+    vague.
+  - notes: `CLAUDE.md` at `7e75deb` says "479 tests today", which matched the run exactly, and its
+    GC-186 paragraphs — the band right of the node on every row, the connector as a 2px line —
+    are current. GR-020's finding about the GC-135 paragraph still stands and is still carried by
+    GC-171, now `in-progress`. Flagged here rather than edited; the reviewer never touches
+    `CLAUDE.md`.
+  - isolation: `MAIN` was never built, tested or launched, and its working tree was left as found;
+    this write waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean and stages only those
+    two. The only repositories written to were the review's own scratch root and a throwaway
+    29-file repository under `%TEMP%` created for this run; `catena-feed` and `kyushu-route` were
+    **not opened**. The review's Electron on 9334 was found by command line and stopped by PID
+    tree, leaving nothing on the port; four unrelated `electron.exe` processes belonging to
+    another tree were left alone, which is what rule 4 exists for.
