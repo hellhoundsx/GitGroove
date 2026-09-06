@@ -2,17 +2,26 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import type { GitRef } from '@shared/types';
-import { LeftPanel, buildRefTree } from './LeftPanel';
+import { LeftPanel, buildRefTree, readSectionHeights } from './LeftPanel';
 import type { RefDragHandlers } from '../ui/refDrag';
 
 // Explicit imports rather than vitest globals is the house style, so RTL's own auto-cleanup and
-// act-environment hooks never register; both are wired up by hand. Nothing here renders an avatar
-// or observes an element, so neither the prefs stub nor a ResizeObserver is needed.
+// act-environment hooks never register; both are wired up by hand. No avatar is rendered here, so
+// the prefs stub is still not needed — but the panel measures the column its sections share, and
+// jsdom has no ResizeObserver (GC-153).
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear(); // the section heights are remembered state (GC-153)
+});
 
 const head = (name: string, isHead = false): GitRef => ({
   name,
@@ -199,5 +208,41 @@ describe('LeftPanel selection (GC-141)', () => {
   it('marks nothing while the working directory is what is selected', () => {
     const c = panel([head('main', true)], { selected: 'WIP' });
     expect(c.querySelectorAll('.ref-row.selected')).toHaveLength(0);
+  });
+});
+
+describe('the sections share the column (GC-153)', () => {
+  // jsdom lays nothing out, so `.sections` measures 0 and no height is applied — which is exactly
+  // the "not measured yet" case. The share itself is `fitSections`, tested in `useDragWidth.test.ts`;
+  // what is asserted here is the structure that makes it possible, and the state around it.
+  it('gives every section a header outside its own scroll box', () => {
+    const c = panel([head('main', true)]);
+    expect(c.querySelectorAll('.panel-section')).toHaveLength(4);
+    // The two open by default; a closed one draws no row box at all.
+    expect(c.querySelectorAll('.panel-section.open')).toHaveLength(2);
+    expect(c.querySelectorAll('.panel-section.open > .section-rows')).toHaveLength(2);
+    // Every header is a child of the column, not of a scrolling box inside it.
+    expect(c.querySelectorAll('.sections > .panel-section > .section-head')).toHaveLength(4);
+  });
+
+  it('puts a handle between two open sections and nowhere else', () => {
+    const c = panel([head('main', true)]);
+    // LOCAL and REMOTE are open, TAGS and STASHES are not: one boundary between open sections.
+    expect(c.querySelectorAll('.section-resize')).toHaveLength(1);
+    fireEvent.click([...c.querySelectorAll('.section-toggle')].find((b) => b.textContent?.includes('Tags'))!);
+    expect(c.querySelectorAll('.section-resize')).toHaveLength(2);
+    // Closing the last open section above it takes its handle with it, so no handle is ever drawn
+    // where a drag could move nothing.
+    fireEvent.click([...c.querySelectorAll('.section-toggle')].find((b) => b.textContent?.includes('Remote'))!);
+    expect(c.querySelectorAll('.section-resize')).toHaveLength(1);
+  });
+
+  it('reads a stored height back, and ignores one that is not a usable number', () => {
+    localStorage.setItem('gitclient.sectionHeights', JSON.stringify({ local: 300, remote: 12, tags: 'tall' }));
+    expect(readSectionHeights()).toEqual({ local: 300 });
+    localStorage.setItem('gitclient.sectionHeights', 'not json at all');
+    expect(readSectionHeights()).toEqual({});
+    localStorage.removeItem('gitclient.sectionHeights');
+    expect(readSectionHeights()).toEqual({});
   });
 });

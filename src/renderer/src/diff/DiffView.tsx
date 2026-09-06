@@ -46,6 +46,29 @@ interface Props {
   onApplyPatch(patch: string, opts: { cached?: boolean; reverse?: boolean }): Promise<void>;
 }
 
+/**
+ * Which stop the hunk arrows go to, given every header's stop, where the body is scrolled to now,
+ * and a direction (GC-138). Null when there is nowhere to go, which is a file with no hunks.
+ *
+ * Pure, because it is arithmetic and it got two answers wrong before it was right — both of them
+ * found by a throwaway script rather than by anything that would have failed again:
+ *
+ * - the header at the top is the *current* hunk, not the next one. `stops` are compared against
+ *   the scroll position with a pixel of tolerance, because the body has top padding and the first
+ *   header therefore sits a few pixels down when nothing is scrolled at all. Read as being below
+ *   the top, it made the very first Next click go nowhere.
+ * - at the bottom, every remaining header shares one clamped stop, so `next` finds none strictly
+ *   past it. That is what the wrap-around is for, and it is why the caller clamps the stops before
+ *   handing them over: without the clamp there is always a further stop, and Next crawls through
+ *   hunks that are all already on screen.
+ */
+export function nextHunkStop(stops: number[], at: number, dir: 'next' | 'prev'): number | null {
+  if (stops.length === 0) return null;
+  const i = dir === 'next' ? stops.findIndex((s) => s > at + 1) : stops.map((s) => s < at - 1).lastIndexOf(true);
+  const target = i >= 0 ? i : dir === 'next' ? 0 : stops.length - 1;
+  return stops[target]!;
+}
+
 function splitPath(path: string): [string, string] {
   const i = path.lastIndexOf('/');
   return i >= 0 ? [path.slice(0, i + 1), path.slice(i + 1)] : ['', path];
@@ -190,10 +213,8 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
    * The position is read off the live rects rather than kept in state: the body scrolls freely
    * with the wheel between two clicks, and a remembered index would then jump somewhere else.
    *
-   * Each header's *stop* — the scrollTop that puts it at the top of the content box — is what is
-   * compared, not its offset from the body's border box: the body has top padding, so the first
-   * header sits a few pixels down when nothing is scrolled at all and would otherwise read as
-   * being below the top, which made the very first Next click go nowhere.
+   * This is the measuring only — the rects, the padding and the clamp. Which stop to go to is
+   * `nextHunkStop` (GC-138).
    */
   const gotoHunk = (where: 'next' | 'prev'): void => {
     const body = bodyRef.current;
@@ -205,12 +226,9 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     // position, so at the bottom there is no next one to reach and the wrap-around is what is left.
     const maxScroll = body.scrollHeight - body.clientHeight;
     const stops = heads.map((h) => Math.min(body.scrollTop + h.getBoundingClientRect().top - contentTop, maxScroll));
-    const at = body.scrollTop;
-    // 1px of tolerance: the header already at the top is the current one, not the next.
-    const i = where === 'next' ? stops.findIndex((s) => s > at + 1) : stops.map((s) => s < at - 1).lastIndexOf(true);
-    const target = i >= 0 ? i : where === 'next' ? 0 : heads.length - 1;
+    const to = nextHunkStop(stops, body.scrollTop, where);
     // The browser clamps a stop past the end, which is the right answer for the last hunks.
-    body.scrollTop = stops[target]!;
+    if (to !== null) body.scrollTop = to;
   };
 
   const run = async (fn: () => Promise<void>): Promise<void> => {

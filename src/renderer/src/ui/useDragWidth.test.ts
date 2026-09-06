@@ -1,7 +1,7 @@
 // The pair-wise clamp behind both side panels (GC-105). `fitPanels` is pure, so it is tested in
 // the node project: the hook around it is covered where the panels are rendered.
 import { describe, expect, it } from 'vitest';
-import { dragWidth, fitOptCols, fitPanels, fitRefCol, MIN_GRAPH_W, MIN_MSG_W, reachedWidth } from './useDragWidth';
+import { dragWidth, fitOptCols, fitPanels, fitRefCol, fitSections, MIN_GRAPH_W, MIN_MSG_W, reachedWidth } from './useDragWidth';
 
 const MIN = { left: 160, detail: 300 };
 const graph = (w: number, fit: { left: number; detail: number }): number => w - fit.left - fit.detail;
@@ -290,6 +290,61 @@ describe('reachedWidth', () => {
         expect(w).toBeGreaterThanOrEqual(160);
         expect(w).toBeLessThanOrEqual(Math.max(160, Math.min(420, limit)));
       }
+    }
+  });
+});
+
+// ---- GC-153: the left panel's sections share one column ------------------------------------
+
+describe('fitSections', () => {
+  const MIN = 82;
+  const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0);
+
+  it('shares the column equally when nothing has been sized', () => {
+    expect(fitSections([null, null, null, null], 800, MIN)).toEqual([200, 200, 200, 200]);
+    expect(fitSections([null], 800, MIN)).toEqual([800]);
+    expect(fitSections([], 800, MIN)).toEqual([]);
+  });
+
+  it('gives the sections that were never sized what the sized ones leave', () => {
+    // Which is what makes a double-clicked pair an equal share without that being a case of its
+    // own: their keys are dropped, and the two then split what is left between them.
+    expect(fitSections([500, null, null], 900, MIN)).toEqual([500, 200, 200]);
+  });
+
+  it('applies a stored height unchanged when the heights already fill the column', () => {
+    expect(fitSections([300, 200, 150, 150], 800, MIN)).toEqual([300, 200, 150, 150]);
+  });
+
+  it('scales in proportion when the column is not the one they were stored for', () => {
+    // The stored numbers are never touched — this is what is *applied* — so widening the window
+    // brings the sizes straight back, exactly as `fitPanels` promises one axis over.
+    const out = fitSections([400, 200, 200], 400, MIN);
+    expect(sum(out)).toBe(400);
+    expect(out[0]).toBeGreaterThan(out[1]!);
+    expect(out.every((h) => h >= MIN)).toBe(true);
+  });
+
+  it('takes the shortfall from the sections with room above their floor', () => {
+    // Proportional to what each has *above* its floor, which is `fitPanels' second phase one axis
+    // over: the big section gives most of it, and no section is pushed under the floor.
+    const out = fitSections([600, 100, 100], 400, MIN);
+    expect(sum(out)).toBe(400);
+    expect(out.every((h) => h >= MIN)).toBe(true);
+    expect(600 - out[0]!).toBeGreaterThan(100 - out[1]!);
+  });
+
+  it('puts every section on its floor when even the floors do not fit, and lets the column scroll', () => {
+    // A section reduced below its floor is present and useless; a column of headers can at least
+    // be scrolled to. Deliberately sums past `avail`, which is what makes `.sections` scroll.
+    expect(fitSections([null, null, null, null], 200, MIN)).toEqual([MIN, MIN, MIN, MIN]);
+    expect(fitSections([300, 300], 100, MIN)).toEqual([MIN, MIN]);
+  });
+
+  it('adds up to the column exactly, so no sliver of it goes undrawn', () => {
+    for (const avail of [801, 799, 1000, 613]) {
+      expect(sum(fitSections([null, null, null, null], avail, MIN))).toBe(avail);
+      expect(sum(fitSections([301, 199, null], avail, MIN))).toBe(avail);
     }
   });
 });

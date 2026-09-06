@@ -28,6 +28,9 @@ interface Props {
   /** Owned by `App` so it survives this component unmounting behind a file view (GC-030). */
   searchQuery: string;
   onSearchQuery(query: string): void;
+  /** The other half of that filter, owned there for the same reason (GC-137): the chosen author. */
+  searchAuthor: string | null;
+  onSearchAuthor(author: string | null): void;
   onCloseSearch(): void;
   onSelect(sha: string): void;
   onCommitMenu(e: MouseEvent, commit: Commit): void;
@@ -304,7 +307,7 @@ function useLaneLayout(commits: Commit[], pinnedSha: string | null | undefined):
   return layout;
 }
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, stashes, onStashMenu, onStashActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop, onDrawnCols }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, searchAuthor, onSearchAuthor, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, stashes, onStashMenu, onStashActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop, onDrawnCols }: Props): JSX.Element {
   // The optional columns after the message; all off by default (GC-032). What the preference asks
   // for is not always what fits: `fitOptCols` below drops them once the panel is too narrow to
   // draw them and a commit message both (GC-116).
@@ -416,10 +419,11 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   const searchInput = useRef<HTMLInputElement>(null);
   const needle = searchOpen ? searchQuery.trim().toLowerCase() : '';
 
-  // The author chip (GC-027). It is this component's own state rather than `App`'s, unlike the
-  // query: a file view unmounts the graph and takes the chip with it, which is the same reset a
-  // closed search bar gives the query and is what the study's chips do on close.
-  const [author, setAuthor] = useState<string | null>(null);
+  // The author chip (GC-027), owned by `App` for the query's own reason (GC-030, GC-137): this
+  // component unmounts whenever a file view opens, and the two halves of one filter must not have
+  // two lifetimes. `closeSearch` clears both, and a tab is parked with both.
+  const author = searchOpen ? searchAuthor : null;
+  const setAuthor = onSearchAuthor;
   const authors = useMemo(() => authorsOf(commits), [commits]);
   const authorName = author === null ? null : (authors.find((a) => a.email === author)?.name ?? author);
   // Both halves must hold: the chip narrows to one author, the term then matches message and sha

@@ -431,14 +431,48 @@ input[type='radio']:disabled {
   font-size: var(--fs-sm);
   width: 100%;
 }
+/* A column of sections that each scroll inside themselves, rather than one scroll box over all
+   four (GC-153). `overflow-y: auto` here is the fallback and nothing else: the heights the panel
+   applies add up to this box, so it only ever scrolls when even the sections' floors do not fit,
+   which is a column of headers to scroll rather than sections with no rows in them. */
 .left-panel .sections {
-  overflow: auto;
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.panel-section {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* The rows, and the only part of a section that scrolls: its header stays put, which is the whole
+   point — a header is the section's count, and a count that scrolls away says nothing. */
+.panel-section .section-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* Between two open sections. 4px like the panel handles, and it takes no height from either: the
+   sections meet on it, and it sits over the boundary. */
+.section-resize {
+  flex: none;
+  height: 4px;
+  margin-bottom: -4px;
+  cursor: row-resize;
+  z-index: 2;
+}
+.section-resize:hover {
+  background: var(--accent);
+  opacity: 0.5;
 }
 .section-head {
   display: flex;
   align-items: center;
   height: 30px;
+  flex: none;
   padding: 0 var(--sp-2);
   border-top: 1px solid var(--border);
 }

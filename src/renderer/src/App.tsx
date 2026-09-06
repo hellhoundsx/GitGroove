@@ -93,7 +93,8 @@ interface TabState {
   hidden: string[];
   paged: { path: string; loaded: number };
   hasMore: boolean;
-  search: { open: boolean; tick: number; query: string };
+  /** Both halves of the find bar: the query and the author chip, which have one lifetime (GC-137). */
+  search: { open: boolean; tick: number; query: string; author: string | null };
   graphTop: number;
   draft: CommitDraft;
 }
@@ -306,10 +307,17 @@ export function App(): JSX.Element {
   // Ctrl+F refocuses the field even when the bar is already showing. The query lives here rather
   // than in `CommitGraph` because that component unmounts whenever a file view opens (GC-030);
   // only closing the bar clears it.
-  const [search, setSearch] = useState({ open: false, tick: 0, query: '' });
+  //
+  // And so does the author chip beside it (GC-137). It is the other half of one filter — both have
+  // to hold for a row to match — and it was `CommitGraph`'s own state, so opening a diff and
+  // closing it again restored the query, the readout and the dimming and silently cleared the
+  // author. Two halves of one filter with two lifetimes: the chip is parked with the tab and
+  // cleared by `closeSearch`, exactly as the query is.
+  const [search, setSearch] = useState<{ open: boolean; tick: number; query: string; author: string | null }>({ open: false, tick: 0, query: '', author: null });
   const openSearch = useCallback(() => setSearch((s) => ({ ...s, open: true, tick: s.tick + 1 })), []);
-  const closeSearch = useCallback(() => setSearch((s) => ({ ...s, open: false, query: '' })), []);
+  const closeSearch = useCallback(() => setSearch((s) => ({ ...s, open: false, query: '', author: null })), []);
   const setSearchQuery = useCallback((query: string) => setSearch((s) => ({ ...s, query })), []);
+  const setSearchAuthor = useCallback((author: string | null) => setSearch((s) => ({ ...s, author })), []);
 
   // The staging form's contents, held here so they survive the panel unmounting and are parked
   // with the tab they were written in (GC-148).
@@ -587,7 +595,7 @@ export function App(): JSX.Element {
     setSelected(WIP);
     setFileView(null);
     setDraft(EMPTY_DRAFT);
-    setSearch({ open: false, tick: 0, query: '' });
+    setSearch({ open: false, tick: 0, query: '', author: null });
     paged.current = { path: '', loaded: 0 };
     graphTop.current = 0;
     setHasMore(false);
@@ -2072,6 +2080,8 @@ export function App(): JSX.Element {
                 searchOpen={search.open}
                 searchTick={search.tick}
                 searchQuery={search.query}
+                searchAuthor={search.author}
+                onSearchAuthor={setSearchAuthor}
                 onSearchQuery={setSearchQuery}
                 onCloseSearch={closeSearch}
                 onSelect={select}

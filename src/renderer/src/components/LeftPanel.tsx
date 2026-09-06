@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, typ
 import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, Folder, GitBranch, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
 import type { GitRef, RepoInfo, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
-import type { DragHandleProps } from '../ui/useDragWidth';
+import { fitSections, useBoundaryDrag, type DragHandleProps } from '../ui/useDragWidth';
 import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 import { formatDateTimeSeconds, relativeTime } from '../time';
 
@@ -37,22 +37,62 @@ interface Props {
   onAddRemote(): void;
 }
 
+/** `.section-head` height, mirrored from `app.css`: what a closed section costs the column. */
+const SECTION_HEAD_H = 30;
+
+/** The four sections, in the order they are drawn. Also the keys their heights are stored under. */
+export type SectionId = 'local' | 'remote' | 'tags' | 'stashes';
+const SECTION_IDS: SectionId[] = ['local', 'remote', 'tags', 'stashes'];
+/** Where the heights live: state, so its own key rather than the prefs blob (GC-153). */
+const SECTION_H_KEY = 'gitclient.sectionHeights';
+/**
+ * The least a section may be squeezed to: its 30px header and two 26px rows (GC-153). A section
+ * reduced to its header alone is present but useless, which is exactly what the ask was about —
+ * STASHES has to stay *readable* at the bottom with TAGS open, not merely visible.
+ */
+export const MIN_SECTION_H = 82;
+
+/** The stored heights, as read back: a section the user has never sized is absent, not zero. */
+export function readSectionHeights(): Partial<Record<SectionId, number>> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(SECTION_H_KEY) ?? 'null');
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Partial<Record<SectionId, number>> = {};
+    for (const id of SECTION_IDS) {
+      const v = (raw as Record<string, unknown>)[id];
+      // A hand-edited or nonsensical value falls back to the share, exactly as an absent one does.
+      if (typeof v === 'number' && Number.isFinite(v) && v >= MIN_SECTION_H) out[id] = Math.round(v);
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 interface SectionProps {
   title: string;
   icon: LucideIcon;
   count: number;
-  defaultOpen?: boolean;
+  open: boolean;
+  onToggle(): void;
+  /** The height this section is drawn at, or undefined for a closed one: its header is all of it. */
+  height?: number;
   /** Optional buttons on the right of the header, e.g. "Show all" and "Add remote". */
   actions?: { icon: LucideIcon; title: string; onClick(): void }[];
   children: ReactNode;
 }
 
-function Section({ title, icon, count, defaultOpen = false, actions = [], children }: SectionProps): JSX.Element {
-  const [open, setOpen] = useState(defaultOpen);
+/**
+ * One section: a header that never scrolls away, and its rows in a box that scrolls on its own
+ * (GC-153). The height is decided by the panel, which shares the column between the sections that
+ * are open — with 52 remote branches this is the difference between TAGS and STASHES being
+ * reachable and their headers not being on screen at all.
+ */
+function Section({ title, icon, count, open, onToggle, height, actions = [], children }: SectionProps): JSX.Element {
   return (
-    <>
+    <div className={`panel-section ${open ? 'open' : 'closed'}`} style={open && height ? ({ height } as CSSProperties) : undefined}>
       <div className={`section-head ${open ? 'open' : ''}`}>
-        <button className="section-toggle" onClick={() => setOpen((o) => !o)}>
+        <button className="section-toggle" onClick={onToggle}>
           <Icon of={ChevronRight} size={12} className="chev" />
           <Icon of={icon} size={13} className="section-icon" />
           <span>{title}</span>
@@ -64,9 +104,19 @@ function Section({ title, icon, count, defaultOpen = false, actions = [], childr
           </button>
         ))}
       </div>
-      {open && children}
-    </>
+      {open && <div className="section-rows">{children}</div>}
+    </div>
   );
+}
+
+/**
+ * The 4px grab strip between two open sections (GC-153). Absent when there is nothing below to
+ * take height from — a closed neighbour, or the last open section — so a handle is never offered
+ * where a drag could do nothing.
+ */
+function SectionHandle({ handle }: { handle: DragHandleProps | null }): JSX.Element | null {
+  if (!handle) return null;
+  return <div className="section-resize" role="separator" aria-orientation="horizontal" title="Drag to share the height, double-click to reset" {...handle} />;
 }
 
 /**
@@ -140,6 +190,83 @@ export function LeftPanel(p: Props): JSX.Element {
   // Which folders the user has closed, keyed `<section>/<folder path>` and kept for the session
   // only (GC-051). Closed rather than open, so a folder that appears later starts expanded.
   const [closedFolders, setClosedFolders] = useState<ReadonlySet<string>>(new Set());
+
+  // ---- the four sections share the column (GC-153) -------------------------------------------
+  // Which are open is the panel's business now rather than each section's own state, because the
+  // height is shared: closing one has to give its space to the others, and opening it take it back.
+  const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(() => ({ local: true, remote: true, tags: false, stashes: p.stashes.length > 0 }));
+  const [heights, setHeights] = useState<Partial<Record<SectionId, number>>>(readSectionHeights);
+  const persistHeights = (next: Partial<Record<SectionId, number>>): void => {
+    try {
+      // Nothing sized at all means no key: a set of heights the user never chose is not one the
+      // app has to keep honouring, exactly as a double-clicked panel handle drops its own key.
+      if (Object.keys(next).length === 0) localStorage.removeItem(SECTION_H_KEY);
+      else localStorage.setItem(SECTION_H_KEY, JSON.stringify(next));
+    } catch {
+      /* private mode: the heights just do not survive the reload */
+    }
+  };
+  // The column the sections share, measured rather than assumed — the same `ResizeObserver` answer
+  // the graph uses for its own fit (GC-110). 0 until the first measurement, which `fitSections`
+  // never sees: nothing is drawn with a height before then.
+  const sectionsRef = useRef<HTMLDivElement>(null);
+  const [columnH, setColumnH] = useState(0);
+  useEffect(() => {
+    const el = sectionsRef.current;
+    if (!el) return;
+    const update = (): void => setColumnH(el.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const openIds = SECTION_IDS.filter((id) => openSections[id]);
+  // A closed section is its 30px header and takes no part in the share, the way `fitPanels` is
+  // handed a collapsed left rail as a zero-width panel (GC-105).
+  const avail = Math.max(0, columnH - (SECTION_IDS.length - openIds.length) * SECTION_HEAD_H);
+  const applied = fitSections(
+    openIds.map((id) => heights[id] ?? null),
+    avail,
+    MIN_SECTION_H,
+  );
+  const heightOf = (id: SectionId): number | undefined => {
+    const at = openIds.indexOf(id);
+    return at < 0 || columnH === 0 ? undefined : applied[at];
+  };
+  const boundary = useBoundaryDrag(MIN_SECTION_H);
+  /**
+   * The handle between an open section and the next one down. It writes both heights — what one
+   * gains the other gives up — so the stored numbers keep adding up to the column and no other
+   * section is touched.
+   */
+  const handleAfter = (id: SectionId): DragHandleProps | null => {
+    const at = openIds.indexOf(id);
+    const below = openIds[at + 1];
+    if (at < 0 || !below) return null;
+    const a = applied[at] ?? MIN_SECTION_H;
+    const b = applied[at + 1] ?? MIN_SECTION_H;
+    return boundary.handle(
+      a,
+      b,
+      (na, nb) => setHeights((prev) => ({ ...prev, [id]: na, [below]: nb })),
+      (na, nb) => {
+        const next = { ...heights, [id]: na, [below]: nb };
+        setHeights(next);
+        persistHeights(next);
+      },
+      () => {
+        // A reset drops both keys, and the two then share what the sized sections leave — which
+        // is an equal share, without that having to be a case of its own (GC-153).
+        const next = { ...heights };
+        delete next[id];
+        delete next[below];
+        setHeights(next);
+        persistHeights(next);
+      },
+    );
+  };
+  const toggleSection = (id: SectionId): void => setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
   const toggleFolder = (key: string): void =>
     setClosedFolders((prev) => {
       const next = new Set(prev);
@@ -317,22 +444,27 @@ export function LeftPanel(p: Props): JSX.Element {
         </div>
         <input ref={filterInput} className="filter" placeholder="Filter refs" value={filter} onChange={(e) => setFilter(e.target.value)} spellCheck={false} />
       </div>
-      <div className="sections">
+      <div className="sections" ref={sectionsRef}>
         <Section
           title="Local"
           icon={Laptop}
           count={local.length}
-          defaultOpen
+          open={openSections.local}
+          onToggle={() => toggleSection('local')}
+          height={heightOf('local')}
           actions={anyLocalHidden ? [{ icon: Eye, title: 'Show all local branches in the graph', onClick: () => p.onShowAll('head') }] : []}
         >
           {folderRows(localTree, 'local', 0, localLeaf)}
           {local.length === 0 && <div className="ref-row dim">No local branches</div>}
         </Section>
+        <SectionHandle handle={handleAfter('local')} />
         <Section
           title="Remote"
           icon={Cloud}
           count={remoteCount}
-          defaultOpen
+          open={openSections.remote}
+          onToggle={() => toggleSection('remote')}
+          height={heightOf('remote')}
           actions={[
             ...(anyRemoteHidden ? [{ icon: Eye, title: 'Show all remote branches in the graph', onClick: () => p.onShowAll('remote') }] : []),
             { icon: Plus, title: 'Add remote', onClick: p.onAddRemote },
@@ -355,10 +487,12 @@ export function LeftPanel(p: Props): JSX.Element {
           })}
           {remoteGroups.size === 0 && <div className="ref-row dim">No remotes</div>}
         </Section>
-        <Section title="Tags" icon={Tag} count={tags.length}>
+        <SectionHandle handle={handleAfter('remote')} />
+        <Section title="Tags" icon={Tag} count={tags.length} open={openSections.tags} onToggle={() => toggleSection('tags')} height={heightOf('tags')}>
           {folderRows(tagTree, 'tags', 0, tagLeaf)}
         </Section>
-        <Section title="Stashes" icon={Archive} count={stashes.length} defaultOpen={stashes.length > 0}>
+        <SectionHandle handle={handleAfter('tags')} />
+        <Section title="Stashes" icon={Archive} count={stashes.length} open={openSections.stashes} onToggle={() => toggleSection('stashes')} height={heightOf('stashes')}>
           {stashes.map((s) => (
             // `Stash.date` has been on every snapshot since the stash list existed and was drawn
             // nowhere; "how old is this" is the question a stash list is read for (GC-135). The

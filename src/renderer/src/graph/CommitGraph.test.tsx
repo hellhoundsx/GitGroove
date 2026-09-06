@@ -78,6 +78,8 @@ function renderGraph(over: Partial<ComponentProps<typeof CommitGraph>> = {}): Re
       searchTick={0}
       searchQuery=""
       onSearchQuery={() => {}}
+      searchAuthor={null}
+      onSearchAuthor={() => {}}
       onCloseSearch={() => {}}
       onSelect={() => {}}
       onCommitMenu={() => {}}
@@ -129,6 +131,8 @@ function flipsUp(body: Rect, chipRect: Rect, listHeight: number): boolean {
       searchTick={0}
       searchQuery=""
       onSearchQuery={() => {}}
+      searchAuthor={null}
+      onSearchAuthor={() => {}}
       onCloseSearch={() => {}}
       onSelect={() => {}}
       onCommitMenu={() => {}}
@@ -240,6 +244,8 @@ function renderDrag(dragging: GitRef | null, dropped: { src: GitRef | null; dst:
       searchTick={0}
       searchQuery=""
       onSearchQuery={() => {}}
+      searchAuthor={null}
+      onSearchAuthor={() => {}}
       onCloseSearch={() => {}}
       onSelect={() => {}}
       onCommitMenu={() => {}}

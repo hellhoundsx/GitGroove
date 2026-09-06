@@ -161,6 +161,54 @@ export function reachedWidth(start: number, delta: number, min: number, max: num
   return start < width ? width : null; // `width` is the wall here: reached only if it is outward
 }
 
+/**
+ * The heights the left panel's open sections are actually drawn at, for a column this tall
+ * (GC-153). `fitPanels` and `fitRefCol` one axis over, and the same promise: what is **stored** is
+ * never touched, only what is applied, so a section resized on a tall window comes back to that
+ * size when the window is tall again.
+ *
+ * `stored[i]` is null for a section the user has never sized — and for the two a double-click on a
+ * handle has just reset. Those share what the sized ones leave, which is what makes "an equal
+ * share" the answer both at first run and after a reset, without either being a special case.
+ *
+ * The sections then take the whole column between them: the heights are scaled to `avail` in
+ * proportion to what each asked for, and a section pushed under `min` by that is put back on its
+ * floor and the difference taken from those with room to give. When even the floors do not fit,
+ * every section sits on its floor and the column scrolls — a header nobody can reach is still
+ * better than a section with no rows in it, which is what the ask was about.
+ */
+export function fitSections(stored: (number | null)[], avail: number, min: number): number[] {
+  const n = stored.length;
+  if (n === 0) return [];
+  if (avail <= n * min) return stored.map(() => min);
+
+  const known = stored.reduce((a: number, h) => a + (h ?? 0), 0);
+  const unknown = stored.filter((h) => h === null).length;
+  const share = unknown > 0 ? Math.max(min, (avail - known) / unknown) : 0;
+  let out = stored.map((h) => Math.max(min, h ?? share));
+
+  // Scale to the column, then hold every section on its floor and take the difference from the
+  // ones still above theirs. Repeated because pushing one section up to its floor can push
+  // another under it; it settles quickly, and the guard is the loop's own bound.
+  for (let pass = 0; pass < n + 1; pass++) {
+    const total = out.reduce((a, b) => a + b, 0);
+    const over = total - avail;
+    if (Math.abs(over) < 0.5) break;
+    const slack = out.map((h) => (over > 0 ? h - min : h));
+    const spare = slack.reduce((a, b) => a + b, 0);
+    if (spare <= 0) break;
+    out = out.map((h, i) => Math.max(min, h - (slack[i]! / spare) * over));
+  }
+
+  // Whole pixels that still add up: the remainder goes to the last section rather than leaving a
+  // sliver of the column undrawn.
+  const px = out.map((h) => Math.max(min, Math.round(h)));
+  const drift = avail - px.reduce((a, b) => a + b, 0);
+  const last = px.length - 1;
+  px[last] = Math.max(min, px[last]! + drift);
+  return px;
+}
+
 /** The widths `fitPanels` may reduce, and the floor each one has. */
 export interface PanelFit {
   left: number;
@@ -231,6 +279,70 @@ export interface DragWidth {
   /** True for the length of a drag, so the caller can hold the cursor and stop text selection. */
   resizing: boolean;
   handle: DragHandleProps;
+}
+
+/**
+ * A drag that moves the boundary **between** two adjacent elements, rather than one element's own
+ * edge (GC-153): the left panel's section handles, where what one section gains the one below it
+ * gives up.
+ *
+ * It is a second hook rather than an option on `useDragWidth` because the two model different
+ * things — one size against one stored key there, a pair sharing a fixed total here — but it is
+ * in this module, and the rule that decides where the edge ends up is `reachedWidth`, the same
+ * one: the drag starts from the size being **drawn**, a release past the wall keeps the wall it
+ * crossed, and a drag that started on the wall moves nothing (GC-111, GC-115, GC-118). The wall
+ * is the pair's own total less the other one's floor, so neither can be pushed under it and the
+ * two always add up to what they started with.
+ *
+ * `axis` is `'y'` for a horizontal boundary. Nothing else here cares which axis it is on.
+ */
+export interface BoundaryDrag {
+  resizing: boolean;
+  handle(a: number, b: number, onDrag: (a: number, b: number) => void, onCommit: (a: number, b: number) => void, onReset: () => void): DragHandleProps;
+}
+
+export function useBoundaryDrag(min: number, axis: 'x' | 'y' = 'y'): BoundaryDrag {
+  const [resizing, setResizing] = useState(false);
+  const drag = useRef<{ at: number; a: number; b: number; onDrag: (a: number, b: number) => void; onCommit: (a: number, b: number) => void } | null>(null);
+  const pos = (e: ReactPointerEvent<HTMLElement>): number => (axis === 'y' ? e.clientY : e.clientX);
+
+  const handle = (a: number, b: number, onDrag: (a: number, b: number) => void, onCommit: (a: number, b: number) => void, onReset: () => void): DragHandleProps => ({
+    onPointerDown: (e) => {
+      e.preventDefault();
+      drag.current = { at: pos(e), a, b, onDrag, onCommit };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setResizing(true);
+    },
+    onPointerMove: (e) => {
+      const d = drag.current;
+      if (!d) return;
+      const total = d.a + d.b;
+      const next = reachedWidth(d.a, pos(e) - d.at, min, total - min, total - min);
+      if (next !== null) d.onDrag(next, total - next);
+    },
+    // The release position, not the last state React committed, for `useDragWidth`'s own reason:
+    // the pointerup arrives before that commit and the closure would be one move behind (GC-050).
+    onPointerUp: (e) => {
+      const d = drag.current;
+      if (!d) return;
+      drag.current = null;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      setResizing(false);
+      const total = d.a + d.b;
+      const next = reachedWidth(d.a, pos(e) - d.at, min, total - min, total - min);
+      if (next === null) return; // a height the pointer never reached is neither drawn nor stored
+      d.onDrag(next, total - next);
+      d.onCommit(next, total - next);
+    },
+    onPointerCancel: (e) => {
+      drag.current = null;
+      e.currentTarget.releasePointerCapture(e.pointerId);
+      setResizing(false);
+    },
+    onDoubleClick: onReset,
+  });
+
+  return { resizing, handle };
 }
 
 export function useDragWidth({ key, def, min, max, dir = 1, limit }: DragWidthOptions): DragWidth {

@@ -363,7 +363,7 @@ const searchType = (text) =>
   liveClick(`the search input, to type ${text}`, `(() => { const i = document.querySelector('.graph-search .search-input'); if (!i) return 'MISS no search input'; i.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${q(text)}); i.dispatchEvent(new Event('input', { bubbles: true })); return 'typed ' + ${q(text)}; })()`);
 const searchState = () =>
   ev(
-    `(() => { const bar = document.querySelector('.graph-search'); return JSON.stringify({ open: !!bar, value: bar?.querySelector('.search-input')?.value ?? null, count: bar?.querySelector('.search-count')?.textContent ?? null, matches: document.querySelectorAll('.graph-row.match').length, dimmed: document.querySelectorAll('.graph-row.unmatched').length, sha: document.querySelector('.detail-head .sha')?.textContent ?? null }); })()`,
+    `(() => { const bar = document.querySelector('.graph-search'); return JSON.stringify({ open: !!bar, value: bar?.querySelector('.search-input')?.value ?? null, count: bar?.querySelector('.search-count')?.textContent ?? null, matches: document.querySelectorAll('.graph-row.match').length, dimmed: document.querySelectorAll('.graph-row.unmatched').length, sha: document.querySelector('.detail-head .sha')?.textContent ?? null, author: bar?.querySelector('.search-author.set .author-name')?.textContent ?? null }); })()`,
   );
 /** The same, from a known scroll position: the rows are virtualised, so the rendered match and
  *  dim counts only compare across a remount when the graph is scrolled the same way (GC-030). */
@@ -1325,6 +1325,22 @@ check('the chip says who it is filtering by', (await ev(`document.querySelector(
 const dimmedByAuthor = JSON.parse(await searchStateAtTop());
 check("a commit by anyone else is dimmed rather than dropped", dimmedByAuthor.dimmed >= 1 && dimmedByAuthor.matches >= 1, JSON.stringify(dimmedByAuthor));
 await shot('search-author.png');
+// GC-137: the chip is the other half of the query, and had the other lifetime — `CommitGraph`
+// state, so a diff opening over the graph silently cleared it while the query came back. The
+// GC-030 assertion above passed throughout, because the chip was not in what it compared.
+const beforeChipDiff = JSON.parse(await searchStateAtTop());
+await waitFor(`!!document.querySelector('.detail-panel .file-list .file-row')`, 'the selected commit to list its files');
+log(await liveClick("the selected commit's first file row", `(() => { const r = document.querySelector('.detail-panel .file-list .file-row'); if (!r) return 'MISS no file row on the selected commit'; r.click(); return 'opened ' + r.title; })()`));
+await waitFor(`!!document.querySelector('.file-view')`, 'the diff to replace the graph');
+await escape();
+await waitFor(`!document.querySelector('.file-view') && !!document.querySelector('.graph-search')`, 'the graph and its find bar to come back');
+const afterChipDiff = JSON.parse(await searchStateAtTop());
+check(
+  'closing a diff restores the author chip, its readout and its dimming',
+  afterChipDiff.author === 'Test User' && afterChipDiff.count === beforeChipDiff.count && afterChipDiff.matches === beforeChipDiff.matches && afterChipDiff.dimmed === beforeChipDiff.dimmed,
+  `before=${JSON.stringify(beforeChipDiff)} after=${JSON.stringify(afterChipDiff)}`,
+);
+
 
 log(await searchType('feature'));
 await waitSearch(byAuthor);
