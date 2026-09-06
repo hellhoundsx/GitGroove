@@ -68,6 +68,21 @@ const REF_COL_DEFAULT = 150;
 const REF_COL_MIN = 100;
 const REF_COL_MAX = 400;
 /**
+ * Below this the primary chip drops its trailing upstream cloud, so the name wins over the
+ * furniture around it (GC-071).
+ *
+ * Measured over CDP on the fixture's `main`, which carries five chips: the column spends 41px on
+ * the `+N` chip and the gaps either side of it, so a chip is drawn at `width - 41`. With the cloud
+ * the chip wants 71px — 12 padding, 11 check, 4 gap, 29 name, 4 gap, 11 cloud — and at the 100px
+ * minimum it is given 59, which is where `main` rendered as `ma…` (17px of a 29px name). Without
+ * the cloud it wants 56 and fits from 97px up. 120 is the round number above the 112px the cloud
+ * itself needs, so the marker comes back exactly when there is room for it *and* the whole name.
+ *
+ * The name is the identity of the ref; the cloud only repeats what the chip already implies by
+ * absorbing its upstream, and the title still says it in words. So the cloud is what gives way.
+ */
+const REF_COL_ICONS_MIN = 120;
+/**
  * The widths of the optional columns, mirroring `app.css` (GC-032). They are `flex: none`, so
  * whatever they take comes out of the commit message column: the ref column has to know about
  * them to leave the message its minimum (GC-110). Kept here rather than measured because they
@@ -482,7 +497,9 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
       {r.kind === 'tag' && <Icon of={Tag} size={11} className="chip-icon" />}
       {r.kind === 'remote' && <Icon of={Cloud} size={11} className="chip-icon" />}
       <span className="chip-name">{r.name}</span>
-      {upstreamHere && <Icon of={Cloud} size={11} className="chip-icon trailing" />}
+      {/* In a narrow column the name wins over the marker (GC-071). The expanded `+N` block is not
+          bound by the column's width, so a chip in it keeps the cloud whatever the column is. */}
+      {upstreamHere && (plain === true || refColApplied >= REF_COL_ICONS_MIN) && <Icon of={Cloud} size={11} className="chip-icon trailing" />}
     </span>
     );
   };
