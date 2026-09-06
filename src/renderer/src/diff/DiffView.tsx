@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type JSX } from 'react';
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { FileChangeKind } from '@shared/types';
 import { alignHunks, buildHunkPatch, hunkWordSpans, parseUnifiedDiff, type DiffHunk, type DiffLine, type FileDiff, type WordSpan } from './parseDiff';
-import { X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Pilcrow, WrapText, X } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { useUi } from '../ui/UiContext';
 import { setPrefs, usePrefs, type DiffViewMode } from '../prefs';
@@ -53,7 +53,13 @@ function splitPath(path: string): [string, string] {
 
 export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageFile, onDiscardFile, onApplyPatch }: Props): JSX.Element {
   const ui = useUi();
-  const split = usePrefs().diffView === 'split';
+  const prefs = usePrefs();
+  const split = prefs.diffView === 'split';
+  // The two header toggles (GC-052). Wrap is a class on the body and costs no reload; ignoring
+  // whitespace is `-w` on the diff itself, so it goes into the load key below.
+  const wrap = prefs.diffWordWrap;
+  const ignoreWs = prefs.diffIgnoreWhitespace;
+  const bodyRef = useRef<HTMLDivElement>(null);
   // (GC-075) What was loaded, and which view it was loaded for. The header chip and the hunk
   // buttons come straight from `view` and flip the instant it changes, so a diff kept from the
   // previous view would be on screen under a header claiming the other side of the file, and a
@@ -70,7 +76,10 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   // needs is that no button is live over content whose load is not the newest, and `stale` says
   // exactly that: a pending reload disables every action without emptying the body.
   const identityKey = `${repo}|${view.source}|${view.path}|${view.source === 'commit' ? view.sha : `${view.staged}|${view.kind ?? ''}`}`;
-  const viewKey = `${identityKey}|${version}`;
+  // `ignoreWs` belongs to the key and not to the identity (GC-052): it is the same file on the
+  // same side, so the hunks on screen stay and dim while the reload runs, exactly as a watcher
+  // echo does, rather than the body blanking to "Loading diff…" (GC-086).
+  const viewKey = `${identityKey}|${version}|${ignoreWs}`;
   const [loaded, setLoaded] = useState<{ key: string; identity: string; text: string | null; error: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   /** What a Stage/Unstage/Discard click reported, as opposed to what the load did. */
@@ -91,8 +100,8 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     setActionError(null);
     const load =
       view.source === 'commit'
-        ? window.api.getCommitFileDiff(repo, view.sha, view.path)
-        : window.api.getWorkdirFileDiff(repo, { path: view.path, staged: view.staged, untracked: view.kind === 'untracked' });
+        ? window.api.getCommitFileDiff(repo, view.sha, view.path, { ignoreWhitespace: ignoreWs })
+        : window.api.getWorkdirFileDiff(repo, { path: view.path, staged: view.staged, untracked: view.kind === 'untracked', ignoreWhitespace: ignoreWs });
     load.then(
       (t) => !cancelled && setLoaded({ key: viewKey, identity: identityKey, text: t, error: null }),
       // A failure is stored against the same key, so the file buttons come back rather than staying
@@ -102,7 +111,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     return () => {
       cancelled = true;
     };
-  }, [repo, view, version, viewKey, identityKey]);
+  }, [repo, view, version, viewKey, identityKey, ignoreWs]);
 
   const files = useMemo(() => (text === null ? [] : parseUnifiedDiff(text)), [text]);
   const file: FileDiff | undefined = files[0];
@@ -113,6 +122,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     for (const h of file?.hunks ?? []) for (const [line, spans] of hunkWordSpans(h)) all.set(line, spans);
     return all;
   }, [file]);
+  const hunkCount = file?.binary ? 0 : (file?.hunks.length ?? 0);
   const [dir, name] = splitPath(view.path);
   const isWip = view.source === 'wip';
   const untracked = view.kind === 'untracked';
@@ -120,6 +130,30 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   // running one does: the header already claims the new side of the file (GC-075), and a stale
   // body is content the newest load has not confirmed yet (GC-086).
   const actionsDisabled = busy || loading || stale;
+
+  // A `-w` diff is not a patch git can apply: the lines it left out are still in the file, so
+  // `git apply` rejects it. Every button built from `hunk.raw` is therefore off while the
+  // toggle is on, and says why; the file-level actions do not go through a patch and stay live.
+  const hunksDisabled = actionsDisabled || ignoreWs;
+  const hunkTitle = ignoreWs ? 'Not available while whitespace is ignored: the patch would not apply' : undefined;
+
+  /**
+   * Scroll to the hunk header before or after the top of the body, wrapping at either end. The
+   * position is read off the live rects rather than kept in state: the body scrolls freely with
+   * the wheel between two clicks, and a remembered index would then jump somewhere else.
+   */
+  const gotoHunk = (where: 'next' | 'prev'): void => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const heads = [...body.querySelectorAll<HTMLElement>('.hunk-head')];
+    if (heads.length === 0) return;
+    const top = body.getBoundingClientRect().top;
+    // 1px of tolerance: a header scrolled exactly to the top is the current one, not the next.
+    const offsets = heads.map((h) => h.getBoundingClientRect().top - top);
+    const i = where === 'next' ? offsets.findIndex((o) => o > 1) : offsets.map((o) => o < -1).lastIndexOf(true);
+    const target = i >= 0 ? i : where === 'next' ? 0 : heads.length - 1;
+    body.scrollTop += offsets[target]!;
+  };
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     setBusy(true);
@@ -138,20 +172,21 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     const patch = buildHunkPatch(file, hunk);
     if (view.source === 'wip' && view.staged) {
       return (
-        <button className="btn" disabled={actionsDisabled} onClick={() => void run(() => onApplyPatch(patch, { cached: true, reverse: true }))}>
+        <button className="btn" disabled={hunksDisabled} title={hunkTitle} onClick={() => void run(() => onApplyPatch(patch, { cached: true, reverse: true }))}>
           Unstage hunk
         </button>
       );
     }
     return (
       <>
-        <button className="btn success" disabled={actionsDisabled} onClick={() => void run(() => onApplyPatch(patch, { cached: true }))}>
+        <button className="btn success" disabled={hunksDisabled} title={hunkTitle} onClick={() => void run(() => onApplyPatch(patch, { cached: true }))}>
           Stage hunk
         </button>
         {!untracked && (
           <button
             className="btn danger"
-            disabled={actionsDisabled}
+            disabled={hunksDisabled}
+            title={hunkTitle}
             onClick={() =>
               void ui
                 .confirm({ title: `Discard this hunk from ${name}?`, message: 'Discard this hunk from the working directory? This cannot be undone.', okLabel: 'Discard hunk', danger: true })
@@ -179,6 +214,32 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
           </span>
         )}
         <span className="spacer" />
+        {/* Previous / next change, then the two toggles (GC-052). The arrows are disabled with
+            one hunk or none, where there is nothing to move between. */}
+        <button className="icon-btn" title="Previous change" aria-label="Previous change" disabled={hunkCount < 2} onClick={() => gotoHunk('prev')}>
+          <Icon of={ChevronUp} size={14} />
+        </button>
+        <button className="icon-btn" title="Next change" aria-label="Next change" disabled={hunkCount < 2} onClick={() => gotoHunk('next')}>
+          <Icon of={ChevronDown} size={14} />
+        </button>
+        <button
+          className={`seg-btn toggle${ignoreWs ? ' on' : ''}`}
+          title="Ignore whitespace: diff with -w, so a reindent shows no change"
+          aria-label="Ignore whitespace"
+          aria-pressed={ignoreWs}
+          onClick={() => setPrefs({ diffIgnoreWhitespace: !ignoreWs })}
+        >
+          <Icon of={Pilcrow} size={13} />
+        </button>
+        <button
+          className={`seg-btn toggle${wrap ? ' on' : ''}`}
+          title="Wrap long lines instead of scrolling sideways"
+          aria-label="Wrap"
+          aria-pressed={wrap}
+          onClick={() => setPrefs({ diffWordWrap: !wrap })}
+        >
+          <Icon of={WrapText} size={13} />
+        </button>
         {/* The layout of what is already loaded, so flipping it costs no reload and never disables
             an action: `hunk.raw` is what a Stage/Discard patch is built from, and alignment does not
             touch it (GC-014). */}
@@ -230,7 +291,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         <span className="chip">{view.source === 'commit' ? `commit ${view.sha.slice(0, 7)}` : view.staged ? 'Staged' : 'Unstaged'}</span>
         {error && <span className="err">{error}</span>}
       </div>
-      <div className={`diff-body${stale ? ' stale' : ''}`}>
+      <div ref={bodyRef} className={`diff-body${stale ? ' stale' : ''}${wrap ? ' wrap' : ''}`}>
         {loading && !error && <div className="diff-empty">Loading diff…</div>}
         {loadError !== null && <div className="diff-empty">{loadError}</div>}
         {text !== null && !file && <div className="diff-empty">No textual changes.</div>}

@@ -50,7 +50,7 @@ function Select({ value, onChange, children }: { value: string; onChange(e: Chan
   );
 }
 
-function Toggle({ of, label, hint }: { of: 'avatars' | 'confirmDirtyCheckout' | 'commitColumnGuide'; label: string; hint?: string }): JSX.Element {
+function Toggle({ of, label, hint }: { of: 'avatars' | 'confirmDirtyCheckout' | 'commitColumnGuide' | 'diffIgnoreWhitespace' | 'diffWordWrap'; label: string; hint?: string }): JSX.Element {
   const prefs = usePrefs();
   return (
     <Row label={label} hint={hint}>
@@ -123,6 +123,8 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
                 ))}
               </Select>
             </Row>
+            <Toggle of="diffIgnoreWhitespace" label="Ignore whitespace" hint="Diffs with -w, so a reindent shows no change. Staging or discarding a hunk is off while it is on." />
+            <Toggle of="diffWordWrap" label="Wrap long lines" hint="Wraps a long line instead of scrolling the whole diff sideways." />
           </div>
           <div className="pref-group">
             <div className="pref-group-title">Behaviour</div>

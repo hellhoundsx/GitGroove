@@ -1300,6 +1300,19 @@ input[type='radio']:disabled {
   background: var(--accent-soft);
   color: var(--text-bright);
 }
+/* A toggle rather than one choice of several (GC-052): it carries the segmented control's own
+   look, and its border with it, because it stands on its own rather than inside a `.seg`. */
+.seg-btn.toggle {
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.seg-btn.toggle:disabled {
+  opacity: 0.4;
+}
 
 /* ---- Collapsed left panel (icon rail) -------------------------------------- */
 
@@ -1507,6 +1520,12 @@ input[type='radio']:disabled {
    the body blanking to the loading line, and every action on them is disabled (GC-086). */
 .diff-body.stale {
   opacity: 0.55;
+}
+/* Wrap (GC-052). The line-number columns keep their width — only the code cell wraps — and
+   `anywhere` is what breaks a long unbroken token, which `break-word` on its own does not. */
+.diff-body.wrap .hunk-lines .code pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .diff-empty {
   color: var(--text-dim);

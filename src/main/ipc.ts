@@ -7,6 +7,7 @@ import type {
   CommitRequest,
   CreateBranchRequest,
   CreateTagRequest,
+  DiffOptions,
   DiscardRequest,
   IgnoreKind,
   IgnoreRequest,
@@ -138,10 +139,13 @@ export function registerIpc(): void {
 
   // commits and diffs
   ipcMain.handle('commit:files', (_e, repo: unknown, sha: unknown) => git.getCommitFiles(repoOf(repo), str(sha, 'A commit sha')));
-  ipcMain.handle('commit:fileDiff', (_e, repo: unknown, sha: unknown, path: unknown) => git.getCommitFileDiff(repoOf(repo), str(sha, 'A commit sha'), str(path, 'A file path')));
+  ipcMain.handle('commit:fileDiff', (_e, repo: unknown, sha: unknown, path: unknown, opts: unknown) => {
+    const o = (opts ?? {}) as Partial<DiffOptions>;
+    return git.getCommitFileDiff(repoOf(repo), str(sha, 'A commit sha'), str(path, 'A file path'), { ignoreWhitespace: !!o.ignoreWhitespace });
+  });
   ipcMain.handle('workdir:fileDiff', (_e, repo: unknown, req: unknown) => {
     const r = (req ?? {}) as Partial<WorkdirDiffRequest>;
-    return git.getWorkdirFileDiff(repoOf(repo), { path: str(r.path, 'A file path'), staged: !!r.staged, untracked: !!r.untracked });
+    return git.getWorkdirFileDiff(repoOf(repo), { path: str(r.path, 'A file path'), staged: !!r.staged, untracked: !!r.untracked, ignoreWhitespace: !!r.ignoreWhitespace });
   });
 
   // staging and committing

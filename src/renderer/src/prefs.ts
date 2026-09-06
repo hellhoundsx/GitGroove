@@ -30,6 +30,10 @@ export interface Prefs {
   theme: Theme;
   /** Unified or side-by-side diffs; the file view's own toggle writes it back here (GC-014). */
   diffView: DiffViewMode;
+  /** Diff with `-w`, so a whitespace-only reformat shows no hunk at all (GC-052). */
+  diffIgnoreWhitespace: boolean;
+  /** Wrap long lines in the diff instead of scrolling the whole body sideways (GC-052). */
+  diffWordWrap: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -40,6 +44,8 @@ export const DEFAULT_PREFS: Prefs = {
   graphColumns: { author: false, date: false, sha: false },
   theme: 'dark',
   diffView: 'unified',
+  diffIgnoreWhitespace: false,
+  diffWordWrap: false,
 };
 
 const KEY = 'gitclient.prefs';
@@ -74,6 +80,8 @@ function load(): Prefs {
         graphColumns: graphColumns(o.graphColumns),
         theme: isTheme(o.theme) ? o.theme : DEFAULT_PREFS.theme,
         diffView: isDiffView(o.diffView) ? o.diffView : DEFAULT_PREFS.diffView,
+        diffIgnoreWhitespace: bool(o.diffIgnoreWhitespace, DEFAULT_PREFS.diffIgnoreWhitespace),
+        diffWordWrap: bool(o.diffWordWrap, DEFAULT_PREFS.diffWordWrap),
       };
     }
     // Migration: the pull mode used to have its own key.

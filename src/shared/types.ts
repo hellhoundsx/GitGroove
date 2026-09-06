@@ -100,6 +100,13 @@ export interface WorkdirDiffRequest {
   path: string;
   staged: boolean;
   untracked: boolean;
+  /** `-w`, so a whitespace-only change produces no hunk at all (GC-052). */
+  ignoreWhitespace?: boolean;
+}
+
+/** The one option a committed file's diff takes (GC-052). */
+export interface DiffOptions {
+  ignoreWhitespace?: boolean;
 }
 
 /** What an "Ignore …" row writes: the file itself, everything with its extension, or its folder (GC-093). */
@@ -184,7 +191,7 @@ export interface GitApi {
   /** Subscribe to watcher pushes; the returned function unsubscribes (GC-011). */
   onRepoChanged(listener: (change: RepoChange) => void): () => void;
   getCommitFiles(repo: string, sha: string): Promise<CommitFile[]>;
-  getCommitFileDiff(repo: string, sha: string, path: string): Promise<string>;
+  getCommitFileDiff(repo: string, sha: string, path: string, opts?: DiffOptions): Promise<string>;
   getWorkdirFileDiff(repo: string, req: WorkdirDiffRequest): Promise<string>;
   stage(repo: string, paths: string[]): Promise<void>;
   unstage(repo: string, paths: string[]): Promise<void>;

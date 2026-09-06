@@ -68,6 +68,8 @@ describe('load', () => {
       graphColumns: { author: true, date: true, sha: false },
       theme: 'light',
       diffView: 'split',
+      diffIgnoreWhitespace: true,
+      diffWordWrap: true,
     };
     const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify(blob) });
     expect(getPrefs()).toEqual(blob);
@@ -84,6 +86,8 @@ describe('load', () => {
       graphColumns: DEFAULT_PREFS.graphColumns,
       theme: DEFAULT_PREFS.theme,
       diffView: DEFAULT_PREFS.diffView,
+      diffIgnoreWhitespace: DEFAULT_PREFS.diffIgnoreWhitespace,
+      diffWordWrap: DEFAULT_PREFS.diffWordWrap,
     });
   });
 
@@ -98,6 +102,23 @@ describe('load', () => {
       const { getPrefs, DEFAULT_PREFS } = await freshPrefs({ [KEY]: JSON.stringify({ theme }) });
       expect(getPrefs().theme).toBe(DEFAULT_PREFS.theme);
     }
+  });
+
+  // The two diff toggles are plain booleans, and both default to off: a diff that hides
+  // whitespace or rewraps lines without being asked to is not what a file view opens with
+  // (GC-052).
+  it('defaults both diff toggles to off and falls back on a value of the wrong type', async () => {
+    const fresh = await freshPrefs();
+    expect(fresh.getPrefs().diffIgnoreWhitespace).toBe(false);
+    expect(fresh.getPrefs().diffWordWrap).toBe(false);
+
+    const on = await freshPrefs({ [KEY]: JSON.stringify({ diffIgnoreWhitespace: true, diffWordWrap: true }) });
+    expect(on.getPrefs().diffIgnoreWhitespace).toBe(true);
+    expect(on.getPrefs().diffWordWrap).toBe(true);
+
+    const junk = await freshPrefs({ [KEY]: JSON.stringify({ diffIgnoreWhitespace: 'yes', diffWordWrap: 1 }) });
+    expect(junk.getPrefs().diffIgnoreWhitespace).toBe(false);
+    expect(junk.getPrefs().diffWordWrap).toBe(false);
   });
 
   it('defaults the graph columns to off and falls back per column', async () => {

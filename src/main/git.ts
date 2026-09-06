@@ -11,6 +11,7 @@ import type {
   CommitRequest,
   CreateBranchRequest,
   CreateTagRequest,
+  DiffOptions,
   DiscardRequest,
   FileChangeKind,
   GitAvailability,
@@ -380,14 +381,18 @@ export async function getCommitFiles(cwd: string, sha: string): Promise<CommitFi
   return files;
 }
 
+/** `-w` when the file view asks to ignore whitespace, and nothing otherwise (GC-052). */
+const diffFlags = (opts?: DiffOptions): string[] => (opts?.ignoreWhitespace ? ['-w'] : []);
+
 /** Unified diff of one file in a commit, against the first parent. */
-export async function getCommitFileDiff(cwd: string, sha: string, path: string): Promise<string> {
+export async function getCommitFileDiff(cwd: string, sha: string, path: string, opts?: DiffOptions): Promise<string> {
+  const flags = diffFlags(opts);
   try {
-    return await runGit(cwd, ['diff', '-M', '--no-ext-diff', `${sha}^`, sha, '--', path]);
+    return await runGit(cwd, ['diff', '-M', '--no-ext-diff', ...flags, `${sha}^`, sha, '--', path]);
   } catch (e) {
     if (!(e instanceof GitError)) throw e;
     // root commit: show the whole file as added
-    return runGit(cwd, ['show', '--format=', '-M', '--no-ext-diff', sha, '--', path]);
+    return runGit(cwd, ['show', '--format=', '-M', '--no-ext-diff', ...flags, sha, '--', path]);
   }
 }
 
@@ -411,7 +416,9 @@ export async function getWorkdirFileDiff(cwd: string, req: WorkdirDiffRequest): 
     if (!endsWithNewline) body += '\\ No newline at end of file\n';
     return header + body;
   }
-  const args = ['diff', '-M', '--no-ext-diff'];
+  // The synthesised untracked diff above returns before this, so `-w` never reaches a file
+  // with no old side to compare against (GC-052).
+  const args = ['diff', '-M', '--no-ext-diff', ...diffFlags(req)];
   if (req.staged) args.push('--cached');
   return runGit(cwd, [...args, '--', req.path]);
 }
