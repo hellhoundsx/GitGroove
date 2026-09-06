@@ -232,14 +232,15 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | done |
 | GC-086 | The diff body blanks to "Loading diff…" on every hunk action, twice | diff | S | P1 | todo |
 | GC-089 | Slim CLAUDE.md back down to a handover: the history moves to the tickets | infra | M | P1 | todo |
-| GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | in-progress |
+| GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | done |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
-| GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | in-progress |
-| GC-082 | Popping a stash through the toolbar loses what was staged | actions | S | P2 | in-progress |
-| GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | in-progress |
+| GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | done |
+| GC-082 | Popping a stash through the toolbar loses what was staged | actions | S | P2 | done |
+| GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | done |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | todo |
 | GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | todo |
+| GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -273,6 +274,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | todo |
 | GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | todo |
 | GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | todo |
+| GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | todo |
 | GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
@@ -3043,7 +3045,7 @@ decision is missing.
 
 ### GC-064 An e2e:setup on the shared scratch root wipes a run already using it
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `tools/e2e/setup-testrepo.mjs` starts with `rmSync(root, { recursive: true, force: true })`
@@ -3064,17 +3066,18 @@ decision is missing.
 - **Out of scope:** giving the two routines separate default roots (the reviewer already passes
   `GITCLIENT_E2E_ROOT`); changing what the suite asserts.
 - **Acceptance:**
-  - [ ] With a live marker in the root, `npm run e2e:setup` refuses and says which pid holds it;
+  - [x] With a live marker in the root, `npm run e2e:setup` refuses and says which pid holds it;
     with a stale marker it proceeds.
-  - [ ] `npm run e2e` against a root whose `testrepo` is missing exits non-zero with one message
+  - [x] `npm run e2e` against a root whose `testrepo` is missing exits non-zero with one message
     naming the path, and runs no steps.
-  - [ ] `npm run e2e` passes with the `shots/` directory deleted beforehand.
+  - [x] `npm run e2e` passes with the `shots/` directory deleted beforehand.
 - **Files:** `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
 - **Verify:** the three checks above, then `npm run e2e:setup && npm run e2e` once normally.
 - **Log:**
   - 2026-09-05 proposed by GC-053 (this ticket): a concurrent `e2e:setup` on the default root
     destroyed a baseline measurement mid-run and the resulting failure named nothing.
   - 2026-09-06 02:28 claimed
+  - 2026-09-06 03:00 done. `run.mjs` writes `<root>/.e2e-owner.json` (pid, start time, what) before anything else; `setup-testrepo.mjs` reads it and refuses when the pid is alive, printing `<root> is in use by pid <n> (<what>, started <iso>)` and exiting 2 — verified with a live pid (exit 2, pid named), a dead pid 999999 (proceeds), and `--force` over a live marker (proceeds). A marker older than 30 minutes counts as stale whatever its pid says: an e2e run takes ~20s, pids are reused, and an unattended routine must not be blocked for ever by a reused one. `run.mjs` exits 2 before the launch when `<root>/testrepo` is missing ("No test repository at <path>. Run: node tools/e2e/setup-testrepo.mjs") or exists without a `.git` ("the folder is there but is not a git repository") — both verified. `shot()` mkdirs `shots/` per capture; `rm -rf shots` then `npm run e2e` passed with 12 screenshots written.
 
 
 ### GC-065 Two of the study's screenshots show the desktop, not GitKraken
@@ -3463,7 +3466,7 @@ decision is missing.
 
 ### GC-072 Show in folder is offered on a file the commit deleted, and always fails
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-043
 - **Why:** GC-043 disables "Open file" on a commit file whose `kind` is `deleted`, but leaves
@@ -3491,9 +3494,9 @@ decision is missing.
     the WIP half of the same hole and, unlike the commit half, needs no new fixture commit.
 - **Out of scope:** the rest of the file-row menu (GC-043), `repoFile()`'s path rules.
 - **Acceptance:**
-  - [ ] On a commit that deletes a file, the row's menu offers no item that fails when clicked.
-  - [ ] The scratch repository carries such a commit and an e2e step asserts the menu on it.
-  - [ ] On the fixture's staged deletion `main.txt`, and on an unstaged deletion made with `rm`, the
+  - [x] On a commit that deletes a file, the row's menu offers no item that fails when clicked.
+  - [x] The scratch repository carries such a commit and an e2e step asserts the menu on it.
+  - [x] On the fixture's staged deletion `main.txt`, and on an unstaged deletion made with `rm`, the
         row's menu offers no item that fails when clicked; the e2e assertion covers the `main.txt`
         row too.
 - **Files:** `src/renderer/src/App.tsx`, `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
@@ -3507,6 +3510,7 @@ decision is missing.
     raised from P3 to P2: it is a defect in GC-043 as shipped and reachable from the fixture as it
     stands. Board row moved up behind GC-069.
   - 2026-09-06 02:28 claimed
+  - 2026-09-06 03:00 done. Chose **disable**, not reveal-the-parent: `repoFile()` refusing a path that is not on disk is the same guard "Open file" already leans on, and `ipc.ts` is outside this ticket's files. `fileMenuItems` computes one `gone` flag — `kind === 'deleted'` for a commit row, `deletedFromTree(entry)` for a staging row (the unstaged side decides when both are set) — and both shell items take it. `setup-testrepo.mjs` gained `obsolete.txt` in the initial commit and a `Remove obsolete file` commit after the tag; e2e step 22 asserts four menus: the commit row (`(x) Open file | (x) Show in folder | --- | Copy file path`), the staged deletion `main.txt`, an unstaged deletion made with `rm feature.txt`, and `big.txt` as the control, which keeps both live. Screenshot `docs/screenshots/gc-072-deleted-file-row-menu.png`, looked at. 104 assertions pass.
 
 
 ### GC-073 Hide and Solo branches in the graph from the left panel
@@ -3970,7 +3974,7 @@ decision is missing.
 
 ### GC-080 The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** GC-053 replaced 61 fixed sleeps with `waitFor`, but the two helpers every git action still
@@ -4012,16 +4016,16 @@ decision is missing.
   `run()` has rendered `busy` is a few milliseconds wide and is closed properly by that ticket,
   not by a sleep here.
 - **Acceptance:**
-  - [ ] `npm run e2e` three times in a row, every assertion passing, total time printed and under
+  - [x] `npm run e2e` three times in a row, every assertion passing, total time printed and under
         30s each (from ~55-60s), both numbers in this log.
-  - [ ] `grep -c 'await sleep(' tools/e2e/run.mjs` is 3: the two poll intervals and step 16's,
+  - [x] `grep -c 'await sleep(' tools/e2e/run.mjs` is 3: the two poll intervals and step 16's,
         each still carrying its comment; `settle` is gone and `waitIdle` no longer sleeps after the
         spinner.
-  - [ ] Making `run()` skip the bump (mutation) makes the very first action's wait time out with a
+  - [x] Making `run()` skip the bump (mutation) makes the very first action's wait time out with a
         message naming the generation, then revert.
-  - [ ] The watcher probe from GR-005 still holds: an untracked file written into the scratch tree
+  - [x] The watcher probe from GR-005 still holds: an untracked file written into the scratch tree
         advances `data-gen` on its own within 1.5s with no click.
-  - [ ] `npm run typecheck`, `npm test`, build; the attribute is the only renderer-visible change.
+  - [x] `npm run typecheck`, `npm test`, build; the attribute is the only renderer-visible change.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/StatusBar.tsx`,
   `tools/e2e/run.mjs`, `CLAUDE.md` (Testing paragraph: the wait discipline and the sleep count).
 - **Verify:** the five checks above; look at the printed total on each of the three runs.
@@ -4030,6 +4034,7 @@ decision is missing.
     12 call sites and the 43.8s floor were counted in `run.mjs`, the ~55-60s run length read off
     the shot timestamps of the run then in progress.
   - 2026-09-06 02:28 claimed
+  - 2026-09-06 03:00 done. `App` keeps `dataGen`, bumped wherever a snapshot or a status is applied (`load()` on both paths, `refreshStatus()`, `applyChange()`), published as `data-gen` on `.statusbar`. `run.mjs` gained `act(fn)` — read the generation, act, wait for it to have moved **and** the spinner to be gone — and 42 `log(await X()); await settle();` pairs became `log(await act(() => X()));`. `settle` is gone, `waitIdle` no longer sleeps after the spinner and is left only where a DOM wait has already proved the reload landed. **Measured, not estimated**: the pre-batch tree rebuilt and timed at **57s**; after, three runs in a row at **19.7s / 19.5s / 19.6s**, all 104 assertions passing, and the run prints its own total. `grep -c 'await sleep(' tools/e2e/run.mjs` is 3 (two poll intervals, step 16's same-row query), each still commented. Mutation: `bumpGen` made a no-op and rebuilt — step 2's very first `act` times out with `waited for OK clicked to reload the repository (generation was 0)`; reverted. Watcher probe: an untracked file written into the tree advanced `data-gen` 3 -> 4 in **374ms** with no click. One wait cannot use `act()`: step 1 reloads the page, the generation restarts at zero, and the app has usually already loaded the same repository — the old wait was satisfied by the page about to be replaced and the reload landed in step 3 with the left panel empty (three steps failed once before this was found), so the step sets `window.__e2eReloading` and waits for the new document.
 
 ### GC-081 Time the e2e run's 141 git spawns and drop the redundant ones
 
@@ -4072,7 +4077,7 @@ decision is missing.
 
 ### GC-082 Popping a stash through the toolbar loses what was staged
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `stashApply`/`stashPop` in `src/main/git.ts` run `git stash pop` without `--index`, so a
@@ -4094,11 +4099,11 @@ decision is missing.
 - **Out of scope:** the stash list UI, `stash push --keep-index`, GC-076's fixture assertions (step
   22 deliberately does not assert the staged half today; it can be tightened once this ships).
 - **Acceptance:**
-  - [ ] Scratch repository: stage one file, edit another, stash through the toolbar, pop through the
+  - [x] Scratch repository: stage one file, edit another, stash through the toolbar, pop through the
         toolbar — `git status --short` shows the staged file staged again (`M ` not ` M`).
-  - [ ] A pop that cannot restore the index still restores the working tree, and the app says the
+  - [x] A pop that cannot restore the index still restores the working tree, and the app says the
         staging could not be reinstated.
-  - [ ] `npm run e2e` passes; GC-076's step 22 then sees the fixture's own staged half and its
+  - [x] `npm run e2e` passes; GC-076's step 22 then sees the fixture's own staged half and its
         `EXPECTED_STATUS` constant is updated to match in the same change.
 - **Files:** `src/main/git.ts`, `tools/e2e/run.mjs` (step 22's expected status), `CLAUDE.md`.
 - **Verify:** typecheck, build, `npm run e2e`, and the two CDP checks above.
@@ -4106,6 +4111,7 @@ decision is missing.
   - 2026-09-06 proposed by GC-076 (this ticket): measuring what a finished run leaves in the fixture
     showed the staged half gone from step 8 onwards, on every run, with or without GC-076.
   - 2026-09-06 02:28 claimed
+  - 2026-09-06 03:00 done. `restoreStash(cwd, verb, index)` runs `stash <verb> -q --index`, retries the plain form when git refuses, and then rejects with "The stash was popped to the working directory, but what it had staged could not be put back in the index." — the pop did happen, so reporting it as a clean success would be the same silent loss. Acceptance 1: e2e step 8 now asserts `git status --short` reads `M  README.md` and `D  main.txt` after the toolbar Pop, and that the status bar carries no error. Acceptance 2 needed a state where `--index` fails but the plain form succeeds: a stash whose staged hunk's context lines a later commit moved, so `git apply --cached` refuses while the 3-way tree merge is clean. Driven over CDP in a disposable repo — the working tree came back (`+line 5 STAGED`), the stash was dropped, the status bar carried exactly that sentence (`docs/screenshots/gc-082-index-fallback.png`). Acceptance 3: `EXPECTED_STATUS` now carries the staged half, and three of the suite's own calls had to stop dropping it — step 15's recovery pop takes `--index`, and steps 12 and 23 park it by hand (step 12 because git refuses a cherry-pick outright with a dirty index, filed as GC-090; step 23 because a mixed reset empties it). A fixture carried over from a pre-GC-082 run has already lost the staged half and needs `npm run e2e:setup`; step 25 says so.
 
 ### GC-083 A diff that fails to load shows an empty body
 
@@ -4387,6 +4393,84 @@ decision is missing.
 - **Log:**
   - 2026-09-06 asked for by Ricardo during GR-008's session, filed by GR-008: 867 lines, 10,940
     words, 147 ticket citations and 31 commits to the file in two days.
+
+
+### GC-090 A sequencer action with a dirty index fails with git's raw refusal
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P2
+- **Depends on:** GC-082
+- **Why:** git refuses to start a cherry-pick, a revert, a merge or a rebase while anything is
+  staged: it prints "error: your local changes would be overwritten by cherry-pick. hint: commit
+  your changes or stash them to proceed." and stops before touching the repository. The app offers
+  all four with no guard, so the click looks valid and the only feedback is git's own line in the
+  status bar, naming a hint the user cannot act on without leaving the app. GC-004 already
+  established the shape for this — the checkout guard asks first and offers "Stash and check out"
+  — and the same three choices fit here exactly. Found while closing GC-082: with the index
+  correctly restored by a pop, the e2e suite's step 12 could no longer reach the in-progress
+  cherry-pick it asserts, because git now refuses that cherry-pick up front. Before GC-082 the
+  index happened to be empty at that point, and the hole was invisible.
+- **Scope:**
+  - One guard, shared by cherry-pick, revert, merge and rebase, on the same `runCheckout` /
+    `ui.prompt` pattern as GC-004: when `status.entries` has a staged or conflicted entry, ask
+    first, naming the number of staged files, and offer Cancel / "Stash and continue" / nothing
+    else — "continue anyway" is not a choice here, because git will simply refuse.
+  - "Stash and continue" is `stash push` (staged half included), the action, then
+    `stash pop --index`, in one `run()`, with the stash popped back if the action fails — the
+    shape `runCheckout` already uses (GC-004, GC-082).
+  - The e2e suite's step 12 then drops the by-hand `git reset` / `git add -A` pair it needs today
+    and drives the guard instead.
+- **Out of scope:** the working-tree-only dirty case (git carries unstaged changes into a
+  cherry-pick when the files do not overlap, so it is not a refusal), the checkout guard itself,
+  a preference to switch the prompt off.
+- **Acceptance:**
+  - [ ] Scratch repository with one staged file: Cherry pick commit prompts instead of running,
+        and Cancel leaves HEAD, the index and the working tree untouched.
+  - [ ] "Stash and continue" applies the cherry-pick and puts the staged file back staged.
+  - [ ] The same guard fires for Revert, Merge and Rebase; a clean index raises no prompt.
+  - [ ] `npm run e2e` passes with step 12's manual index parking removed.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, `npm run e2e`, and the three CDP checks above.
+- **Log:**
+  - 2026-09-06 proposed by GC-082 (this ticket): restoring the index on a pop made the app's
+    unguarded sequencer actions reachable in the fixture for the first time, and step 12 had to
+    unstage the fixture's own staged half by hand to keep asserting what it asserts.
+
+
+### GC-091 The status bar can only report a failure, so a partial success reads as one
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-082
+- **Why:** `App` has one channel for anything an action has to say: `error`, rendered by
+  `StatusBar` as a red `.err` with a warning glyph. GC-082 had to use it for an outcome that is
+  not a failure — a pop whose working directory came back but whose index could not be
+  reinstated — because saying nothing would have hidden the loss of the staging. The result reads
+  as "the pop failed" when the pop succeeded (`docs/screenshots/gc-082-index-fallback.png`: the
+  stash is gone, the file is back, and the line is red). The same gap will be hit by every action
+  with a degraded-but-done outcome: a fetch that pruned, a pull that fast-forwarded nothing, a
+  push that had nothing to send.
+- **Scope:**
+  - A second severity on the same slot: `setNotice(text)` beside `setError`, rendered with the
+    neutral/warning token rather than `--danger` and the same dismiss button, cleared by the next
+    action exactly as `error` is.
+  - `run()` learns to carry it: a `GitError` the main process marks as advisory becomes a notice
+    rather than an error. One flag on `GitError` is enough; `git.ts` sets it on GC-082's fallback.
+  - Both are never shown at once: an error wins.
+- **Out of scope:** a toast system, a history of messages, re-classifying any other existing
+  message, the empty state's `gitError` line (GC-025).
+- **Acceptance:**
+  - [ ] The GC-082 fallback shows the neutral line, not the red one, and still says the staging
+        could not be reinstated.
+  - [ ] A real failure (a conflicting merge) still shows the red line, unchanged.
+  - [ ] A notice is cleared by the next action, like an error.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/StatusBar.tsx`,
+  `src/renderer/src/styles/app.css`, `src/main/git.ts`, `src/shared/types.ts`.
+- **Verify:** typecheck, build, `npm test`, the two CDP checks above with a screenshot of each.
+- **Log:**
+  - 2026-09-06 proposed by GC-082 (this ticket): the fallback message had nowhere to go but the
+    error line, so an operation that did most of what was asked is reported as a failure.
+
 
 ## Reviews
 

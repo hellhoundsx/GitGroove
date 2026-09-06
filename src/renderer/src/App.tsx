@@ -40,6 +40,12 @@ const readRecents = (): string[] => {
 };
 
 const isEditable = (t: EventTarget | null): boolean => t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+/**
+ * Whether a staging row's file is gone from the working tree (GC-072). The unstaged side is the
+ * later of the two, so it decides when both are set: a staged deletion the user has since
+ * recreated is on disk again, and a staged edit the user then deleted is not.
+ */
+const deletedFromTree = (e: StatusEntry): boolean => (e.unstaged ? e.unstaged === 'deleted' : e.staged === 'deleted');
 /** Human-readable error text: strips Electron's IPC wrapper and the error class name. */
 const msg = (e: unknown): string =>
   (e instanceof Error ? e.message : String(e))
@@ -98,34 +104,50 @@ export function App(): JSX.Element {
   // screen, so there is nothing to report and no spinner to clear.
   const generation = useRef(0);
 
-  const load = useCallback(async (path: string) => {
-    const gen = generation.current;
-    try {
-      const snap = await window.api.loadRepo(path, MAX_COMMITS);
-      if (gen !== generation.current) return; // (GC-068) something newer has already landed
-      setSnapshot(snap);
-      setRepoPath(snap.info.path);
-      // git hands back the canonical path, so dedupe against that rather than the one asked for.
-      setRecents((prev) => [snap.info.path, ...prev.filter((p) => normRepoPath(p) !== normRepoPath(snap.info.path))].slice(0, MAX_RECENT));
+  // What the app has actually put on screen, as opposed to the invalidation counter above: bumped
+  // every time a snapshot or a status is applied to state, whether that came from `run()`'s reload
+  // or from the watcher's background refresh. It reaches the DOM as `data-gen` on the status bar,
+  // which is the only announcement a reload has ever made: before it, the e2e suite could see the
+  // spinner go up and come down but had nothing to tell a finished reload from one that had not
+  // started, and covered the gap with 43.8s of fixed sleeps per run (GC-080).
+  const [dataGen, setDataGen] = useState(0);
+  const bumpGen = useCallback(() => setDataGen((g) => g + 1), []);
+
+  const load = useCallback(
+    async (path: string) => {
+      const gen = generation.current;
       try {
-        localStorage.setItem(LAST_REPO_KEY, snap.info.path);
-      } catch {
-        /* ignore */
+        const snap = await window.api.loadRepo(path, MAX_COMMITS);
+        if (gen !== generation.current) return; // (GC-068) something newer has already landed
+        setSnapshot(snap);
+        bumpGen();
+        setRepoPath(snap.info.path);
+        // git hands back the canonical path, so dedupe against that rather than the one asked for.
+        setRecents((prev) => [snap.info.path, ...prev.filter((p) => normRepoPath(p) !== normRepoPath(snap.info.path))].slice(0, MAX_RECENT));
+        try {
+          localStorage.setItem(LAST_REPO_KEY, snap.info.path);
+        } catch {
+          /* ignore */
+        }
+      } catch (e) {
+        // A stale failure must not clear a repository a newer load has since opened, so the error
+        // path is generation-checked too (GC-068).
+        if (gen !== generation.current) return;
+        setSnapshot(null);
+        // The empty snapshot is a state change like any other, so it counts as a generation: a
+        // failed load has to end a wait, not leave one hanging until it times out (GC-080).
+        bumpGen();
+        // The path did not load, so the status bar must stop naming it as the open repository; the
+        // remembered path stays in localStorage in case the folder comes back (GC-025).
+        setRepoPath(null);
+        // An entry that no longer loads drops out of the list so the menu stops offering it; the
+        // error still shows in the status bar (GC-044).
+        setRecents((prev) => prev.filter((p) => normRepoPath(p) !== normRepoPath(path)));
+        setError(msg(e));
       }
-    } catch (e) {
-      // A stale failure must not clear a repository a newer load has since opened, so the error
-      // path is generation-checked too (GC-068).
-      if (gen !== generation.current) return;
-      setSnapshot(null);
-      // The path did not load, so the status bar must stop naming it as the open repository; the
-      // remembered path stays in localStorage in case the folder comes back (GC-025).
-      setRepoPath(null);
-      // An entry that no longer loads drops out of the list so the menu stops offering it; the
-      // error still shows in the status bar (GC-044).
-      setRecents((prev) => prev.filter((p) => normRepoPath(p) !== normRepoPath(path)));
-      setError(msg(e));
-    }
-  }, []);
+    },
+    [bumpGen],
+  );
 
   useEffect(() => {
     // One `git --version`, before anything is attempted: every action shells out, so a missing git
@@ -200,7 +222,8 @@ export function App(): JSX.Element {
     if (gen !== generation.current) return; // (GC-068)
     setSnapshot((s) => (s ? { ...s, status } : s));
     setWorkdirVersion((v) => v + 1);
-  }, [repo]);
+    bumpGen();
+  }, [bumpGen, repo]);
 
   /** Run a git operation with busy/error handling, then reload the snapshot (or only the status). */
   const run = useCallback(
@@ -289,11 +312,12 @@ export function App(): JSX.Element {
         if (gen !== generation.current) return; // (GC-068) a user action has reloaded since
         setSnapshot(snap);
         setWorkdirVersion((v) => v + 1);
+        bumpGen();
       } catch {
         /* a background refresh must not raise a banner over the user's work */
       }
     },
-    [refreshStatus, repo],
+    [bumpGen, refreshStatus, repo],
   );
 
   const flushChange = useCallback(() => {
@@ -636,14 +660,17 @@ export function App(): JSX.Element {
         }
         items.push({ separator: true });
       }
+      // Both shell actions go through `repoFile()`, which refuses a path that is not in the
+      // working tree, so on a row whose file is gone neither of them can do anything but put an
+      // error in the status bar. They are disabled together rather than one of them being left
+      // offered as the only item that always fails (GC-072).
+      const gone = t.source === 'commit' ? t.file.kind === 'deleted' : deletedFromTree(t.entry);
       items.push({
-        // A commit that deleted the file leaves nothing to open. Every other path is checked in the
-        // main process, which refuses one that is no longer in the working tree (GC-043).
         label: 'Open file',
-        disabled: t.source === 'commit' && t.file.kind === 'deleted',
+        disabled: gone,
         onClick: () => inShell(() => window.shell.openFile(repo!, path)),
       });
-      items.push({ label: 'Show in folder', onClick: () => inShell(() => window.shell.showInFolder(repo!, path)) });
+      items.push({ label: 'Show in folder', disabled: gone, onClick: () => inShell(() => window.shell.showInFolder(repo!, path)) });
       items.push({ separator: true });
       items.push({ label: 'Copy file path', hint: 'relative to the repository', onClick: () => void navigator.clipboard.writeText(path) });
       return items;
@@ -913,7 +940,7 @@ export function App(): JSX.Element {
           </div>
         )}
       </div>
-      <StatusBar repoPath={repoPath} commitCount={commits.length} busy={busy} error={error} onDismissError={() => setError(null)} />
+      <StatusBar repoPath={repoPath} commitCount={commits.length} busy={busy} generation={dataGen} error={error} onDismissError={() => setError(null)} />
       {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} />}
       {shortcutsOpen && <Shortcuts onClose={() => setShortcutsOpen(false)} />}
     </div>

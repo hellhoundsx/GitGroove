@@ -453,8 +453,31 @@ export async function stashSave(cwd: string, req: StashSaveRequest): Promise<voi
   await runGit(cwd, args);
 }
 
-export const stashApply = (cwd: string, index: number): Promise<string> => runGit(cwd, ['stash', 'apply', '-q', `stash@{${index}}`]);
-export const stashPop = (cwd: string, index: number): Promise<string> => runGit(cwd, ['stash', 'pop', '-q', `stash@{${index}}`]);
+/**
+ * Apply or pop a stash, index and all. Without `--index` git merges everything the stash held into
+ * the working directory, so what the user had staged when they stashed comes back unstaged and the
+ * staging is lost with no way back but redoing it by hand (GC-082). `--index` refuses when the
+ * stashed index cannot be reinstated and applies nothing when it refuses, so the plain form is
+ * retried — and the retry succeeding is reported rather than passed off as a clean result, because
+ * the working directory came back and the staging did not.
+ */
+async function restoreStash(cwd: string, verb: 'apply' | 'pop', index: number): Promise<string> {
+  const ref = `stash@{${index}}`;
+  try {
+    return await runGit(cwd, ['stash', verb, '-q', '--index', ref]);
+  } catch {
+    await runGit(cwd, ['stash', verb, '-q', ref]);
+    throw new GitError(
+      `The stash was ${verb === 'pop' ? 'popped' : 'applied'} to the working directory, but what it had staged could not be put back in the index.`,
+      ['stash', verb, ref],
+      '',
+      null,
+    );
+  }
+}
+
+export const stashApply = (cwd: string, index: number): Promise<string> => restoreStash(cwd, 'apply', index);
+export const stashPop = (cwd: string, index: number): Promise<string> => restoreStash(cwd, 'pop', index);
 export const stashDrop = (cwd: string, index: number): Promise<string> => runGit(cwd, ['stash', 'drop', '-q', `stash@{${index}}`]);
 
 // ---------------------------------------------------------------------------

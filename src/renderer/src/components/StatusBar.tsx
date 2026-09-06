@@ -4,6 +4,8 @@ interface Props {
   repoPath: string | null;
   commitCount: number;
   busy: string | null; // label of the running operation
+  /** The snapshot generation, published as `data-gen` (GC-080). */
+  generation: number;
   error: string | null;
   onDismissError(): void;
 }
@@ -19,9 +21,12 @@ function headline(error: string): string {
 
 const baseName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p;
 
-export function StatusBar({ repoPath, commitCount, busy, error, onDismissError }: Props): JSX.Element {
+export function StatusBar({ repoPath, commitCount, busy, generation, error, onDismissError }: Props): JSX.Element {
   return (
-    <footer className="statusbar">
+    // `data-gen` counts the snapshots and statuses the app has applied. It is the one thing on
+    // screen that says a reload has finished rather than started, which is what the e2e suite waits
+    // on instead of the fixed sleeps it used to pay for every git action (GC-080).
+    <footer className="statusbar" data-gen={generation}>
       <span className="path" title={repoPath ?? undefined}>
         {repoPath ? baseName(repoPath) : 'No repository open'}
       </span>

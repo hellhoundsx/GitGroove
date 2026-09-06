@@ -1,13 +1,48 @@
 // Creates a disposable git repository plus a bare "origin" for the end-to-end run.
-// Location: $GITCLIENT_E2E_ROOT or <tmp>/gitclient-e2e. Existing contents are removed.
+// Location: $GITCLIENT_E2E_ROOT or <tmp>/gitclient-e2e. Existing contents are removed, unless a
+// run is holding the root (see the marker below); --force wipes it anyway.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const root = process.env.GITCLIENT_E2E_ROOT ?? join(tmpdir(), 'gitclient-e2e');
 const R = join(root, 'testrepo');
 const REMOTE = join(root, 'remote.git');
+
+// Two routines share this machine and only one of them passes GITCLIENT_E2E_ROOT, so a run that
+// reaches for the default root used to delete the repository, the bare origin and the shots
+// directory out from under a suite that was mid-flight — silently, and the failure that followed
+// named nothing (GC-064). tools/e2e/run.mjs writes this marker while it works; the wipe below
+// refuses while it belongs to a process that is still alive.
+const MARKER = join(root, '.e2e-owner.json');
+// An e2e run takes about a minute, so a marker this old is left over from one that died however
+// alive its pid looks: pids are reused, and an unattended routine must not be blocked for ever by
+// one that happens to have come round again.
+const MARKER_MAX_AGE_MS = 30 * 60 * 1000;
+const markerHolder = () => {
+  let m;
+  try {
+    m = JSON.parse(readFileSync(MARKER, 'utf8'));
+  } catch {
+    return null; // no marker, or one we cannot read: nothing is claiming the root
+  }
+  if (!Number.isInteger(m?.pid) || m.pid === process.pid) return null;
+  if (!(Date.now() - Date.parse(m.started ?? '') < MARKER_MAX_AGE_MS)) return null;
+  try {
+    process.kill(m.pid, 0); // signal 0 only probes: alive, or EPERM for one we may not signal
+  } catch (e) {
+    if (e.code !== 'EPERM') return null;
+  }
+  return m;
+};
+
+const held = process.argv.includes('--force') ? null : markerHolder();
+if (held) {
+  console.error(`${root} is in use by pid ${held.pid} (${held.what ?? 'unknown'}, started ${held.started}).`);
+  console.error('Refusing to wipe it. Use a root of your own with GITCLIENT_E2E_ROOT, or pass --force.');
+  process.exit(2);
+}
 
 rmSync(root, { recursive: true, force: true });
 mkdirSync(R, { recursive: true });
@@ -26,6 +61,9 @@ git(['config', 'core.autocrlf', 'false']);
 write('a.txt', 'line1\nline2\nline3\n');
 write('README.md', '# Test repo\n');
 write('big.txt', bigRows());
+// deleted again by 'Remove obsolete file' below, so the fixture carries a commit whose file list
+// has a row for a file that is not in the working tree (GC-072)
+write('obsolete.txt', 'this file is deleted in a later commit\n');
 git(['add', '-A']);
 git(['commit', '-qm', 'Initial commit']);
 
@@ -45,6 +83,11 @@ git(['add', 'main.txt']);
 git(['commit', '-qm', 'Main-only change']);
 git(['merge', '-q', '--no-ff', '-m', 'Merge feature into main', 'feature']);
 git(['tag', 'v0.1.0']);
+
+// The deleting commit. GC-072's case needs a commit whose file list holds a file the working tree
+// no longer has, and the fixture had none: the state had to be built by hand to be seen at all.
+git(['rm', '-q', 'obsolete.txt']);
+git(['commit', '-qm', 'Remove obsolete file']);
 
 git(['checkout', '-qb', 'wip-branch']);
 write('wip.txt', 'wip\n');
@@ -73,6 +116,11 @@ write('big.txt', bigRows({ 3: 'row 3 edited', 35: 'row 35 edited' }));
 // snapshot when a run finishes and asserts that it matches, so a step that leaves a commit
 // behind names itself instead of surfacing later as an unrelated step's flake (GC-076).
 for (const b of ['main', 'feature', 'wip-branch']) git(['update-ref', `refs/e2e/baseline/${b}`, b]);
+
+// Claim the root for as long as this process lives. It exits immediately after, so the marker is
+// stale by the time anyone reads it — which is the point: it is `run.mjs`'s claim that matters,
+// and this one only records who built the fixture (GC-064).
+writeFileSync(MARKER, JSON.stringify({ pid: process.pid, started: new Date().toISOString(), what: 'setup-testrepo.mjs' }, null, 2));
 
 console.log(`test repository ready at ${R}`);
 console.log(git(['log', '--oneline', '--graph', '--all']));

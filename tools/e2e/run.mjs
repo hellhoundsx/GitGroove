@@ -18,12 +18,19 @@ const R = join(root, 'testrepo');
 const REMOTE = join(root, 'remote.git');
 const SHOTS = join(root, 'shots');
 const PORT = Number(process.env.GITCLIENT_E2E_PORT ?? 9333);
+const runStart = Date.now();
 
-if (!existsSync(R)) {
-  console.error(`No test repository at ${R}. Run: node tools/e2e/setup-testrepo.mjs`);
+// Claim the root for the length of the run, so a concurrent `e2e:setup` on the same root refuses
+// to wipe the repository out from under this suite instead of doing it silently (GC-064).
+mkdirSync(root, { recursive: true });
+writeFileSync(join(root, '.e2e-owner.json'), JSON.stringify({ pid: process.pid, started: new Date().toISOString(), what: 'e2e run.mjs' }, null, 2));
+
+// A missing or non-git `testrepo` is the state a wipe leaves behind, so say so in one line and run
+// nothing rather than failing every assertion against a repository that is not there (GC-064).
+if (!existsSync(R) || !existsSync(join(R, '.git'))) {
+  console.error(`No test repository at ${R}${existsSync(R) ? ' (the folder is there but is not a git repository)' : ''}. Run: node tools/e2e/setup-testrepo.mjs`);
   process.exit(2);
 }
-mkdirSync(SHOTS, { recursive: true });
 
 const git = (args, cwd = R) => {
   try {
@@ -99,6 +106,7 @@ const ev = async (expression) => {
 };
 const shot = async (name) => {
   const r = await send('Page.captureScreenshot', { format: 'png' });
+  mkdirSync(SHOTS, { recursive: true }); // a missing shots/ must not end the run in an ENOENT (GC-064)
   writeFileSync(join(SHOTS, name), Buffer.from(r.data, 'base64'));
 };
 
@@ -193,19 +201,42 @@ const waitModal = () => waitFor(`!!document.querySelector('.modal .modal-buttons
 const waitNoModal = () => waitFor(`!document.querySelector('.modal')`, 'the dialog to close');
 const waitNoMenu = () => waitFor(`!document.querySelector('.ctx-menu')`, 'the previous context menu to close');
 
-/** Wait until the app reports no running operation (status bar spinner gone), then a short settle. */
+/** Wait until the app reports no running operation (the status bar spinner is gone). Used where a
+ *  DOM wait has already proved the reload landed and only the spinner is left to clear (GC-080). */
 const waitIdle = async (max = 15000) => {
   const start = Date.now();
   while (Date.now() - start < max) {
     const busy = await ev("!!document.querySelector('.statusbar .busy')");
-    if (!busy) break;
+    if (!busy) return true;
     await sleep(150); // the poll interval itself: there is nothing to observe between two polls
   }
-  await sleep(400); // the reload that follows the spinner is not announced anywhere in the DOM
+  check('waited for the app to go idle', false, `the status bar was still busy after ${max}ms`);
+  return false;
 };
-const settle = async (ms = 600) => {
-  await sleep(ms); // the window in which an action gets as far as raising the spinner waitIdle waits on
-  await waitIdle();
+
+/** The snapshot generation the app publishes on the status bar: a counter bumped every time a
+ *  snapshot or a status is applied to state, `run()`'s reload and the watcher's alike (GC-080). */
+const generation = () => ev(`document.querySelector('.statusbar')?.dataset.gen ?? null`);
+/** Perform a git action and wait for the app to have finished reloading after it.
+ *
+ *  This is what the two sleeps it replaces were standing in for. `settle()` slept 600ms "for the
+ *  window in which an action gets as far as raising the spinner" and `waitIdle()` a further 400ms
+ *  because "the reload that follows the spinner is not announced anywhere in the DOM" — 39 + 12
+ *  call sites, 43.8s of a ~58s run spent observing nothing. The app announces it now, so wait on
+ *  it: the generation must have moved **and** the spinner must be gone. Both, because either alone
+ *  is satisfiable by the wrong moment — a watcher refresh landing between the read and the click
+ *  moves the generation on its own, and the spinner is absent in the instant before the click
+ *  raises it. Together they cannot be: once `busy` is up, only this action's own reload clears it,
+ *  and that reload bumps the generation again. */
+const act = async (fn, what) => {
+  const before = await generation();
+  const r = await fn();
+  await waitFor(
+    `(() => { const s = document.querySelector('.statusbar'); return !!s && s.dataset.gen !== ${q(before)} && !s.querySelector('.busy'); })()`,
+    `${what ?? String(r).slice(0, 60)} to reload the repository (generation was ${before})`,
+    15000,
+  );
+  return r;
 };
 const escape = () => send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }).then(() => send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' }));
 /** A real Ctrl+Enter to whatever has focus (CDP `modifiers: 2` is Ctrl). The commit form binds it on
@@ -367,11 +398,11 @@ const FIXTURE_A_TXT = 'line1\nline2 changed\nline3\nline4 new\n';
 // `status()` over the working tree a finished run hands to the next one. It is the fixture's five
 // paths, and a.txt among them is what proves the write above happened: `main change` absorbs that
 // edit into a commit, so dropping the commit without writing the file back would leave a.txt clean.
-// The staged half of the fixture is already gone by here and this is deliberately not it: step 8
-// pops the stash through the toolbar, which does not restore the index, so the staged README.md
-// edit and main.txt deletion come back unstaged. That happens on every run, with or without this
-// block, and putting the index back is a different drift from the commits this ticket removes.
-const EXPECTED_STATUS = 'M README.md  M a.txt  M big.txt  D main.txt ?? new.txt';
+// The staged half is part of it now: it used to be lost on every run at step 8, where a toolbar Pop
+// handed the staged README.md edit and main.txt deletion back as working-directory changes, and
+// this constant recorded that loss rather than the fixture (GC-082). With the index restored, both
+// are staged again — `M ` and `D ` in the first column, against ` M` and ` D` for the unstaged half.
+const EXPECTED_STATUS = 'M  README.md  M a.txt  M big.txt D  main.txt ?? new.txt';
 const restoreFixture = () => {
   // --soft, never --hard, for the reason the GC-062 block gives: the index holds the fixture's own
   // staged README.md change and main.txt deletion and the tree holds the edits every step asserts
@@ -418,8 +449,19 @@ step(1, 'load test repo');
 // The profile is no longer Ricardo's — `tools/launch-app.mjs` gives every launch it makes its own
 // under `<os.tmpdir()>/gitclient-profiles/<port>` (GC-060) — but it does persist between runs on
 // that port, so the removal still earns its place.
-await ev(`localStorage.removeItem('gitclient.prefs'); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
-await settle();
+// The flag is what makes the wait below mean anything: the app has usually already loaded this
+// same repository from `gitclient.lastRepo` by the time this runs, so a bare "rows are there and
+// nothing is busy" is satisfied by the page that is *about* to be thrown away, and the reload then
+// lands in the middle of step 2 or 3 with the panels empty. The flag lives on `window`, so it is
+// gone the moment the new document exists (GC-080).
+await ev(`window.__e2eReloading = true; localStorage.removeItem('gitclient.prefs'); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
+// The generation starts again from zero across the reload, so `act()` has nothing to compare
+// against here: wait on the new document having loaded the repository instead (GC-080).
+await waitFor(
+  `!window.__e2eReloading && document.querySelectorAll('.graph-row').length > 5 && !document.querySelector('.statusbar .busy')`,
+  'the reloaded page to show the repository',
+  20000,
+);
 let s = await state();
 check('repo loaded with WIP row and commits', s.rows > 5 && (s.branch ?? '').startsWith('main'), JSON.stringify(s));
 
@@ -427,8 +469,7 @@ step(2, 'create branch via toolbar prompt');
 log(await tool('Branch'));
 await waitModal();
 log(await modal('test-branch', true));
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('branch created and checked out', git(['branch', '--show-current']) === 'test-branch');
 
 step(3, 'left panel context menu: checkout main (dirty tree prompts first)');
@@ -439,16 +480,14 @@ await waitModal();
 const dirtyPrompt = String(await modal(null, null));
 check('dirty checkout prompts', dirtyPrompt.includes('Uncommitted changes'), dirtyPrompt);
 check('prompt names the branch', String(await modalMessage()).includes('Check out main anyway?'), await modalMessage());
-log(await modalClick('Check out anyway'));
-await settle();
+log(await act(() => modalClick('Check out anyway')));
 check('checked out main', git(['branch', '--show-current']) === 'main');
 
 step(4, 'delete branch via menu + confirm');
 log(await contextMenuOn('.left-panel .ref-row', 'test-branch'));
 log(await menuClick('Delete test-branch'));
 await waitModal();
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('branch deleted', !git(['branch', '--format=%(refname:short)']).includes('test-branch'));
 
 step(5, "stash via toolbar: an empty message uses git's default, then a named stash");
@@ -458,21 +497,18 @@ await waitModal();
 log(await modal('', true));
 const emptyOk = String(await ev(`(() => { const b = document.querySelector('.modal .modal-buttons .btn:last-child'); return b ? (b.disabled ? 'disabled' : 'enabled') : 'no modal'; })()`));
 check('Stash OK stays enabled on an empty message', emptyOk === 'enabled', emptyOk);
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 const autoMessage = git(['stash', 'list', '-1', '--format=%gs']);
 check("empty message stashes under git's own WIP message", /^WIP on /.test(autoMessage) && status() === '', `${autoMessage} | ${status()}`);
 // put the mixed working tree back exactly as it was so the named stash below sees the same state
 git(['stash', 'pop', '--index', '-q']);
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 
 log(await tool('Stash'));
 await waitModal();
 log(await modal(NAMED_STASH, true));
 await shot('modal-stash.png');
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('stash created and tree clean', git(['stash', 'list']).includes(NAMED_STASH) && status() === '', status());
 
 step(6, 'merge with a real conflict, then abort');
@@ -482,18 +518,15 @@ git(['commit', '-qam', 'branch change']);
 git(['checkout', '-q', 'main']);
 writeFileSync(join(R, 'a.txt'), `line1\nline2 from main ${stamp}\nline3\nline4 new\n`);
 git(['commit', '-qam', 'main change']);
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 log(await contextMenuOn('.left-panel .ref-row', 'conflict-branch'));
-log(await menuClick('Merge conflict-branch into main'));
-await settle();
+log(await act(() => menuClick('Merge conflict-branch into main')));
 s = await state();
 check('conflict reported by git', status().includes('UU a.txt'), status());
 check('conflict banner shown', !!s.banner && /merge in progress/.test(s.banner), s.banner ?? '');
 check('conflict error shown', !!s.err && /conflict/i.test(s.err), s.err ?? '');
 await shot('merge-conflict.png');
-log(await clickBanner('/Abort/'));
-await settle();
+log(await act(() => clickBanner('/Abort/')));
 check('merge aborted', !existsSync(join(R, '.git', 'MERGE_HEAD')) && status() === '', status());
 
 step(7, 'cherry-pick a fresh commit onto main');
@@ -502,21 +535,26 @@ writeFileSync(join(R, `pick-${stamp}.txt`), 'picked\n');
 git(['add', `pick-${stamp}.txt`]);
 git(['commit', '-qm', `Pickable commit ${stamp}`]);
 git(['checkout', '-q', 'main']);
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
-log(await menuClick('Cherry pick commit'));
-await settle();
+log(await act(() => menuClick('Cherry pick commit')));
 check('cherry-pick applied', git(['log', '--oneline', '-1']).includes('Pickable commit') && existsSync(join(R, `pick-${stamp}.txt`)));
 
 step(8, 'pop stash via toolbar');
-log(await tool('Pop'));
-await settle();
+log(await act(() => tool('Pop')));
 check('stash popped', git(['stash', 'list']) === '' && status().includes('README.md'), status());
+// GC-082: the stash step 5 made held a staged README.md edit and a staged main.txt deletion, and a
+// pop without --index used to hand both back as working-directory changes, silently costing the
+// user their staging. `git status --short` marks a staged path in the first column.
+check(
+  'the pop puts back what was staged, not just the working directory',
+  git(['status', '--short', '--', 'README.md']).startsWith('M ') && git(['status', '--short', '--', 'main.txt']).startsWith('D '),
+  `${git(['status', '--short', '--', 'README.md'])} | ${git(['status', '--short', '--', 'main.txt'])}`,
+);
+check('and the status bar reports no failure for it', (await state()).err === null, (await state()).err ?? '');
 
 step(9, 'push');
-log(await tool('Push'));
-await settle();
+log(await act(() => tool('Push')));
 check('origin/main updated', git(['rev-parse', 'origin/main']) === git(['rev-parse', 'main']));
 
 step(10, 'fetch and pull after a commit from another clone');
@@ -528,12 +566,10 @@ writeFileSync(join(clone2, `remote-${stamp}.txt`), 'remote side\n');
 git(['add', `remote-${stamp}.txt`], clone2);
 git(['commit', '-qm', `Commit from another clone ${stamp}`], clone2);
 log(git(['push', '-q', 'origin', 'main'], clone2));
-log(await fetchAll());
-await settle();
+log(await act(() => fetchAll()));
 s = await state();
 check('behind after fetch', git(['rev-list', '--count', 'main..origin/main']) === '1' && /↓1/.test(s.branch ?? ''), s.branch ?? '');
-log(await tool('Pull'));
-await settle();
+log(await act(() => tool('Pull')));
 check('pulled', git(['log', '--oneline', '-1']).includes('Commit from another clone') && git(['rev-list', '--count', 'main..origin/main']) === '0');
 
 step(11, 'tag create via commit menu, delete via left panel');
@@ -543,29 +579,35 @@ await shot('commit-context-menu.png');
 log(await menuClick('Create tag here'));
 await waitModal();
 log(await modal('t-test', false));
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('tag created', git(['tag']).split('\n').includes('t-test'));
 log(await openSection('Tags'));
 await waitFor(`[...document.querySelectorAll('.left-panel .ref-row')].some(r => r.innerText.includes('t-test'))`, 'the Tags section to list t-test');
 log(await contextMenuOn('.left-panel .ref-row', 't-test'));
 log(await menuClick('Delete tag t-test'));
 await waitModal();
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('tag deleted', !git(['tag']).split('\n').includes('t-test'));
 
 step(12, 'already-applied cherry-pick: error kept visible, in-progress banner, abort');
+// git refuses a sequencer operation outright while the index carries staged changes ("your local
+// changes would be overwritten by cherry-pick"), so the in-progress state this step exists to
+// assert cannot be reached with the fixture's staged half in place — which it is again now that a
+// pop restores the index (GC-082). Park it for the step and put it back exactly as it was: `add -A`
+// re-stages a modification and a deletion alike, main.txt being gone from the working tree.
+const stagedForPick = git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean);
+if (stagedForPick.length) git(['reset', '-q', '--', ...stagedForPick]);
 log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
-log(await menuClick('Cherry pick commit'));
-await settle();
+log(await act(() => menuClick('Cherry pick commit')));
 s = await state();
 check('cherry-pick left in progress', existsSync(join(R, '.git', 'CHERRY_PICK_HEAD')) && /cherry-pick in progress/.test(s.banner ?? ''), s.banner ?? '');
 check('git message visible', /now empty/.test(s.err ?? ''), s.err ?? '');
-log(await clickBanner('/Abort/'));
-await settle();
+log(await act(() => clickBanner('/Abort/')));
 s = await state();
 check('cherry-pick aborted', !existsSync(join(R, '.git', 'CHERRY_PICK_HEAD')) && s.banner === null && s.err === null);
+if (stagedForPick.length) git(['add', '-A', '--', ...stagedForPick]);
+log(await act(() => tool('Refresh')));
+check('the staged half the step parked is back', git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean).join(' ') === stagedForPick.join(' '), git(['status', '--short']).replace(/\n/g, ' '));
 
 step(13, 'WIP row menu');
 log(await contextMenuOn('.graph-row.wip', null));
@@ -576,8 +618,7 @@ await escape();
 step(14, 'per-file delete confirms with the UI modal, not a native dialog');
 const scratch = `scratch-${stamp}.txt`;
 writeFileSync(join(R, scratch), 'scratch\n');
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 log(await ev(`(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'no WIP row'; r.click(); return 'WIP row selected'; })()`));
 // only the staging view lists this file, so it cannot be satisfied by the commit that was selected
 await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(scratch)})`, 'the staging list to show the scratch file');
@@ -590,15 +631,13 @@ await waitModal();
 const discardModal = String(await modal(null, null));
 check('confirm modal replaced the native dialog and names the file', discardModal.includes(`Delete ${scratch}?`), discardModal);
 await shot('modal-discard-file.png');
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('untracked file deleted after confirming', !existsSync(join(R, scratch)) && !status().includes(scratch), status());
 
 step(15, 'checkout guard: clean and untracked-only trees are silent, Cancel is inert, Stash and check out re-applies');
 // park the working tree so the clean-tree path can be exercised, restored at the end of the step
 git(['stash', 'push', '-u', '-q', '-m', GUARD_STASH]);
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 check('tree parked before the clean-tree checkout', status() === '', status());
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
 log(await menuClick('Checkout wip-branch'));
@@ -613,8 +652,7 @@ check('clean tree checks out with no prompt', promptedWhenClean === false && git
 // raise the prompt either, and the file must still be there afterwards (GC-019)
 git(['checkout', '-q', 'main']);
 writeFileSync(join(R, GUARD_FILE), 'guard\n');
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
 log(await menuClick('Checkout wip-branch'));
 await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '').startsWith('wip-branch')`, 'the untracked-only checkout to land', 15000);
@@ -630,8 +668,7 @@ check(
 // alongside it: the count in the message is the files at risk, so it must say one, not two (GC-019).
 git(['checkout', '-q', 'main']);
 writeFileSync(join(R, GUARD_TRACKED), 'feature work\nmore\nguard edit\n');
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 const dirtyBefore = status();
 const stashesBefore = git(['stash', 'list']).split('\n').filter(Boolean).length;
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
@@ -650,8 +687,7 @@ check('cancel leaves HEAD and the tree untouched', git(['branch', '--show-curren
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
 log(await menuClick('Checkout wip-branch'));
 await waitModal();
-log(await modalClick('Stash and check out'));
-await settle();
+log(await act(() => modalClick('Stash and check out')));
 check(
   'stash and check out lands on the branch with the changes re-applied',
   git(['branch', '--show-current']) === 'wip-branch' && status() === dirtyBefore && git(['stash', 'list']).split('\n').filter(Boolean).length === stashesBefore,
@@ -662,9 +698,10 @@ check(
 git(['checkout', '-q', 'main']);
 rmSync(join(R, GUARD_FILE), { force: true });
 git(['checkout', '-q', '--', GUARD_TRACKED]);
-git(['stash', 'pop', '-q']);
-log(await tool('Refresh'));
-await settle();
+// --index, like every other recovery pop in this file: the tree it parked holds the fixture's own
+// staged README.md edit and main.txt deletion, and a plain pop hands them back unstaged (GC-082)
+git(['stash', 'pop', '--index', '-q']);
+log(await act(() => tool('Refresh')));
 
 step(16, 'commit search: message, sha prefix, next match, Escape');
 const mainOnlySha = git(['log', '--all', '--format=%H', '--grep=Main-only change']).split('\n')[0] ?? '';
@@ -742,21 +779,18 @@ log(await modalOk());
 // own title: `.modal` alone would still be showing the name prompt that was just answered (GC-053)
 await waitFor(`document.querySelector('.modal h3')?.textContent === 'Add remote upstream'`, 'the URL prompt to replace the name prompt');
 log(await modal(remoteUrl, null));
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('remote added and fetched', git(['remote']).split('\n').includes('upstream') && git(['for-each-ref', '--format=%(refname)', 'refs/remotes/upstream']).includes('refs/remotes/upstream/main'), git(['remote', '-v']).replace(/\n/g, ' '));
 check('the new remote shows in the left panel', String(await ev(`[...document.querySelectorAll('.left-panel .ref-row.remote-group .row-name')].map(x => x.textContent).join(',')`)).includes('upstream'));
 await shot('remotes-added.png');
 
 // with two remotes the branch menu offers one push entry per remote, and each pushes there (GC-031)
 git(['branch', '-f', 'push-target', 'main']);
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 log(await contextMenuOn('.left-panel .ref-row', 'push-target'));
 const pushMenu = await menuList();
 check('branch menu lists a push entry per remote', /Push push-target to origin/.test(pushMenu) && /Push push-target to upstream/.test(pushMenu), pushMenu);
-log(await menuClick('Push push-target to upstream'));
-await settle();
+log(await act(() => menuClick('Push push-target to upstream')));
 check(
   'the chosen remote received the branch',
   git(['ls-remote', 'upstream', 'push-target']).includes(git(['rev-parse', 'push-target'])),
@@ -764,8 +798,7 @@ check(
 );
 git(['push', '-q', 'origin', '--delete', 'push-target']);
 git(['branch', '-D', 'push-target']);
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 
 log(await contextMenuOn('.left-panel .ref-row.remote-group', 'upstream'));
 const remoteMenu = await menuList();
@@ -773,24 +806,21 @@ check('remote menu offers manage actions', /Edit URL/.test(remoteMenu) && /Renam
 log(await menuClick('Rename'));
 await waitModal();
 log(await modal('mirror', null));
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('remote renamed', git(['remote']).split('\n').includes('mirror') && !git(['remote']).split('\n').includes('upstream'), git(['remote']).replace(/\n/g, ' '));
 
 log(await contextMenuOn('.left-panel .ref-row.remote-group', 'mirror'));
 log(await menuClick('Edit URL'));
 await waitModal();
 log(await modal('https://example.invalid/mirror.git', null));
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check('remote URL updated', git(['remote', 'get-url', 'mirror']) === 'https://example.invalid/mirror.git', git(['remote', 'get-url', 'mirror']));
 
 log(await contextMenuOn('.left-panel .ref-row.remote-group', 'mirror'));
 log(await menuClick('Remove mirror'));
 await waitModal();
 check('removal asks for confirmation', String(await modal(null, null)).includes('Remove remote mirror?'), await modal(null, null));
-log(await modalOk());
-await settle();
+log(await act(() => modalOk()));
 check(
   'remote removed with its tracking branches',
   !git(['remote']).split('\n').includes('mirror') && git(['for-each-ref', '--format=%(refname)', 'refs/remotes/mirror']) === '',
@@ -854,8 +884,7 @@ step(19, 'file row context menu: stage and unstage a file from the staging list'
 // here the stash pop in step 8 has already folded the setup's edit into the history, so make the
 // edit, drive both menu actions against it, and check the file back out at the end.
 writeFileSync(join(R, MENU_FILE), `line1\nline2 changed\nline3\nline4 new\nfile menu step ${stamp}\n`);
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 // the rows are virtualised and step 18 left a commit deep in the graph selected, so scroll the WIP
 // row back into the rendered window before clicking it (GC-030's lesson, applied here)
 await waitFor(`(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return !!document.querySelector('.graph-row.wip'); })()`, 'the WIP row to be rendered');
@@ -901,8 +930,7 @@ check('Unstage file from the row menu unstages it again', shortOf(MENU_FILE) ===
 
 // put the file back so the run stays re-entrant
 git(['checkout', '-q', '--', MENU_FILE]);
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 
 step(20, 'commit form: stage a file, type a summary and a description, commit with Ctrl+Enter, then amend');
 // GC-062. The two most frequent actions in a git client had no coverage: this one drives
@@ -916,8 +944,7 @@ const COMMIT_BODY = 'Second line, typed into the description field.';
 const headBefore = git(['rev-parse', 'HEAD']);
 const statusBefore = status();
 writeFileSync(join(R, COMMIT_FILE), 'commit form\n');
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 log(await selectWip());
 // only the staging view lists an uncommitted file, so this cannot be satisfied by a commit view
 await inGroup('Unstaged Files', COMMIT_FILE);
@@ -975,8 +1002,7 @@ check(
 git(['reset', '--soft', headBefore]);
 git(['reset', '-q', '--', COMMIT_FILE]);
 rmSync(join(R, COMMIT_FILE), { force: true });
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 check('the commit step left the repository as it found it', git(['rev-parse', 'HEAD']) === headBefore && status() === statusBefore, `${status()} | expected ${statusBefore}`);
 
 step(21, 'hunk staging: Stage hunk, Unstage hunk, and a Discard hunk that is cancelled');
@@ -1043,18 +1069,70 @@ check(
 );
 await escape();
 await waitFor(`!document.querySelector('.file-view')`, 'the diff to close');
-log(await tool('Refresh'));
-await settle();
+log(await act(() => tool('Refresh')));
 
 await shot('final.png');
 
-step(22, 'branch menu: the tip-commit group, and a mixed Reset onto another branch tip');
+step(22, 'a file that is not in the working tree offers no shell action that fails');
+// GC-072. Both shell items go through `repoFile()`, which refuses a path that is not on disk, so
+// on a row whose file is gone the only thing either of them can do is put an error in the status
+// bar. `menuList()` prefixes a disabled item with "(x) ", which is what these assertions read.
+const goneItems = (menu) => menu.split(' | ').filter((i) => /Open file|Show in folder/.test(i));
+const DELETED_COMMIT = 'Remove obsolete file';
+const DELETED_FILE = 'obsolete.txt';
+await waitFor(
+  `(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return [...document.querySelectorAll('.graph-row')].some(r => r.innerText.includes(${q(DELETED_COMMIT)})); })()`,
+  `the ${DELETED_COMMIT} row to be rendered`,
+);
+log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row')].find(x => x.innerText.includes(${q(DELETED_COMMIT)})); if (!r) return 'no row ' + ${q(DELETED_COMMIT)}; r.click(); return 'selected ' + ${q(DELETED_COMMIT)}; })()`));
+await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(DELETED_FILE)})`, `the commit's file list to show ${DELETED_FILE}`);
+log(await contextMenuOn('.detail-panel .file-row', DELETED_FILE));
+const deletedCommitMenu = await menuList();
+check(
+  'a commit-file row for a deleted file disables both shell actions',
+  goneItems(deletedCommitMenu).length === 2 && goneItems(deletedCommitMenu).every((i) => i.startsWith('(x) ')) && /Copy file path/.test(deletedCommitMenu),
+  deletedCommitMenu,
+);
+await shot('file-row-menu-deleted.png');
+await escape();
+
+// the fixture's own staged deletion, and then an unstaged one made with rm: the WIP half of the
+// same hole, where nothing in the menu told the two apart from a file that is still on disk
+const STAGED_DELETION = 'main.txt';
+const UNSTAGED_DELETION = GUARD_TRACKED;
+rmSync(join(R, UNSTAGED_DELETION), { force: true });
+log(await act(() => tool('Refresh')));
+log(await selectWip());
+for (const [file, what] of [
+  [STAGED_DELETION, 'staged'],
+  [UNSTAGED_DELETION, 'unstaged'],
+]) {
+  await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(file)})`, `the staging list to show ${file}`);
+  log(await contextMenuOn('.detail-panel .file-row', file));
+  const menu = await menuList();
+  check(`a ${what} deletion (${file}) disables both shell actions`, goneItems(menu).length === 2 && goneItems(menu).every((i) => i.startsWith('(x) ')), menu);
+  await escape();
+}
+// a file that is still on disk keeps them, so the guard is the deletion and not the menu. big.txt
+// rather than a.txt: step 19 checks a.txt back out, so by here it is clean and has no row at all.
+await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(HUNK_FILE)})`, `the staging list to show ${HUNK_FILE}`);
+log(await contextMenuOn('.detail-panel .file-row', HUNK_FILE));
+const presentMenu = await menuList();
+check('a file that is still on disk keeps both shell actions', goneItems(presentMenu).length === 2 && goneItems(presentMenu).every((i) => !i.startsWith('(x) ')), presentMenu);
+await escape();
+git(['checkout', '-q', '--', UNSTAGED_DELETION]);
+log(await act(() => tool('Refresh')));
+
+step(23, 'branch menu: the tip-commit group, and a mixed Reset onto another branch tip');
 // GC-049. The reset actions used to exist only on the commit row, so resetting onto a branch tip
 // meant finding that exact row in the graph — impossible once it has scrolled out. The branch
 // menu now composes the same items, and this step drives the one that changes a ref.
 const RESET_BRANCH = 'wip-branch';
 const resetTarget = git(['rev-parse', RESET_BRANCH]);
 const mainBefore = git(['rev-parse', 'HEAD']);
+// a mixed reset is exactly the thing that empties the index, so remember the fixture's staged half
+// and put it back with the ref below — it survives the run now that a pop restores it (GC-082)
+const stagedBeforeReset = git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean);
 const currentBefore = git(['branch', '--show-current']);
 log(await contextMenuOn('.left-panel .ref-row', RESET_BRANCH));
 const branchMenu = await menuList();
@@ -1065,8 +1143,7 @@ check(
     ['soft', 'mixed', 'hard'].every((m) => branchMenu.includes(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}: ${m}`)),
   branchMenu,
 );
-log(await menuClick(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}: mixed`));
-await settle();
+log(await act(() => menuClick(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}: mixed`)));
 check(
   'the mixed reset moved the checked-out branch onto the other branch tip',
   git(['rev-parse', 'HEAD']) === resetTarget && git(['branch', '--show-current']) === currentBefore,
@@ -1075,10 +1152,10 @@ check(
 // put the ref and the index back; the working tree was never touched by a mixed reset, and the
 // fixture assertions in the next step are what prove it
 git(['reset', '--mixed', '-q', mainBefore]);
-log(await tool('Refresh'));
-await settle();
+if (stagedBeforeReset.length) git(['add', '-A', '--', ...stagedBeforeReset]);
+log(await act(() => tool('Refresh')));
 
-step(23, 'a detached HEAD is marked in the graph, and Push says why it is disabled');
+step(24, 'a detached HEAD is marked in the graph, and Push says why it is disabled');
 // GC-061. `for-each-ref` marks `isHead` only on a branch, so detaching used to leave no row
 // saying which commit is checked out. The detach is at HEAD, not HEAD~1: the fixture carries
 // edits to tracked files every earlier step asserts against, and moving to another commit would
@@ -1108,7 +1185,7 @@ await waitIdle();
 const reattached = await ev(`(() => JSON.stringify({ head: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].filter(c => c.textContent.trim() === 'HEAD').length, mainChecked: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].some(c => c.textContent.trim() === 'main' && c.classList.contains('head')) }))()`);
 check('checking the branch back out removes the HEAD chip and gives main the check mark', JSON.parse(reattached).head === 0 && JSON.parse(reattached).mainChecked === true, reattached);
 
-step(24, 'the run leaves the fixture exactly as it found it');
+step(25, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).
@@ -1127,4 +1204,7 @@ check('the working tree is the one the next run expects', status() === EXPECTED_
 ws.close();
 stopApp();
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILED'} (screenshots in ${SHOTS})`);
+// The run's own clock, so a speed change is measured in a ticket's log rather than estimated from
+// screenshot timestamps the way GC-080's ~55-60s baseline had to be (GC-080).
+console.log(`total: ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
 process.exit(failures === 0 ? 0 : 1);

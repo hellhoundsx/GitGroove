@@ -198,6 +198,13 @@ Awesome icons, Open Sans, bundled Git for Windows shelled out to. Native (Chromi
   `--no-edit`, rebase, cherry-pick, revert, reset soft/mixed/hard, tags, fetch
   `--all --prune`, pull (`--no-rebase` | `--ff-only` | `--rebase`), push (`-u <remote> <branch>`
   when setting upstream, `--force-with-lease` for force), stash push/apply/pop/drop.
+- **`stashApply` and `stashPop` pass `--index`** (GC-082). Without it git merges everything the
+  stash held into the working directory, so what the user had staged when they stashed comes back
+  unstaged and is gone. `--index` refuses when the stashed index cannot be reinstated and applies
+  nothing when it refuses, so `restoreStash` retries the plain form — and then rejects, because the
+  working directory came back and the staging did not, and reporting that as a clean success is the
+  loss all over again. `run()` re-applies the message after its reload, so the state on screen is
+  right and the line says what was not restored.
 - **A push with no remote named picks `defaultRemote(remotes)` from `src/shared/remotes.ts`**
   (`origin`, else the first remote): `getRemotes` sorts by name, so a plain `remotes[0]` sent
   tag pushes to a remote called `alpha` while branch pushes went to `origin` (GC-031). Main and
@@ -277,6 +284,12 @@ background refs reload started before a click resolved after it and replaced the
 the one it had captured, so a file the user had just staged showed as unstaged until the next
 file-system event. The *writes* still have no such identity — two overlapping `run()` calls let the
 first to finish clear `busy` — which is GC-084.
+A second counter, `dataGen`, records the opposite thing: what the app has actually **applied** to
+state (GC-080). Every place that lands a snapshot or a status bumps it — `load()` on both its
+paths, `refreshStatus()` and `applyChange()` — and it reaches the DOM as `data-gen` on
+`.statusbar`. It is the only announcement a finished reload has ever made, and the e2e suite waits
+on it instead of sleeping through the window the spinner does not cover; a new reload path has to
+bump it or every wait in the suite hangs on the action that uses it.
 Staging actions are exposed to the DetailPanel as `StagingActions`; menus are built by
 `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`, `remoteMenuItems`.
 
@@ -504,7 +517,12 @@ file for an untracked one) through `discardFileConfirm`, the same wording the ro
 uses, then Open file, Show in folder and Copy file path. The action that does not apply is absent
 rather than disabled, and Discard is offered only in the unstaged group because `actions.discard`
 throws the working-tree change away and a staged-only row has nothing for it to take. Commit rows
-get the last three only, with Open file disabled on a `deleted` file.
+get the last three only. **Both shell actions are disabled together on a row whose file is not in
+the working tree** (GC-072): they go through `repoFile()`, which refuses a path that is not on
+disk, so neither can do anything but put an error in the status bar. That is a commit file whose
+`kind` is `deleted`, and a staging row where `deletedFromTree` says so — the unstaged side
+decides when both are set, being the later of the two. Disabling rather than revealing the parent
+folder keeps the guard in the renderer, where the rest of the menu is.
 
 ### Styling
 
@@ -526,7 +544,8 @@ the window. Section headers are uppercase via CSS, so tests must compare `textCo
 
 `npm run e2e:setup && npm run e2e` (build first). `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy. `setup-testrepo.mjs` creates a repository
-with a merge, a tag, three branches, a bare `origin` with everything pushed, and a mixed working
+with a merge, a tag, three branches, a commit that deletes a file (`Remove obsolete file`, for
+GC-072), a bare `origin` with everything pushed, and a mixed working
 tree (unstaged edits, untracked file, staged edit, staged deletion, a two-hunk file). `run.mjs`
 kills Electron, launches the built app with the DevTools port, loads the repo through
 `localStorage`, and asserts against git after each step: branch create/checkout/delete via prompt
@@ -554,24 +573,37 @@ find bar itself. Reverting GC-037 or GC-038 locally fails that step.
 It waits on the DOM rather than on fixed sleeps (GC-053): `waitFor(expression, what, max)` polls
 the renderer every 50ms for the state a step needs — a menu present or gone, a modal, the Pull
 popover, the find bar and its readout, the selected row, a file view, a file-row count — and
-`waitIdle` polls the status-bar spinner. Five `sleep` calls are left, each with a comment saying
-what is unobservable there: the two poll intervals, `waitIdle`'s post-spinner reload, `settle`'s
-own window, and one query in step 16 that lands on the same single commit as the one before it.
-A fixed sleep caused one flake, and the 61 of them cost about 19s of idle time per run (64s
-before, 44-46s after). `contextMenuOn` waits for the previous menu to be **gone** before it
+`waitIdle` polls the status-bar spinner away. **Every git action goes through `act(fn)`**, which
+reads `data-gen` off the status bar, performs the action and waits for that counter to have moved
+**and** the spinner to be gone (GC-080). Both, because either alone is satisfiable by the wrong
+moment: a watcher refresh landing between the read and the click moves the counter on its own, and
+the spinner is absent in the instant before the click raises it. `settle()` is gone and `waitIdle`
+no longer sleeps after the spinner, so **three** `sleep` calls are left, each with a comment saying
+what is unobservable there: the two poll intervals, and one query in step 16 that lands on the same
+single commit as the one before it. The run prints its own wall time on the last line, so a speed
+change is measured rather than estimated: 57s measured on this machine before GC-080, 19.5-19.7s
+after. The one wait that cannot use `act()` is step 1's, which reloads the page — the generation
+starts again from zero across it, and the app has usually already loaded the same repository from
+`gitclient.lastRepo`, so the step sets `window.__e2eReloading` and waits for the *new* document;
+without that the wait is satisfied by the page about to be thrown away and the reload lands in the
+middle of step 2. `contextMenuOn` waits for the previous menu to be **gone** before it
 dispatches: a synthetic `contextmenu` fires no `mousedown`, so it does not dismiss a menu that is
 still up, and step 15 opens the same menu four times, and the file-row context menu (GC-043): the
 menu on an unstaged `a.txt` lists Stage, Discard and the three shell actions and no Unstage, Stage
 moves it into the Staged group and into `git status --short` as `M  a.txt`, the staged row's menu
 offers Unstage and neither Stage nor Discard, and Unstage puts it back. Step 19 makes its own edit
 to `a.txt` and checks it back out; the prologue undoes it only when the file is *staged*, the one
-state that step can leave behind, an unstaged edit there being the fixture's own. Step 22 opens the
+state that step can leave behind, an unstaged edit there being the fixture's own. Step 22 reads the
+menu on three rows whose file is not in the working tree — the `obsolete.txt` row of the fixture's
+`Remove obsolete file` commit, the staged deletion `main.txt` and an unstaged deletion it makes with
+`rm` — and asserts Open file and Show in folder are disabled on all three and live on a file that is
+still there (GC-072). Step 23 opens the
 branch menu on a branch that is not checked out, asserts the tip-commit group GC-049 added to it,
-and drives its mixed Reset onto that branch's tip before putting the ref and the index back; step 23
+and drives its mixed Reset onto that branch's tip before putting the ref and the index back; step 24
 detaches HEAD (at `HEAD`, not `HEAD~1` — the fixture's tracked edits make moving to another commit
 unsafe) and asserts the synthetic `HEAD` chip, its row against `git log -1`, the Push button's
 detached title, and that checking `main` back out removes the chip and restores its check mark. All
-97 assertions passed on the last several runs. Steps 20 and 21 cover the commit form and hunk staging,
+104 assertions passed on the last several runs. Steps 20 and 21 cover the commit form and hunk staging,
 the two actions a client is judged on first and the two most fragile git invocations behind them
 (GC-062). Step 20 stages a scratch file from its row's Stage button, types a summary and a
 description into the form, reads the 72-character counter, commits with a real Ctrl+Enter aimed at
@@ -596,20 +628,31 @@ clone` — so the fixture used to grow by three commits a run (6 on `main` at se
 44 after a batch's), until step 16 asserted on a virtualised row that history that long had pushed
 out of the rendered window and the flake looked like a regression in whatever ticket was in flight.
 `restoreFixture()` in `run.mjs` undoes all three, and is called twice: at the end of the prologue,
-recovering a run that died mid-scenario, and again as **step 24**, the healthy path. It matches
+recovering a run that died mid-scenario, and again as **step 25**, the healthy path. It matches
 commits by **subject**, the way the GC-062 block matches its own mark, rather than resetting to a
 baseline sha — a commit added to the fixture by hand is not the run's to remove, and leaving it is
-what makes step 24 fail loudly and name itself (`7 commits, the fixture has 6 | run: npm run
+what makes step 25 fail loudly and name itself (`8 commits, the fixture has 7 | run: npm run
 e2e:setup | drifted: <sha> <subject>`) instead of silently healing drift it exists to report. It
 resets `--soft`, unstages only what the dropped commits contributed, writes `a.txt`'s unstaged edit
 back (`main change` absorbs it into a commit), rewinds `wip-branch` and the bare origin by ref,
 deletes branches the fixture does not have, and removes `clone2`. `setup-testrepo.mjs` records every
 branch tip under **`refs/e2e/baseline/*`** — a namespace `getRefs()` never reads (heads, remotes and
 tags only) whose commits the branches already reach, so the graph gains no row — and `run.mjs` exits
-2 with the `e2e:setup` message on a fixture that predates it. Step 24 deliberately does not assert
-the fixture's *staged* half: step 8 pops the stash through the toolbar, which does not pass
-`--index`, so the staged `README.md` edit and `main.txt` deletion come back unstaged on every run
-(GC-082). Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
+2 with the `e2e:setup` message on a fixture that predates it, or when `<root>/testrepo` is missing
+or is not a git repository (GC-064). Step 25 asserts the fixture's *staged* half too, now that a
+toolbar Pop restores the index (GC-082): `EXPECTED_STATUS` carries `M  README.md` and `D  main.txt`
+in the first column. Three places had to stop dropping it, each of them the suite's own doing and
+none of them the app's — step 15's recovery pop takes `--index` like every other in the file, and
+steps 12 and 23 park the staged half by hand and put it back, step 12 because git refuses a
+cherry-pick outright while the index is dirty (GC-090) and step 23 because a mixed reset is exactly
+the thing that empties it. A fixture carried over from a pre-GC-082 run has lost the staged half and
+must be rebuilt with `npm run e2e:setup`; step 25 says so. Screenshots land in `<root>/shots/`,
+whose directory `shot()` creates on demand so a deleted `shots/` cannot end a run in an unhandled
+`ENOENT` (GC-064). The run writes `<root>/.e2e-owner.json` with its pid while it works, and
+`setup-testrepo.mjs` refuses to wipe a root whose marker belongs to a live process, naming the pid,
+unless `--force` is passed; a marker older than 30 minutes is stale whatever its pid says, because
+pids come round again and an unattended routine must not be blocked for ever by one that has
+(GC-064). The run is re-entrant (prologue
 aborts in-progress operations, removes the refs and the remotes it creates (including the
 `push-target` branch step 17 pushes, locally and on the bare origin), and drops the
 `e2e checkout guard` stash a run interrupted in step 15 would leave behind, restores `feature.txt`,
@@ -836,7 +879,15 @@ the folded refs reworked into the chip itself growing downward rather than a pop
 the branch menu carrying its tip commit's actions, Reset among them, out of one helper both menus
 compose (GC-049); a synthetic `HEAD` chip so a detached checkout says which commit it is on, and a
 Push button that names why it is disabled (GC-061); and the message column giving the summary
-priority over the body preview, which now disappears rather than outliving it (GC-069).
+priority over the body preview, which now disappears rather than outliving it (GC-069); both shell
+actions disabled on a file row whose file is not in the working tree, so the menu no longer offers
+an item that can only fail, with a fixture commit that deletes a file behind it (GC-072); an
+`e2e:setup` that refuses to wipe a scratch root a live run is holding, a suite that fails fast on a
+missing `testrepo` and a `shots/` directory created on demand (GC-064); `stash apply` and
+`stash pop` restoring the index, with a named fallback when git cannot reinstate it (GC-082); and
+the e2e run waiting on a snapshot generation the status bar publishes instead of 43.8s of fixed
+sleeps, taking it from 57s to 19.5s with three `sleep` calls left and its own wall time printed
+(GC-080).
 Write control characters into a source file as an
 escape, never as the byte itself: a literal one makes git treat the whole file as binary, and
 `git diff`, `git blame`, review and the `.gitattributes` LF rule all silently skip it while
