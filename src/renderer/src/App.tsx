@@ -1671,6 +1671,11 @@ export function App(): JSX.Element {
       const items: MenuItem[] = [];
       const locals = refs.filter((r) => r.kind === 'head');
       const remotes = refs.filter((r) => r.kind === 'remote');
+      // Every row here is a branch, so the menu is a list rather than a set of actions: on a
+      // repository with fifty branches and their remotes it is unusable without something to narrow
+      // it, and the control it replaces — finding the row in the left panel — has a filter (GC-096).
+      // The menu does the narrowing itself; this only asks for the field.
+      if (locals.length || remotes.length) items.push({ filter: true, placeholder: 'Filter branches' });
       if (locals.length) {
         items.push({ label: 'Local', caption: true });
         for (const r of locals) items.push(row(r));

@@ -1855,7 +1855,7 @@ await waitIdle();
 const reattached = await ev(`(() => JSON.stringify({ head: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].filter(c => c.textContent.trim() === 'HEAD').length, mainChecked: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].some(c => c.textContent.trim() === 'main' && c.classList.contains('head')) }))()`);
 check('checking the branch back out removes the HEAD chip and gives main the check mark', JSON.parse(reattached).head === 0 && JSON.parse(reattached).mainChecked === true, reattached);
 
-step(25, 'hide and solo branches: the graph, the panel's hidden markers and Show all');
+step(25, 'hide and solo branches: the graph, the hidden markers in the panel and Show all');
 // GC-073. Hiding is one `--exclude=<fullName>` per ref ahead of `--all`, so a commit reachable
 // from a ref that is still shown keeps its row: hiding the local `wip-branch` alone removes
 // nothing, because `origin/wip-branch` still reaches the same commit. That is why this hides both
@@ -1950,6 +1950,36 @@ check('the two groups are captioned Local and Remote', (await menuCaptions()) ==
 check('every local branch is a row, the checked-out one marked and disabled', /\(x\) ✓ main/.test(crumbMenu) && crumbMenu.includes('feature') && crumbMenu.includes('wip-branch'), crumbMenu);
 check('every remote branch is a row too', crumbMenu.includes('origin/feature') && crumbMenu.includes('origin/main') && crumbMenu.includes('origin/wip-branch'), crumbMenu);
 await shot('13-branch-crumb-menu.png');
+// GC-096: every row here is a branch, so the menu carries a filter. It is focused when the menu
+// opens, it narrows the rows as it is typed, and a group whose rows all go loses its caption too.
+const filterMenu = (text) =>
+  liveClick(
+    `the branch filter, to type ${text}`,
+    `(() => { const i = document.querySelector('.ctx-menu .ctx-filter'); if (!i) return 'MISS no menu filter'; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${q(text)}); i.dispatchEvent(new Event('input', { bubbles: true })); return 'filtered by ' + ${q(text)}; })()`,
+  );
+check('the filter takes focus when the menu opens', (await ev(`document.activeElement?.classList.contains('ctx-filter') === true`)) === true);
+log(await filterMenu('origin/wip'));
+await waitFor(`document.querySelectorAll('.ctx-menu .ctx-item').length === 1`, 'the menu to narrow to one row');
+check('only the matching row is left', (await menuList()).includes('origin/wip-branch'), await menuList());
+check('the group that emptied loses its caption', (await menuCaptions()) === 'Remote', await menuCaptions());
+log(await filterMenu('feature'));
+await waitFor(`document.querySelectorAll('.ctx-menu .ctx-item').length === 2`, 'the menu to narrow to the two feature rows');
+check('both groups keep their caption while both still have a row', (await menuCaptions()) === 'Local | Remote', await menuCaptions());
+await shot('13b-branch-crumb-filtered.png');
+// Enter takes the first row still standing, through `checkoutRef` — so the dirty-tree guard is in
+// front of it exactly as it is for a click. The tree is deliberately dirty here and stays that way
+// for later steps, so what this asserts is the guard naming the branch Enter chose, not a
+// completed checkout; step 15 is where a checkout is carried through.
+await enterKey();
+await waitModal();
+check('Enter checks the first remaining row out, through the dirty-tree guard', (await modalMessage()).includes('Check out feature anyway?'), await modalMessage());
+log(await modalClick('Cancel'));
+await waitNoModal();
+check('Cancel after Enter leaves the checkout undone', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'main', git(['rev-parse', '--abbrev-ref', 'HEAD']));
+await waitNoMenu();
+log(await branchCrumb());
+await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the branch menu reopened with an empty filter');
+check('reopening starts from an unfiltered list again', (await menuCaptions()) === 'Local | Remote' && (await ev(`document.querySelector('.ctx-menu .ctx-filter').value`)) === '', await menuList());
 // A second click closes it rather than reopening it: the crumb owns its menu (GC-066).
 log(await branchCrumb());
 await waitNoMenu();

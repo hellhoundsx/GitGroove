@@ -1908,6 +1908,17 @@ input[type='radio']:disabled {
   margin: 4px 0;
   background: var(--border);
 }
+/* The filter at the top of a menu whose rows are a list rather than a set of actions (GC-096).
+   Full width inside the menu's own padding, and separated from the rows by the same rule a group
+   gets, so it reads as the head of the list it narrows. */
+.ctx-filter {
+  display: block;
+  width: calc(100% - 12px);
+  height: 22px;
+  margin: 2px 6px 6px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-sm);
+}
 /* A non-interactive heading over a group of rows, matching the panels' section headers and the
    empty state's own recents caption (GC-067). */
 .ctx-caption {
