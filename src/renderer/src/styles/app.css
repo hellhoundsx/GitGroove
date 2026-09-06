@@ -1341,6 +1341,27 @@ input[type='radio']:disabled {
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-sm);
 }
+/* The staging head's title, centred against the head itself (GC-196): it takes the middle and the
+   button beside it keeps its own width, so nothing about what is at either end moves the centre.
+   It ellipsises rather than pushing the button off, since a long branch name is the one thing here
+   that can grow. */
+.detail-head .head-title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* What balances the trash button on the other side of the title, so "centred" is centred rather
+   than centred-in-what-is-left (GC-196). It is the button's own 24px and takes the head's gap like
+   any other item — the zero-width `span` that used to close this row took the gap but no width,
+   which is what put the title 12px off; compensating with a margin instead left 4px, the gap's own
+   half. An element that is the same size as the thing it mirrors cannot drift that way. */
+.detail-head .head-balance {
+  flex: none;
+  width: 24px;
+}
 .detail-head .sha {
   color: var(--text-bright);
   font-family: var(--font-mono);
@@ -1469,12 +1490,37 @@ input[type='radio']:disabled {
    in. Measured, the 60% only binds below a ~336px panel — at 400 and 350 the floor is the full
    180px and the date is whole — and it is what keeps the panel's own 300px minimum from cutting
    the parents column to four characters to spare a date nothing else was competing for. */
+/*
+ * Avatar, identity, parents — three things on one row while they fit, and the parents on a line of
+ * its own when they do not (GC-196).
+ *
+ * GC-142 made this a three-column grid so the parents had a place, and GC-157 made that column the
+ * one that gives way. The measurement says it gives way past legibility: at the panel's 300px
+ * minimum the date's floor resolves to 165px and it wants exactly 165, leaving the parents a 46px
+ * column for 49px of text — `parent: 7774cac` wrapped to 2.5 lines, 40px tall in a 53px block,
+ * with the sha cut at the panel's edge. Neither of the two can yield to the other, because at that
+ * width the row does not hold three things at all.
+ *
+ * So it wraps instead of being crushed. `flex-wrap` keeps the one-row layout exactly as it was
+ * wherever there is room — the identity takes the middle, the parents sit right — and drops the
+ * parents onto a full-width line under it when there is not, where it is still right-aligned and
+ * still one line. Nothing is clipped at any width, which the grid could not promise.
+ */
 .author {
-  display: grid;
-  grid-template-columns: auto minmax(min(60%, var(--author-when-w)), 1fr) minmax(0, auto);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-3);
   font-size: var(--fs-sm);
+}
+/* The avatar keeps its 40px; the identity is the flexible one and carries the date's own floor as
+   its basis, so the parents come off this row only once even that cannot be met. */
+.author > :first-child {
+  flex: none;
+}
+.author > :nth-child(2) {
+  flex: 1 1 var(--author-when-w);
+  min-width: 0;
 }
 .avatar {
   width: 40px;
@@ -1507,12 +1553,14 @@ input[type='radio']:disabled {
    to prevent. Capping at the grid area is structural: it cannot overlap at any width, whatever
    the arithmetic above leaves the column. */
 .author .parents {
-  justify-self: end;
+  /* `flex: none` and pushed right: it never shrinks below its content now, because the row it
+     cannot fit on is one it leaves (GC-196). A merge with several parents still wraps inside it.
+     `margin-left: auto` is what holds it to the right edge on both the shared row and its own. */
+  flex: none;
+  margin-left: auto;
+  max-width: 100%;
   text-align: right;
   color: var(--text-muted);
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
 }
 .author .parents b {
   font-family: var(--font-mono);
@@ -1568,6 +1616,12 @@ input[type='radio']:disabled {
 .file-list .group-head.open .chev {
   transform: rotate(90deg);
 }
+/* The count, its own element on this surface as it already is on the left panel's section head
+   (GC-196). Dimmer than the title it follows: it is what the group holds, not what it is. */
+.file-list .group-head .count {
+  color: var(--text-muted);
+  font-weight: 400;
+}
 /* The list's own header, and the strongest of the boundaries: a band rather than another
    hairline, so Unstaged and Staged read as two groups rather than one run of rows (GC-142). Its
    8px inset matches a file row's, so the label sits over the names it heads. It is `sticky` now
@@ -1589,6 +1643,9 @@ input[type='radio']:disabled {
   border-radius: var(--radius-sm);
   color: var(--text-bright);
   font-size: var(--fs-md);
+  /* A heading's weight, not body text one size up (GC-196): at 400 this read as a large row rather
+     than as the head of a group, next to a left panel whose section heads are bold. */
+  font-weight: 600;
 }
 .file-row {
   display: flex;

@@ -191,7 +191,7 @@ describe("the commit view's change readout (GC-143)", () => {
 // group you are staging into — sat below 788px of the group you are staging from.
 describe('the staging view’s collapsible groups (GC-197)', () => {
   const headFor = (title: string): HTMLElement => {
-    const el = screen.getByText((text) => text.startsWith(`${title} (`)).closest('.group-head');
+    const el = screen.getByText(title).closest('.group-head');
     if (!(el instanceof HTMLElement)) throw new Error(`no head for ${title}`);
     return el;
   };
@@ -206,7 +206,8 @@ describe('the staging view’s collapsible groups (GC-197)', () => {
     // Head only, and the list stops asking for a share of the column so the group under it rises.
     expect(rowsOf('Unstaged Files')).toBe(0);
     expect(headFor('Unstaged Files').parentElement?.className).toContain('closed');
-    expect(screen.getByText(/^Unstaged Files \(2\)/)).toBeTruthy();
+    // The count is its own element beside the title, and a closed group still says how many (GC-196).
+    expect(headFor('Unstaged Files').querySelector('.count')?.textContent).toBe('2');
     // The action button is unaffected by the state.
     expect(headFor('Unstaged Files').querySelector('button.btn')).toBeTruthy();
   });

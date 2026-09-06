@@ -204,9 +204,11 @@ function GroupHead({ title, count, open, onToggle, children }: { title: string; 
     <div className={`group-head ${open ? 'open' : ''}`}>
       <button className="group-toggle" aria-expanded={open} onClick={onToggle}>
         <Icon of={ChevronRight} size={12} className="chev" />
-        <span>
-          {title} ({count})
-        </span>
+        <span>{title}</span>
+        {/* The count is its own element, as the left panel's section head has it (GC-196). Inside
+            the label it was a heading with a number in its sentence; these are the same kind of
+            thing on two surfaces and now say so. */}
+        <span className="count">{count}</span>
       </button>
       {children}
     </div>
@@ -303,10 +305,16 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
         >
           <Icon of={Trash2} size={14} />
         </button>
-        <span>
+        {/* Centred against the head, not against what is left of it (GC-196). The `span` that used
+            to close this row stood where GitKraken puts its AI button but had no width, and an
+            empty flex item still takes the gap: `space-between` split the slack around 24px on one
+            side and nothing on the other, and the title's centre landed 12px — half the button —
+            right of the head's at both panel widths. The title takes the middle, and the balance
+            below is the button's own width mirrored, so the offset is zero. */}
+        <span className="head-title">
           {entries.length} file change{entries.length === 1 ? '' : 's'} on <b>{status?.branch ?? 'detached HEAD'}</b>
         </span>
-        <span />
+        <span className="head-balance" />
       </div>
       <div className="detail-body">
         {operation && (

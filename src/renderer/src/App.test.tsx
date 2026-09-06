@@ -125,8 +125,10 @@ const settle = async (fn: () => void = () => {}): Promise<void> => {
 
 /** The count in a `.group-head`, e.g. `Staged Files (1)`. */
 const groupCount = (label: string): number => {
-  const head = screen.getByText(new RegExp(`^${label} Files \\(\\d+\\)$`));
-  return Number(/\((\d+)\)/.exec(head.textContent ?? '')?.[1]);
+  // The count is its own `.count` element beside the title now (GC-196), so the head is found by
+  // its title and the number read off the element that holds it.
+  const head = screen.getByText(`${label} Files`).closest('.group-head');
+  return Number(head?.querySelector('.count')?.textContent);
 };
 
 /** Mounts the app and settles the load its mount effect starts, leaving the file unstaged. */
