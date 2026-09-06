@@ -1137,10 +1137,11 @@ input[type='radio']:disabled {
   min-height: 0;
 }
 .detail-head {
-  height: 36px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--sp-2);
   padding: 0 var(--sp-3);
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
@@ -1150,6 +1151,32 @@ input[type='radio']:disabled {
   color: var(--text-bright);
   font-family: var(--font-mono);
   cursor: pointer;
+}
+/* `commit: <sha>` is one thing and never breaks in two: the wrapping chips beside it can take the
+   rest of the row, but not the width of this (GC-087). */
+.detail-head .commit-id {
+  flex: none;
+  white-space: nowrap;
+}
+/* The refs on the commit, as the graph's own chips (GC-087). They keep to the right of the sha and
+   wrap onto further lines rather than ellipsising, so the remote is no longer the ref that
+   disappears; the head grows with them instead of clipping, which is why its height is a minimum
+   here rather than the fixed 36px it is in the staging view. With no refs the span is not rendered
+   at all, so nothing reserves a line for it. */
+.detail-head .ref-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 0;
+}
+/* A chip here is not draggable and not in a fixed-width column, so it takes its full name. */
+.detail-head .ref-chips .ref-chip {
+  flex: none;
+  cursor: default;
+  background: var(--bg-panel-raised);
 }
 .detail-body {
   flex: 1;
@@ -1441,13 +1468,8 @@ input[type='radio']:disabled {
 
 /* ---- Detail panel extras --------------------------------------------------- */
 
-.detail-head .refs {
-  color: var(--text-dim);
-  max-width: 55%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* `.detail-head .refs` went with the decoration string it styled: the ellipsis that cut
+   `origin/m…` off was this rule's `text-overflow`, and the header draws chips now (GC-087). */
 .icon-btn {
   width: 24px;
   height: 24px;

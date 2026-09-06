@@ -1950,6 +1950,11 @@ export function App(): JSX.Element {
                 onSelectSha={select}
                 onOpenFile={setFileView}
                 onFileMenu={(e, t) => onMenu(e, fileMenuItems(t))}
+                // The same three the graph gets, so a chip in the commit view behaves exactly as
+                // the one on its row does (GC-087).
+                refs={visibleRefs}
+                onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
+                onRefActivate={(r) => void checkoutRef(r)}
               />
             )}
           </>

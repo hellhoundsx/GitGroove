@@ -3,6 +3,7 @@ import { Archive, Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus
 import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
 import { continuesRange, layoutGraph, wipDashFor, type GraphLayout } from './lanes';
 import { GraphCell, LANE_W, ROW_H, laneColor } from './GraphCell';
+import { chipsFor, headChipFor, HEAD_REF, RefChip, type Chip } from './RefChip';
 import { Icon } from '../ui/icons';
 import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
@@ -97,24 +98,8 @@ const OPT_COL_W = { author: 140, date: 150, sha: 80 };
  */
 const MAX_CHIPS = 1;
 
-/**
- * A detached HEAD is on no branch, so `for-each-ref` marks nothing as the checked-out ref and
- * the chip that carries the check simply disappears. The graph builds its own (GC-061); it is
- * never a real ref, so `getRefs` and `GitRef` are untouched and the ref menu never sees it.
- */
-const HEAD_REF = 'HEAD';
-const headChipFor = (sha: string): GitRef => ({ name: HEAD_REF, fullName: HEAD_REF, kind: 'head', sha, isHead: true });
-/** A ref chip to draw; a local branch absorbs its upstream when both point at the same commit. */
-interface Chip {
-  ref: GitRef;
-  upstreamHere: boolean;
-}
-
-function chipsFor(refs: GitRef[]): Chip[] {
-  const absorbed = new Set<string>();
-  for (const r of refs) if (r.kind === 'head' && r.upstream && refs.some((o) => o.kind === 'remote' && o.name === r.upstream)) absorbed.add(r.upstream);
-  return refs.filter((r) => !(r.kind === 'remote' && absorbed.has(r.name))).map((r) => ({ ref: r, upstreamHere: r.kind === 'head' && !!r.upstream && absorbed.has(r.upstream) }));
-}
+/* `HEAD_REF`, `headChipFor`, `Chip`, `chipsFor` and the chip markup itself moved to `RefChip.tsx`
+   when the commit view started drawing the same chips (GC-087). */
 
 /**
  * Which displayed row a selection sits on, or -1 for one that is not on screen (GC-141).
@@ -475,32 +460,29 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     // whole gesture is defined on the branch `GitRef` behind a chip (GC-015).
     const dragAttrs = synthetic ? null : drag.attrs(r);
     return (
-    <span
-      key={r.fullName}
-      {...(dragAttrs ?? {})}
-      className={`ref-chip ${r.kind} ${r.isHead ? 'head' : ''} ${plain ? 'plain' : ''} ${!synthetic && drag.isSource(r) ? 'drag-src' : ''} ${!synthetic && drag.isOver(r) ? 'drop-over' : ''}`}
-      title={synthetic ? 'Detached HEAD\nRight-click for actions on this commit' : `${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions${dragAttrs?.draggable ? '\nDrag onto another branch to merge or rebase' : ''}`}
-      style={plain || r.kind === 'tag' ? undefined : { background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` }}
-      onContextMenu={(e) => {
-        e.stopPropagation();
-        if (synthetic) {
-          if (commit) onCommitMenu(e, commit);
-        } else onRefMenu(e, r);
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        if (!synthetic) onRefActivate(r);
-      }}
-    >
-      {isPinned && <Icon of={Pin} size={11} className="chip-icon pinned" />}
-      {r.isHead && <Icon of={Check} size={11} className="chip-icon" />}
-      {r.kind === 'tag' && <Icon of={Tag} size={11} className="chip-icon" />}
-      {r.kind === 'remote' && <Icon of={Cloud} size={11} className="chip-icon" />}
-      <span className="chip-name">{r.name}</span>
-      {/* In a narrow column the name wins over the marker (GC-071). The expanded `+N` block is not
-          bound by the column's width, so a chip in it keeps the cloud whatever the column is. */}
-      {upstreamHere && (plain === true || refColApplied >= REF_COL_ICONS_MIN) && <Icon of={Cloud} size={11} className="chip-icon trailing" />}
-    </span>
+      <RefChip
+        key={r.fullName}
+        chip={{ ref: r, upstreamHere }}
+        color={color}
+        pinned={isPinned}
+        plain={plain}
+        // In a narrow column the name wins over the marker (GC-071). The expanded `+N` block is not
+        // bound by the column's width, so a chip in it keeps the cloud whatever the column is.
+        upstreamMark={plain === true || refColApplied >= REF_COL_ICONS_MIN}
+        dragAttrs={dragAttrs}
+        className={`${!synthetic && drag.isSource(r) ? 'drag-src' : ''} ${!synthetic && drag.isOver(r) ? 'drop-over' : ''}`}
+        title={synthetic ? 'Detached HEAD\nRight-click for actions on this commit' : `${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions${dragAttrs?.draggable ? '\nDrag onto another branch to merge or rebase' : ''}`}
+        onContextMenu={(e) => {
+          e.stopPropagation();
+          if (synthetic) {
+            if (commit) onCommitMenu(e, commit);
+          } else onRefMenu(e, r);
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (!synthetic) onRefActivate(r);
+        }}
+      />
     );
   };
 

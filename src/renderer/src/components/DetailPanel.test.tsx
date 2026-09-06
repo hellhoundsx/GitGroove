@@ -65,6 +65,9 @@ function renderPanel(status: RepoStatus, onSelectSha: (sha: string) => void = no
         headCommit={COMMIT}
         status={status}
         openFile={null}
+        refs={[]}
+        onRefMenu={noop}
+        onRefActivate={noop}
         actions={
           {
             stage: noop,

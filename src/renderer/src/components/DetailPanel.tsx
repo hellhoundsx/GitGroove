@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
-import type { Commit, CommitFile, FileChangeKind, RepoStatus, StatusEntry } from '@shared/types';
+import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
+import type { Commit, CommitFile, FileChangeKind, GitRef, RepoStatus, StatusEntry } from '@shared/types';
 import type { CommitDraft } from '../App';
 import type { FileViewSource } from '../diff/DiffView';
 // The sentinel for the working-directory row: the commit view's banner selects it (GC-045).
 import { WIP } from '../graph/CommitGraph';
+import { chipsFor, RefChip } from '../graph/RefChip';
 import { Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
@@ -61,6 +62,14 @@ interface Props {
   onSelectSha(sha: string): void;
   onOpenFile(view: FileViewSource): void;
   onFileMenu(e: MouseEvent, target: FileMenuTarget): void;
+  /**
+   * The refs the graph is drawing, so the commit view can chip the ones on its own commit
+   * (GC-087). The same list the graph gets — hidden refs are already out of it — and the same two
+   * handlers, so a chip behaves identically wherever it is drawn.
+   */
+  refs: GitRef[];
+  onRefMenu(e: MouseEvent, ref: GitRef): void;
+  onRefActivate(ref: GitRef): void;
 }
 
 interface FileRowProps {
@@ -305,7 +314,18 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
   );
 }
 
-function CommitView({ repo, commit, status, openFile, onSelectSha, onOpenFile, onFileMenu }: Pick<Props, 'repo' | 'status' | 'openFile' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu'> & { commit: Commit }): JSX.Element {
+function CommitView({
+  repo,
+  commit,
+  status,
+  openFile,
+  refs,
+  onSelectSha,
+  onOpenFile,
+  onFileMenu,
+  onRefMenu,
+  onRefActivate,
+}: Pick<Props, 'repo' | 'status' | 'openFile' | 'refs' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu' | 'onRefMenu' | 'onRefActivate'> & { commit: Commit }): JSX.Element {
   const [files, setFiles] = useState<CommitFile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -322,6 +342,9 @@ function CommitView({ repo, commit, status, openFile, onSelectSha, onOpenFile, o
     };
   }, [repo, commit.sha]);
 
+  // Only the refs sitting on this commit, run through the graph's own absorb rule so `main` + `origin/main` here is one chip carrying the cloud, exactly as the row shows it.
+  const chips = useMemo(() => chipsFor(refs.filter((r) => r.sha === commit.sha)), [refs, commit.sha]);
+
   const pending = status?.entries.length ?? 0;
   const counts = { added: 0, modified: 0, deleted: 0, renamed: 0 };
   for (const f of files ?? []) {
@@ -334,15 +357,37 @@ function CommitView({ repo, commit, status, openFile, onSelectSha, onOpenFile, o
   return (
     <>
       <div className="detail-head">
-        <span>
+        <span className="commit-id">
           commit:{' '}
           <span className="sha" title="Copy full sha" onClick={() => void navigator.clipboard.writeText(commit.sha)}>
             {commit.sha.slice(0, 7)}
           </span>
         </span>
-        <span className="refs" title={commit.refs.join(', ')}>
-          {commit.refs.join(', ')}
-        </span>
+        {/* The refs on this commit as the chips the graph draws, not git's `%D` decoration as text
+            (GC-087). That string carried git's own syntax — `HEAD -> `, `tag: ` — and ellipsised at
+            its end, so the remote was the ref that disappeared; the panel is also the one place
+            refs were shown as words while every other surface shows them as chips. Same source as
+            the graph's, so the ordering and the absorb-the-upstream rule cannot drift, and the same
+            two gestures on each: right-click for the ref menu, double-click to check out. */}
+        {chips.length > 0 && (
+          <span className="ref-chips">
+            {chips.map((chip) => (
+              <RefChip
+                key={chip.ref.fullName}
+                chip={chip}
+                title={`${chip.ref.fullName}${chip.upstreamHere ? `\nup to date with ${chip.ref.upstream}` : ''}\nDouble-click to checkout, right-click for actions`}
+                onContextMenu={(e) => {
+                  e.stopPropagation();
+                  onRefMenu(e, chip.ref);
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  onRefActivate(chip.ref);
+                }}
+              />
+            ))}
+          </span>
+        )}
       </div>
       <div className="detail-body">
         {/* What is waiting in the working directory, in the one panel that otherwise drops it
