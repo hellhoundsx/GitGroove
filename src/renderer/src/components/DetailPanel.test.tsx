@@ -4,7 +4,8 @@ import { DetailPanel, pruneStagingGroups, readStagingGroups } from './DetailPane
 import { UiProvider } from '../ui/UiContext';
 import { WIP } from '../graph/CommitGraph';
 import { DEFAULT_PREFS, setPrefs } from '../prefs';
-import type { Commit, CommitFile, RepoStatus, StatusEntry } from '@shared/types';
+import type { Commit, CommitFile, RepoStatus, Stash, StatusEntry } from '@shared/types';
+import type { MenuItem } from '../ui/ContextMenu';
 
 // The commit view's working-directory banner (GC-045). The e2e suite drives the dirty case
 // end to end; what it cannot reach is the clean one — the fixture always has changes waiting, and
@@ -90,6 +91,7 @@ function renderPanel(status: RepoStatus, onSelectSha: (sha: string) => void = no
         onSelectSha={onSelectSha}
         onOpenFile={noop}
         onFileMenu={noop}
+        stashActions={() => []}
       />
     </UiProvider>,
   );
@@ -121,6 +123,7 @@ function renderStaging(status: RepoStatus): void {
         onSelectSha={noop}
         onOpenFile={noop}
         onFileMenu={noop}
+        stashActions={() => []}
       />
     </UiProvider>,
   );
@@ -246,5 +249,73 @@ describe('the staging view’s collapsible groups (GC-197)', () => {
     expect(readStagingGroups()).toEqual({});
     localStorage.setItem('gitclient.stagingGroups', JSON.stringify({ nonsense: true, unstaged: 'no' }));
     expect(readStagingGroups()).toEqual({});
+  });
+});
+
+// GC-178: the stash view was the one thing this panel can show that offered nothing to do with it.
+describe('the stash view’s actions (GC-178)', () => {
+  const STASH: Stash = {
+    index: 0,
+    sha: 'f00df00df00df00df00df00df00df00df00df00d',
+    message: 'On main: half a thought',
+    parent: COMMIT.sha,
+    date: '2026-09-01T09:00:00Z',
+  };
+
+  function renderStash(items: MenuItem[]): void {
+    stubApi([]);
+    setPrefs({ avatars: false });
+    render(
+      <UiProvider>
+        <DetailPanel
+          repo="C:/repo"
+          commit={null}
+          stash={STASH}
+          headCommit={COMMIT}
+          status={statusWith()}
+          openFile={null}
+          refs={[]}
+          compare={false}
+          onExitCompare={noop}
+          onRefMenu={noop}
+          onRefActivate={noop}
+          actions={{ stage: noop, unstage: noop, discard: noop, stageAll: noop, unstageAll: noop, commit: noop, abort: noop, ignore: noop } as never}
+          resize={{} as never}
+          focusSummary={0}
+          draft={{ summary: '', body: '', amend: false }}
+          onDraft={noop}
+          onSelectSha={noop}
+          onOpenFile={noop}
+          onFileMenu={noop}
+          stashActions={() => items}
+        />
+      </UiProvider>,
+    );
+  }
+
+  /** The shape `App`'s `stashMenuItems` actually returns, separator included. */
+  const menu = (fired: string[]): MenuItem[] => [
+    { label: 'Apply stash', onClick: () => fired.push('apply') },
+    { label: 'Pop stash', hint: 'apply and drop', onClick: () => fired.push('pop') },
+    { label: 'Edit message…', onClick: () => fired.push('edit') },
+    { separator: true },
+    { label: 'Drop stash', danger: true, onClick: () => fired.push('drop') },
+  ];
+
+  it('draws the menu’s four actions, in its order, and none of its furniture', () => {
+    renderStash(menu([]));
+    const labels = [...document.querySelectorAll('.stash-actions .btn')].map((b) => b.textContent);
+    expect(labels).toEqual(['Apply stash', 'Pop stash', 'Edit message…', 'Drop stash']);
+    // The separator is not a button, and the destructive row keeps the class that says so.
+    expect(document.querySelectorAll('.stash-actions .btn.danger')).toHaveLength(1);
+    expect(document.querySelector('.stash-actions .btn.danger')?.textContent).toBe('Drop stash');
+  });
+
+  it('runs the menu’s own handler, which is what makes the two surfaces ask the same question', () => {
+    const fired: string[] = [];
+    renderStash(menu(fired));
+    fireEvent.click(screen.getByText('Drop stash'));
+    // Not a second implementation of Drop: it is `stashMenuItems`' `onClick`, confirmation and all.
+    expect(fired).toEqual(['drop']);
   });
 });

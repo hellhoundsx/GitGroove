@@ -12,6 +12,7 @@ import { usePrefs } from '../prefs';
 import { formatDateTimeSeconds, relativeTime } from '../time';
 import { matches } from '../shortcuts';
 import { useUi, type ConfirmOptions } from '../ui/UiContext';
+import type { MenuItem } from '../ui/ContextMenu';
 import type { DragHandleProps } from '../ui/useDragWidth';
 
 /**
@@ -144,6 +145,14 @@ interface Props {
   refs: GitRef[];
   onRefMenu(e: MouseEvent, ref: GitRef): void;
   onRefActivate(ref: GitRef): void;
+  /**
+   * What can be done with the stash the panel is showing (GC-178) — `App`'s `stashMenuItems`, the
+   * one source the graph row and the left panel's row already use, handed over whole rather than
+   * as four callbacks. Whole, because that is what makes the wording and the confirmation the same
+   * ones: a stash dropped from here asks exactly what dropping it from the left panel asks,
+   * because it *is* that row's `onClick`.
+   */
+  stashActions(stash: Stash): MenuItem[];
 }
 
 interface FileRowProps {
@@ -648,7 +657,8 @@ function StashView({
   onSelectSha,
   onOpenFile,
   onFileMenu,
-}: Pick<Props, 'repo' | 'openFile' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu'> & { stash: Stash }): JSX.Element {
+  stashActions,
+}: Pick<Props, 'repo' | 'openFile' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu' | 'stashActions'> & { stash: Stash }): JSX.Element {
   const [files, setFiles] = useState<CommitFile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -675,6 +685,20 @@ function StashView({
           <span className="sha" title="Copy full sha" onClick={() => void navigator.clipboard.writeText(stash.sha)}>
             {stash.sha.slice(0, 7)}
           </span>
+        </span>
+        {/* Every other thing this panel can show offers something to do with it — the staging view
+            commits, the commit view restores a file — and this one offered nothing, so acting on
+            the stash on screen meant going back to its row for the menu (GC-178). The rows come
+            from `stashMenuItems`, so the labels and the confirmation are that menu's, and a
+            separator is furniture a button row has no use for. */}
+        <span className="stash-actions">
+          {stashActions(stash)
+            .filter((i) => !i.separator && i.label)
+            .map((i) => (
+              <button key={i.label} className={`btn ${i.danger ? 'danger' : ''}`} disabled={i.disabled} title={i.hint} onClick={() => void i.onClick?.()}>
+                {i.label}
+              </button>
+            ))}
         </span>
       </div>
       <div className="detail-body">

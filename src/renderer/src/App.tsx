@@ -2513,6 +2513,10 @@ export function App(): JSX.Element {
                 refs={visibleRefs}
                 onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
                 onRefActivate={(r) => void checkoutRef(r)}
+                // The stash view's own actions, from the menu the two stash rows already use, so
+                // the panel offers what it is showing rather than sending the user back to a row
+                // (GC-178). They go through `run()` because these items already do.
+                stashActions={stashMenuItems}
               />
             )}
             {detailCollapsed && (

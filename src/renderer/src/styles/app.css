@@ -1346,6 +1346,17 @@ input[type='radio']:disabled {
   font-family: var(--font-mono);
   cursor: pointer;
 }
+/* What can be done with the stash the panel is showing (GC-178). It wraps rather than ellipsising,
+   for the reason the ref chips beside it do: an action clipped to `Dro…` is one the user cannot
+   read, and the head's height is already a minimum. Right-aligned, so it sits opposite the
+   `stash@{n}` that names what these act on. */
+.detail-head .stash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+  padding: var(--sp-1) 0;
+}
 /* `commit: <sha>` is one thing and never breaks in two: the wrapping chips beside it can take the
    rest of the row, but not the width of this (GC-087). */
 .detail-head .commit-id {
