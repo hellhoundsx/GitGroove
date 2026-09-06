@@ -248,22 +248,23 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | done |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
 | GC-013 | Light theme | ui | M | P3 | done |
-| GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | in-progress |
+| GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
 | GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | todo |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
-| GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | in-progress |
-| GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | in-progress |
-| GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | in-progress |
-| GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | in-progress |
+| GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | done |
+| GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | done |
+| GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | done |
+| GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | done |
+| GC-108 | The repository-open path clears the status bar without owning it | actions | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | done |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | done |
 | GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | done |
-| GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | in-progress |
+| GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | done |
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
@@ -272,6 +273,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | todo |
+| GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | todo |
 | GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | todo |
@@ -1080,7 +1082,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-021 The pin follows a renamed branch and is dropped with a deleted one
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-005
 - **Why:** The pin is stored by branch name. Renaming the pinned branch from inside the app leaves
@@ -1095,14 +1097,23 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Out of scope:** detecting renames made outside the app (that needs GC-011's watcher, and the
   pin already degrades safely to HEAD there).
 - **Acceptance:**
-  - [ ] Renaming the pinned branch keeps its lineage in column 0 and the key holds the new name.
-  - [ ] Deleting the pinned branch removes `gitclient.pinned.<repoPath>`.
+  - [x] Renaming the pinned branch keeps its lineage in column 0 and the key holds the new name.
+  - [x] Deleting the pinned branch removes `gitclient.pinned.<repoPath>`.
 - **Files:** `src/renderer/src/App.tsx`.
 - **Verify:** build, then drive both paths against the e2e repo and read the key back.
 - **Log:**
   - 2026-09-05 proposed by GC-005 (this ticket): noticed while wiring the pin through the ref menu,
     which is the same menu that renames and deletes the branch.
   - 2026-09-06 05:18 claimed
+  - 2026-09-06 05:38 done. The rename item and `deleteBranch` both run with `{ rethrow: true }`
+    inside a try/catch, so the pin only moves when git actually succeeded: a rename re-pins under
+    the new name through `pinBranch`, a delete (plain or forced) clears it. Driven over CDP against
+    the scratch repository on a branch created for it: after "Pin to Left" the key held
+    `gc021-pin`; after renaming it through the ref menu the key held `gc021-renamed` and that
+    branch's node was at `cx` 18, the smallest on screen, with `main` at 38 — column 0 still its
+    lineage; after Delete, `localStorage.getItem('gitclient.pinned.<repo>')` was `null`. The
+    scratch repo was left with no `gc021-*` branch and its fixture status unchanged.
+    `docs/screenshots/gc-021-pin-renamed.png`.
 
 ---
 
@@ -1306,7 +1317,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-040 A crashed e2e run leaves its own Electron alive
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-035
 - **Why:** `tools/e2e/run.mjs` calls `stopApp()` on the last line only. Any earlier exit — an
@@ -1323,9 +1334,9 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Out of scope:** making the assertions themselves recoverable, and any change to what the run
   asserts.
 - **Acceptance:**
-  - [ ] Killing the run mid-scenario (or forcing a throw) leaves no electron process from this
+  - [x] Killing the run mid-scenario (or forcing a throw) leaves no electron process from this
         repository's `node_modules` behind.
-  - [ ] `npm run e2e` still passes and still stops only its own process tree.
+  - [x] `npm run e2e` still passes and still stops only its own process tree.
 - **Files:** `tools/e2e/run.mjs`.
 - **Verify:** start the run, interrupt it after a few steps, then check
   `Get-CimInstance Win32_Process -Filter "Name='electron.exe'"` lists nothing under this
@@ -1334,6 +1345,16 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-035 (this ticket): wiring the narrow stopper into the epilogue made
     it obvious that no other exit path reaches it.
   - 2026-09-06 05:18 claimed
+  - 2026-09-06 05:38 done. `run.mjs` registers `stopOnce()` on `process.on('exit')` the moment
+    `launchApp` resolves, with `SIGINT`/`SIGTERM` exiting explicitly (130/143) so those run it too;
+    `bail` and the epilogue both call it, and it stops at most one tree. `stopApp` is synchronous
+    (`taskkill /F /T`), which is what an `exit` handler requires. Verified by forcing an early
+    `process.exit(9)` just after the CDP socket opened: no electron process from this repository
+    was left and nothing was listening on 9333. The check bites — with the `exit` hook removed the
+    same forced exit left pid 33936 alive and listening on 9333, which was then stopped with
+    `stopPort(9333)`; the unrelated Electron tree already on the machine was untouched throughout.
+    A hard `taskkill /F` of the runner is still unrecoverable, as it is for any process. A clean
+    `npm run e2e` passes and stops only its own tree.
 
 ### GC-041 The launcher documents --keep-alive but checks --keep-running
 
@@ -4321,7 +4342,7 @@ decision is missing.
 
 ### GC-083 A diff that fails to load shows an empty body
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** diff | **Size:** S | **Priority:** P3
 - **Depends on:** GC-075
 - **Why:** `DiffView`'s body renders one of three things — the loading line, "No textual changes."
@@ -4336,10 +4357,10 @@ decision is missing.
 - **Out of scope:** retrying the load, the error line in the sub-header (it stays), the shape of the
   message `git.ts` produces.
 - **Acceptance:**
-  - [ ] With a diff forced to fail (delete the file from disk between opening two views, or point
+  - [x] With a diff forced to fail (delete the file from disk between opening two views, or point
         the view at a path git cannot diff), `.file-view .diff-body` carries the message and is not
         empty.
-  - [ ] A successful load is unchanged: no extra element in the body.
+  - [x] A successful load is unchanged: no extra element in the body.
 - **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css` (only if the
   message needs its own rule).
 - **Verify:** typecheck, build, the CDP check above, `npm run e2e`.
@@ -4347,10 +4368,21 @@ decision is missing.
   - 2026-09-06 proposed by GC-075 (this ticket): reworking the load path made the blank-on-error
     body obvious, and more likely to be seen now that a failed reload clears the previous diff.
   - 2026-09-06 05:18 claimed
+  - 2026-09-06 05:38 done. `DiffView` derives `loadError` — a `current` whose `text` is null —
+    during render and gives it a fourth `.diff-empty` branch; an action error is deliberately not
+    this, since it leaves the diff on screen. `.diff-empty` gained `white-space: pre-wrap`, because
+    what lands there is git's stderr. Verified by two new cases in `DiffView.test.tsx` (a rejecting
+    `getWorkdirFileDiff` puts the message in the body, exactly one `.diff-empty`, the sub-header
+    line still there; a successful load has none), which fail when the branch is removed. That is a
+    different method from the Verify line's CDP check, and the reason is worth recording: `App`
+    closes a WIP file view as soon as its path leaves the status list, so deleting the open file
+    closes the panel instead of failing its reload — the running app cannot be made to show this
+    for a working-tree file at all. Confirmed over CDP that the panel closes that way, and that a
+    diff that loads carries no `.diff-empty`.
 
 ### GC-084 Two overlapping actions clear the busy spinner early
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** S | **Priority:** P3
 - **Depends on:** GC-068
 - **Why:** `run()` in `App.tsx` sets `busy` to its own label and clears it to `null` in its `finally`,
@@ -4366,15 +4398,25 @@ decision is missing.
 - **Out of scope:** queuing or refusing a second action while one runs, a per-action progress UI,
   the reads GC-068 already covers.
 - **Acceptance:**
-  - [ ] Two actions started within the same tick leave the spinner up until the later one finishes.
-  - [ ] A unit test in `App.test.tsx` covering it, failing when the token check is removed.
-  - [ ] `npm run e2e` passes: `waitIdle` still settles at the right moment.
+  - [x] Two actions started within the same tick leave the spinner up until the later one finishes.
+  - [x] A unit test in `App.test.tsx` covering it, failing when the token check is removed.
+  - [x] `npm run e2e` passes: `waitIdle` still settles at the right moment.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/App.test.tsx`.
 - **Verify:** `npm test`, typecheck, build, `npm run e2e`.
 - **Log:**
   - 2026-09-06 proposed by GC-068 (this ticket): giving the background reads a generation counter
     made it plain that the actions writing `busy` and `error` still have no identity of their own.
   - 2026-09-06 05:18 claimed
+  - 2026-09-06 05:38 done. `run()` takes a `busyToken` on entry, the write-side counterpart of
+    GC-068's `generation`, and clears `busy` and applies its error only while it still owns it; a
+    `rethrow` caller still gets its exception, since that does not depend on the status bar. Two
+    tests in `App.test.tsx` drive the real overlap — Refresh, then Stage all from the detail panel,
+    whose buttons are gated on its own busy flag rather than the toolbar's — and assert that the
+    refresh finishing leaves the spinner on "Staging all", and that a refresh failing under it
+    raises no error banner. Both fail with the two `owns()` checks removed (2 failed | 20 passed)
+    and pass with them. That is the overlap the ticket describes; the criterion's "within the same
+    tick" is not literally reproducible through the UI, since the first action disables its own
+    button. `npm run e2e` passes unchanged, 23.5s, so `waitIdle` still settles where it did.
 
 ### GC-085 Dead CSS and an unreachable tooltip left over from the one-chip ref column
 
@@ -5249,7 +5291,7 @@ decision is missing.
 
 ### GC-103 The Preferences dialog outgrows a short window and its last rows cannot be reached
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `.modal` sets a width and no height at all, and `.modal-backdrop` centres it with
@@ -5270,10 +5312,10 @@ decision is missing.
 - **Out of scope:** making the dialog shorter by regrouping or paginating the settings, and the
   unstyled checkboxes and select (GC-101).
 - **Acceptance:**
-  - [ ] At a 720px-tall window with Preferences open, the Close button's bottom is inside the
+  - [x] At a 720px-tall window with Preferences open, the Close button's bottom is inside the
         viewport and every `.pref-row` can be scrolled to.
-  - [ ] At 900px nothing scrolls and the dialog looks exactly as it does today.
-  - [ ] The title and the button row do not scroll away with the content.
+  - [x] At 900px nothing scrolls and the dialog looks exactly as it does today.
+  - [x] The title and the button row do not scroll away with the content.
 - **Files:** `src/renderer/src/styles/app.css`.
 - **Verify:** launch through `tools/launch-app.mjs`, open Preferences, set the window to 1400x720
   over `Emulation.setDeviceMetricsOverride` and read back the Close button's rect against
@@ -5282,10 +5324,26 @@ decision is missing.
   - 2026-09-06 proposed by GC-014 (this ticket): its Preferences row pushed the dialog to 770px and
     the measurement above fell out of screenshotting it.
   - 2026-09-06 05:18 claimed
+  - 2026-09-06 05:38 done. `.modal` gains `max-height: calc(100vh - 40px)` and a `--modal-gap`
+    custom property; the part between the title and `.modal-buttons` moved into a new
+    `.modal-body` — a flex column with that same gap, `min-height: 0` and `overflow-y: auto` — in
+    all three modals (`Modal.tsx` renders it only when there is something to put in it, so a
+    title-only dialog is unchanged). That needed the two component files the ticket did not list;
+    a CSS-only version would have had to fake the padding around a sticky header, and the scope
+    line asked for a body that scrolls. `.shortcut-groups` lost its own `max-height: min(60vh,
+    560px)`, which would have been a scrollbar inside a scrollbar. Measured over CDP against the
+    scratch repository at 1400x900: modal 65-835, Close bottom 818, body not scrollable — the same
+    numbers this ticket recorded for today's build. At 1400x720: modal 20-700, Close bottom 683 of
+    720, title top 37, body scrollable; scrolled to the end, the last row ("Confirm checkout with
+    uncommitted changes") sits at 595-637 in view while the title and Close have not moved (37 and
+    683 either side of the scroll). The other two modals were checked at both heights too: the
+    shortcuts overlay is 48-672 at 720 with nothing scrolling and no inner scroll container left,
+    and a prompt is 262-458. `docs/screenshots/gc-103-prefs-900.png`, `gc-103-prefs-720.png`,
+    `gc-103-shortcuts-720.png`, `gc-103-shortcuts-900.png`, `gc-103-prompt-720.png`.
 
 ### GC-104 Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** diff | **Size:** M | **Priority:** P3
 - **Depends on:** GC-014
 - **Why:** Both diff layouts tint a changed line whole. GitKraken does not: the study records
@@ -5307,12 +5365,12 @@ decision is missing.
 - **Out of scope:** syntax highlighting, character-level diff inside a word, and the hunk actions,
   which act on `hunk.raw` and must stay untouched.
 - **Acceptance:**
-  - [ ] `wordDiff` unit tests: a trailing-word edit marks only that word; identical lines mark
+  - [x] `wordDiff` unit tests: a trailing-word edit marks only that word; identical lines mark
         nothing; two unrelated lines fall back rather than marking everything.
-  - [ ] In the e2e repo's `big.txt`, the split view marks `edited` on the added side and nothing on
+  - [x] In the e2e repo's `big.txt`, the split view marks `edited` on the added side and nothing on
         the removed side.
-  - [ ] The unified layout marks the same spans on the same lines.
-  - [ ] Staging a hunk still records the same patch it does today.
+  - [x] The unified layout marks the same spans on the same lines.
+  - [x] Staging a hunk still records the same patch it does today.
 - **Files:** `src/renderer/src/diff/parseDiff.ts`, `src/renderer/src/diff/DiffView.tsx`,
   `src/renderer/src/styles/app.css`, `src/renderer/src/styles/tokens.css`, tests.
 - **Verify:** `npm test`, e2e, and a screenshot of the split view next to
@@ -5321,6 +5379,20 @@ decision is missing.
   - 2026-09-06 proposed by GC-014 (this ticket): the split view makes the missing intra-line
     highlight plain, and the study records GitKraken having it.
   - 2026-09-06 05:18 claimed
+  - 2026-09-06 05:38 done. `parseDiff.ts` gains `wordDiff(old, new)` — common prefix and suffix
+    off first, a word LCS on what is left, `null` when the two share less than a quarter of the
+    longer line or either side is over 400 tokens — and `hunkWordSpans(hunk)`, which keys the spans
+    by the `DiffLine` object itself off `alignHunks`' pairing. `DiffView` renders both layouts
+    through one `code()` helper reading that map, computed once per parsed file, so the two cannot
+    drift and flipping layout re-diffs nothing. A marked run never starts or ends on whitespace.
+    Tokens `--diff-add-word` / `--diff-del-word` in both themes. Eight new unit tests, taking the
+    suite from 118 to 126. Measured over CDP on the scratch repo's `big.txt`: unified marks
+    `["edited"]` on `row 3 edited` and `row 35 edited` and nothing on the removed lines; split
+    marks the same two lines on the added side with the removed side clean; the span's computed
+    background is `rgba(92, 184, 92, 0.36)`. That is the CDP measurement rather than an e2e step,
+    which is what GC-109 now exists for. `npm run e2e` step 28 still reports the same 184-byte
+    patch from either layout. `docs/screenshots/gc-104-split-word-diff.png`,
+    `gc-104-unified-word-diff.png`.
 
 ### GC-105 Panel widths are clamped only against themselves, so the graph can be squeezed to nothing
 
@@ -5495,6 +5567,62 @@ decision is missing.
     `06-feature-inventory.md`'s Files row against `fileMenuItems`. GC-093 has just given that menu its
     first non-trivial action, so it is the natural place to grow, and this is the entry with the
     smallest gap between what the panel already knows and what the action needs.
+
+### GC-108 The repository-open path clears the status bar without owning it
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P3
+- **Depends on:** GC-084
+- **Why:** GC-084 gave every `run()` call a busy token, so of two overlapping actions only the one
+  that still owns the status bar clears it. The two places that set `busy` outside `run()` were left
+  alone: the mount effect and `openPath()`, both of which do
+  `setBusy('Loading repository')` and then `.finally(() => setBusy(null))` unconditionally. Opening
+  a repository from the recents dropdown while an action is still running therefore still clears the
+  spinner early — the same lie GC-084 fixed, from the other direction. It is narrow (the open bumps
+  `generation`, so no stale snapshot lands) but it is the same defect.
+- **Scope:**
+  - Route the two "Loading repository" busies through the same token `run()` takes, so whichever
+    started last owns the bar.
+- **Out of scope:** refusing or queueing an open while an action runs, and the error path of
+  `load()`, which GC-025 owns.
+- **Acceptance:**
+  - [ ] An action started before an `openPath()` no longer clears the bar while the open runs.
+  - [ ] A unit test in `App.test.tsx` alongside GC-084's, failing when the token is not applied.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/App.test.tsx`.
+- **Verify:** `npm test`, typecheck.
+- **Log:**
+  - 2026-09-06 proposed by GC-084 (this ticket): giving `run()` a token made it plain that the two
+    busies written outside it still have none.
+
+---
+
+### GC-109 The e2e suite never sees the intra-line diff marks
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-104
+- **Why:** GC-104's word-level marks are covered by unit tests on `wordDiff`/`hunkWordSpans` and were
+  measured once over CDP against the scratch repository, but nothing in `npm run e2e` asserts them, so
+  a rendering regression — the spans dropped from one layout, the tokens losing their background —
+  would pass every check the routine runs. Step 28 already opens `big.txt` in both layouts and reads
+  its rows, which is exactly where the marks are.
+- **Scope:**
+  - Extend step 28 with an assertion on `.word` in both layouts: `edited` marked on the added side of
+    the `row 3` pair and nothing on the removed side, the same in unified.
+  - No new fixture and no new step: the file, the hunks and the layout switch are already there.
+- **Out of scope:** asserting the colours (a token change is a deliberate act), and the fallback
+  heuristic, which is what the unit tests are for.
+- **Acceptance:**
+  - [ ] Step 28 fails when the spans stop rendering in either layout.
+  - [ ] The run's time does not move measurably: no extra reload, no extra sleep.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e`, then again with the `code()` helper in `DiffView` stubbed back to plain
+  text, which must fail the new assertion.
+- **Log:**
+  - 2026-09-06 proposed by GC-104 (this ticket): the marks were verified by hand over CDP because the
+    suite has nowhere that looks at them, and the step that would is already open on the right file.
+
+---
 
 ## Reviews
 

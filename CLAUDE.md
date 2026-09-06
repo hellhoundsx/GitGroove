@@ -183,6 +183,9 @@ unsubscribe.
 - **`run(label, fn, opts)` is the only way git actions execute.** It sets busy, runs, reloads the
   snapshot (or only the status for staging actions), and **re-applies the error after the reload**,
   because git often exits non-zero while leaving a state the panels must show.
+  It also takes a **busy token** on entry and clears `busy` — and applies its error — only while it
+  still owns it (GC-084), so of two overlapping actions the one that finishes first no longer takes
+  the status bar away from the one still running. A `rethrow` caller gets its exception either way.
 - **Two counters.** `generation` is bumped by `run()` and `openPath()`; `load()`, `refreshStatus()`
   and `applyChange()` capture it and silently drop their result if it has moved, so a background
   reload cannot overwrite a fresher snapshot. `dataGen` records what has been *applied* to state
@@ -235,6 +238,12 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
 - `PromptOptions.secondary` adds a third button resolving `choice: 'secondary'`; `required`
   defaults to true and only the stash prompt sets it false. OK stays
   `.modal-buttons .btn:last-child`, which the e2e helpers rely on.
+- **Every modal is `h3` + `.modal-body` + `.modal-buttons`, in that order** (GC-103). `.modal` is
+  capped at `calc(100vh - 40px)` and `.modal-body` is the only part that scrolls, so a dialog taller
+  than the window keeps its title and its buttons on screen instead of overflowing off both ends.
+  The gap between the children is `--modal-gap`, which `.modal.prefs` and `.modal.shortcuts` raise;
+  a body that fits is spaced exactly as it was. A new modal joins this shape — no `max-height` of
+  its own, or it is a scrollbar inside a scrollbar.
 - `MenuItem` supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`, `hintPath` (a
   hint ellipsised at its *start*, so the folder naming an entry survives) and `caption` (a
   non-interactive heading rendered as `div.ctx-caption`, so no menu selector picks it up). In a row
@@ -338,6 +347,22 @@ suite has `waitSplitDiff` beside `waitDiff`. `table-layout: fixed` keeps the hal
 and a long line therefore wraps; clipping it or giving each side its own scrollbar would both hide
 changed code.
 
+**Intra-line marks, one source for both layouts** (GC-104). `wordDiff(old, new)` takes the common
+prefix and suffix off, runs a word LCS on what is left and returns the spans per side — or `null`
+for "mark nothing", when the lines are identical, share less than a quarter of the longer one, or
+either side is over 400 tokens; a marked run never starts or ends on whitespace.
+`hunkWordSpans(hunk)` keys those spans by the `DiffLine` object itself, off `alignHunks`' pairing,
+so only a removal sitting opposite an addition is marked and **both layouts read the same map** —
+`DiffView` renders every code cell through one `code()` helper, computed once per parsed file. Marks
+are `span.word` tinted with `--diff-add-word` / `--diff-del-word` over the line's own tint; the hunk
+buttons are untouched, since they still build from `hunk.raw`.
+
+**A load that fails says so in the body** (GC-083): `loadError` is a `current` whose `text` is null,
+and it gets a fourth `.diff-empty` branch beside "Loading diff…", "No textual changes." and "Binary
+file." An action error is deliberately not that — it leaves the diff on screen and reports in the
+sub-header only. Note that a WIP view cannot be made to show this by hand: `App` closes the file
+view as soon as its path leaves the status list.
+
 ### Detail panel
 
 Staging view (operation banner with Abort, Conflicted / Unstaged / Staged groups, commit form with
@@ -440,7 +465,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-118 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+130 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -449,7 +474,10 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 29 steps, 151 assertions, ~24s.
+asserting against git after each step. 29 steps, 151 assertions, ~24s. **The run stops its own
+Electron on every exit path**: `stopOnce()` is registered on `process.on('exit')` as soon as
+`launchApp` resolves, and SIGINT/SIGTERM exit explicitly so they reach it, so a throw, a CDP timeout
+or a Ctrl+C no longer leaves a windowless app running until some later run frees the port (GC-040).
 
 The fixture (`setup-testrepo.mjs`) has a merge, a tag, three branches, a commit that deletes a
 file, a bare `origin`, a git note — a ref outside heads/remotes/tags, so the suite can tell that the
@@ -530,12 +558,16 @@ and this file only where a convention, a command or an invariant above changed.
 
 Design decisions that must not be quietly undone, and where each is explained above: date order in
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
-one layer, one shortcut table, every confirmation on the modal (App state, UI layer); `--index` on
+one layer, one shortcut table, every confirmation on the modal, the busy token on `run()` (App
+state, UI layer); every modal `h3` + `.modal-body` + `.modal-buttons`, with only the body scrolling
+(UI layer); `--index` on
 stash apply and pop, `defaultRemote` shared both ways (Main process); the diff keyed to its view
-identity, the split layout a render of what is already loaded and a hunk patch built from
-`hunk.raw` whichever layout is showing (Diff); the hidden set applied to a path's first load
+identity, the split layout a render of what is already loaded, a hunk patch built from
+`hunk.raw` whichever layout is showing, and both layouts marking intra-line changes from one map
+(Diff); the hidden set applied to a path's first load
 (Graph); every colour a token, the
-theme resolved in `prefs.ts` (Styling, Preferences); a failing e2e git call throwing (Testing);
+theme resolved in `prefs.ts` (Styling, Preferences); a failing e2e git call throwing, its Electron
+stopped on every exit path (Testing);
 stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).
 

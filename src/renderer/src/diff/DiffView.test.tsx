@@ -127,3 +127,54 @@ describe('DiffView (GC-014)', () => {
     expect(document.querySelector('.diff-body')?.className).not.toContain('stale');
   });
 });
+
+// GC-083: when the load rejects there is no text, so none of the body's other branches match and
+// the panel used to be blank — the only sign of what happened was the small red line above it.
+describe('DiffView says why the body is empty when the load fails (GC-083)', () => {
+  const ERROR = "fatal: ambiguous argument 'gone.txt': unknown revision or path not in the working tree";
+
+  /** The same render as `open()`, with the one call `DiffView` makes rejecting. */
+  const openFailing = async (): Promise<void> => {
+    (window as unknown as { api: Record<string, unknown> }).api = {
+      getWorkdirFileDiff: () => Promise.reject(new Error(ERROR)),
+      getCommitFileDiff: () => Promise.reject(new Error(ERROR)),
+      setTheme: () => Promise.resolve(),
+    };
+    render(
+      <UiProvider>
+        <DiffView
+          repo="/repo"
+          view={{ source: 'wip', path: 'gone.txt', staged: false, kind: 'modified' }}
+          version={0}
+          onClose={noop}
+          onStageFile={noop}
+          onUnstageFile={noop}
+          onDiscardFile={noop}
+          onApplyPatch={noop}
+        />
+      </UiProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  it('puts git\'s message in the body rather than leaving it empty', async () => {
+    await openFailing();
+    const body = document.querySelector('.diff-body');
+    expect(body?.textContent).toContain(ERROR);
+    expect(body?.textContent?.trim().length).toBeGreaterThan(0);
+    // It is the same shape as the other three empty states, not a fourth kind of thing.
+    expect(document.querySelectorAll('.diff-body .diff-empty')).toHaveLength(1);
+    // The line above the body still reports it too: that was the only sign before, and it stays.
+    expect(document.querySelector('.file-view-sub .err')?.textContent).toContain(ERROR);
+    // And nothing claims to be loading any more.
+    expect(body?.textContent).not.toContain('Loading diff');
+  });
+
+  it('adds nothing to the body of a diff that loads', async () => {
+    await open();
+    expect(document.querySelectorAll('.diff-body .diff-empty')).toHaveLength(0);
+    expect(document.querySelectorAll('.diff-body .hunk')).toHaveLength(1);
+  });
+});
