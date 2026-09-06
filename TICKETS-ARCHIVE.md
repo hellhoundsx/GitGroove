@@ -9242,3 +9242,97 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
     written to was the review's own scratch root; `catena-feed` was opened read-only for the graph
     and closed again, and nothing in it was touched. The review's Electron on 9334 was found by
     command line and stopped by PID.
+
+### GR-018 Backlog review 2026-09-06 12:35
+
+- **Status:** done
+- **Window:** f85d213..2f66b3e
+- **Log:**
+  - 2026-09-06 12:35 inbox: `INBOX.md` exists and its **Pending section is empty**. All eight
+    items GR-016 drained are in Handled with what each became, and Ricardo has added nothing since
+    — so nothing was declined, nothing was left unsettled, and this review's additions are all its
+    own findings under the zero-to-five budget.
+  - shipped: three commits, one of them real code. `576bd57` closes **GC-145**, **GC-142** and
+    the bookkeeping half of the batch `f85d213` began; `81e8446` is GR-017; `2f66b3e` is the
+    next batch's claim. Read as a reviewer, **GC-145** is the strongest piece: `backlogProblems`
+    is pure and reports one plain sentence per problem, and every failure mode has its own case fed
+    synthetic text rather than staged in the real backlog — an id sectioned in both files, a
+    `done` left behind, a board row resolving to nothing, a superseded review kept, and the
+    which-review-is-newer case that is the one that would lose the `Window` sha. **GC-142** is
+    right in the way that matters: a block is a card or a section, both views list their sections in
+    one rule, and `:first-child` takes neither, so the two views cannot drift apart. Verified in
+    the DOM rather than from the diff — the commit view's five children come back
+    `banner info` (0px border, 0 padding), then `message-box`, `author`, `readout`,
+    `file-list` each with a 1px top border and 12px above, which is exactly what the rule
+    promises. No bug found in the diffs; the two defects below were found in the app.
+  - health: at `2f66b3e` in the detached worktree with `node_modules` junctioned — **typecheck
+    ok, 253 tests passed (21 files)** in 2.17s, **build ok**. Verified the build landed in the
+    worktree's own `out/` and that `MAIN/out` was untouched. e2e was not run: a batch was
+    `in-progress` throughout and runs the suite itself in its step 6. `MAIN` was never built,
+    tested or launched.
+  - app: the build ran offscreen on 9334 against the review's own scratch root. Seven screenshots
+    in `%TEMP%/gitclient-review/GR-018/`, all looked at. `01-graph.png`: nine rows, lanes
+    continuous, right-angle joins, GC-144's dash covering the whole WIP-to-`main` run.
+    `02-commit-view.png` is GC-142's commit view and is where **GC-157** came from.
+    `03-diff.png` is the diff header's three GC-052 controls plus `Unified | Split`.
+    `05-stash-marker.png` and `07-tip-stash-clip.png` are **GC-156**. `06-light-commit-view.png`
+    is the light theme, where both defects reproduce and GC-142's bands and hairlines read well.
+  - app, GC-140 seen for the first time: the fixture has **no stashes at rest**, so the marker
+    GC-140 shipped had never actually been on screen in any review. Took one stash in the review's
+    own scratch repository to look at it. The marker itself is right — one `.stash-chip` on the
+    commit the stash was taken from, not draggable, not counted by the `+N`, with the stash
+    message in its `title` — but it revealed GC-156.
+  - app, the reflow rotation, and GR-017's tooling gap closed: GR-017 recorded that a true
+    narrow-window pass needs `Emulation.setDeviceMetricsOverride`, which `tools/gk-recon/cdp.mjs`
+    does not expose, and that shrinking the document instead never moves `window.innerWidth` so
+    `fitPanels` never runs. Drove the override directly this time and measured four widths.
+    **Everything holds exactly as documented**: at 1400 and 1100 the panels stay at 220/400 and
+    `fitRefCol` gives the ref column up (150 stored, 134 and 124 applied) to keep the message at
+    exactly `MIN_MSG_W` = 200; at 940 the panels give way first and the graph pins at
+    `MIN_GRAPH_W` = 440; at 900 — the declared `minWidth` — it is 160 + 440 + 300 = 900 exactly,
+    with `fitOptCols` having dropped all three optional columns. `gitclient.leftPanelW`,
+    `detailPanelW` and `refColW` were **null throughout**, so the "stored widths are never
+    touched" promise holds, and clearing the override restored 220/400/134. No defect; GC-105,
+    GC-110 and GC-116 are now verified live and not only by unit test.
+  - what's next: re-read `06-feature-inventory.md`'s context-menu list against the board. The tab
+    menu is GC-151, "Edit stash message" is GC-129, ahead/behind is already on every left-panel
+    row, and Squash / Drop / Move / Interactive rebase are behind the `blocked` GC-017. What is
+    left genuinely uncovered is **View on service** (now GC-159), Blame, History and Export changes
+    to patch. Filed only the first: it is the one whose core is a pure function in a file that
+    already exists, while the other three each need a surface decision — where a blame or a file
+    history is drawn — and filing them now would be a wish list rather than a backlog. Naming them
+    again so the next review can take one with a design sketch.
+  - tickets: added **GC-156** (graph, S, P2), **GC-157** (ui, S, P2), **GC-158** (tests, S, P2) and
+    **GC-159** (actions, S, P3) — four of the five allowed. Two from the UI/screenshot pass, one
+    from the code review of GC-145's new test, one from the what's-next pass, which is the spread
+    the routine asks for. No existing ticket was extended: each was checked against the board first.
+    GC-156 was checked specifically against **GC-071**, which shipped mid-review — it is not a
+    duplicate: GC-071 drops the cloud below a 120px column, while GC-156 is a 134px column where
+    the cloud is correctly kept and a marker GC-071 never counted takes the name instead.
+  - board: the three P2 rows go after GC-155, in the P2 band and behind the two rows the running
+    batch has claimed; GC-159 goes after GC-153 and ahead of GC-026, where GR-015, GR-016 and
+    GR-017 all put their P3 additions. Nothing else was moved — the board's priority order still
+    reads correctly, with GC-128 the first unclaimed P2 a worker meets.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all three
+    still want a decision from Ricardo. No `todo` ticket has gone vague. Dependencies on the four
+    added: GC-156 on GC-140 and GC-071, GC-157 on GC-142, GC-158 on GC-145, GC-159 on GC-008 — all
+    `done`, so all four are eligible immediately.
+  - notes: `CLAUDE.md` at `2f66b3e` says "253 tests today", which matched exactly. Its
+    Architecture section is current for GC-142 and GC-145. Nothing stale to report; this review did
+    not edit `CLAUDE.md`.
+  - a moving tip, handled explicitly: the worker pushed `dcffe27` — the whole GC-121 / GC-071 /
+    GC-074 / GC-087 / GC-091 batch — while this review was being written, and claimed GC-154 and
+    GC-155 on top of it. That batch is **out of this window and belongs to GR-019**, which should
+    read its diffs properly. But because GC-156 is about code GC-071 touched, the worktree was moved
+    to `dcffe27`, rebuilt and relaunched, and **both** defects were re-measured there: identical
+    numbers — `.chip-name` 27px for 29px, `.when` 157px for 172px. So both tickets are true of
+    the current tip, not only of the sha this window ends at.
+  - isolation: **five tickets were `in-progress` when this review started and two more when it
+    finished** — GC-121, GC-071, GC-074, GC-087, GC-091, then GC-154 and GC-155 — and not one was
+    touched. `MAIN` was never built, tested or launched, and its working tree was left exactly as
+    found; the worker's unpushed commits were read read-only for deduplication only.
+    `TICKETS.md` and `TICKETS-ARCHIVE.md` were both clean in `git status` before this write
+    and are the only files staged. The only repository written to was the review's own scratch root:
+    two stashes taken to observe GC-140, both popped with `--index`, leaving
+    `git status --short` byte-identical to the fixture's. The review's Electron on 9334 was found
+    by command line and stopped by PID, twice, and never with a machine-wide kill.
