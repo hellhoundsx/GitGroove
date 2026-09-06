@@ -34,12 +34,51 @@ if (!existsSync(R) || !existsSync(join(R, '.git'))) {
   process.exit(2);
 }
 
-const git = (args, cwd = R) => {
-  try {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  } catch (e) {
-    return `GIT-ERROR: ${(e.stderr || e.message).toString().trim()}`;
+// `.git/index.lock` is the app's own watcher refreshing on its 300ms schedule against the index
+// this suite is writing to. It clears on its own, so the command is retried for about a second
+// before it is reported; anything else fails immediately (GC-098).
+const LOCKED_RE = /index\.lock|Unable to create/i;
+const LOCK_RETRIES = 5;
+// execFileSync is synchronous, so the wait between attempts has to be too.
+const sleepSync = (ms) => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/** Run git once, answering `{ out }` or `{ stderr }`, retrying only a lock the watcher will drop. */
+const gitRun = (args, cwd) => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return { out: execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() };
+    } catch (e) {
+      const stderr = (e.stderr || e.message).toString().trim();
+      if (LOCKED_RE.test(stderr) && attempt < LOCK_RETRIES) {
+        sleepSync(200);
+        continue;
+      }
+      return { stderr };
+    }
   }
+};
+
+/**
+ * git against the fixture. A non-zero exit **throws**, naming the command and carrying git's
+ * stderr (GC-098): almost every call site here ignores what this returns, so a failure used to be
+ * a `GIT-ERROR:` string nobody read, and the broken fixture surfaced steps later as a row that
+ * never appeared — fourteen downstream failures naming everything except the cause. Commands that
+ * are allowed to fail go through `gitMay` instead.
+ */
+const git = (args, cwd = R) => {
+  const r = gitRun(args, cwd);
+  if (r.stderr !== undefined) throw new Error(`git ${args.join(' ')}${cwd === R ? '' : ` (in ${cwd})`} failed: ${r.stderr}`);
+  return r.out;
+};
+
+/**
+ * git for the commands whose failure is the normal case — deleting a branch, a tag or a remote a
+ * healthy run already removed, aborting an operation that is not in progress. Keeps the old
+ * swallowing behaviour, `GIT-ERROR: <stderr>` and all, because the answer is never read (GC-098).
+ */
+const gitMay = (args, cwd = R) => {
+  const r = gitRun(args, cwd);
+  return r.stderr !== undefined ? `GIT-ERROR: ${r.stderr}` : r.out;
 };
 const status = () => git(['status', '--short']).replace(/\n/g, ' ');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -97,6 +136,30 @@ ws.addEventListener('message', (e) => {
   }
 });
 await new Promise((r) => ws.addEventListener('open', r));
+
+// A `git()` that throws must end the run where it happened, saying which command failed and what
+// git said — and must not leave this run's Electron alive doing it (GC-098, GC-035). Both events
+// are registered because a throw from top-level await arrives as an unhandled rejection while one
+// from a callback arrives as an uncaught exception; either way the tree this run started is the
+// only one stopped.
+const bail = (e) => {
+  console.error(`\n    FAIL ${e?.stack ?? e?.message ?? e}`);
+  try {
+    ws.close();
+  } catch {
+    /* already closed */
+  }
+  try {
+    stopApp?.();
+  } catch {
+    /* already gone */
+  }
+  console.log(`\n1 FAILED (the run stopped here; screenshots in ${SHOTS})`);
+  console.log(`total: ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
+  process.exit(1);
+};
+process.on('uncaughtException', bail);
+process.on('unhandledRejection', bail);
 
 const ev = async (expression) => {
   const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -300,18 +363,18 @@ const waitDiff = (chip, hunks, adds) =>
   );
 
 // ---- make the scratch repo state predictable when re-running --------------------------------------------
-git(['cherry-pick', '--abort']);
-git(['merge', '--abort']);
-git(['rebase', '--abort']);
+gitMay(['cherry-pick', '--abort']);
+gitMay(['merge', '--abort']);
+gitMay(['rebase', '--abort']);
 git(['checkout', '-q', 'main']);
-git(['branch', '-D', 'conflict-branch']);
-git(['branch', '-D', 'test-branch']);
-git(['tag', '-d', 't-test']);
-git(['remote', 'remove', 'upstream']);
-git(['remote', 'remove', 'mirror']);
+gitMay(['branch', '-D', 'conflict-branch']);
+gitMay(['branch', '-D', 'test-branch']);
+gitMay(['tag', '-d', 't-test']);
+gitMay(['remote', 'remove', 'upstream']);
+gitMay(['remote', 'remove', 'mirror']);
 // step 17 pushes this scratch branch to the second remote and deletes it again (GC-031)
-git(['branch', '-D', 'push-target']);
-git(['push', '-q', 'origin', '--delete', 'push-target']);
+gitMay(['branch', '-D', 'push-target']);
+gitMay(['push', '-q', 'origin', '--delete', 'push-target']);
 // step 20 commits through the commit form and then amends that commit, undoing both at the end. A
 // run that died in between leaves one extra commit on main, whose subject always starts with this
 // mark, plus the scratch file the step staged (GC-062). The reset is --soft, never --hard: the index
@@ -449,6 +512,11 @@ const restoreFixture = () => {
   rmSync(join(root, 'clone2'), { recursive: true, force: true });
 };
 restoreFixture();
+// `restoreFixture` only reaches a scratch file through the index, so one that was never staged
+// survived it: a run that died between step 7's write and its `git add` left `pick-<stamp>.txt`
+// untracked in the fixture for every later run to trip over (GC-098). Untracked is exactly the
+// case that has no other owner, so it is swept here, in the prologue, on the way in.
+for (const f of readdirSync(R)) if (RUN_FILE_RE.test(f)) rmSync(join(R, f), { force: true });
 
 const stamp = Date.now();
 
@@ -832,7 +900,7 @@ check(
   git(['ls-remote', 'upstream', 'push-target']).includes(git(['rev-parse', 'push-target'])),
   git(['ls-remote', 'upstream', 'push-target']) || '(nothing on upstream)',
 );
-git(['push', '-q', 'origin', '--delete', 'push-target']);
+gitMay(['push', '-q', 'origin', '--delete', 'push-target']);
 git(['branch', '-D', 'push-target']);
 log(await act(() => tool('Refresh')));
 
@@ -1356,7 +1424,7 @@ check('a root-level file offers no folder entry', !ignoreMenu.includes('Ignore t
 await shot('14-ignore-menu.png');
 log(await act(() => menuClick('Ignore file'), 'ignore new.txt'));
 check('the pattern is rooted at the repository', readFileSync(GITIGNORE, 'utf8') === '/new.txt\n', JSON.stringify(readFileSync(GITIGNORE, 'utf8')));
-check('git agrees the file is ignored', git(['check-ignore', '-v', 'new.txt']).includes('/new.txt'), git(['check-ignore', '-v', 'new.txt']));
+check('git agrees the file is ignored', gitMay(['check-ignore', '-v', 'new.txt']).includes('/new.txt'), gitMay(['check-ignore', '-v', 'new.txt']));
 check('the row leaves Unstaged and .gitignore takes its place', status() === statusBeforeIgnore.replace('?? new.txt', '?? .gitignore'), `${status()} | before ${statusBeforeIgnore}`);
 check('the ignored row is gone from the staging list', (await ev(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === 'new.txt')`)) === false);
 // A .gitignore of its own is untracked too, so it offers the entries in turn.
@@ -1382,8 +1450,8 @@ step(28, 'the run leaves the fixture exactly as it found it');
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).
 restoreFixture();
-const drift = [...baseline].filter(([b, sha]) => git(['rev-parse', b]) !== sha).map(([b]) => b);
-const remoteDrift = [...baseline].filter(([b, sha]) => git(['rev-parse', `refs/heads/${b}`], REMOTE) !== sha).map(([b]) => b);
+const drift = [...baseline].filter(([b, sha]) => gitMay(['rev-parse', b]) !== sha).map(([b]) => b);
+const remoteDrift = [...baseline].filter(([b, sha]) => gitMay(['rev-parse', `refs/heads/${b}`], REMOTE) !== sha).map(([b]) => b);
 check(
   'main carries the commits the fixture was built with and no more',
   git(['rev-list', '--count', 'HEAD']) === git(['rev-list', '--count', baseline.get('main')]),
