@@ -62,10 +62,13 @@ is not the fix.
 npm run dev            # electron-vite dev with HMR
 npm run build          # bundles to out/ (main, preload, renderer)
 npm run typecheck      # tsc for the node target then the web target
-npm test               # vitest run: the unit tests, once
+npm test               # vitest run --reporter=dot: the unit tests, once, a dot per test
+
 npm run test:watch     # vitest in watch mode
 npm run e2e:setup      # (re)creates the scratch repo under %TEMP%/gitclient-e2e (or $GITCLIENT_E2E_ROOT)
 npm run e2e            # drives the BUILT app through the UI, asserts against git, exits 1 on failure
+node tools/backlog.mjs # locked / eligible / nothing eligible: what the routine asks before it reads anything
+
 npx vitest run --project node   # or --project dom, to run one vitest project
 ```
 
@@ -913,14 +916,17 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-329 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+337 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
 the 82% of the backlog GC-145 moved into it cannot fall out of rule 6's guard again with nothing
 failing — it is what guards rule 6 above — **and on a backlog whose two files disagree** (GC-145):
-`backlogProblems` is pure and reports one sentence per problem, so a `done` section left in
-`TICKETS.md` or a board row resolving to nothing fails `npm test` rather than being noticed months
-later. `tools/launch-app` covers the attach path against a fake CDP endpoint, and the ownership a launch
+`backlogProblems` is pure and reports one sentence per problem, so a `done` section or row left in
+`TICKETS.md`, a row disagreeing with its section or one resolving to nothing fails `npm test` rather
+than being noticed months later (GC-174 moved the `done` rows to a board in the archive). `tools/backlog`
+pins the routine's lock check and batch selection on synthetic text.
+ `tools/launch-app` covers the attach path against a fake CDP endpoint, and the ownership a launch
 takes over the app it spawned (GC-154) against a sleeping node process — a unit test never starts
 Electron, and `ownChild` cares only that it was handed something with a pid.
 
@@ -1056,16 +1062,20 @@ a scheduled session follows; the hourly backlog reviewer adds tickets and writes
 in the Reviews section. Do not keep a second roadmap here: when a ticket ships, update the ticket,
 and this file only where a convention, a command or an invariant above changed.
 
-**It is two files, split by status** (GC-145). `TICKETS.md` is the one to read, in full: the
-scaffolding, the whole board — every ticket ever written has a row, `done` included — every `todo`,
-`in-progress` and `blocked` section, and the newest review. `TICKETS-ARCHIVE.md` holds every
-`done` ticket's section and every review a newer one superseded; it is looked up by id when a
-finished ticket's history is wanted and otherwise not read at all. A row that says `done` has its
-section in the archive, which is the whole mapping. **A session that sets a ticket to `done` moves
-its section in the same commit**, and the reviewer moves the review it supersedes when it writes a
-new one; `npm test`'s backlog check fails if the two files disagree — an id sectioned in both, a
-`done` left in `TICKETS.md`, a board row resolving to nothing, or a second review kept beside the
-newest. It went from 9,485 lines to 1,819 and 8,087.
+**It is two files, split by status** (GC-145, GC-174). `TICKETS.md` is the one to read, in full:
+the scaffolding, the board of open tickets, every `todo`, `in-progress` and `blocked` section, and
+the newest review. `TICKETS-ARCHIVE.md` holds every `done` ticket's row and section and every
+review a newer one superseded; it is looked up by id when a finished ticket's history is wanted
+and otherwise not read at all. A `done` row sits on the archive's board beside its section, which
+is the whole mapping. **A session that sets a ticket to `done` moves its row and section in the
+same commit**, and the reviewer moves the review it supersedes when it writes a new one; `npm
+test`'s backlog check fails if the two files disagree — an id sectioned in both, a `done` row or
+section left in `TICKETS.md`, an open one filed in the archive, a row disagreeing with its
+section, a board row resolving to nothing, or a second review kept beside the newest.
+**And neither file is read until `node tools/backlog.mjs` has said there is a batch** (GC-174):
+it prints `locked`, `eligible` or `nothing eligible` in one line, so the routine's frequent
+no-op runs cost that line rather than the 56k tokens the two reads came to.
+
 
 **`INBOX.md` is Ricardo's, and it is git-ignored.** He drops small plain-English observations there
 as `- ` bullets; the reviewer drains it at the start of every run, investigates each item and turns
@@ -1120,7 +1130,9 @@ a single click selecting a tip and an unloaded one moving nothing, one boundary 
 detail views with the parents column giving way before the authored date, the commit draft parked
 with its tab, the left panel header naming HEAD rather than
 counting what its sections already count (Graph, Detail panel, App state); the backlog
-split by status across two files, moved in the same commit as the status change (The backlog);
+split by status across two files, row and section moved in the same commit as the status change,
+and neither file read before `backlog.mjs` says there is a batch (The backlog);
+
 stealth launches, narrow stops, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).

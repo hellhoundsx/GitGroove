@@ -7,13 +7,16 @@ the board table below is a convenience and must be kept in sync whenever a statu
 Read `CLAUDE.md` before touching any ticket. Its two hard rules apply to every ticket: study
 GitKraken, never copy it; never run write operations against Ricardo's real repositories.
 
-**Two files, split by status** (GC-145). This one holds everything a session can act on: the
-scaffolding, the whole board, every `todo`, `in-progress` and `blocked` ticket, and the newest
-review. `TICKETS-ARCHIVE.md` holds every `done` ticket's section and every review a newer one has
-superseded. So "read `TICKETS.md` fully" means this file only; the archive is looked up by id when
-a finished ticket's history is actually wanted. The session that sets a ticket to `done` moves its
-section to the archive in the same commit, and the reviewer moves the review it supersedes when it
-writes a new one — `tools/repo-hygiene.test.ts` fails if the two files ever disagree.
+**Two files, split by status** (GC-145, GC-174). This one holds everything a session can act on:
+the scaffolding, the board of open tickets, every `todo`, `in-progress` and `blocked` ticket, and
+the newest review. `TICKETS-ARCHIVE.md` holds every `done` ticket's row and section and every
+review a newer one has superseded. So "read `TICKETS.md` fully" means this file only; the archive
+is looked up by id when a finished ticket's history is actually wanted. The session that sets a
+ticket to `done` moves its row and section to the archive in the same commit, and the reviewer
+moves the review it supersedes when it writes a new one — `tools/repo-hygiene.test.ts` fails if
+the two files ever disagree. And a run reads neither file until `node tools/backlog.mjs` has said
+there is a batch to take: most runs are answered by that one line.
+
 
 ## Statuses
 
@@ -24,7 +27,9 @@ writes a new one — `tools/repo-hygiene.test.ts` fails if the two files ever di
 | `done` | Implemented, verified, committed and pushed. | The session that finished it |
 | `blocked` | Cannot proceed without a decision, a design or another ticket. Reason is in the log. | Anyone |
 
-Ricardo can reopen a `done` ticket by setting it back to `todo` with a log line saying why.
+Ricardo can reopen a `done` ticket by setting it back to `todo` with a log line saying why, and
+moving its row and section back from the archive in the same edit.
+
 
 ## Routine protocol (for the scheduled session)
 
@@ -41,25 +46,28 @@ singletons — one `out/` directory, one DevTools port, one scratch repository �
 typechecking and running e2e once for several tickets together is cheaper than paying for each
 separately; that is the only reason to batch now, not parallelism.
 
-0. **Read.** `CLAUDE.md`, then this file in full — this file only. Every finished ticket's
-   section lives in `TICKETS-ARCHIVE.md` (GC-145), which is not read at all unless a specific
-   ticket's history is wanted; the board here already says which ids exist and what became of
-   them.
-1. **Sync.** `git pull --ff-only origin main`. If the pull fails (network, authentication,
-   non-fast-forward), stop and report; never work while pushes cannot land. Then
-   `git status --porcelain` must be empty. If it is not, a previous run died mid-work: stop and
-   report, do not clean up. The one exception is a tree holding exactly the unfinished work of a
-   batch whose claim is already on `origin/main` — finishing that close-out is better than
-   leaving its lock stranded, but say so in the report.
-2. **Lock check.** If any ticket is `in-progress` anywhere in this file, exit without doing
-   anything: a batch is running. (If its claim line is older than six hours, mention it in the
-   report so Ricardo can inspect; still do not take it over.) Several `in-progress` lines at once
-   are normal — a batch claims all of its tickets together.
-3. **Select the batch.** Walk the board top to bottom, which is priority order. A row is
-   eligible when it is `todo` and every ticket in its `Depends on` is `done`. Take up to six
-   eligible tickets in that order, or just one if the first eligible ticket is size L — there is
-   no file-disjointness requirement any more, since one session working through them in order
-   never touches two tickets' files at the same instant. If nothing is eligible, exit.
+0. **Sync, before reading anything.** `git pull --ff-only origin main`. If the pull fails
+   (network, authentication, non-fast-forward), stop and report; never work while pushes cannot
+   land. Then `git status --porcelain` must be empty. If it is not, a previous run died mid-work:
+   stop and report, do not clean up. The one exception is a tree holding exactly the unfinished
+   work of a batch whose claim is already on `origin/main` — finishing that close-out is better
+   than leaving its lock stranded, but say so in the report.
+1. **Ask the backlog, not the files.** `node tools/backlog.mjs` prints one line (GC-174):
+   `locked: …` when any ticket is `in-progress` — a batch is running, exit; if the claim it names
+   is older than six hours, say so in the report so Ricardo can inspect, and still do not take it
+   over — `nothing eligible`, exit; or `eligible: …`, the batch, already selected by the rule in
+   step 3. Most runs end here having read nothing else: `CLAUDE.md` and this file together came
+   to about 56k tokens, and a run that exited at the lock used to read both first.
+2. **Read**, now that there is a batch. `CLAUDE.md`, then this file in full — this file only.
+   Every finished ticket's row and section live in `TICKETS-ARCHIVE.md` (GC-145, GC-174), which is
+   not read at all unless a specific ticket's history is wanted.
+3. **The batch** is what step 1 printed. This is the rule it applies, for checking one by hand:
+   walk the board top to bottom, which is priority order; a row is eligible when it is `todo` and
+   every ticket in its `Depends on` is `done`, which now means a row on the archive's board; take
+   up to six eligible tickets in that order, or just one if the first eligible ticket is size L.
+   There is no file-disjointness requirement, since one session working through them in order
+   never touches two tickets' files at the same instant.
+
 4. **Claim the batch, commit, push.** For every ticket in the batch set the section to
    `in-progress`, update the board row, append a log line `YYYY-MM-DD HH:MM claimed`, then commit
    only that change and push it: `git commit -am "GC-0NN, GC-0MM, ...: claim" && git push origin main`.
@@ -95,10 +103,15 @@ separately; that is the only reason to batch now, not parallelism.
 8. **Close out, commit, push.** Each ticket independently becomes `done`, or `blocked` with a
    one-line reason — one failure never blocks the rest of the batch. Update each section status,
    each board row and each log line, naming the evidence (assertion counts, measured values,
-   screenshot paths). **A ticket that becomes `done` has its section moved to
-   `TICKETS-ARCHIVE.md` in the same commit** (GC-145) — status change and move together, never
-   one without the other, or `npm test`'s backlog check fails. A ticket that becomes `blocked`
-   stays here: it is still work someone can pick up. Its board row does not move either way.
+   screenshot paths). **A log line is one sentence** (GC-174): the date, what happened and its
+   evidence; what was learned belongs in the ticket's Why, or in `CLAUDE.md` when it is an
+   invariant, because a log is read by id later to learn what became of the ticket, and a
+   forty-line entry costs every later reader what it cost to write. **A ticket that becomes
+   `done` has its section and its board row moved to `TICKETS-ARCHIVE.md` in the same commit**
+   (GC-145, GC-174) — status change and move together, never one without the other, or `npm
+   test`'s backlog check fails. A ticket that becomes `blocked` stays here, row and section: it
+   is still work someone can pick up.
+
    Update `CLAUDE.md` once for the whole batch wherever a convention, command or the roadmap
    changed. Then `git add -A && git commit -m "GC-0NN, GC-0MM, ...: <summary>" && git push origin main`.
    Intermediate commits are fine; the final one must leave no `in-progress` line anywhere in
@@ -132,11 +145,16 @@ and any `npm run dev` window, down with it.
 
 Ready-to-paste routine prompt:
 
-> Open `C:/Users/Ricar/Documents/apps/GitClient`. Read `CLAUDE.md`, then follow the
-> "Routine protocol" in `TICKETS.md` exactly. If any ticket is already `in-progress`, exit and
-> say so. Otherwise claim a batch of eligible `todo` tickets and implement them yourself, one at
-> a time, no subagents; verify centrally, take each through to `done` or `blocked` committed and
-> pushed on `main`, and report the batch, final statuses and commit shas.
+> Open `C:/Users/Ricar/Documents/apps/GitClient`. Run `git pull --ff-only origin main`, then
+> `node tools/backlog.mjs`. If it prints `locked` or `nothing eligible`, exit and say so, having
+> read nothing else. If it prints `eligible`, read `CLAUDE.md`, then follow the "Routine
+> protocol" in `TICKETS.md` exactly from step 2: claim that batch and implement it yourself, one
+> ticket at a time, no subagents; verify centrally, take each through to `done` or `blocked`
+> committed and pushed on `main`, and report the batch, final statuses and commit shas.
+
+That text is a template. The saving lands only once the scheduled task's own prompt says the
+same, since that prompt is what a run reads first.
+
 
 ## Review routine (hourly backlog reviewer)
 
@@ -195,7 +213,11 @@ the board next.
   becomes a P0 bug ticket.
 - **Looks at the running app, broadly, not only at what the window's tickets touched.** Launches
   the worktree's build on its own scratch repo through `node tools/launch-app.mjs --port 9334`,
-  and screenshots a representative spread: the graph, a commit, the staging view, a diff, and
+  and screenshots a representative spread with `screenshot(target, { scale: 0.5 })` from that
+  module — half scale is a quarter of the image tokens and plenty for a reviewer's own eyes; only
+  `docs/screenshots/`, which Ricardo reads, is taken at full scale (GC-174). The spread: the
+  graph, a commit, the staging view, a diff, and
+
   whichever panels, menus or modals the window's commits changed — plus, on a rotating basis so
   every surface gets revisited every few reviews even when nothing recently touched it, one it
   did not pick last time (a context menu, a popover, the Preferences dialog, an empty state, the
@@ -225,167 +247,24 @@ the count. Its commit is `GR-0NN: backlog review`.
 
 ## Board
 
-Every ticket ever written has a row here, `done` included: it is the one table where the whole
-history is visible at a glance. **The status cell is also where the section lives** — a row that
-says `done` has its section in `TICKETS-ARCHIVE.md`, and every other row's is under Tickets
-below (GC-145). That mapping is total and machine-checked, which is why it is stated once here
-rather than as a link in each of the 118 archived rows: this table has been corrupted before by
-an edit built from a string, and the fewer things that rewrite a row, the better.
+Every ticket a session can act on has a row here, in priority order — `todo`, `in-progress` and
+`blocked`. **The status cell is also where the row and the section live**: a row that says `done`
+belongs on the board in `TICKETS-ARCHIVE.md`, beside its section, and moves there in the same
+commit as the status change (GC-145, GC-174); every row here has its section under Tickets below.
+That mapping is total and machine-checked by `tools/repo-hygiene.test.ts`, which is why it is
+stated once here rather than as a link in each row: this table has been corrupted before by an
+edit built from a string, and the fewer things that rewrite a row, the better. The two boards
+together are the whole history; `node tools/backlog.mjs` reads both.
+
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-001 | Initialise the git repository | infra | S | P0 | done |
-| GC-002 | Unit tests for parseDiff and lanes | tests | S | P0 | done |
-| GC-003 | Replace native confirm() with the UI confirm modal | ui | S | P1 | done |
-| GC-004 | Confirm checkout when the working tree is dirty | actions | S | P1 | done |
-| GC-005 | Pin to Left: any branch can take column 0 | graph | M | P1 | done |
-| GC-006 | Resizable ref column | graph | M | P1 | done |
-| GC-007 | Preferences page with Gravatar toggle | ui | M | P2 | done |
-| GC-008 | Remote add, edit and remove | actions | M | P2 | done |
-| GC-009 | Commit search | graph | M | P2 | done |
-| GC-010 | Keyboard shortcuts overlay | ui | S | P2 | done |
-| GC-028 | Stealth mode: unattended runs never steal focus or show a window | infra | S | P0 | done |
-| GC-029 | The stash message says "optional" but the modal refuses an empty one | ui | S | P1 | done |
-| GC-034 | Escape inside a dialog also closes the diff behind it | ui | S | P1 | done |
-| GC-037 | Escape with a context menu open also closes the find bar behind it | ui | S | P1 | done |
-| GC-038 | Escape with the Pull popover open also closes the find bar behind it | ui | S | P1 | done |
-| GC-035 | Stop only the Electron the run started, never every electron.exe | infra | S | P2 | done |
-| GC-024 | Unit tests for prefs.ts | tests | S | P2 | done |
-| GC-042 | shortcuts.test.ts is stored as binary because of a raw NUL byte | tests | S | P2 | done |
-| GC-039 | An e2e step that guards one Escape, one layer | tests | S | P2 | done |
-| GC-030 | Commit search loses its query and results when a diff opens | graph | S | P2 | done |
-| GC-031 | Push to a chosen remote when the repository has several | actions | S | P2 | done |
-| GC-025 | A readable error when git is not on PATH | main | S | P2 | done |
-| GC-019 | Only prompt on checkout when the changes are actually at risk | actions | S | P2 | done |
-| GC-020 | Keep the pinned branch's chip visible when chips fold | graph | S | P2 | done |
-| GC-022 | The +N refs dropdown is clipped by the graph scroll container | graph | S | P2 | done |
-| GC-032 | Optional Author, Date and SHA columns in the graph | graph | M | P2 | done |
-| GC-011 | File-system watcher for automatic refresh | main | M | P2 | done |
-| GC-060 | Unattended launches write to Ricardo's own app profile | infra | S | P1 | done |
-| GC-063 | Unit tests for the watcher's ignore and scope rules | tests | S | P1 | done |
-| GC-065 | Two of the study's screenshots show the desktop, not GitKraken | infra | S | P1 | done |
-| GC-043 | Context menu on file rows in the detail panel | ui | M | P2 | done |
-| GC-044 | Recently opened repositories from the repository breadcrumb | ui | M | P2 | done |
-| GC-067 | The recents dropdown shrinks the folder name to one letter and shows the path in full | ui | S | P1 | done |
-| GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | done |
-| GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | done |
-| GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | done |
-| GC-077 | Branch lines join and leave a node at a right angle, not on a diagonal | graph | M | P1 | done |
-| GC-078 | The ref column shows exactly one chip, every other ref folds into +N | graph | S | P1 | done |
-| GC-079 | Custom scrollbars: 8px flat thumb, no track, no arrow buttons | ui | S | P1 | done |
-| GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | done |
-| GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | done |
-| GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | done |
-| GC-086 | The diff body blanks to "Loading diff…" on every hunk action, twice | diff | S | P1 | done |
-| GC-089 | Slim CLAUDE.md back down to a handover: the history moves to the tickets | infra | M | P1 | done |
-| GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | done |
-| GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
-| GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | done |
-| GC-082 | Popping a stash through the toolbar loses what was staged | actions | S | P2 | done |
-| GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | done |
-| GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | done |
-| GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | done |
-| GC-092 | A conflicting stash pop reports "could not write index" instead of the conflict | actions | S | P1 | done |
-| GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | done |
-| GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | done |
-| GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | done |
-| GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | done |
-| GC-099 | Opening a repository with hidden refs loads the graph twice and flashes the hidden branches | graph | S | P1 | done |
-| GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | done |
-| GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
-| GC-013 | Light theme | ui | M | P3 | done |
-| GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
-| GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | done |
-| GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | done |
-| GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | done |
-| GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | done |
-| GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | done |
-| GC-130 | Step 21's hunk staging loses a race and fails on a fixture nothing changed | tests | S | P1 | done |
-| GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
-| GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
-| GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
-| GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | done |
-| GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | done |
-| GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
-| GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
-| GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
-| GC-145 | TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible | infra | M | P1 | done |
-| GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | done |
 | GC-172 | A tab returned to comes back scrolled to the top, whatever it was left at | graph | S | P1 | todo |
-| GC-164 | A repository picked from the recents list replaces the tab it was picked from | ui | S | P2 | done |
-| GC-163 | The `+` button opens a folder dialog instead of a new tab | ui | M | P2 | done |
 | GC-169 | Pull, push and fetch cannot survive a credential the helper cannot fix, and report one line of the reason | actions | M | P1 | todo |
 | GC-170 | A stash is a chip on its parent, where GitKraken gives it a row of its own above the tip | graph | M | P2 | todo |
 | GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P2 | todo |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
-| GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | done |
-| GC-156 | A stash marker on a row cuts the primary ref chip’s name down to one letter | graph | S | P2 | done |
-| GC-157 | The authored timestamp is cut short at the default detail-panel width on any merge commit | ui | S | P2 | done |
-| GC-158 | The backlog archive is outside the control-byte scan, so 82% of the backlog lost rule 6’s guard | tests | S | P2 | done |
-| GC-160 | e2e step 1 clears three remembered keys by name, and a driver can leave any of the others | tests | S | P2 | done |
-| GC-140 | Stashes never appear in the graph, only in the left panel’s list | graph | M | P2 | done |
-| GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | done |
-| GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | done |
-| GC-144 | The WIP-to-HEAD line is dashed for its first 14px and solid for the rest | graph | S | P2 | done |
-| GC-148 | A half-written commit message is lost when its tab is switched away from | ui | S | P2 | done |
-| GC-133 | The graph and the commit panel format the same timestamp two different ways | ui | S | P2 | done |
-| GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
-| GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
-| GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | done |
-| GC-014 | Side-by-side diff | diff | L | P3 | done |
-| GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
-| GC-016 | Multi-tab repositories | ui | L | P3 | done |
-| GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | done |
-| GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | done |
-| GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | done |
-| GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | done |
-| GC-108 | The repository-open path clears the status bar without owning it | actions | S | P3 | done |
-| GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | done |
-| GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
-| GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
-| GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | done |
-| GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | done |
-| GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | done |
-| GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
-| GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
-| GC-059 | A test for the launcher attach path | tests | S | P3 | done |
-| GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | done |
-| GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | done |
-| GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
-| GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | done |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | done |
-| GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | done |
-| GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | done |
-| GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | done |
-| GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | done |
-| GC-027 | Author filter in commit search | graph | S | P3 | done |
-| GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | done |
-| GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | done |
-| GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | done |
-| GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | done |
-| GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | done |
-| GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
-| GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
-| GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | done |
-| GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | done |
-| GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | done |
-| GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | done |
-| GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | done |
-| GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | done |
-| GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | done |
-| GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | done |
-| GC-161 | The checkout guard stashes untracked files without saying so, now that its neighbour does | ui | S | P3 | done |
-| GC-129 | A stash message cannot be edited once the stash is made | actions | S | P3 | done |
-| GC-134 | remoteCopyOf is inline and untested, and its comment justifies a state git forbids | tests | S | P3 | done |
-| GC-135 | Nothing says how long ago anything happened, and the stash date is fetched and thrown away | ui | M | P3 | done |
-| GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | done |
-| GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | done |
-| GC-122 | The graph does not scroll while a branch is being dragged | graph | S | P3 | done |
-| GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | done |
-| GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | done |
-| GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | done |
-| GC-136 | A hidden detail panel has nothing on screen to bring it back | ui | S | P3 | done |
 | GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | todo |
 | GC-138 | The diff’s hunk navigation is inline in the component and untested | tests | S | P3 | todo |
 | GC-167 | stashRename's index shift is the one piece of stash arithmetic with no unit test | tests | S | P3 | todo |
@@ -418,6 +297,10 @@ Copy a section, give it the next `GC-0NN`, fill every field, add a row to the bo
 is only `todo` when its scope, acceptance criteria and verification steps are concrete enough
 that a session with no other context could finish it. Otherwise mark it `blocked` and say what
 decision is missing.
+
+A log line is one sentence: the date, what happened, and its evidence (GC-174). Reasoning goes
+in the Why; an invariant goes in `CLAUDE.md`.
+
 
 ## Tickets
 

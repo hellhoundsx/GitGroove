@@ -12,7 +12,8 @@
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "vitest run",
+    "test": "vitest run --reporter=dot",
+
     "test:watch": "vitest",
     "e2e:setup": "node tools/e2e/setup-testrepo.mjs",
     "e2e": "node tools/e2e/run.mjs",

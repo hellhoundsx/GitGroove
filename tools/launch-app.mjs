@@ -31,7 +31,8 @@
 // spare; `--keep-running` is the name that works (GC-041).
 // Exits 0 once the page target is up, 1 on timeout.
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -220,7 +221,52 @@ export async function setRepo(target, repo) {
 }
 
 /**
+ * A PNG of the app's page over CDP (GC-174). `scale` is where the two routines differ: the
+ * reviewer reads its own screenshots and takes them at 0.5 — a quarter of the image tokens, and
+ * plenty to judge a layout by — while `docs/screenshots/`, which Ricardo compares against
+ * GitKraken, stays at 1. Resolves with the bytes, and writes them to `path` when one is given.
+ */
+export async function screenshot(target, { scale = 1, path = null } = {}) {
+  const ws = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((res, rej) => {
+    ws.addEventListener('open', res);
+    ws.addEventListener('error', () => rej(new Error('could not attach to the page target')));
+  });
+  let nextId = 0;
+  const pending = new Map();
+  ws.addEventListener('message', (e) => {
+    const msg = JSON.parse(e.data);
+    const settle = pending.get(msg.id);
+    if (!settle) return;
+    pending.delete(msg.id);
+    settle(msg);
+  });
+  const send = (method, params = {}) =>
+    new Promise((res, rej) => {
+      const id = ++nextId;
+      pending.set(id, (msg) => (msg.error ? rej(new Error(`${method}: ${msg.error.message}`)) : res(msg.result)));
+      ws.send(JSON.stringify({ id, method, params }));
+    });
+  try {
+    const { cssLayoutViewport: v } = await send('Page.getLayoutMetrics');
+    const shot = await send('Page.captureScreenshot', {
+      format: 'png',
+      clip: { x: 0, y: 0, width: v.clientWidth, height: v.clientHeight, scale },
+    });
+    const bytes = Buffer.from(shot.data, 'base64');
+    if (path) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+    }
+    return bytes;
+  } finally {
+    ws.close();
+  }
+}
+
+/**
  * The page target of an app already listening on the DevTools port, or null when nothing answers
+
  * there. CLI-only, for `--keep-running` (GC-054): a booting app answers /json before it lists a
  * page, so once the port has replied at all this waits for the page rather than reporting the port
  * free and spawning a second Electron that could never bind it.

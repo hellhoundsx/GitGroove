@@ -109,15 +109,16 @@ describe('repository hygiene', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The backlog's two files (GC-145)
+// The backlog's two files (GC-145, GC-174)
 //
-// `TICKETS.md` holds the scaffolding, the whole board and every ticket a session can act on;
-// `TICKETS-ARCHIVE.md` holds every `done` ticket's section and every review a newer one has
-// superseded. The split is by status, so it stays correct as tickets move: a `todo` never
-// migrates however old it gets, and a `done` always does. That only holds while every session
-// remembers to move a section in the same commit as the status change, which is what these
-// checks are for — the failure mode is silent, since both files render perfectly well with a
-// section in the wrong one, or in both.
+// `TICKETS.md` holds the scaffolding, the board of open tickets and every ticket a session can act
+// on; `TICKETS-ARCHIVE.md` holds every `done` ticket's row and section and every review a newer
+// one has superseded. The split is by status, so it stays correct as tickets move: a `todo` never
+// migrates however old it gets, and a `done` always does — row and section together, since GC-174
+// took the 146 `done` rows off the board every run used to read. That only holds while every
+// session remembers to move both in the same commit as the status change, which is what these
+// checks are for — the failure mode is silent, since both files render perfectly well with a row
+// or a section in the wrong one, or in both.
 
 /** Both backlog files, as line arrays. Missing means empty, which every check below reports on. */
 function backlogFiles(): { tickets: string[]; archive: string[] } {
@@ -150,13 +151,24 @@ export function sectionsOf(lines: string[]): { id: string; status: string }[] {
 }
 
 /**
- * Every board row's id, read line by line. Never a regex: a pattern built by interpolating an id
- * into this table has silently matched the wrong line before, because the pipes were parsed as
- * alternation and `test()` still returned true — which is why the routine forbids it and why this
- * check reads the cells rather than matching them.
+ * Every board row's id and status cell, read line by line. Never a regex: a pattern built by
+ * interpolating an id into this table has silently matched the wrong line before, because the
+ * pipes were parsed as alternation and `test()` still returned true — which is why the routine
+ * forbids it and why this check reads the cells rather than matching them. The status is
+ * `cells[cells.length - 2]`, the routine's own recipe for the cell.
  */
+export function boardRows(lines: string[]): { id: string; status: string }[] {
+  return lines
+    .filter((l) => l.startsWith('| GC-'))
+    .map((l) => {
+      const cells = l.split('|');
+      return { id: cells[1]!.trim(), status: cells[cells.length - 2]!.trim() };
+    });
+}
+
+/** The ids alone, in board order. */
 export function boardIds(lines: string[]): string[] {
-  return lines.filter((l) => l.startsWith('| GC-')).map((l) => l.split('|')[1]!.trim());
+  return boardRows(lines).map((r) => r.id);
 }
 
 /**
@@ -179,15 +191,28 @@ export function backlogProblems(tickets: string[], archive: string[]): string[] 
     if (s.id.startsWith('GC-') && s.status !== 'done') problems.push(`${s.id} is ${s.status || 'statusless'} but its section is in the archive; only done tickets belong there`);
   }
 
-  // Every board row resolves to exactly one section, and every ticket section has a row.
-  const rows = boardIds(tickets);
-  for (const id of rows) if (!byId.has(id)) problems.push(`board row ${id} resolves to no section in either file`);
-  const rowSet = new Set(rows);
+  // The rows follow the sections (GC-174): a `done` row belongs on the archive's board and every
+  // other row on TICKETS.md's, so the board a run reads holds only what it can act on.
+  const openRows = boardRows(tickets);
+  const closedRows = boardRows(archive);
+  for (const r of openRows) if (r.status === 'done') problems.push(`${r.id}'s row says done but is still on TICKETS.md's board; move the row to the archive's board`);
+  for (const r of closedRows) if (r.status !== 'done') problems.push(`${r.id}'s row says ${r.status || 'nothing'} but is on the archive's board; only done rows belong there`);
+
+  // Every board row resolves to exactly one section, every ticket section has a row, and a row
+  // says what its section says — the section is the source of truth, the row a convenience.
+  const rows = [...openRows, ...closedRows];
+  for (const r of rows) if (!byId.has(r.id)) problems.push(`board row ${r.id} resolves to no section in either file`);
+  const rowSet = new Set(rows.map((r) => r.id));
   for (const s of [...open, ...closed]) if (s.id.startsWith('GC-') && !rowSet.has(s.id)) problems.push(`${s.id} has a section but no board row`);
   const seenRows = new Set<string>();
-  for (const id of rows) {
-    if (seenRows.has(id)) problems.push(`board row ${id} appears more than once`);
-    seenRows.add(id);
+  for (const r of rows) {
+    if (seenRows.has(r.id)) problems.push(`board row ${r.id} appears more than once`);
+    seenRows.add(r.id);
+  }
+  const statusOf = new Map([...open, ...closed].map((s) => [s.id, s.status] as const));
+  for (const r of rows) {
+    const status = statusOf.get(r.id);
+    if (status !== undefined && status !== r.status) problems.push(`${r.id}'s row says ${r.status} but its section says ${status}; the section is the source of truth, so fix the row`);
   }
 
   // Exactly one review stays: the newest, whose `Window` sha the reviewer reads for the next one.
@@ -201,7 +226,7 @@ export function backlogProblems(tickets: string[], archive: string[]): string[] 
   return problems;
 }
 
-describe('the backlog is split by status across its two files (GC-145)', () => {
+describe('the backlog is split by status across its two files (GC-145, GC-174)', () => {
   it('has every board row resolving to exactly one section, and no done ticket left in TICKETS.md', () => {
     const { tickets, archive } = backlogFiles();
     expect(tickets.length).toBeGreaterThan(100);
@@ -215,7 +240,9 @@ describe('the backlog is split by status across its two files (GC-145)', () => {
     expect(backlogFiles().tickets.length).toBeLessThan(2500);
   });
 
-  const board = ['## Board', '| ID | Title | Area | Size | Priority | Status |', '| --- | --- | --- | --- | --- | --- |', '| GC-001 | A | ui | S | P1 | todo |'];
+  const header = ['## Board', '| ID | Title | Area | Size | Priority | Status |', '| --- | --- | --- | --- | --- | --- |'];
+  const board = [...header, '| GC-001 | A | ui | S | P1 | todo |'];
+  const archiveBoard = [...header, '| GC-002 | B | ui | S | P1 | done |'];
   const section = (id: string, status: string): string[] => [`### ${id} A`, '', `- **Status:** ${status}`, ''];
 
   it('fails when one id has a section in both files', () => {
@@ -239,6 +266,24 @@ describe('the backlog is split by status across its two files (GC-145)', () => {
     );
   });
 
+  it('fails when a done row is left on TICKETS.md board, or an open row is filed on the archive board (GC-174)', () => {
+    const doneRowLeft = [...header, '| GC-002 | B | ui | S | P1 | done |', ...section('GR-002', 'done')];
+    expect(backlogProblems(doneRowLeft, [...section('GC-002', 'done'), ...section('GR-001', 'done')])).toContain(
+      "GC-002's row says done but is still on TICKETS.md's board; move the row to the archive's board",
+    );
+    const openRowFiled = [...header, '| GC-001 | A | ui | S | P1 | todo |', ...section('GC-001', 'todo')];
+    expect(backlogProblems([...section('GR-002', 'done')], [...openRowFiled, ...section('GR-001', 'done')])).toContain(
+      "GC-001's row says todo but is on the archive's board; only done rows belong there",
+    );
+  });
+
+  it('fails when a row and its section disagree, naming the section as the truth (GC-174)', () => {
+    const tickets = [...board, ...section('GC-001', 'blocked'), ...section('GR-002', 'done')];
+    expect(backlogProblems(tickets, [...section('GR-001', 'done')])).toContain(
+      "GC-001's row says todo but its section says blocked; the section is the source of truth, so fix the row",
+    );
+  });
+
   it('fails when a superseded review is left beside the newest one', () => {
     const tickets = [...board, ...section('GC-001', 'todo'), ...section('GR-001', 'done'), ...section('GR-002', 'done')];
     expect(backlogProblems(tickets, [])).toContain('TICKETS.md holds 2 reviews; it must hold exactly the newest one');
@@ -249,8 +294,8 @@ describe('the backlog is split by status across its two files (GC-145)', () => {
   });
 
   it('passes on a pair of files that are split correctly', () => {
-    const tickets = [...board, '| GC-002 | B | ui | S | P1 | done |', ...section('GC-001', 'todo'), ...section('GR-002', 'done')];
-    const archive = [...section('GC-002', 'done'), ...section('GR-001', 'done')];
+    const tickets = [...board, ...section('GC-001', 'todo'), ...section('GR-002', 'done')];
+    const archive = [...archiveBoard, ...section('GC-002', 'done'), ...section('GR-001', 'done')];
     expect(backlogProblems(tickets, archive)).toEqual([]);
   });
 });
