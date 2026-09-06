@@ -34,6 +34,8 @@ function readHidden(path: string): string[] {
     return [];
   }
 }
+/** Two hidden sets holding the same names in the same order (GC-099). */
+const sameNames = (a: string[], b: string[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
 const MAX_COMMITS = 2000;
 
 /** Windows hands the same folder back with either separator and either case, so dedupe on this (GC-044). */
@@ -143,10 +145,22 @@ export function App(): JSX.Element {
   const load = useCallback(
     async (path: string) => {
       const gen = generation.current;
+      // The hidden set belongs to the path about to be loaded, so it is read here rather than left
+      // to the prune effect below, which only runs once a snapshot has landed: that made every cold
+      // open two `git log` runs at MAX_COMMITS and painted the hidden branches before removing them
+      // (GC-099). Reading it here also resets it when the path changes, so one repository's hidden
+      // set can never reach another's first load. A path the dialog hands back uncanonicalised has
+      // no stored set under its key, which loads unfiltered and lets the prune effect correct it —
+      // the old behaviour, for the one case that cannot be keyed up front.
+      const hide = readHidden(path);
+      hiddenRef.current = hide;
       try {
-        const snap = await window.api.loadRepo(path, MAX_COMMITS, hiddenRef.current);
+        const snap = await window.api.loadRepo(path, MAX_COMMITS, hide);
         if (gen !== generation.current) return; // (GC-068) something newer has already landed
         setSnapshot(snap);
+        // Applied in the same commit as the snapshot it was loaded with, so no frame is ever
+        // painted with a chip for a ref that snapshot already excludes (GC-099).
+        setHidden((prev) => (sameNames(prev, hide) ? prev : hide));
         bumpGen();
         setRepoPath(snap.info.path);
         // git hands back the canonical path, so dedupe against that rather than the one asked for.
@@ -298,7 +312,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (!repo || !snapshot) {
       hiddenRef.current = [];
-      setHidden([]);
+      setHidden((prev) => (prev.length === 0 ? prev : []));
       return;
     }
     const stored = readHidden(repo);
@@ -313,10 +327,14 @@ export function App(): JSX.Element {
       }
     }
     const applied = hiddenRef.current;
-    if (next.length === applied.length && next.every((n, i) => n === applied[i])) return;
     hiddenRef.current = next;
-    setHidden(next);
-    void run('Updating graph', async () => undefined);
+    // Keeping the array's identity when the names have not changed stops a snapshot that says
+    // nothing new about the hidden set from re-rendering the panels that read it.
+    setHidden((prev) => (sameNames(prev, next) ? prev : next));
+    // Only when the snapshot on screen was built with a different set is a rebuild owed. Now that
+    // `load()` applies the stored set to the first call for a path (GC-099), that means a hidden
+    // ref has genuinely disappeared — the ordinary open costs one `git log`, not two.
+    if (!sameNames(next, applied)) void run('Updating graph', async () => undefined);
   }, [repo, snapshot, run]);
 
   /** Persist a new hidden set and rebuild the graph with it. */
