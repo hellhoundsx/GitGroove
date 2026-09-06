@@ -8084,3 +8084,150 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
     The review's Electron was found on 9334 by command line and stopped by PID, and the port was
     confirmed free afterwards. The only writes outside `%TEMP%` were none: the tag deleted in the
     scratch repo to observe GC-112 was restored at its original sha and its remote copy cleared.
+
+### GR-016 Backlog review 2026-09-06 11:20
+
+- **Status:** done
+- **Window:** 5f705ee..7a84981
+- **Log:**
+  - 2026-09-06 11:20 inbox: **eight items, all eight investigated and all eight filed.** This is
+    the largest inbox any review has drained and it took the whole budget; the reviewer's own
+    findings were not filed, which the routine's eight-addition cap intends. One line each,
+    with what the investigation actually turned up:
+    - *Stashes do not appear in the graph* -> **GC-140**. Reproduced: took a stash on `main` in
+      the review's own scratch repository, and `git rev-parse refs/stash^` is `922c820` "Remove
+      obsolete file", row 2 of the graph. After a refresh the nine rows are unchanged, row 2 has
+      no marker, and the left panel's STASHES count alone goes 0 -> 1 (`04-stash-absent.png`).
+      The cause is structural, not a missed case: `getLog` traverses heads, remotes, tags and
+      `HEAD`, so `refs/stash` is excluded by construction (GC-095). Ricardo asked to check
+      GitKraken first — the study has stashes as a left-panel section, a toolbar pair and a
+      context menu, but **no observation at all of how the graph draws one**, and taking that
+      needs a hands-on session this run may not run. So the ticket is `todo`, not `blocked`: the
+      placement he asked for (on the commit it was taken from) is decidable from git alone, and
+      the half the study cannot answer — a stash node or lane of its own — is fenced into Out of
+      scope for a follow-up.
+    - *Clicking a branch should take me to it on the graph* -> **GC-141**. Stronger than
+      described: there is no `onClick` on any ref row in `LeftPanel.tsx` — local, remote or tag —
+      so a single click does nothing whatsoever. It is small because the answer already exists:
+      `GitRef.sha`, `App.select` and the scroll-into-view effect. Checking that effect turned up
+      a latent hole worth folding in rather than filing separately:
+      `commits.findIndex(...) + (hasWip ? 1 : 0)` makes a not-loaded sha come out as `0`, so the
+      `if (index < 0) return` guard never fires and the graph scrolls to the WIP row. Reachable
+      today from a parent link; it would be the ordinary case for a hidden branch's row.
+    - *The right sidebar needs a design pass* -> **GC-142**. Measured instead of agreed with: of
+      the five children of `.detail-body` in the commit view, only `.banner.info` and
+      `.message-box` have a background or border — `.author`, `.readout` and `.file-list` are all
+      `rgba(0,0,0,0)` with `0px` borders, separated by the body's 12px gap and nothing else, and
+      `.author .parents` is `margin-left: auto` so it wraps under the authored date. The staging
+      view repeats it. Scoped to separation and alignment only; the study's other panel features
+      (collapsible lists, Path | Tree, sort, resizable bottom section) are named in Out of scope
+      so this cannot drift into an open-ended redesign.
+    - *Pencil filled, plus thicker* -> **GC-143**. Measured: `lucide-plus`, `width 12`,
+      `stroke-width 1.75`, `fill none`. Investigating it found the better half of the ticket —
+      the commit view's readout is not icons at all but literal text, `+ 1 added` with `✎`, `−`
+      and `→`, so the same three states are drawn two different ways inches apart in one panel.
+      The study wants one form ("pencil icon 'N modified'"). Weight alone would not have made
+      them consistent.
+    - *The WIP line should be dotted* -> **GC-144**. The dash is not missing: row 0 draws
+      `stroke-dasharray="2 3"` for its own half-row and the dashed circle is already correct.
+      Every row below draws lane 0 solid, and in the scratch repository `main`'s commit is row 2,
+      so 14px of a 56px run is dashed and 42px contradicts it. `03-graph.md` documents both the
+      dotted node and the dashed WIP-to-HEAD *segment*; the node shipped, the segment did not.
+      Recorded that distinction in the ticket, because "add a dashed line" would produce the
+      wrong fix.
+    - *TICKETS.md is too big* -> **GC-145**, and filed **P1**, the only P1 on the open board.
+      Measured the composition rather than trusting the estimate: 681 KB, 8,796 lines, 139 GC
+      sections, 15 GR reviews; `done` is 6,212 lines (**70.6%**), reviews 1,189 (13.5%), the work
+      a session can pick up — todo, in-progress, blocked — 1,041 (11.8%), scaffolding 354. P1
+      because this is not tidiness: two scheduled routines and CLAUDE.md all instruct a session to
+      read a file that can no longer be read, and it grows every hour. Ricardo's split-by-status
+      is right and the ticket says why — a `todo` never moves whatever its age, and the newest
+      review must stay because this reviewer reads its `Window` sha to set the next window. Added
+      a constraint he could not have known to ask for: it must land in **one commit**, because the
+      reviewer writes this file hourly and the worker writes it on every claim.
+    - *Local branches have no icon* -> **GC-146**. Confirmed: `renderChip` gives `Cloud` to a
+      remote, `Tag` to a tag, `Check` to the checked-out branch and nothing to a plain local one;
+      an absorbed chip gets a **trailing** cloud and still no local mark, so `main` reads
+      `✓ main ☁` and its one icon belongs to the remote. The study's chip vocabulary is laptop for
+      local, cloud for remote, kind icons *after* the name and the status icon before it — which
+      also settles an inconsistency we already have, the same cloud leading a remote chip and
+      trailing an absorbed one. Included the order in scope for that reason. Noted that the left
+      panel uses `GitBranch` for local and remote rows alike, the same gap one level down.
+    - *A band joining the node to its chip* -> **GC-147**. Measured, because a hairline does
+      exist and the ticket had to say so: on `main`'s row `.col-ref` is x 220–354, the last chip
+      ends at 324, `.col-graph` starts at 354, and the connector is a 1px `opacity="0.8"` line
+      from x 354 to 363. So 30px is empty and the remaining 9px is a hairline. `03-graph.md` has
+      a 2px `hr` in the lane colour connecting chip to node, and separately a lane-tinted band on
+      the selected and WIP rows; Ricardo asked for the first, and the second is named in Out of
+      scope. Two constraints go in the ticket because they decide the implementation:
+      `.col-ref` is `overflow: hidden`, and `.more-list` is positioned against it and grows on
+      hover (GC-022, GC-078).
+  - shipped: three commits in the window, one of them a review. `97a249b` is GR-015. `0a238c2`
+    implements **GC-132**, **GC-027**, **GC-033** and **GC-045**, and `f1bbd2e` is its
+    documentation pass (CLAUDE.md, TICKETS.md, four screenshots, one `CommitGraph` line, three
+    e2e steps). Read as a reviewer: **GC-033** is the best-shaped piece. `hit(id)` is
+    `matches(id, e) && (firesWhileTyping(id) || !isEditable(e.target))` in one place, so
+    `Shortcut.whileTyping` — carried since GC-010 and read by nothing, which GR-002 had flagged —
+    becomes the single answer to a question that had been decided by one `isEditable` check
+    placed halfway down the ladder. `ctrlOnly`/`ctrlShift` excluding `altKey` is what lets
+    Ctrl+Alt+F exist beside Ctrl+F rather than shadowing it, and the two focus props being ticks
+    rather than booleans is the right shape, already proven by `searchTick`. **GC-027**'s
+    `commitMatches(c, q, byAuthor)` dropping the author fields once a chip is set is the whole
+    point of the feature and is argued for in the comment; `filtering` as one derived value read
+    by the readout, the jump-to-first-match effect and the row classes is what keeps a chip alone
+    from being a no-op. The one thing I would push back on: `authorsOf` and `commitMatches` are
+    both module-private in `CommitGraph.tsx` and neither is tested — `authorsOf` is a pure
+    dedupe-and-sort of exactly the kind this codebase extracts, and it is the second window
+    running to add a decision function without a test after `remoteCopyOf` (GC-134). I did not
+    file a third ticket for it; **GC-134** already exists and names the pattern, and a fourth
+    ticket would be noise — the note is here so the session that picks up GC-134 widens it.
+    Everything else matches CLAUDE.md, and the acceptance boxes I spot-checked have evidence.
+  - health: at `7a84981` in the detached worktree with `node_modules` junctioned —
+    **typecheck ok, 190 tests passed (18 files)** in 1.87s, **build ok**. Six tests and one file
+    more than GR-015 (`DetailPanel.test.tsx`, plus the `shortcuts.test.ts` additions). e2e was not
+    re-run: the window's only harness change is GC-132's helper assertions, and GR-015 ran the
+    suite two commits earlier. `MAIN` was never built, tested or launched.
+  - app: the `7a84981` build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`.
+    Screenshots in `%TEMP%/gitclient-review/GR-016/`, all four looked at. `01-graph-wip.png`:
+    nine rows, lanes continuous, right-angle joins, `wip-branch +1` / `main +4` / `feature +1`,
+    the WIP readout's `+1 ✎3 −1` agreeing with the panel's 3 unstaged and 2 staged. It is also
+    where four of the eight inbox items are visible at once, which is why the inbox pass and the
+    UI pass were the same pass this run. `02-commit-view.png` is GC-045 landed — the blue banner
+    with "5 file changes in the working directory" and its View changes button — and is the
+    evidence for GC-142. `03-diff-view.png` is the WIP diff of `a.txt`: header, Unified | Split,
+    Stage file / Discard changes, one hunk with its two buttons, the added line tinted; healthy,
+    and this build predates GC-052's three new header controls, which are in the worker's
+    unpushed commits. `04-stash-absent.png` is GC-140's evidence.
+  - what's next: no separate pass this run — the inbox filled the budget, and five of its eight
+    items came out of the same screenshot pass a what's-next pass would have used. Still
+    unticketed and named once here rather than carried: Compare against working directory,
+    Blame / History / Export changes to patch, and the CHANGES optional graph column.
+  - tickets: added **GC-140** (graph, M, P2), **GC-141** (ui, S, P2), **GC-142** (ui, M, P2),
+    **GC-143** (ui, S, P3), **GC-144** (graph, S, P2), **GC-145** (infra, M, **P1**), **GC-146**
+    (graph, S, P3) and **GC-147** (graph, S, P3) — all eight from the inbox, none from the
+    reviewer's own findings, which is the cap working as intended. No existing ticket was
+    extended: each of the eight was checked against the board first and none was covered. Board:
+    GC-145 goes **above** GC-128 as the only P1 and the first open row a worker meets; the four
+    P2s go directly below GC-128; the three P3s go at the tail after GC-139, where GR-015 put its
+    P3 additions. Nothing else moved.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all
+    three still want a decision from Ricardo. No `todo` ticket has gone vague. GC-145 is the new
+    head of the open work and GC-128 keeps second place. Dependencies: all eight new tickets
+    depend on nothing, which is correct — they touch four different surfaces and none blocks
+    another. GC-146 and GC-147 both touch the ref column and GC-142 and GC-143 both touch the
+    detail panel; they are independent but a worker taking either pair together will have an
+    easier time, and the board order puts each pair adjacent.
+  - notes: `CLAUDE.md` at `7a84981` says "190 tests today", which matches this run exactly, and
+    its e2e line ("37 steps, 239 assertions, ~36s") matches GC-132's additions. Nothing in it is
+    stale at the reviewed sha. This review did not edit `CLAUDE.md` — and GC-145 will need to,
+    which is flagged in that ticket's Files rather than done here.
+  - isolation: **GC-016 was claimed `in-progress` while this review ran** and was not touched.
+    `MAIN` was never built, tested or launched and its working tree was left exactly as found;
+    `TICKETS.md` was clean in `git status` before this write and is the only file staged. The
+    worker also has three commits — GC-133, GC-051, GC-052 and the GC-016 claim — that were
+    unpushed throughout, so this window ends at `7a84981` and GR-017 will review them. Their
+    diffs were read read-only for deduplication and none of the eight inbox items collides with
+    them. The review's Electron was found on 9334 by command line and stopped by PID; only
+    TIME_WAIT sockets remained and nothing was listening. The only repository written to was the
+    review's own scratch root: one stash taken to observe GC-140 and popped again, leaving
+    `git status --short` identical to the fixture's.

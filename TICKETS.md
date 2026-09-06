@@ -380,7 +380,10 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-146 | A local branch’s chip carries no icon, and an absorbed chip shows only the remote’s | graph | S | P3 | todo |
 | GC-147 | Nothing joins a ref chip to its node across the 30px between them | graph | S | P3 | todo |
 | GC-149 | The tab bar has no answer for more tabs than fit across it | ui | S | P3 | todo |
+| GC-151 | A repository tab is the one row in the app a right-click does nothing on | ui | S | P3 | todo |
 | GC-150 | A stash row in the left panel is inert on a single click, and never says which commit it came from | ui | S | P3 | todo |
+| GC-152 | A commit can only be read against its parent, never against the working directory | diff | M | P3 | todo |
+| GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1665,6 +1668,187 @@ decision is missing.
     had no commit to select. GC-140, in the same batch, gave it one, so the two tickets together
     left a gap neither of them owns.
 
+
+### GC-151 A repository tab is the one row in the app a right-click does nothing on
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-016
+- **Why:** GC-016 shipped the tab bar with a close button and middle-click-to-close and no context
+  menu at all. Verified over CDP at `f85d213`: dispatching `contextmenu` on `.tab` leaves
+  `document.querySelectorAll('.ctx-menu').length` at 0, both before and after. Every other
+  repeated row in the app answers a right-click - a commit, a ref, a stash, a remote, a file row -
+  so the tab is the one surface that does not, which is an inconsistency and a real gap besides:
+  middle-click closes a tab in one gesture, nothing brings it back, and the repository then has to
+  be found again through the recents list. `05-menus-shortcuts.md` records GitKraken's tabs group
+  as Close tab, Close other tabs, Close tabs to the right, Reopen closed tab, Rename tab, Alias
+  repository, Favorite repository; the first four need nothing the bar does not already hold.
+- **Scope:**
+  - `onContextMenu` on a tab row, through `useUi().openMenu` like every other menu, built by a
+    `tabMenuItems(tab)` in `App.tsx` beside the other `*MenuItems` builders.
+  - Rows: Close tab, Close other tabs, Close tabs to the right, Reopen closed tab, Copy repository
+    path (the path is already the tab's `title`).
+  - An action that does not apply is **absent, not disabled**, the way `fileMenuItems` omits one:
+    with one tab open there is nothing to close beside it, and with the last tab active there is
+    nothing to its right.
+  - Reopen closed tab: a session-only stack of the paths closed in this run, newest first, held in
+    `App`. Not persisted - the same choice the left panel's collapsed-folder set makes (GC-051),
+    and `gitclient.tabs` is the list of what is open, not a history. Reopening puts the repository
+    back in a tab of its own at the end of the bar and takes the user to it, exactly as `+` does,
+    which means a path already in the bar takes the user to that tab rather than opening a second
+    copy of it.
+  - Closing several tabs goes through the one close path, so `neighbourOf` still decides what is
+    left showing, the parked state of each closed tab is dropped, and `gitclient.tabs` is written
+    once rather than once per tab.
+- **Out of scope:** Rename tab, Alias repository and Favorite repository - all three need a
+  per-tab name, and the stored list is an array of paths that cannot hold one; drag-to-reorder;
+  the overflow the bar still has no answer for (GC-149).
+- **Acceptance:**
+  - [ ] Right-clicking a tab opens a menu, and Escape closes that menu and nothing else - it is a
+        `ContextMenu`, so `layerOpen` already covers it and no new listener appears.
+  - [ ] With one tab open, neither "Close other tabs" nor "Close tabs to the right" is in the menu.
+  - [ ] With three tabs and the first active, "Close tabs to the right" leaves one tab and it is
+        still the active one.
+  - [ ] Closing a tab and then "Reopen closed tab" puts that repository back, shows it, and
+        `gitclient.tabs` holds its path again.
+  - [ ] Reopening a path that is already in the bar takes the user to the existing tab and does not
+        add a second copy of it.
+  - [ ] `tabs.test.ts` covers the closed stack as pure functions: push, pop, and the
+        already-open case.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/components/TitleBar.tsx`, `src/renderer/src/App.tsx`,
+  `src/renderer/src/tabs.ts`, `src/renderer/src/tabs.test.ts`,
+  `src/renderer/src/styles/app.css`
+- **Verify:** build, launch through `tools/launch-app.mjs`, drive the four rows over CDP against a
+  two- and a three-tab bar, screenshot the open menu into `docs/screenshots/`, and read
+  `gitclient.tabs` back out of `localStorage` after each close and each reopen.
+- **Log:**
+  - 2026-09-06 proposed by GR-017: right-clicking a tab opens nothing at all (measured over CDP:
+    0 menus before the event and 0 after), and a middle-click close has no undo.
+
+### GC-152 A commit can only be read against its parent, never against the working directory
+
+- **Status:** todo
+- **Area:** diff | **Size:** M | **Priority:** P3
+- **Depends on:** none
+- **Why:** the commit view's file list is `git show`, so a commit is always read against its
+  parent. GitKraken's commit context menu carries "Compare against working directory" and we have
+  no equivalent: `grep -rn 'Compare against' src/` returns nothing. That is the ordinary question
+  when reading history - how does what is on my disk differ from this commit - and the only way to
+  ask it today is to check the commit out, which is a working-tree operation to answer a read-only
+  question. Most of the plumbing exists: `getCommitFileDiff` already diffs one path at one sha,
+  `DiffView` already keys its content to a view identity, and the detail panel already renders a
+  file list with a per-row menu. What is missing is a third diff **source** - `git diff <sha>`
+  rather than `git show <sha>`.
+- **Scope:**
+  - `git.ts`: `getCompare(cwd, sha)` answering the existing `CommitFile[]` shape from
+    `git diff --name-status <sha>`, and `getCompareFileDiff(cwd, sha, path, opts)` from
+    `git diff <sha> -- <path>`. Both take `DiffOptions`, so GC-052's `-w` reaches them and the
+    header's whitespace toggle behaves the same here as anywhere else.
+  - Handlers in `ipc.ts` and entries in `preload/index.ts`, in the `commit:*` group, arguments
+    validated like every other.
+  - A compare **mode** on the commit selection: `selected` stays the sha and a second piece of
+    state says the panel is showing the comparison, so nothing about the graph's selection changes.
+    The commit menu's row sets it; the panel says which mode it is in and offers the way back to
+    the commit's own changes. Selecting another commit, or the WIP row, leaves the mode.
+  - The file view opened from a compared row carries that source in `DiffView`'s **identity**, not
+    only its load key, so the same file at the same sha read as a commit and read as a comparison
+    can never render one under the other's header (GC-075, GC-086).
+  - Every hunk button is **off** in this mode and the sub-header says why: `git diff <sha>` is not
+    a patch `git apply` will take against the index in either direction. Same shape as the
+    whitespace flag's disabled buttons, and Stage file / Discard changes are off too, because
+    neither means anything about a commit's contents.
+- **Out of scope:** comparing two arbitrary commits with each other, or a commit against a branch
+  tip - both want a picker this ticket does not build; Blame and History, the other two file-view
+  features `06-feature-inventory.md` lists, each of which is its own ticket.
+- **Acceptance:**
+  - [ ] The commit context menu carries "Compare against working directory", and it is absent on
+        the WIP row, where it would compare the working directory with itself.
+  - [ ] Choosing it lists the files that differ between that commit and the working tree, and the
+        list matches `git diff --name-status <sha>` run by hand.
+  - [ ] Opening one of those rows shows the diff of that file, and it matches `git diff <sha> --
+        <path>` byte for byte.
+  - [ ] Every patch button in that view is disabled and the sub-header says why.
+  - [ ] Turning "Ignore whitespace" on reloads the comparison with `-w` and the hunks on screen
+        stay and dim rather than blanking (GC-086).
+  - [ ] Selecting another commit leaves compare mode and the panel is the ordinary commit view.
+  - [ ] Unit tests for the two new `git.ts` functions' argument construction, and an e2e step that
+        opens the comparison on a fixture commit and asserts the file list against git.
+  - [ ] `npm run typecheck`, `npm test` and `npm run e2e` pass.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
+  `src/shared/types.ts`, `src/renderer/src/App.tsx`,
+  `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/diff/DiffView.tsx`,
+  `tools/e2e/run.mjs`
+- **Verify:** `npm run e2e` for the new step; then launch, compare a fixture commit two commits
+  back against the fixture's own dirty working tree, and check the list and one file's diff against
+  `git diff` run by hand in the scratch repository.
+- **Log:**
+  - 2026-09-06 proposed by GR-017: the one commit action in the study's list that is neither
+    blocked behind interactive rebase nor a worktree feature, and GR-016 named it unticketed.
+
+### GC-153 The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P3
+- **Depends on:** none
+- **Why:** measured in the running app with `catena-feed` loaded read-only
+  (`%TEMP%/gitclient-review/GR-017/05-two-tabs-real-repo.png`): LOCAL (7) and REMOTE (52) are both
+  open by default, the rows run past the bottom of the window, and the TAGS and STASHES headers are
+  not on screen at all. So on a real repository the panel does not say a stash exists until the
+  user has scrolled past 52 remote branches - and a section header is exactly the thing that should
+  not scroll away, because it is the count. On the nine-ref scratch repository all four headers fit
+  (`01-graph.png`), which is why this has never surfaced in a review before. `04-panels.md`
+  records GitKraken's answer and it is not "collapse REMOTE by default": "Expanded sections are
+  separated by a horizontal drag handle (10px) so their heights can be shared" - each expanded
+  section scrolls inside its own box, so one long section never takes the space of the three below.
+- **Scope:**
+  - `.left-panel` becomes a column of sections that each scroll inside themselves, rather than one
+    scroll container over all four. Every section header is always on screen.
+  - The expanded sections share the panel's height: an equal share by default, and a drag handle
+    between two adjacent expanded sections moves the boundary between them and nothing else. A
+    collapsed section is its 30px header and takes no part in the share - the same treatment the
+    collapsed left rail gets from `fitPanels`, which passes it in as a zero-width panel.
+  - Collapsing or expanding a section re-shares the height among those still open.
+  - The heights are remembered on their own `localStorage` key and get a row in `CLAUDE.md`'s
+    remembered-state table: this is state, not a preference, so it does not go in the prefs blob.
+    Double-clicking a handle resets the two it separates to an equal share and removes the key.
+  - The rules GC-105, GC-110, GC-111 and GC-118 settled apply unchanged one axis over: only the
+    **applied** heights are clamped and the stored ones are never written over by a fit, a drag
+    starts from the height being **drawn**, and a drag released past a wall keeps the wall rather
+    than the release position.
+  - `useDragWidth` is width-only today. Extract its clamp / persist / release-position logic into
+    one hook that takes an axis and have both call sites use it, rather than adding a second copy of
+    the same three rules - GC-118 had to be fixed once already and must not be fixable twice.
+- **Out of scope:** the section context menu `04-panels.md` also records (show/hide all, maximize
+  this section); changing which sections are open by default; the icon rail, which has one row per
+  section and is unaffected.
+- **Acceptance:**
+  - [ ] With a repository whose REMOTE section holds more refs than fit, all four section headers
+        are on screen at once and each expanded section scrolls inside itself.
+  - [ ] Dragging a handle moves the boundary between its two neighbours and changes no other
+        section's height.
+  - [ ] Double-clicking a handle resets those two to an equal share and removes the stored key.
+  - [ ] The heights survive a reload, and a hand-edited or absent key falls back to an equal share
+        rather than to zero.
+  - [ ] Collapsing a section gives its space to the sections still open, and expanding it takes the
+        space back.
+  - [ ] A drag released past the wall keeps the wall, and the stored height of the other section is
+        not written over (the GC-118 property, one axis over).
+  - [ ] A `LeftPanel.test.tsx` case for the share, and a unit test for the extracted hook's pure
+        answer.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/components/LeftPanel.tsx`,
+  `src/renderer/src/components/LeftPanel.test.tsx`, `src/renderer/src/ui/useDragWidth.ts` (or
+  wherever the hook lives), `src/renderer/src/styles/app.css`,
+  `src/renderer/src/styles/tokens.css`, `CLAUDE.md`
+- **Verify:** build, launch through `tools/launch-app.mjs`, load `catena-feed` **read-only** for a
+  panel with 52 remote branches, screenshot into `docs/screenshots/` and look at it: all four
+  headers on screen, each section scrolling on its own. Then drag and double-click a handle over
+  CDP and read the stored key back.
+- **Log:**
+  - 2026-09-06 proposed by GR-017: found in the UI pass, on a real repository rather than the
+    fixture - the scratch repo's nine refs cannot produce it.
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -1672,149 +1856,96 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
 
-### GR-016 Backlog review 2026-09-06 11:20
+### GR-017 Backlog review 2026-09-06 11:20
 
 - **Status:** done
-- **Window:** 5f705ee..7a84981
+- **Window:** 7a84981..f85d213
 - **Log:**
-  - 2026-09-06 11:20 inbox: **eight items, all eight investigated and all eight filed.** This is
-    the largest inbox any review has drained and it took the whole budget; the reviewer's own
-    findings were not filed, which the routine's eight-addition cap intends. One line each,
-    with what the investigation actually turned up:
-    - *Stashes do not appear in the graph* -> **GC-140**. Reproduced: took a stash on `main` in
-      the review's own scratch repository, and `git rev-parse refs/stash^` is `922c820` "Remove
-      obsolete file", row 2 of the graph. After a refresh the nine rows are unchanged, row 2 has
-      no marker, and the left panel's STASHES count alone goes 0 -> 1 (`04-stash-absent.png`).
-      The cause is structural, not a missed case: `getLog` traverses heads, remotes, tags and
-      `HEAD`, so `refs/stash` is excluded by construction (GC-095). Ricardo asked to check
-      GitKraken first — the study has stashes as a left-panel section, a toolbar pair and a
-      context menu, but **no observation at all of how the graph draws one**, and taking that
-      needs a hands-on session this run may not run. So the ticket is `todo`, not `blocked`: the
-      placement he asked for (on the commit it was taken from) is decidable from git alone, and
-      the half the study cannot answer — a stash node or lane of its own — is fenced into Out of
-      scope for a follow-up.
-    - *Clicking a branch should take me to it on the graph* -> **GC-141**. Stronger than
-      described: there is no `onClick` on any ref row in `LeftPanel.tsx` — local, remote or tag —
-      so a single click does nothing whatsoever. It is small because the answer already exists:
-      `GitRef.sha`, `App.select` and the scroll-into-view effect. Checking that effect turned up
-      a latent hole worth folding in rather than filing separately:
-      `commits.findIndex(...) + (hasWip ? 1 : 0)` makes a not-loaded sha come out as `0`, so the
-      `if (index < 0) return` guard never fires and the graph scrolls to the WIP row. Reachable
-      today from a parent link; it would be the ordinary case for a hidden branch's row.
-    - *The right sidebar needs a design pass* -> **GC-142**. Measured instead of agreed with: of
-      the five children of `.detail-body` in the commit view, only `.banner.info` and
-      `.message-box` have a background or border — `.author`, `.readout` and `.file-list` are all
-      `rgba(0,0,0,0)` with `0px` borders, separated by the body's 12px gap and nothing else, and
-      `.author .parents` is `margin-left: auto` so it wraps under the authored date. The staging
-      view repeats it. Scoped to separation and alignment only; the study's other panel features
-      (collapsible lists, Path | Tree, sort, resizable bottom section) are named in Out of scope
-      so this cannot drift into an open-ended redesign.
-    - *Pencil filled, plus thicker* -> **GC-143**. Measured: `lucide-plus`, `width 12`,
-      `stroke-width 1.75`, `fill none`. Investigating it found the better half of the ticket —
-      the commit view's readout is not icons at all but literal text, `+ 1 added` with `✎`, `−`
-      and `→`, so the same three states are drawn two different ways inches apart in one panel.
-      The study wants one form ("pencil icon 'N modified'"). Weight alone would not have made
-      them consistent.
-    - *The WIP line should be dotted* -> **GC-144**. The dash is not missing: row 0 draws
-      `stroke-dasharray="2 3"` for its own half-row and the dashed circle is already correct.
-      Every row below draws lane 0 solid, and in the scratch repository `main`'s commit is row 2,
-      so 14px of a 56px run is dashed and 42px contradicts it. `03-graph.md` documents both the
-      dotted node and the dashed WIP-to-HEAD *segment*; the node shipped, the segment did not.
-      Recorded that distinction in the ticket, because "add a dashed line" would produce the
-      wrong fix.
-    - *TICKETS.md is too big* -> **GC-145**, and filed **P1**, the only P1 on the open board.
-      Measured the composition rather than trusting the estimate: 681 KB, 8,796 lines, 139 GC
-      sections, 15 GR reviews; `done` is 6,212 lines (**70.6%**), reviews 1,189 (13.5%), the work
-      a session can pick up — todo, in-progress, blocked — 1,041 (11.8%), scaffolding 354. P1
-      because this is not tidiness: two scheduled routines and CLAUDE.md all instruct a session to
-      read a file that can no longer be read, and it grows every hour. Ricardo's split-by-status
-      is right and the ticket says why — a `todo` never moves whatever its age, and the newest
-      review must stay because this reviewer reads its `Window` sha to set the next window. Added
-      a constraint he could not have known to ask for: it must land in **one commit**, because the
-      reviewer writes this file hourly and the worker writes it on every claim.
-    - *Local branches have no icon* -> **GC-146**. Confirmed: `renderChip` gives `Cloud` to a
-      remote, `Tag` to a tag, `Check` to the checked-out branch and nothing to a plain local one;
-      an absorbed chip gets a **trailing** cloud and still no local mark, so `main` reads
-      `✓ main ☁` and its one icon belongs to the remote. The study's chip vocabulary is laptop for
-      local, cloud for remote, kind icons *after* the name and the status icon before it — which
-      also settles an inconsistency we already have, the same cloud leading a remote chip and
-      trailing an absorbed one. Included the order in scope for that reason. Noted that the left
-      panel uses `GitBranch` for local and remote rows alike, the same gap one level down.
-    - *A band joining the node to its chip* -> **GC-147**. Measured, because a hairline does
-      exist and the ticket had to say so: on `main`'s row `.col-ref` is x 220–354, the last chip
-      ends at 324, `.col-graph` starts at 354, and the connector is a 1px `opacity="0.8"` line
-      from x 354 to 363. So 30px is empty and the remaining 9px is a hairline. `03-graph.md` has
-      a 2px `hr` in the lane colour connecting chip to node, and separately a lane-tinted band on
-      the selected and WIP rows; Ricardo asked for the first, and the second is named in Out of
-      scope. Two constraints go in the ticket because they decide the implementation:
-      `.col-ref` is `overflow: hidden`, and `.more-list` is positioned against it and grows on
-      hover (GC-022, GC-078).
-  - shipped: three commits in the window, one of them a review. `97a249b` is GR-015. `0a238c2`
-    implements **GC-132**, **GC-027**, **GC-033** and **GC-045**, and `f1bbd2e` is its
-    documentation pass (CLAUDE.md, TICKETS.md, four screenshots, one `CommitGraph` line, three
-    e2e steps). Read as a reviewer: **GC-033** is the best-shaped piece. `hit(id)` is
-    `matches(id, e) && (firesWhileTyping(id) || !isEditable(e.target))` in one place, so
-    `Shortcut.whileTyping` — carried since GC-010 and read by nothing, which GR-002 had flagged —
-    becomes the single answer to a question that had been decided by one `isEditable` check
-    placed halfway down the ladder. `ctrlOnly`/`ctrlShift` excluding `altKey` is what lets
-    Ctrl+Alt+F exist beside Ctrl+F rather than shadowing it, and the two focus props being ticks
-    rather than booleans is the right shape, already proven by `searchTick`. **GC-027**'s
-    `commitMatches(c, q, byAuthor)` dropping the author fields once a chip is set is the whole
-    point of the feature and is argued for in the comment; `filtering` as one derived value read
-    by the readout, the jump-to-first-match effect and the row classes is what keeps a chip alone
-    from being a no-op. The one thing I would push back on: `authorsOf` and `commitMatches` are
-    both module-private in `CommitGraph.tsx` and neither is tested — `authorsOf` is a pure
-    dedupe-and-sort of exactly the kind this codebase extracts, and it is the second window
-    running to add a decision function without a test after `remoteCopyOf` (GC-134). I did not
-    file a third ticket for it; **GC-134** already exists and names the pattern, and a fourth
-    ticket would be noise — the note is here so the session that picks up GC-134 widens it.
-    Everything else matches CLAUDE.md, and the acceptance boxes I spot-checked have evidence.
-  - health: at `7a84981` in the detached worktree with `node_modules` junctioned —
-    **typecheck ok, 190 tests passed (18 files)** in 1.87s, **build ok**. Six tests and one file
-    more than GR-015 (`DetailPanel.test.tsx`, plus the `shortcuts.test.ts` additions). e2e was not
-    re-run: the window's only harness change is GC-132's helper assertions, and GR-015 ran the
-    suite two commits earlier. `MAIN` was never built, tested or launched.
-  - app: the `7a84981` build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`.
-    Screenshots in `%TEMP%/gitclient-review/GR-016/`, all four looked at. `01-graph-wip.png`:
-    nine rows, lanes continuous, right-angle joins, `wip-branch +1` / `main +4` / `feature +1`,
-    the WIP readout's `+1 ✎3 −1` agreeing with the panel's 3 unstaged and 2 staged. It is also
-    where four of the eight inbox items are visible at once, which is why the inbox pass and the
-    UI pass were the same pass this run. `02-commit-view.png` is GC-045 landed — the blue banner
-    with "5 file changes in the working directory" and its View changes button — and is the
-    evidence for GC-142. `03-diff-view.png` is the WIP diff of `a.txt`: header, Unified | Split,
-    Stage file / Discard changes, one hunk with its two buttons, the added line tinted; healthy,
-    and this build predates GC-052's three new header controls, which are in the worker's
-    unpushed commits. `04-stash-absent.png` is GC-140's evidence.
-  - what's next: no separate pass this run — the inbox filled the budget, and five of its eight
-    items came out of the same screenshot pass a what's-next pass would have used. Still
-    unticketed and named once here rather than carried: Compare against working directory,
-    Blame / History / Export changes to patch, and the CHANGES optional graph column.
-  - tickets: added **GC-140** (graph, M, P2), **GC-141** (ui, S, P2), **GC-142** (ui, M, P2),
-    **GC-143** (ui, S, P3), **GC-144** (graph, S, P2), **GC-145** (infra, M, **P1**), **GC-146**
-    (graph, S, P3) and **GC-147** (graph, S, P3) — all eight from the inbox, none from the
-    reviewer's own findings, which is the cap working as intended. No existing ticket was
-    extended: each of the eight was checked against the board first and none was covered. Board:
-    GC-145 goes **above** GC-128 as the only P1 and the first open row a worker meets; the four
-    P2s go directly below GC-128; the three P3s go at the tail after GC-139, where GR-015 put its
-    P3 additions. Nothing else moved.
-  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all
-    three still want a decision from Ricardo. No `todo` ticket has gone vague. GC-145 is the new
-    head of the open work and GC-128 keeps second place. Dependencies: all eight new tickets
-    depend on nothing, which is correct — they touch four different surfaces and none blocks
-    another. GC-146 and GC-147 both touch the ref column and GC-142 and GC-143 both touch the
-    detail panel; they are independent but a worker taking either pair together will have an
-    easier time, and the board order puts each pair adjacent.
-  - notes: `CLAUDE.md` at `7a84981` says "190 tests today", which matches this run exactly, and
-    its e2e line ("37 steps, 239 assertions, ~36s") matches GC-132's additions. Nothing in it is
-    stale at the reviewed sha. This review did not edit `CLAUDE.md` — and GC-145 will need to,
-    which is flagged in that ticket's Files rather than done here.
-  - isolation: **GC-016 was claimed `in-progress` while this review ran** and was not touched.
-    `MAIN` was never built, tested or launched and its working tree was left exactly as found;
-    `TICKETS.md` was clean in `git status` before this write and is the only file staged. The
-    worker also has three commits — GC-133, GC-051, GC-052 and the GC-016 claim — that were
-    unpushed throughout, so this window ends at `7a84981` and GR-017 will review them. Their
-    diffs were read read-only for deduplication and none of the eight inbox items collides with
-    them. The review's Electron was found on 9334 by command line and stopped by PID; only
-    TIME_WAIT sockets remained and nothing was listening. The only repository written to was the
-    review's own scratch root: one stash taken to observe GC-140 and popped again, leaving
-    `git status --short` identical to the fixture's.
+  - 2026-09-06 11:20 inbox: **`INBOX.md` exists and its Pending section is empty.** All eight
+    items GR-016 drained are in Handled with what each became, and Ricardo has added nothing since.
+    Nothing was declined and nothing is left unsettled, so this review's additions are its own
+    findings and the zero-to-five budget applies in full.
+  - shipped: five commits in the window, two of them bookkeeping. `ddfda83` closes **GC-133**,
+    **GC-051** and **GC-052**; `9331d9a` is **GC-016**; `f85d213` is the first implementation
+    commit of the batch that was still open while this ran. Read as a reviewer, **GC-016** is the
+    strongest piece: `tabs.ts` answers the three questions the bar asks as pure functions
+    (`readTabs`, `neighbourOf`, `cycle`) rather than inside a click handler, and the two
+    decisions that were easy to get wrong are both right - the parked state is keyed by tab **id**
+    rather than path, because git rewrites the path under it, and the graph and detail panel get
+    **prefixed** keys, because two siblings under one key is not a swap. Verified the failure path
+    in the app rather than trusting the log: a tab whose folder does not exist shows the empty state
+    with the error named in it and in the status bar, keeps its recents list, and drops only the
+    missing path from it (`07-tab-missing-repo.png`) - which is exactly what GC-025's rule asks
+    for. One thing I chased and dropped: `GraphCell`'s `dashColor` derives a colour from a
+    **lane** index while every other line derives it from a `color` field, which looked like a
+    latent mismatch until `lanes.ts` line 127 settled it - `laneColor[i] = i % 10`, so the two
+    are the same number by construction and the expression is correct. No bug found in the window.
+  - health: at `f85d213` in the detached worktree with `node_modules` junctioned - **typecheck
+    ok, 246 tests passed (21 files)** in 2.17s, **build ok**. The worker then pushed `576bd57`
+    while this review was being written, so health was re-run at that tip as well: **typecheck ok,
+    253 tests (21 files)**. e2e was not re-run: the batch that owns every harness-visible change in
+    this window was mid-flight throughout and runs the suite itself in its own step 6, and running
+    a second suite against a second scratch root while it did would have measured nothing new.
+    `MAIN` was never built, tested or launched.
+  - app: the `f85d213` build ran offscreen on 9334, first against
+    `%TEMP%/gitclient-review/e2e` and then against `catena-feed` **loaded read-only**.
+    Seven screenshots in `%TEMP%/gitclient-review/GR-017/`, all looked at. `01-graph.png`: nine
+    rows, lanes continuous, right-angle joins, and GC-144's dashed run now covering the whole
+    distance from the WIP node to `main` rather than 14px of it. `02-commit-view.png` is the
+    merge commit with both parents linked. `03-diff.png` is GC-052 landed - the two hunk arrows,
+    the whitespace and wrap toggles, `Unified | Split`; the toggles carry `.seg-btn.on` with
+    `--accent-soft` behind them, so "on" is visible, which I checked in the CSS after the
+    screenshot showed both off. `04-prefs.png` is the Preferences dialog with GC-052's new DIFF
+    group; all four groups and every documented setting are present and the body scrolls inside the
+    modal (GC-103). `05-two-tabs-real-repo.png` is two tabs with an 881-commit repository in the
+    second, and is the evidence for GC-153 below. `06-commit-menu.png` is the commit context menu
+    on that repository and is fresh evidence for **GC-074**, already `todo`: all three Reset rows
+    have their hints cut to `keep all change...`, `keep changes...` and `discard all cha...`.
+    `07-tab-missing-repo.png` is the missing-folder tab above.
+  - app, the reflow rotation: squeezed the graph panel to 280px and measured what gave way.
+    `fitOptCols` had dropped all three optional columns and `fitRefCol` had taken the ref column
+    to its 100px floor, leaving the message 104px - which is the documented last-resort behaviour,
+    not a defect, because 280 is below `100 + 76 + MIN_MSG_W` and everything had already given
+    way. Recorded because the probe is misleading: shrinking the document does **not** move
+    `window.innerWidth`, so `fitPanels` never ran and the panels stayed at 220/400 - a real
+    narrow window would have reduced them first. A true narrow-window pass needs
+    `Emulation.setDeviceMetricsOverride`, which `tools/gk-recon/cdp.mjs` does not expose; GC-105
+    and GC-110 both have unit tests covering the arithmetic, so this is a gap in the review's tools
+    rather than in the app.
+  - what's next: ran the pass GR-016 could not, against
+    `06-feature-inventory.md`'s context-menu list. Most of it is already covered or already
+    ruled out: the Copy family all exists (`Copy commit sha`, `Copy commit summary`,
+    `Copy branch name`, `Copy tag name`, `Copy file path`, `Copy remote URL`), tag creation
+    and annotation exist, ahead/behind is rendered on every left-panel row already (`.ab`), and
+    Squash / Drop / Move / Interactive rebase are behind `GC-017`, which is `blocked`. What is
+    genuinely missing and not blocked: **Compare against working directory** (now GC-152), the tab
+    context menu (GC-151), and Blame / History / Export changes to patch, which I did **not** file -
+    each is its own M-or-larger ticket and three at once would be a wish list rather than a backlog.
+    Naming them here so the next review can pick one up.
+  - tickets: added **GC-151** (ui, S, P3), **GC-152** (diff, M, P3) and **GC-153** (ui, M, P3) -
+    three of the five allowed. One from the shipped-feature follow-up, one from the what's-next
+    pass, one from the UI pass, which is the spread the routine asks for. No existing ticket was
+    extended: each of the three was checked against the board first and none was covered. Board:
+    GC-151 goes directly below **GC-149** so the two tab-bar tickets are adjacent and a worker can
+    take both against one file; GC-152 and GC-153 go after GC-150 and ahead of GC-026, where GR-015
+    and GR-016 both put their P3 additions. Nothing else moved, and no reordering was needed -
+    GC-128 is still the only P2 and still the first open row a worker meets.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all three
+    still want a decision from Ricardo. No `todo` ticket has gone vague. Dependencies: GC-151
+    depends on GC-016, which is `done`, so it is eligible immediately; GC-152 and GC-153 depend on
+    nothing and touch different surfaces from each other and from GC-151.
+  - notes: `CLAUDE.md` at `f85d213` says "229 tests today" against an actual 253 at the tip, and
+    its Architecture section does not yet mention the stash marker, the clickable ref row or the
+    parked commit draft. That is not stale documentation to report - it is the open batch's step 8,
+    which updates `CLAUDE.md` once for the whole batch, and `576bd57` landed while this was being
+    written. Checked at that sha and it is current. This review did not edit `CLAUDE.md`.
+  - isolation: **six tickets were `in-progress` while this review ran** - GC-145, GC-140, GC-141,
+    GC-142, GC-144 and GC-148 - and not one was touched. `MAIN` was never built, tested or
+    launched, and its working tree was left exactly as found; `TICKETS.md` and
+    `TICKETS-ARCHIVE.md` were both clean in `git status` before this write and are the only files
+    staged. The batch closed out at `576bd57` between the poll and the write, so this write is
+    built on the post-GC-145 split: GR-016 moved to the archive's Reviews section in the same
+    commit, and `576bd57` itself is out of this window and belongs to GR-018. The only repository
+    written to was the review's own scratch root; `catena-feed` was opened read-only for the graph
+    and closed again, and nothing in it was touched. The review's Electron on 9334 was found by
+    command line and stopped by PID.
