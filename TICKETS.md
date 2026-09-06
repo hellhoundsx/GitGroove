@@ -239,11 +239,11 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | done |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | done |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | done |
-| GC-092 | A conflicting stash pop reports "could not write index" instead of the conflict | actions | S | P1 | todo |
-| GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | todo |
-| GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | todo |
-| GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | todo |
-| GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | todo |
+| GC-092 | A conflicting stash pop reports "could not write index" instead of the conflict | actions | S | P1 | in-progress |
+| GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | in-progress |
+| GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | in-progress |
+| GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | in-progress |
+| GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | in-progress |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -4375,7 +4375,7 @@ decision is missing.
 
 ### GC-088 Branch breadcrumb dropdown: switch branches from the toolbar
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-066, GC-067
 - **Why:** The toolbar's breadcrumb is two controls in the study — `repository / name` and
@@ -4422,6 +4422,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-008: from the what's-next pass against `05-menus-shortcuts.md`
     "Toolbar dropdowns" — the one toolbar control in the study that ours draws but does not wire.
+  - 2026-09-06 03:42 claimed
 
 
 ### GC-089 Slim CLAUDE.md back down to a handover: the history moves to the tickets
@@ -4511,7 +4512,7 @@ decision is missing.
 
 ### GC-090 A sequencer action with a dirty index fails with git's raw refusal
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** GC-082
 - **Why:** git refuses to start a cherry-pick, a revert, a merge or a rebase while anything is
@@ -4549,6 +4550,7 @@ decision is missing.
   - 2026-09-06 proposed by GC-082 (this ticket): restoring the index on a pop made the app's
     unguarded sequencer actions reachable in the fixture for the first time, and step 12 had to
     unstage the fixture's own staged half by hand to keep asserting what it asserts.
+  - 2026-09-06 03:42 claimed
 
 
 ### GC-091 The status bar can only report a failure, so a partial success reads as one
@@ -4588,7 +4590,7 @@ decision is missing.
 
 ### GC-092 A conflicting stash pop reports "could not write index" instead of the conflict
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** GC-082 wrapped `stash apply` and `stash pop` in `restoreStash`, which tries
@@ -4633,10 +4635,11 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-009: measured in a scratch repository against e5b3b33; the retry
     destroys git's real error and reports one caused by the retry itself.
+  - 2026-09-06 03:42 claimed
 
 ### GC-093 No way to ignore a file: the row menu cannot write .gitignore
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-043
 - **Why:** GC-043 gave every file row a context menu and explicitly left "Ignore file /
@@ -4681,6 +4684,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-009 (what's-next pass): the follow-up GC-043 invited, and the last
     common untracked-file action the row menu is missing.
+  - 2026-09-06 03:42 claimed
 
 ### GC-094 The left panel header counts refs and never says which branch is checked out
 
@@ -4725,7 +4729,7 @@ decision is missing.
 
 ### GC-095 The graph draws commits from refs the left panel never lists
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-073
 - **Why:** `getLog` runs `git log --all`, and `--all` means *every* ref under `refs/` plus HEAD —
@@ -4768,6 +4772,7 @@ decision is missing.
   - 2026-09-06 proposed by GC-073 (this ticket): `--all` is wider than the ref set the UI lists, so
     the graph can show commits nothing on screen explains and hiding a branch can silently fail to
     remove its rows. Found when the fixture's own baseline refs did exactly that.
+  - 2026-09-06 03:42 claimed
 
 
 
