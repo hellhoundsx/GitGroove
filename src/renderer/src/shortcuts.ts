@@ -8,12 +8,22 @@ export interface KeyLike {
   ctrlKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
+  /** Optional so a test's key literal stays short; only Ctrl+Alt+F reads it (GC-033). */
+  altKey?: boolean;
 }
 
 export type ShortcutId =
   | 'openSearch'
   | 'help'
   | 'escape'
+  | 'newBranch'
+  | 'fetchAll'
+  | 'toggleLeft'
+  | 'toggleDetail'
+  | 'focusFilter'
+  | 'stageAll'
+  | 'unstageAll'
+  | 'focusSummary'
   | 'selectNext'
   | 'selectPrev'
   | 'searchNext'
@@ -43,6 +53,11 @@ export interface ShortcutGroup {
 /** Ctrl on Windows and Linux, Cmd on macOS; the app accepts either. */
 const mod = (e: KeyLike): boolean => e.ctrlKey || e.metaKey;
 const plain = (e: KeyLike): boolean => !e.ctrlKey && !e.metaKey && !e.shiftKey;
+/** A letter chord, whatever the shift state does to `key`: Ctrl+Shift+S arrives as `S` (GC-033). */
+const letter = (e: KeyLike, c: string): boolean => e.key.toLowerCase() === c;
+/** The plain modifier chord: Ctrl (or Cmd) and that letter, with neither Shift nor Alt on it. */
+const ctrlOnly = (e: KeyLike, c: string): boolean => mod(e) && !e.shiftKey && !e.altKey && letter(e, c);
+const ctrlShift = (e: KeyLike, c: string): boolean => mod(e) && e.shiftKey && !e.altKey && letter(e, c);
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
@@ -53,7 +68,38 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         keys: ['Ctrl+F'],
         description: 'Find a commit',
         whileTyping: true,
-        match: (e) => mod(e) && (e.key === 'f' || e.key === 'F'),
+        // Alt is excluded because Ctrl+Alt+F is the left panel's filter (GC-033).
+        match: (e) => mod(e) && !e.altKey && letter(e, 'f'),
+      },
+      {
+        id: 'newBranch',
+        keys: ['Ctrl+B'],
+        description: 'Create a branch at HEAD',
+        match: (e) => ctrlOnly(e, 'b'),
+      },
+      {
+        id: 'fetchAll',
+        keys: ['Ctrl+L'],
+        description: 'Fetch all remotes',
+        match: (e) => ctrlOnly(e, 'l'),
+      },
+      {
+        id: 'toggleLeft',
+        keys: ['Ctrl+J'],
+        description: 'Show or hide the left panel',
+        match: (e) => ctrlOnly(e, 'j'),
+      },
+      {
+        id: 'toggleDetail',
+        keys: ['Ctrl+K'],
+        description: 'Show or hide the detail panel',
+        match: (e) => ctrlOnly(e, 'k'),
+      },
+      {
+        id: 'focusFilter',
+        keys: ['Ctrl+Alt+F'],
+        description: 'Filter the branches in the left panel',
+        match: (e) => mod(e) && e.altKey === true && letter(e, 'f'),
       },
       {
         id: 'help',
@@ -114,6 +160,32 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     ],
   },
   {
+    title: 'Working directory',
+    items: [
+      {
+        id: 'stageAll',
+        keys: ['Ctrl+Shift+S'],
+        description: 'Stage every change',
+        match: (e) => ctrlShift(e, 's'),
+      },
+      {
+        id: 'unstageAll',
+        keys: ['Ctrl+Shift+U'],
+        description: 'Unstage everything',
+        match: (e) => ctrlShift(e, 'u'),
+      },
+      {
+        id: 'focusSummary',
+        keys: ['Ctrl+Shift+M'],
+        description: 'Write a commit message',
+        // The one of the eight that fires from a text field: it is how the user gets *to* the
+        // field, so refusing it while another one has focus would make it the least reachable.
+        whileTyping: true,
+        match: (e) => ctrlShift(e, 'm'),
+      },
+    ],
+  },
+  {
     title: 'Commit message',
     hint: 'While the summary or description has focus',
     items: [
@@ -153,4 +225,14 @@ const byId = new Map<ShortcutId, Shortcut>(SHORTCUT_GROUPS.flatMap((g) => g.item
 export function matches(id: ShortcutId, e: KeyLike): boolean {
   const s = byId.get(id);
   return s !== undefined && s.match(e);
+}
+
+/**
+ * Whether this shortcut deliberately fires while a text field has focus (GC-033, GR-002). The flag
+ * had been on the table since GC-010 and read by nothing: `App` decided the same question with an
+ * `isEditable` check of its own, in one place, so a new binding either inherited that rule or grew
+ * a second one. It is one rule now, and it is the one the overlay is rendered from.
+ */
+export function firesWhileTyping(id: ShortcutId): boolean {
+  return byId.get(id)?.whileTyping === true;
 }

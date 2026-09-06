@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matches, SHORTCUT_GROUPS, type KeyLike, type ShortcutId } from './shortcuts';
+import { firesWhileTyping, matches, SHORTCUT_GROUPS, type KeyLike, type ShortcutId } from './shortcuts';
 
 const key = (k: string, mods: Partial<KeyLike> = {}): KeyLike => ({ key: k, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
 
@@ -50,6 +50,36 @@ describe('matches', () => {
     expect(matches('searchNext', key('Enter', { shiftKey: true }))).toBe(false);
     expect(matches('searchNext', key('ArrowDown'))).toBe(true);
     expect(matches('searchPrev', key('ArrowUp'))).toBe(true);
+  });
+
+  it('takes the body-scope chords whichever case the shift state puts the letter in (GC-033)', () => {
+    expect(matches('newBranch', key('b', { ctrlKey: true }))).toBe(true);
+    expect(matches('fetchAll', key('l', { metaKey: true }))).toBe(true);
+    expect(matches('toggleLeft', key('j', { ctrlKey: true }))).toBe(true);
+    expect(matches('toggleDetail', key('k', { ctrlKey: true }))).toBe(true);
+    expect(matches('stageAll', key('S', { ctrlKey: true, shiftKey: true }))).toBe(true);
+    expect(matches('unstageAll', key('U', { ctrlKey: true, shiftKey: true }))).toBe(true);
+    expect(matches('focusSummary', key('M', { ctrlKey: true, shiftKey: true }))).toBe(true);
+    // and the plain chord is not the Shift one, in either direction
+    expect(matches('stageAll', key('s', { ctrlKey: true }))).toBe(false);
+    expect(matches('newBranch', key('B', { ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(matches('newBranch', key('b'))).toBe(false);
+  });
+
+  it('separates Ctrl+Alt+F from Ctrl+F, which is the pair that would otherwise both fire', () => {
+    expect(matches('focusFilter', key('f', { ctrlKey: true, altKey: true }))).toBe(true);
+    expect(matches('openSearch', key('f', { ctrlKey: true, altKey: true }))).toBe(false);
+    expect(matches('focusFilter', key('f', { ctrlKey: true }))).toBe(false);
+    expect(matches('openSearch', key('f', { ctrlKey: true }))).toBe(true);
+  });
+
+  it('answers which bindings fire from inside a text field, which is what the handler reads (GR-002)', () => {
+    expect(firesWhileTyping('openSearch')).toBe(true);
+    expect(firesWhileTyping('focusSummary')).toBe(true);
+    expect(firesWhileTyping('commit')).toBe(true);
+    for (const id of ['newBranch', 'fetchAll', 'toggleLeft', 'toggleDetail', 'focusFilter', 'stageAll', 'unstageAll'] satisfies ShortcutId[]) {
+      expect(firesWhileTyping(id)).toBe(false);
+    }
   });
 
   it('matches Escape for every close binding', () => {

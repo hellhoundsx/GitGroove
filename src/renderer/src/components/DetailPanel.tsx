@@ -1,6 +1,8 @@
-import { useEffect, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
 import type { Commit, CommitFile, FileChangeKind, RepoStatus, StatusEntry } from '@shared/types';
 import type { FileViewSource } from '../diff/DiffView';
+// The sentinel for the working-directory row: the commit view's banner selects it (GC-045).
+import { WIP } from '../graph/CommitGraph';
 import { Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
@@ -45,6 +47,8 @@ interface Props {
   actions: StagingActions;
   /** The left-edge resize handle (GC-050); it works with a diff open too. */
   resize: DragHandleProps;
+  /** Bumped every time Ctrl+Shift+M asks for the commit summary field, so it refocuses (GC-033). */
+  focusSummary: number;
   onSelectSha(sha: string): void;
   onOpenFile(view: FileViewSource): void;
   onFileMenu(e: MouseEvent, target: FileMenuTarget): void;
@@ -86,7 +90,7 @@ function formatDate(iso: string): string {
 const isActive = (open: FileViewSource | null, path: string, staged?: boolean): boolean =>
   !!open && open.path === path && (open.source === 'commit' || staged === undefined || open.staged === staged);
 
-function StagingView({ status, headCommit, openFile, actions, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'repo' | 'onSelectSha' | 'resize'>): JSX.Element {
+function StagingView({ status, headCommit, openFile, actions, focusSummary, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'repo' | 'onSelectSha' | 'resize'>): JSX.Element {
   const ui = useUi();
   const prefs = usePrefs();
   const entries = status?.entries ?? [];
@@ -97,6 +101,13 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile, onFile
 
   const [summary, setSummary] = useState('');
   const [body, setBody] = useState('');
+  // Ctrl+Shift+M focuses the summary; the tick is what makes asking twice focus twice (GC-033).
+  const summaryInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusSummary === 0) return; // the mount value: nothing has asked for the field yet
+    summaryInput.current?.focus();
+    summaryInput.current?.select();
+  }, [focusSummary]);
   const [amend, setAmend] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +271,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile, onFile
           </label>
           <div className="summary-wrap">
             <input
+              ref={summaryInput}
               placeholder="Commit summary"
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
@@ -296,7 +308,7 @@ function StagingView({ status, headCommit, openFile, actions, onOpenFile, onFile
   );
 }
 
-function CommitView({ repo, commit, openFile, onSelectSha, onOpenFile, onFileMenu }: Pick<Props, 'repo' | 'openFile' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu'> & { commit: Commit }): JSX.Element {
+function CommitView({ repo, commit, status, openFile, onSelectSha, onOpenFile, onFileMenu }: Pick<Props, 'repo' | 'status' | 'openFile' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu'> & { commit: Commit }): JSX.Element {
   const [files, setFiles] = useState<CommitFile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -313,6 +325,7 @@ function CommitView({ repo, commit, openFile, onSelectSha, onOpenFile, onFileMen
     };
   }, [repo, commit.sha]);
 
+  const pending = status?.entries.length ?? 0;
   const counts = { added: 0, modified: 0, deleted: 0, renamed: 0 };
   for (const f of files ?? []) {
     if (f.kind === 'added') counts.added++;
@@ -335,6 +348,19 @@ function CommitView({ repo, commit, openFile, onSelectSha, onOpenFile, onFileMen
         </span>
       </div>
       <div className="detail-body">
+        {/* What is waiting in the working directory, in the one panel that otherwise drops it
+            (GC-045). The count is the staging header's own, conflicted entries included, and the
+            button goes back to the row that owns them rather than making the user find row 0. */}
+        {pending > 0 && (
+          <div className="banner info">
+            <span>
+              {pending} file change{pending === 1 ? '' : 's'} in the working directory
+            </span>
+            <button className="btn" onClick={() => onSelectSha(WIP)}>
+              View changes
+            </button>
+          </div>
+        )}
         <div className="message-box">
           <h2>{commit.summary}</h2>
           {commit.body && <pre>{commit.body}</pre>}

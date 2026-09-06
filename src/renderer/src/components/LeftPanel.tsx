@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
 import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, GitBranch, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
 import type { GitRef, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
@@ -15,6 +15,8 @@ interface Props {
   onToggleHidden(ref: GitRef): void;
   onShowAll(kind: 'head' | 'remote'): void;
   collapsed: boolean;
+  /** Bumped every time Ctrl+Alt+F asks for the ref filter, so it refocuses (GC-033). */
+  focusFilter: number;
   /** The right-edge resize handle (GC-050). Not rendered while the panel is the icon rail. */
   resize: DragHandleProps;
   onExpand(): void;
@@ -70,6 +72,14 @@ const abText = (r: GitRef): string => {
 
 export function LeftPanel(p: Props): JSX.Element {
   const [filter, setFilter] = useState('');
+  // Ctrl+Alt+F focuses the filter; a tick rather than a flag, so asking twice focuses twice, and
+  // the panel is already expanded by the time this runs — `App` un-collapses it first (GC-033).
+  const filterInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (p.focusFilter === 0) return; // the mount value: nothing has asked for the field yet
+    filterInput.current?.focus();
+    filterInput.current?.select();
+  }, [p.focusFilter]);
   const drag = useRefDrag(p.refDrag);
   const f = filter.trim().toLowerCase();
   const hidden = useMemo(() => new Set(p.hidden), [p.hidden]);
@@ -143,7 +153,7 @@ export function LeftPanel(p: Props): JSX.Element {
           <span>Viewing</span>
           <b>{viewing}</b>
         </div>
-        <input className="filter" placeholder="Filter refs" value={filter} onChange={(e) => setFilter(e.target.value)} spellCheck={false} />
+        <input ref={filterInput} className="filter" placeholder="Filter refs" value={filter} onChange={(e) => setFilter(e.target.value)} spellCheck={false} />
       </div>
       <div className="sections">
         <Section

@@ -573,6 +573,55 @@ input[type='radio']:disabled {
   border-color: var(--accent);
   outline: none;
 }
+/* the author filter chip beside the field (GC-027): a dropdown while empty, a name plus an x once
+   set, and tinted with the accent then so a filtered search never looks like an unfiltered one */
+.graph-search .search-author {
+  display: flex;
+  align-items: center;
+  flex: none;
+  max-width: 200px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-app);
+}
+.graph-search .search-author.set {
+  border-color: var(--accent);
+  background: var(--accent-hover);
+}
+.graph-search .author-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 6px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.graph-search .search-author.set .author-btn {
+  color: var(--text-bright);
+}
+.graph-search .author-btn:hover {
+  color: var(--text-bright);
+}
+.graph-search .author-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-search .author-clear {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 100%;
+  padding: 0 4px 0 0;
+  color: var(--text-muted);
+}
+.graph-search .author-clear:hover {
+  color: var(--text-bright);
+}
+
 .graph-search .search-count {
   flex: none;
   min-width: 72px;
@@ -1853,6 +1902,12 @@ input[type='radio']:disabled {
 .banner.danger {
   border-color: var(--danger);
   background: var(--danger-soft);
+}
+/* the commit view's working-directory banner (GC-045): informational, not a warning, so it takes
+   the accent rather than the warning border every other banner carries */
+.banner.info {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 .banner span {
   flex: 1;

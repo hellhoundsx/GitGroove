@@ -8,6 +8,7 @@ import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
 import { matches as isShortcut } from '../shortcuts';
 import { usePrefs } from '../prefs';
+import { useUi } from '../ui/UiContext';
 import { fitOptCols, fitRefCol, useDragWidth, MIN_MSG_W } from '../ui/useDragWidth';
 import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 
@@ -87,9 +88,38 @@ function chipsFor(refs: GitRef[]): Chip[] {
   return refs.filter((r) => !(r.kind === 'remote' && absorbed.has(r.name))).map((r) => ({ ref: r, upstreamHere: r.kind === 'head' && !!r.upstream && absorbed.has(r.upstream) }));
 }
 
-/** Client-side commit match: message, author name, author email, or a sha prefix. `q` is lowercased. */
-const commitMatches = (c: Commit, q: string): boolean =>
-  c.sha.startsWith(q) || c.summary.toLowerCase().includes(q) || c.body.toLowerCase().includes(q) || c.authorName.toLowerCase().includes(q) || c.authorEmail.toLowerCase().includes(q);
+/**
+ * Client-side commit match: message, author name, author email, or a sha prefix. `q` is lowercased.
+ *
+ * With an author chip set the two author fields drop out (GC-027): the chip already says who wrote
+ * it, so a term typed beside it is asking about the message — "commits by this person mentioning
+ * X" is the one question the plain field could never express, because a name that also appears in
+ * messages drowns it out.
+ */
+const commitMatches = (c: Commit, q: string, byAuthor = false): boolean =>
+  c.sha.startsWith(q) ||
+  c.summary.toLowerCase().includes(q) ||
+  c.body.toLowerCase().includes(q) ||
+  (!byAuthor && (c.authorName.toLowerCase().includes(q) || c.authorEmail.toLowerCase().includes(q)));
+
+/** One entry of the author chip's list: who they are, and how many of the loaded commits are theirs. */
+interface AuthorEntry {
+  email: string; // lowercased; the identity the chip filters on
+  name: string;
+  count: number;
+}
+
+/** The authors of the loaded commits, deduplicated on the lowercased email, most commits first. */
+function authorsOf(commits: Commit[]): AuthorEntry[] {
+  const by = new Map<string, AuthorEntry>();
+  for (const c of commits) {
+    const email = c.authorEmail.toLowerCase();
+    const seen = by.get(email);
+    if (seen) seen.count++;
+    else by.set(email, { email, name: c.authorName, count: 1 });
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
@@ -225,8 +255,35 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   const searchInput = useRef<HTMLInputElement>(null);
   const needle = searchOpen ? searchQuery.trim().toLowerCase() : '';
 
-  const matches = useMemo(() => (needle === '' ? [] : commits.filter((c) => commitMatches(c, needle)).map((c) => c.sha)), [commits, needle]);
+  // The author chip (GC-027). It is this component's own state rather than `App`'s, unlike the
+  // query: a file view unmounts the graph and takes the chip with it, which is the same reset a
+  // closed search bar gives the query and is what the study's chips do on close.
+  const [author, setAuthor] = useState<string | null>(null);
+  const authors = useMemo(() => authorsOf(commits), [commits]);
+  const authorName = author === null ? null : (authors.find((a) => a.email === author)?.name ?? author);
+  // Both halves must hold: the chip narrows to one author, the term then matches message and sha
+  // within that. With neither set nothing is filtered and the readout goes back to "N commits".
+  const filtering = needle !== '' || author !== null;
+  const matches = useMemo(
+    () =>
+      !filtering
+        ? []
+        : commits.filter((c) => (author === null || c.authorEmail.toLowerCase() === author) && (needle === '' || commitMatches(c, needle, author !== null))).map((c) => c.sha),
+    [commits, needle, author, filtering],
+  );
   const matchSet = useMemo(() => new Set(matches), [matches]);
+  const ui = useUi();
+  const openAuthors = useCallback(
+    (e: MouseEvent): void => {
+      const r = e.currentTarget.getBoundingClientRect();
+      ui.openMenu({ clientX: r.left, clientY: r.bottom, owner: e.currentTarget }, [
+        { label: 'Any author', onClick: () => setAuthor(null), disabled: author === null },
+        { separator: true },
+        ...authors.map((a) => ({ label: a.name, hint: `${a.count}`, onClick: () => setAuthor(a.email), disabled: a.email === author })),
+      ]);
+    },
+    [ui, authors, author],
+  );
 
   // The position in the result list is the selection itself, so clicking a row mid-search keeps
   // "next" meaningful; -1 means the selected row is not one of the matches.
@@ -242,13 +299,15 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
 
   // A new query jumps to its first match; the scroll effect below then brings the row into view.
   // Seeded with the needle of the first render, so coming back from a file view with the same
-  // query leaves the selection where the user left it (GC-030).
-  const lastNeedle = useRef(needle);
+  // query leaves the selection where the user left it (GC-030). The author chip is part of the
+  // query for this purpose: choosing one is a new search, not a narrowing of the old position.
+  const lastNeedle = useRef(`${author ?? ''} ${needle}`);
   useEffect(() => {
-    if (lastNeedle.current === needle) return;
-    lastNeedle.current = needle;
+    const key = `${author ?? ''} ${needle}`;
+    if (lastNeedle.current === key) return;
+    lastNeedle.current = key;
     if (matches.length > 0) onSelect(matches[0]!);
-  }, [needle, matches, onSelect]);
+  }, [needle, author, matches, onSelect]);
 
   // Opening (or re-triggering Ctrl+F while already open) focuses and selects the field. Clearing
   // the query on close is `App`'s job, since the query outlives this component.
@@ -508,7 +567,19 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
             onChange={(e) => onSearchQuery(e.target.value)}
             onKeyDown={onSearchKey}
           />
-          <span className="search-count">{needle === '' ? `${commits.length} commits` : matches.length === 0 ? 'no matches' : at >= 0 ? `${at + 1} of ${matches.length}` : `${matches.length} matches`}</span>
+          {/* the author filter chip (GC-027): a dropdown while empty, a name with an x once set */}
+          <div className={`search-author ${author === null ? '' : 'set'}`}>
+            <button className="author-btn" title="Filter by author" onClick={openAuthors}>
+              <span className="author-name">{authorName ?? 'Author'}</span>
+              <Icon of={ChevronDown} size={12} />
+            </button>
+            {author !== null && (
+              <button className="author-clear" title="Clear the author filter" onClick={() => setAuthor(null)}>
+                <Icon of={X} size={12} />
+              </button>
+            )}
+          </div>
+          <span className="search-count">{!filtering ? `${commits.length} commits` : matches.length === 0 ? 'no matches' : at >= 0 ? `${at + 1} of ${matches.length}` : `${matches.length} matches`}</span>
           <button className="search-btn" title="Previous match (Shift+Enter)" disabled={matches.length === 0} onClick={() => step(-1)}>
             <Icon of={ChevronUp} size={14} />
           </button>

@@ -231,30 +231,63 @@ const shot = async (name) => {
   writeFileSync(join(SHOTS, name), Buffer.from(r.data, 'base64'));
 };
 
+/** The one way this suite acts on a control (GC-130, GC-132). The snippet it evaluates finds its
+ *  target, checks the control is live and acts on it, all in one page turn, and answers one of
+ *  three shapes: a message saying what it did, `MISS …` when the target is not there at all, or
+ *  `DISABLED …` when it is there but not clickable yet. Only the last is polled out: `DiffView`
+ *  disables its hunk buttons while a load it has not confirmed is in flight and the toolbar does
+ *  the same while an action runs, both on the watcher's schedule rather than the step's. Every
+ *  other answer ends in a `check()` on the line that produced it.
+ *
+ *  Before this, each of those strings went into a bare `log()`, which prints and asserts nothing:
+ *  the step carried on and failed several waits later at a line with nothing to do with the miss.
+ *  GC-130's Why is a transcript of exactly that, read at the time as a regression in the diff. */
+const liveClick = async (what, expression, max = 5000) => {
+  const start = Date.now();
+  for (;;) {
+    const r = String(await ev(expression));
+    const waited = Date.now() - start;
+    if (r.startsWith('MISS') || r.startsWith('JS-ERROR')) {
+      check(what, false, r); // a helper that cannot find its target has already lost the step
+      return r;
+    }
+    if (!r.startsWith('DISABLED')) return waited < 50 ? r : `${r} (after ${waited}ms waiting for it to be live)`;
+    if (waited >= max) {
+      check(`waited for ${what} to be live`, false, `${r} after ${max}ms`);
+      return r;
+    }
+    await sleep(50); // the poll interval itself: there is nothing to observe between two polls
+  }
+};
+
 // ---- helpers that run inside the renderer ---------------------------------------------------------
 const q = JSON.stringify;
+/** The panel's operation banner, deliberately not the commit view's informational one: that second
+ *  kind of banner arrived with GC-045, says what is waiting in the working directory, and is true
+ *  of nearly every moment of this run — it would answer every `banner` assertion below with the
+ *  same sentence. */
 const state = async () =>
   JSON.parse(
     await ev(
-      `JSON.stringify({ rows: document.querySelectorAll('.graph-row').length, branch: document.querySelector('.crumb .value.plain')?.innerText.replace(/\\s+/g, ' ') ?? null, err: document.querySelector('.statusbar .err')?.innerText ?? null, banner: document.querySelector('.banner')?.innerText.replace(/\\s+/g, ' ') ?? null, detailHead: document.querySelector('.detail-head')?.innerText.replace(/\\s+/g, ' ') ?? null })`,
+      `JSON.stringify({ rows: document.querySelectorAll('.graph-row').length, branch: document.querySelector('.crumb .value.plain')?.innerText.replace(/\\s+/g, ' ') ?? null, err: document.querySelector('.statusbar .err')?.innerText ?? null, banner: document.querySelector('.banner:not(.info)')?.innerText.replace(/\\s+/g, ' ') ?? null, detailHead: document.querySelector('.detail-head')?.innerText.replace(/\\s+/g, ' ') ?? null })`,
     ),
   );
 const menuList = () => ev(`[...document.querySelectorAll('.ctx-menu .ctx-item, .ctx-menu .ctx-sep')].map(i => i.classList.contains('ctx-sep') ? '---' : (i.disabled ? '(x) ' : '') + i.querySelector('.ctx-label')?.textContent.trim()).join(' | ')`);
 const menuClick = (label) =>
-  ev(`(() => { const items = [...document.querySelectorAll('.ctx-menu .ctx-item')]; const it = items.find(i => (i.querySelector('.ctx-label')?.textContent.trim() ?? '').startsWith(${q(label)})); if (!it) return 'menu item not found: ' + ${q(label)}; if (it.disabled) return 'DISABLED: ' + ${q(label)}; it.click(); return 'clicked: ' + ${q(label)}; })()`);
+  liveClick(`the menu item ${label}`, `(() => { const items = [...document.querySelectorAll('.ctx-menu .ctx-item')]; const it = items.find(i => (i.querySelector('.ctx-label')?.textContent.trim() ?? '').startsWith(${q(label)})); if (!it) return 'MISS menu item not found: ' + ${q(label)}; if (it.disabled) return 'DISABLED: ' + ${q(label)}; it.click(); return 'clicked: ' + ${q(label)}; })()`);
 const modal = (value, checked) =>
-  ev(`(() => { const m = document.querySelector('.modal'); if (!m) return 'no modal'; const input = m.querySelector('.modal-field input'); if (input && ${q(value)} !== null) { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${q(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); } const cb = m.querySelector('.modal-check input'); if (cb && ${q(checked)} !== null && cb.checked !== ${q(checked)}) cb.click(); return JSON.stringify({ title: m.querySelector('h3')?.textContent, value: input?.value, checked: cb?.checked, ok: m.querySelector('.modal-buttons .btn:last-child')?.textContent }); })()`);
-const modalOk = () => ev(`(() => { const b = document.querySelector('.modal .modal-buttons .btn:last-child'); if (!b) return 'no modal'; if (b.disabled) return 'OK disabled'; b.click(); return 'OK clicked'; })()`);
+  liveClick('the modal', `(() => { const m = document.querySelector('.modal'); if (!m) return 'MISS no modal'; const input = m.querySelector('.modal-field input'); if (input && ${q(value)} !== null) { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${q(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); } const cb = m.querySelector('.modal-check input'); if (cb && ${q(checked)} !== null && cb.checked !== ${q(checked)}) cb.click(); return JSON.stringify({ title: m.querySelector('h3')?.textContent, value: input?.value, checked: cb?.checked, ok: m.querySelector('.modal-buttons .btn:last-child')?.textContent }); })()`);
+const modalOk = () => liveClick('the modal OK button', `(() => { const b = document.querySelector('.modal .modal-buttons .btn:last-child'); if (!b) return 'MISS no modal'; if (b.disabled) return 'DISABLED OK'; b.click(); return 'OK clicked'; })()`);
 const modalButtons = () => ev(`[...document.querySelectorAll('.modal .modal-buttons .btn')].map(b => b.textContent.trim()).join(' | ')`);
 const modalMessage = () => ev(`document.querySelector('.modal .modal-message')?.textContent ?? 'no modal message'`);
 const modalClick = (label) =>
-  ev(`(() => { const b = [...document.querySelectorAll('.modal .modal-buttons .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no modal button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)}; b.click(); return 'clicked ' + ${q(label)}; })()`);
+  liveClick(`the modal button ${label}`, `(() => { const b = [...document.querySelectorAll('.modal .modal-buttons .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'MISS no modal button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)}; b.click(); return 'clicked ' + ${q(label)}; })()`);
 /** Right-click a row and wait for its menu. Waiting for the previous menu to be gone comes first:
  *  a synthetic contextmenu does not dismiss a menu that is still up, so a bare `.ctx-menu` check
  *  would be satisfied by the stale one and the click after it would land in the wrong menu (GC-053). */
 const contextMenuOn = async (selector, text) => {
   await waitNoMenu();
-  const opened = await ev(`(() => { const rows = [...document.querySelectorAll(${q(selector)})]; const r = ${text === null ? 'rows[0]' : `rows.find(x => x.innerText.replace(/\\s+/g, ' ').includes(${q(text)}))`}; if (!r) return 'row not found: ' + ${q(text ?? selector)}; const b = r.getBoundingClientRect(); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.x + 20, clientY: b.y + b.height / 2, button: 2 })); return 'contextmenu on ' + r.innerText.replace(/\\s+/g, ' ').slice(0, 50); })()`);
+  const opened = await liveClick(`a row to right-click for ${text ?? selector}`, `(() => { const rows = [...document.querySelectorAll(${q(selector)})]; const r = ${text === null ? 'rows[0]' : `rows.find(x => x.innerText.replace(/\\s+/g, ' ').includes(${q(text)}))`}; if (!r) return 'MISS row not found: ' + ${q(text ?? selector)}; const b = r.getBoundingClientRect(); r.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: b.x + 20, clientY: b.y + b.height / 2, button: 2 })); return 'contextmenu on ' + r.innerText.replace(/\\s+/g, ' ').slice(0, 50); })()`);
   await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, `the context menu on ${text ?? selector}`);
   return opened;
 };
@@ -275,8 +308,9 @@ const refEl = (sel, name) => `[...document.querySelectorAll(${q(sel)})].find(x =
  * drag between two elements.
  */
 const dragRefFrom = (name, sel = CHIP_SEL) =>
-  ev(
-    `(() => { const c = ${refEl(sel, name)}; if (!c) return 'nothing named ' + ${q(name)} + ' in ' + ${q(sel)}; if (c.draggable !== true) return 'not draggable: ' + ${q(name)}; window.__e2eDt = new DataTransfer(); c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: window.__e2eDt })); return 'dragstart on ' + ${q(name)} + ' carrying ' + [...window.__e2eDt.types].join(','); })()`,
+  liveClick(
+    `${name} to be draggable in ${sel}`,
+    `(() => { const c = ${refEl(sel, name)}; if (!c) return 'MISS nothing named ' + ${q(name)} + ' in ' + ${q(sel)}; if (c.draggable !== true) return 'MISS not draggable: ' + ${q(name)}; window.__e2eDt = new DataTransfer(); c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: window.__e2eDt })); return 'dragstart on ' + ${q(name)} + ' carrying ' + [...window.__e2eDt.types].join(','); })()`,
   );
 /** Wait for React to have applied the drag: the source's own class is what a target reads to decide
  *  whether it is droppable, so a dragover before this would run against no drag in flight. */
@@ -301,25 +335,26 @@ const dragOverRef = async (name, sel = CHIP_SEL) => {
 };
 /** Drop on a target, then end the drag the way the browser does once a drop has been taken. */
 const dropOnRef = (name, sel = CHIP_SEL) =>
-  ev(
-    `(() => { const c = ${refEl(sel, name)}; if (!c) return 'nothing named ' + ${q(name)} + ' in ' + ${q(sel)}; const b = c.getBoundingClientRect(); c.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.__e2eDt, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 })); c.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: window.__e2eDt })); return 'dropped on ' + ${q(name)}; })()`,
+  liveClick(
+    `${name} to be there to drop on in ${sel}`,
+    `(() => { const c = ${refEl(sel, name)}; if (!c) return 'MISS nothing named ' + ${q(name)} + ' in ' + ${q(sel)}; const b = c.getBoundingClientRect(); c.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.__e2eDt, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 })); c.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: window.__e2eDt })); return 'dropped on ' + ${q(name)}; })()`,
   );
 /** The heading over the drop menu: a div, not a `.ctx-item`, so `menuList` never picks it up. */
 const menuCaption = () => ev(`document.querySelector('.ctx-menu .ctx-caption')?.textContent ?? null`);
 const tool = (label) =>
-  ev(`(() => { const b = [...document.querySelectorAll('.toolbar .tool-btn')].find(x => x.innerText.trim() === ${q(label)}); if (!b) return 'no tool button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' (' + b.title + ')'; b.click(); return 'clicked toolbar ' + ${q(label)}; })()`);
-const openSection = (title) => ev(`(() => { const h = [...document.querySelectorAll('.section-head')].find(x => x.textContent.toLowerCase().includes(${q(title.toLowerCase())})); if (!h) return 'no section'; if (!h.classList.contains('open')) (h.querySelector('.section-toggle') ?? h).click(); return 'section open'; })()`);
+  liveClick(`the toolbar button ${label}`, `(() => { const b = [...document.querySelectorAll('.toolbar .tool-btn')].find(x => x.innerText.trim() === ${q(label)}); if (!b) return 'MISS no tool button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' (' + b.title + ')'; b.click(); return 'clicked toolbar ' + ${q(label)}; })()`);
+const openSection = (title) => liveClick(`the ${title} section head`, `(() => { const h = [...document.querySelectorAll('.section-head')].find(x => x.textContent.toLowerCase().includes(${q(title.toLowerCase())})); if (!h) return 'MISS no section ' + ${q(title)}; if (!h.classList.contains('open')) (h.querySelector('.section-toggle') ?? h).click(); return 'section open'; })()`);
 const sectionAction = (title) =>
-  ev(`(() => { const b = [...document.querySelectorAll('.left-panel .section-action')].find(x => (x.title ?? '') === ${q(title)}); if (!b) return 'no section action ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
-const clickBanner = (re) => ev(`(() => { const b = [...document.querySelectorAll('.banner button')].find(x => ${re}.test(x.innerText)); if (!b) return 'no banner button'; b.click(); return 'clicked ' + b.innerText; })()`);
+  liveClick(`the section action ${title}`, `(() => { const b = [...document.querySelectorAll('.left-panel .section-action')].find(x => (x.title ?? '') === ${q(title)}); if (!b) return 'MISS no section action ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
+const clickBanner = (re) => liveClick(`the banner button matching ${re}`, `(() => { const b = [...document.querySelectorAll('.banner button')].find(x => ${re}.test(x.innerText)); if (!b) return 'MISS no banner button matching ' + ${q(String(re))}; b.click(); return 'clicked ' + b.innerText; })()`);
 const fetchAll = async () => {
   await ev(`document.querySelector('.toolbar .caret-btn')?.click(); 'caret'`);
   await waitFor(`!!document.querySelector('.toolbar .popover .popover-row')`, 'the Pull popover to open');
-  return ev(`(() => { const b = [...document.querySelectorAll('.popover .popover-row')].find(x => x.innerText.trim() === 'Fetch all'); if (!b) return 'no Fetch all'; if (b.disabled) return 'Fetch all disabled'; b.click(); return 'clicked Fetch all'; })()`);
+  return liveClick('the Fetch all row', `(() => { const b = [...document.querySelectorAll('.popover .popover-row')].find(x => x.innerText.trim() === 'Fetch all'); if (!b) return 'MISS no Fetch all'; if (b.disabled) return 'DISABLED Fetch all'; b.click(); return 'clicked Fetch all'; })()`);
 };
 /** Type into the commit search field the way a user does (React needs the native setter + input event). */
 const searchType = (text) =>
-  ev(`(() => { const i = document.querySelector('.graph-search .search-input'); if (!i) return 'no search input'; i.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${q(text)}); i.dispatchEvent(new Event('input', { bubbles: true })); return 'typed ' + ${q(text)}; })()`);
+  liveClick(`the search input, to type ${text}`, `(() => { const i = document.querySelector('.graph-search .search-input'); if (!i) return 'MISS no search input'; i.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${q(text)}); i.dispatchEvent(new Event('input', { bubbles: true })); return 'typed ' + ${q(text)}; })()`);
 const searchState = () =>
   ev(
     `(() => { const bar = document.querySelector('.graph-search'); return JSON.stringify({ open: !!bar, value: bar?.querySelector('.search-input')?.value ?? null, count: bar?.querySelector('.search-count')?.textContent ?? null, matches: document.querySelectorAll('.graph-row.match').length, dimmed: document.querySelectorAll('.graph-row.unmatched').length, sha: document.querySelector('.detail-head .sha')?.textContent ?? null }); })()`,
@@ -349,7 +384,7 @@ const layerState = () =>
     `(() => JSON.stringify({ menu: !!document.querySelector('.ctx-menu'), modal: !!document.querySelector('.modal'), popover: !!document.querySelector('.toolbar .popover'), search: !!document.querySelector('.graph-search'), query: document.querySelector('.graph-search .search-input')?.value ?? null }))()`,
   );
 const searchBtn = (title) =>
-  ev(`(() => { const b = [...document.querySelectorAll('.graph-search .search-btn')].find(x => (x.title ?? '').startsWith(${q(title)})); if (!b) return 'no search button ' + ${q(title)}; if (b.disabled) return 'DISABLED ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
+  liveClick(`the search button ${title}`, `(() => { const b = [...document.querySelectorAll('.graph-search .search-btn')].find(x => (x.title ?? '').startsWith(${q(title)})); if (!b) return 'MISS no search button ' + ${q(title)}; if (b.disabled) return 'DISABLED ' + ${q(title)}; b.click(); return 'clicked ' + ${q(title)}; })()`);
 
 /** Poll a boolean expression in the renderer until it is true (or the wait runs out). Every wait on
  *  a UI state goes through here rather than a fixed sleep, so a slow moment costs the run a few more
@@ -416,6 +451,23 @@ const ctrlEnter = () =>
     send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, modifiers: 2 }),
   );
 
+/** One of the body-scope chords (GC-033): Ctrl, optionally Shift and Alt, and a letter. CDP's
+ *  modifier bits are Alt 1, Ctrl 2, Meta 4, Shift 8. No `text` is sent, unlike `enterKey`: these
+ *  are read by `App`'s window listener, and a `text` would type the letter into whatever field has
+ *  focus on the way past. `key` carries the shift state the way a real keyboard does — Ctrl+Shift+S
+ *  arrives as `S` — which is the case the table's matchers are written against. */
+const chord = (letter, { shift = false, alt = false } = {}) => {
+  const modifiers = 2 | (shift ? 8 : 0) | (alt ? 1 : 0);
+  const key = shift ? letter.toUpperCase() : letter.toLowerCase();
+  const e = { key, code: `Key${letter.toUpperCase()}`, windowsVirtualKeyCode: letter.toUpperCase().charCodeAt(0), nativeVirtualKeyCode: letter.toUpperCase().charCodeAt(0), modifiers };
+  return send('Input.dispatchKeyEvent', { ...e, type: 'keyDown' }).then(() => send('Input.dispatchKeyEvent', { ...e, type: 'keyUp' }));
+};
+/** `?` — Shift and the slash key, which is how the shortcuts overlay is opened. */
+const questionMark = () => {
+  const e = { key: '?', code: 'Slash', windowsVirtualKeyCode: 191, nativeVirtualKeyCode: 191, modifiers: 8 };
+  return send('Input.dispatchKeyEvent', { ...e, type: 'keyDown' }).then(() => send('Input.dispatchKeyEvent', { ...e, type: 'keyUp' }));
+};
+
 /** A real Enter to whatever has focus (GC-126). The `text` is what makes it activate a focused
  *  button at all: a keyDown without one is a raw key event, which React handlers read but the
  *  button's own default action never runs on — `ctrlEnter` above needs none for exactly that
@@ -444,26 +496,40 @@ const waitGitFor = async (predicate, what, max = 10000) => {
 // ---- helpers for the commit form and the diff's hunk actions (GC-062) -----------------------------
 /** Type into a controlled input or textarea the way a user does (React needs the native setter). */
 const setField = (selector, text) =>
-  ev(
-    `(() => { const el = document.querySelector(${q(selector)}); if (!el) return 'no field ' + ${q(selector)}; el.focus(); const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${q(text)}); el.dispatchEvent(new Event('input', { bubbles: true })); return 'typed into ' + ${q(selector)} + ': ' + ${q(text)}; })()`,
+  liveClick(
+    `the field ${selector}`,
+    `(() => { const el = document.querySelector(${q(selector)}); if (!el) return 'MISS no field ' + ${q(selector)}; el.focus(); const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${q(text)}); el.dispatchEvent(new Event('input', { bubbles: true })); return 'typed into ' + ${q(selector)} + ': ' + ${q(text)}; })()`,
   );
 /** Select the WIP row so the detail panel shows the staging view. The rows are virtualised and an
  *  earlier step may have left a commit deep in the graph selected, so scroll back to the top first
  *  (GC-030's lesson, applied here the same way step 19 does). */
 const selectWip = async () => {
   await waitFor(`(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return !!document.querySelector('.graph-row.wip'); })()`, 'the WIP row to be rendered');
-  return ev(`(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'no WIP row'; r.click(); return 'WIP row selected'; })()`);
+  return liveClick('the WIP row', `(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'MISS no WIP row'; r.click(); return 'WIP row selected'; })()`);
 };
-/** Click the Stage button on a file row in the staging list. */
+/** Select a commit row by a fragment of its text. The rows are virtualised, so a subject that has
+ *  scrolled out of the rendered window is a real miss and fails here rather than in the wait that
+ *  follows it (GC-132). */
+const selectCommitRow = (text) =>
+  liveClick(
+    `the commit row ${text}`,
+    `(() => { const r = [...document.querySelectorAll('.graph-row')].find(x => x.innerText.includes(${q(text)})); if (!r) return 'MISS no row ' + ${q(text)}; r.click(); return 'selected ' + ${q(text)}; })()`,
+  );
+/** Click the Stage button on a file row in the staging list. It goes through `liveClick` for the
+ *  reason `hunkAction` does, and is the one that matters most: step 20 calls it immediately after a
+ *  commit, inside the 300ms window in which the watcher's echo of that commit disables the row
+ *  (GC-132). */
 const stageRow = (file) =>
-  ev(
-    `(() => { const r = [...document.querySelectorAll('.detail-panel .file-row')].find(x => x.title === ${q(file)}); if (!r) return 'no file row ' + ${q(file)}; const b = r.querySelector('.actions .btn.success'); if (!b) return 'no Stage button on ' + ${q(file)}; if (b.disabled) return 'DISABLED Stage on ' + ${q(file)}; b.click(); return 'clicked Stage on ' + ${q(file)}; })()`,
+  liveClick(
+    `the Stage button on ${file}`,
+    `(() => { const r = [...document.querySelectorAll('.detail-panel .file-row')].find(x => x.title === ${q(file)}); if (!r) return 'MISS no file row ' + ${q(file)}; const b = r.querySelector('.actions .btn.success'); if (!b) return 'MISS no Stage button on ' + ${q(file)}; if (b.disabled) return 'DISABLED Stage on ' + ${q(file)}; b.click(); return 'clicked Stage on ' + ${q(file)}; })()`,
   );
 /** Click a file row inside one staging group. A file with a hunk staged is listed in both groups, so
  *  the group is what picks the unstaged or the staged side of the diff (GC-062). */
 const clickFileRow = (group, file) =>
-  ev(
-    `(() => { const list = [...document.querySelectorAll('.detail-panel .file-list')].find(l => (l.querySelector('.group-head span')?.textContent ?? '').toLowerCase().startsWith(${q(group.toLowerCase())})); if (!list) return 'no group ' + ${q(group)}; const r = [...list.querySelectorAll('.file-row')].find(x => x.title === ${q(file)}); if (!r) return 'no row ' + ${q(file)} + ' under ' + ${q(group)}; r.click(); return 'clicked ' + ${q(file)} + ' under ' + ${q(group)}; })()`,
+  liveClick(
+    `the row ${file} under ${group}`,
+    `(() => { const list = [...document.querySelectorAll('.detail-panel .file-list')].find(l => (l.querySelector('.group-head span')?.textContent ?? '').toLowerCase().startsWith(${q(group.toLowerCase())})); if (!list) return 'MISS no group ' + ${q(group)}; const r = [...list.querySelectorAll('.file-row')].find(x => x.title === ${q(file)}); if (!r) return 'MISS no row ' + ${q(file)} + ' under ' + ${q(group)}; r.click(); return 'clicked ' + ${q(file)} + ' under ' + ${q(group)}; })()`,
   );
 /** What the open diff shows: which side, how many hunks, and every hunk action button in order. */
 const diffState = () =>
@@ -477,25 +543,15 @@ const diffState = () =>
  *  has not confirmed (GC-086) — and the watcher raises that on its own schedule, 300ms behind the
  *  index write of the step before, so it lands in the middle of a step that changed nothing.
  *  `waitDiff` below refuses a stale body now, so the ordinary path arrives here with live buttons;
- *  this loop closes what is left, the CDP round trip between that wait and this call. The enabled
- *  test and the click are one page turn, so nothing can slip between them. Before it, a disabled
- *  button returned "DISABLED …" into a `log()` that asserts nothing, and the miss surfaced five
- *  seconds later as the next `waitDiff` timing out on a fixture nothing had touched. */
-const hunkAction = async (index, label, max = 5000) => {
-  const start = Date.now();
-  for (;;) {
-    const r = await ev(
-      `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'no hunk ' + ${index}; const b = [...h.querySelectorAll('.hunk-actions .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no ' + ${q(label)} + ' on hunk ' + ${index}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' on hunk ' + ${index}; b.click(); return 'clicked ' + ${q(label)} + ' on hunk ' + ${index}; })()`,
-    );
-    const waited = Date.now() - start;
-    if (!String(r).startsWith('DISABLED')) return waited < 50 ? r : `${r} (after ${waited}ms waiting for the button to come back)`;
-    if (waited >= max) {
-      check(`waited for ${label} on hunk ${index} to be enabled`, false, `still disabled after ${max}ms`);
-      return r;
-    }
-    await sleep(50); // the poll interval itself: there is nothing to observe between two polls
-  }
-};
+ *  the poll in `liveClick` closes what is left, the CDP round trip between that wait and this call.
+ *  That loop was written here first and is shared with every other control the suite clicks now
+ *  (GC-132) — nothing about it was ever specific to the hunk buttons. */
+const hunkAction = (index, label, max = 5000) =>
+  liveClick(
+    `${label} on hunk ${index}`,
+    `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'MISS no hunk ' + ${index}; const b = [...h.querySelectorAll('.hunk-actions .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'MISS no ' + ${q(label)} + ' on hunk ' + ${index}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' on hunk ' + ${index}; b.click(); return 'clicked ' + ${q(label)} + ' on hunk ' + ${index}; })()`,
+    max,
+  );
 /** The half of both diff waits that says the body is live: not `.stale`, so every hunk button on it
  *  is enabled and the click a caller makes next cannot be dropped (GC-130). */
 const LIVE_DIFF = ` && !document.querySelector('.file-view .diff-body.stale')`;
@@ -526,8 +582,9 @@ const waitDiff = (chip, hunks, adds) =>
 /** Flip the file view's Unified / Split layout switch (GC-014). It writes `prefs.diffView`, which
  *  step 1 clears for the next run along with the rest of the blob. */
 const setLayout = (label) =>
-  ev(
-    `(() => { const b = [...document.querySelectorAll('.file-view .seg-btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no ' + ${q(label)} + ' layout button'; b.click(); return 'layout: ' + ${q(label)}; })()`,
+  liveClick(
+    `the ${label} layout button`,
+    `(() => { const b = [...document.querySelectorAll('.file-view .seg-btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'MISS no ' + ${q(label)} + ' layout button'; b.click(); return 'layout: ' + ${q(label)}; })()`,
   );
 /** One split hunk table as rows of [old number, old text, new number, new text]; a `null` text is a
  *  padded side, where that file has no line at all (GC-014). */
@@ -552,8 +609,9 @@ const waitSplitDiff = (chip, hunks, adds) =>
 /** Open one of the toolbar's split-button popovers. `which` is 'pull' or 'push'; the Push caret
  *  only exists once the repository has more than one remote, which is the point of it (GC-057). */
 const openPopover = async (which) => {
-  const r = await ev(
-    `(() => { const b = document.querySelector('.toolbar .split-btn.' + ${q(which)} + ' .caret-btn'); if (!b) return 'no ' + ${q(which)} + ' caret'; if (b.disabled) return 'DISABLED ' + ${q(which)} + ' caret'; b.click(); return 'opened the ' + ${q(which)} + ' popover'; })()`,
+  const r = await liveClick(
+    `the ${which} caret`,
+    `(() => { const b = document.querySelector('.toolbar .split-btn.' + ${q(which)} + ' .caret-btn'); if (!b) return 'MISS no ' + ${q(which)} + ' caret'; if (b.disabled) return 'DISABLED ' + ${q(which)} + ' caret'; b.click(); return 'opened the ' + ${q(which)} + ' popover'; })()`,
   );
   await waitFor(`!!document.querySelector('.toolbar .split-btn.' + ${q(which)} + ' .popover')`, `the ${which} popover to open`);
   return r;
@@ -563,8 +621,9 @@ const popoverRows = (which) =>
   ev(`[...document.querySelectorAll('.toolbar .split-btn.' + ${q(which)} + ' .popover .popover-row')].map((x) => x.textContent.trim()).join(' | ')`);
 /** Click one row of one popover by its exact text. */
 const popoverClick = (which, label) =>
-  ev(
-    `(() => { const b = [...document.querySelectorAll('.toolbar .split-btn.' + ${q(which)} + ' .popover .popover-row')].find((x) => x.textContent.trim() === ${q(label)}); if (!b) return 'no ' + ${q(label)} + ' row'; if (b.disabled) return 'DISABLED ' + ${q(label)}; b.click(); return 'clicked ' + ${q(label)}; })()`,
+  liveClick(
+    `the ${which} popover row ${label}`,
+    `(() => { const b = [...document.querySelectorAll('.toolbar .split-btn.' + ${q(which)} + ' .popover .popover-row')].find((x) => x.textContent.trim() === ${q(label)}); if (!b) return 'MISS no ' + ${q(label)} + ' row'; if (b.disabled) return 'DISABLED ' + ${q(label)}; b.click(); return 'clicked ' + ${q(label)}; })()`,
   );
 
 /** The intra-line marks one hunk is rendering, as `{ add, del }` lists of the `span.word` texts in
@@ -968,12 +1027,13 @@ step(14, 'per-file delete confirms with the UI modal, not a native dialog');
 const scratch = `scratch-${stamp}.txt`;
 writeFileSync(join(R, scratch), 'scratch\n');
 log(await act(() => tool('Refresh')));
-log(await ev(`(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'no WIP row'; r.click(); return 'WIP row selected'; })()`));
+log(await liveClick('the WIP row', `(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'MISS no WIP row'; r.click(); return 'WIP row selected'; })()`));
 // only the staging view lists this file, so it cannot be satisfied by the commit that was selected
 await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(scratch)})`, 'the staging list to show the scratch file');
 log(
-  await ev(
-    `(() => { const rows = [...document.querySelectorAll('.detail-panel .file-row')]; const r = rows.find(x => x.title === ${q(scratch)}); if (!r) return 'file row not found: ' + ${q(scratch)}; const b = r.querySelector('.actions .btn.danger'); if (!b) return 'no discard button'; b.click(); return 'clicked discard on ' + r.title; })()`,
+  await liveClick(
+    `the discard button on ${scratch}`,
+    `(() => { const rows = [...document.querySelectorAll('.detail-panel .file-row')]; const r = rows.find(x => x.title === ${q(scratch)}); if (!r) return 'MISS file row not found: ' + ${q(scratch)}; const b = r.querySelector('.actions .btn.danger'); if (!b) return 'MISS no discard button'; b.click(); return 'clicked discard on ' + r.title; })()`,
   ),
 );
 await waitModal();
@@ -1057,7 +1117,7 @@ git(['checkout', '-q', '--', GUARD_TRACKED]);
 git(['stash', 'pop', '--index', '-q']);
 log(await act(() => tool('Refresh')));
 
-step(16, 'commit search: message, sha prefix, next match, Escape');
+step(16, 'commit search: message, sha prefix, next match, the author chip, Escape');
 const mainOnlySha = git(['log', '--all', '--format=%H', '--grep=Main-only change']).split('\n')[0] ?? '';
 log(await tool('Search'));
 await waitFor(`!!document.querySelector('.graph-search .search-input')`, 'the find bar to open');
@@ -1092,7 +1152,7 @@ check('several matches are counted', /of [2-9]/.test(String(first.count)), `${fi
 check('next match moves the selection', second.sha !== first.sha && second.count !== first.count, `${first.sha}/${first.count} -> ${second.sha}/${second.count}`);
 
 // clicking a row mid-search moves the position with it, so "next" continues from there
-log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row.match')].pop(); if (!r) return 'no match row'; r.click(); return 'clicked the last match'; })()`));
+log(await liveClick('the last match row', `(() => { const r = [...document.querySelectorAll('.graph-row.match')].pop(); if (!r) return 'MISS no match row'; r.click(); return 'clicked the last match'; })()`));
 await waitSearch(second.count);
 const clicked = JSON.parse(await searchState());
 check('clicking a match moves the position to it', clicked.count === '3 of 3', String(clicked.count));
@@ -1104,7 +1164,7 @@ check('next continues from the clicked row and wraps', wrapped.count === '1 of 3
 // GC-030: the query lives in App, so a file view opening over the graph must not lose it
 const beforeDiff = JSON.parse(await searchStateAtTop());
 await waitFor(`!!document.querySelector('.detail-panel .file-list .file-row')`, 'the selected commit to list its files');
-log(await ev(`(() => { const r = document.querySelector('.detail-panel .file-list .file-row'); if (!r) return 'no file row on the selected commit'; r.click(); return 'opened ' + r.title; })()`));
+log(await liveClick("the selected commit's first file row", `(() => { const r = document.querySelector('.detail-panel .file-list .file-row'); if (!r) return 'MISS no file row on the selected commit'; r.click(); return 'opened ' + r.title; })()`));
 await waitFor(`!!document.querySelector('.file-view')`, 'the diff to replace the graph');
 const inDiff = JSON.parse(await searchState());
 check('opening a diff hides the graph and its search bar', inDiff.open === false, JSON.stringify(inDiff));
@@ -1117,6 +1177,43 @@ check(
   back.open === true && back.value === 'feature' && back.count === beforeDiff.count && back.sha === beforeDiff.sha && back.matches === beforeDiff.matches && back.dimmed === beforeDiff.dimmed,
   `before=${JSON.stringify(beforeDiff)} after=${JSON.stringify(back)}`,
 );
+
+// GC-027: the author chip beside the field. With the field empty it is the whole filter, and a term
+// typed beside it then matches the message and the sha only — the one question the plain field
+// could not ask, since an author's name in a message matched just as loudly as their authorship.
+readout = await searchCount();
+log(await searchType(''));
+await waitSearch(readout);
+const unfiltered = await searchCount();
+log(await liveClick('the author chip', `(() => { const b = document.querySelector('.graph-search .author-btn'); if (!b) return 'MISS no author chip'; b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); b.click(); return 'clicked the author chip'; })()`));
+await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the author list');
+const authorMenu = await menuList();
+check('the author list offers the authors of the loaded commits, with Any author to clear', authorMenu.includes('Test User') && authorMenu.startsWith('(x) Any author'), authorMenu);
+log(await menuClick('Test User'));
+await waitSearch(unfiltered);
+const byAuthor = await searchCount();
+// the same traversal the graph is drawing (GC-095's globs), narrowed by git itself
+const authored = git(['log', '--date-order', '--author=test@example.com', '--format=%H', '--glob=refs/heads/*', '--glob=refs/remotes/*', '--glob=refs/tags/*', 'HEAD', '--ignore-missing'])
+  .split('\n')
+  .filter(Boolean).length;
+check('an author with an empty field matches exactly that author, as git counts them', /of (\d+)$/.exec(byAuthor)?.[1] === String(authored), `${byAuthor} | git says ${authored} | unfiltered ${unfiltered}`);
+check('the chip says who it is filtering by', (await ev(`document.querySelector('.graph-search .search-author.set .author-name')?.textContent ?? null`)) === 'Test User', byAuthor);
+await shot('search-author.png');
+
+log(await searchType('feature'));
+await waitSearch(byAuthor);
+const bothSet = await searchCount();
+check('a term typed beside the chip narrows within that author', bothSet === '1 of 3', `${byAuthor} -> ${bothSet}`);
+log(await searchType('Test User'));
+await waitSearch(bothSet);
+const nameTyped = await searchCount();
+check("the term no longer matches the author's own name, which is what the chip is for", nameTyped === 'no matches', nameTyped);
+
+log(await searchType(''));
+await waitSearch(nameTyped);
+log(await liveClick('the clear-author x', `(() => { const b = document.querySelector('.graph-search .author-clear'); if (!b) return 'MISS no author x'; b.click(); return 'cleared the author'; })()`));
+await waitFor(`(document.querySelector('.graph-search .search-count')?.textContent ?? '') === ${q(unfiltered)}`, 'the readout to go back to the whole graph');
+check('clearing the chip restores the plain search', (await ev(`!document.querySelector('.graph-search .search-author.set')`)) === true, await searchCount());
 
 await escape();
 await waitFor(`!document.querySelector('.graph-search')`, 'the find bar to close');
@@ -1302,7 +1399,7 @@ log(await act(() => tool('Refresh')));
 // the rows are virtualised and step 18 left a commit deep in the graph selected, so scroll the WIP
 // row back into the rendered window before clicking it (GC-030's lesson, applied here)
 await waitFor(`(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return !!document.querySelector('.graph-row.wip'); })()`, 'the WIP row to be rendered');
-log(await ev(`(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'no WIP row'; r.click(); return 'WIP row selected'; })()`));
+log(await liveClick('the WIP row', `(() => { const r = document.querySelector('.graph-row.wip'); if (!r) return 'MISS no WIP row'; r.click(); return 'WIP row selected'; })()`));
 // only the staging view lists an uncommitted file, so this cannot be satisfied by the commit that
 // step 18 left selected
 await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(MENU_FILE)})`, `the staging list to show ${MENU_FILE}`);
@@ -1397,14 +1494,14 @@ const cleared = JSON.parse(await ev(`JSON.stringify({ summary: document.querySel
 check('the form empties itself after committing', cleared.summary === '' && cleared.body === '', JSON.stringify(cleared));
 
 const countAfterCommit = git(['rev-list', '--count', 'HEAD']);
-log(await ev(`(() => { const cb = document.querySelector('.commit-form .check input'); if (!cb) return 'no amend checkbox'; if (cb.disabled) return 'amend checkbox disabled'; cb.click(); return 'ticked Amend previous commit'; })()`));
+log(await liveClick('the Amend checkbox', `(() => { const cb = document.querySelector('.commit-form .check input'); if (!cb) return 'MISS no amend checkbox'; if (cb.disabled) return 'DISABLED amend checkbox'; cb.click(); return 'ticked Amend previous commit'; })()`));
 await waitFor(`document.querySelector('.commit-form .summary-wrap input')?.value === ${q(COMMIT_SUMMARY)}`, "the amend tick to prefill HEAD's message");
 const prefilled = JSON.parse(await ev(`JSON.stringify({ summary: document.querySelector('.commit-form .summary-wrap input')?.value ?? null, body: document.querySelector('.commit-form textarea')?.value ?? null })`));
 check('ticking Amend prefills the form from HEAD', prefilled.summary === COMMIT_SUMMARY && prefilled.body === COMMIT_BODY, JSON.stringify(prefilled));
 
 const AMENDED_SUMMARY = `${COMMIT_SUMMARY} amended`;
 log(await setField('.commit-form .summary-wrap input', AMENDED_SUMMARY));
-log(await ev(`(() => { const b = document.querySelector('.commit-form .btn.primary.large'); if (!b) return 'no commit button'; if (b.disabled) return 'commit button disabled'; const label = b.textContent.trim(); b.click(); return 'clicked the commit button: ' + label; })()`));
+log(await liveClick('the commit button', `(() => { const b = document.querySelector('.commit-form .btn.primary.large'); if (!b) return 'MISS no commit button'; if (b.disabled) return 'DISABLED commit button'; const label = b.textContent.trim(); b.click(); return 'clicked the commit button: ' + label; })()`));
 // doCommit clears the fields and unticks Amend once git has answered, and nothing else in the step
 // does that, so it marks the amend having landed
 await waitFor(`document.querySelector('.commit-form .summary-wrap input')?.value === '' && document.querySelector('.commit-form .check input')?.checked === false`, 'the commit form to clear after the amend', 15000);
@@ -1504,7 +1601,7 @@ await waitFor(
   `(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return [...document.querySelectorAll('.graph-row')].some(r => r.innerText.includes(${q(DELETED_COMMIT)})); })()`,
   `the ${DELETED_COMMIT} row to be rendered`,
 );
-log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row')].find(x => x.innerText.includes(${q(DELETED_COMMIT)})); if (!r) return 'no row ' + ${q(DELETED_COMMIT)}; r.click(); return 'selected ' + ${q(DELETED_COMMIT)}; })()`));
+log(await selectCommitRow(DELETED_COMMIT));
 await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(DELETED_FILE)})`, `the commit's file list to show ${DELETED_FILE}`);
 log(await contextMenuOn('.detail-panel .file-row', DELETED_FILE));
 const deletedCommitMenu = await menuList();
@@ -1759,7 +1856,7 @@ step(26, 'the branch crumb is a dropdown: local and remote branches, the owner t
 // GC-088. The crumb was drawn like the repository crumb beside it since GC-044 and did nothing;
 // it opens the branch list now. Both crumbs are `.crumb`, so the branch one is the second.
 const branchCrumb = () =>
-  ev(`(() => { const c = [...document.querySelectorAll('.breadcrumb .crumb')][1]; if (!c) return 'no branch crumb'; if (c.tagName !== 'BUTTON') return 'the branch crumb is not a button'; c.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); c.click(); return 'clicked the branch crumb'; })()`);
+  liveClick('the branch crumb', `(() => { const c = [...document.querySelectorAll('.breadcrumb .crumb')][1]; if (!c) return 'MISS no branch crumb'; if (c.tagName !== 'BUTTON') return 'MISS the branch crumb is not a button'; c.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); c.click(); return 'clicked the branch crumb'; })()`);
 const menuCaptions = () => ev(`[...document.querySelectorAll('.ctx-menu .ctx-caption')].map(c => c.textContent.trim()).join(' | ')`);
 await waitNoMenu();
 log(await branchCrumb());
@@ -1987,11 +2084,11 @@ step(30, 'the toolbar popovers: one at a time, whether the second caret is click
 git(['remote', 'add', 'upstream', REMOTE2]);
 log(await act(() => tool('Refresh')));
 check('the toolbar has a Push caret to activate', (await ev(`!!document.querySelector('.split-btn.push .caret-btn')`)) === true, git(['remote']).replace(/\n/g, ' '));
-log(await ev(`(() => { const b = document.querySelector('.split-btn.pull .caret-btn'); if (!b) return 'no Pull caret'; b.click(); return 'clicked the Pull caret'; })()`));
+log(await liveClick('the Pull caret', `(() => { const b = document.querySelector('.split-btn.pull .caret-btn'); if (!b) return 'MISS no Pull caret'; b.click(); return 'clicked the Pull caret'; })()`));
 await waitFor(`!!document.querySelector('.split-btn.pull .popover')`, 'the Pull popover to open');
 // Enter as a keyDown and nothing else: a following `char` event activates the button a second
 // time, which closes the popover the first one opened and reads exactly like the bug this guards.
-log(await ev(`(() => { const b = document.querySelector('.split-btn.push .caret-btn'); if (!b) return 'no Push caret'; b.focus(); return 'focused the Push caret'; })()`));
+log(await liveClick('the Push caret', `(() => { const b = document.querySelector('.split-btn.push .caret-btn'); if (!b) return 'MISS no Push caret'; b.focus(); return 'focused the Push caret'; })()`));
 await enterKey();
 await waitFor(`!!document.querySelector('.split-btn.push .popover')`, 'the Push popover to open from the keyboard');
 const popovers = await ev(`[...document.querySelectorAll('.toolbar .popover')].map(p => p.closest('.split-btn').classList.contains('pull') ? 'pull' : 'push').join(',')`);
@@ -2067,7 +2164,7 @@ await waitFor(
   `(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return [...document.querySelectorAll('.graph-row')].some(r => r.innerText.includes(${q(RESTORE_COMMIT)})); })()`,
   `the ${RESTORE_COMMIT} row to be rendered`,
 );
-log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row')].find(x => x.innerText.includes(${q(RESTORE_COMMIT)})); if (!r) return 'no row ' + ${q(RESTORE_COMMIT)}; r.click(); return 'selected ' + ${q(RESTORE_COMMIT)}; })()`));
+log(await selectCommitRow(RESTORE_COMMIT));
 await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(RESTORE_FILE)})`, `the commit's file list to show ${RESTORE_FILE}`);
 const restoreSha = await ev(`document.querySelector('.detail-panel .sha')?.textContent?.trim() ?? null`);
 const restoreFull = git(['rev-parse', `${restoreSha}^{commit}`]);
@@ -2094,7 +2191,7 @@ check('the working-tree copy is byte-for-byte the version in that commit', readF
 check('and git has it staged, the way `git checkout <sha> -- <path>` leaves it', git(['diff', '--cached', '--name-only']).split('\n').includes(RESTORE_FILE), status());
 
 // the row is absent, not disabled, on a file the commit deleted: there is nothing at that sha
-log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row')].find(x => x.innerText.includes(${q(DELETED_COMMIT)})); if (!r) return 'no row ' + ${q(DELETED_COMMIT)}; r.click(); return 'selected ' + ${q(DELETED_COMMIT)}; })()`));
+log(await selectCommitRow(DELETED_COMMIT));
 await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(DELETED_FILE)})`, `the commit's file list to show ${DELETED_FILE}`);
 log(await contextMenuOn('.detail-panel .file-row', DELETED_FILE));
 const deletedRestoreMenu = await menuList();
@@ -2187,7 +2284,92 @@ gitMay(['remote', 'remove', 'upstream']);
 log(await act(() => tool('Refresh')));
 check('the step leaves the fixture with one remote and no scratch refs', git(['remote']) === 'origin' && !git(['tag']).split('\n').includes('t-remote-del'), `${git(['remote']).replace(/\n/g, ' ')} | tags: ${git(['tag']).replace(/\n/g, ' ')}`);
 
-step(34, 'the run leaves the fixture exactly as it found it');
+step(34, 'the body-scope shortcuts: fetch, both panels, the ref filter, staging, and the overlay that documents them');
+// GC-033. Every one of these is a table entry read through `matches`, so what the overlay lists
+// and what the keys do cannot drift apart; this step is the other half of that, checking that the
+// entry actually reaches a handler. The two that change the repository put it back themselves.
+const blur = () => ev(`(() => { document.activeElement?.blur?.(); return 'focus: ' + (document.activeElement?.tagName ?? 'none'); })()`);
+const activeEl = () => ev(`(() => { const a = document.activeElement; return a ? a.tagName + '.' + (a.className || '') : 'none'; })()`);
+log(await blur());
+log(await act(() => chord('l'), 'Ctrl+L to fetch'));
+check('Ctrl+L fetches without an error on the status bar', (await state()).err === null, JSON.stringify(await state()));
+
+await chord('j');
+await waitFor(`!!document.querySelector('.left-panel.collapsed')`, 'Ctrl+J to collapse the left panel');
+check('Ctrl+J collapses the left panel to its rail', (await ev(`!!document.querySelector('.left-panel.collapsed')`)) === true);
+await chord('j');
+await waitFor(`!document.querySelector('.left-panel.collapsed') && !!document.querySelector('.left-panel')`, 'Ctrl+J to bring it back');
+
+await chord('k');
+await waitFor(`!document.querySelector('.detail-panel')`, 'Ctrl+K to hide the detail panel');
+check('Ctrl+K hides the detail panel entirely', (await ev(`!document.querySelector('.detail-panel')`)) === true);
+await shot('shortcuts-panels.png');
+await chord('k');
+await waitFor(`!!document.querySelector('.detail-panel')`, 'Ctrl+K to bring the detail panel back');
+
+await chord('f', { alt: true });
+await waitFor(`document.activeElement?.className === 'filter'`, 'Ctrl+Alt+F to focus the ref filter');
+check('Ctrl+Alt+F focuses the ref filter rather than opening the find bar', (await ev(`!document.querySelector('.graph-search')`)) === true, await activeEl());
+
+// From that field: Ctrl+Shift+M is the one binding that fires while typing, Ctrl+B is not.
+await chord('b');
+await sleep(150); // a modal that must not open has nothing to wait for; only its absence is the answer
+check('Ctrl+B does nothing while a text field has focus', (await ev(`!document.querySelector('.modal')`)) === true, await modalMessage());
+await chord('m', { shift: true });
+await waitFor(`document.activeElement?.closest?.('.commit-form') !== null && document.activeElement?.tagName === 'INPUT'`, 'Ctrl+Shift+M to focus the commit summary');
+check('Ctrl+Shift+M selects the working directory and focuses the summary, from inside another field', (await ev(`!!document.querySelector('.graph-row.wip.selected')`)) === true, await activeEl());
+
+log(await blur());
+await chord('b');
+await waitModal();
+const branchModal = String(await modal(null, null));
+check('Ctrl+B opens the create-branch dialog at HEAD', branchModal.includes('Create branch'), branchModal);
+log(await modalClick('Cancel'));
+await waitFor(`!document.querySelector('.modal')`, 'the branch dialog to close');
+
+// The staging pair. What was staged is replayed by hand afterwards rather than by `git reset
+// --hard`, which would take the fixture's own unstaged edits with it.
+const stagedBefore = git(['diff', '--cached', '--name-status']);
+const treeBefore = status();
+log(await blur());
+log(await act(() => chord('s', { shift: true }), 'Ctrl+Shift+S to stage everything'));
+check('Ctrl+Shift+S stages every change, the untracked file included', git(['diff', '--name-only']) === '' && git(['ls-files', '--others', '--exclude-standard']) === '', status().replace(/\n/g, ' '));
+log(await act(() => chord('u', { shift: true }), 'Ctrl+Shift+U to unstage everything'));
+check('Ctrl+Shift+U empties the index again', git(['diff', '--cached', '--name-status']) === '', status().replace(/\n/g, ' '));
+for (const line of stagedBefore.split('\n').filter(Boolean)) {
+  const [kind, path] = line.split('\t');
+  if (kind === 'D') git(['rm', '-q', '--cached', path]);
+  else git(['add', path]);
+}
+log(await act(() => tool('Refresh')));
+check('the step puts the staging the fixture came with back', status() === treeBefore, `${status().replace(/\n/g, ' ')} | was ${treeBefore.replace(/\n/g, ' ')}`);
+
+// And the overlay: it is rendered from the same table, so every binding above is documented by
+// construction — what this asserts is that all eight arrived in it.
+log(await blur());
+await questionMark();
+await waitFor(`!!document.querySelector('.modal.shortcuts')`, 'the shortcuts overlay');
+const listed = await ev(`[...document.querySelectorAll('.modal.shortcuts .shortcut-row')].map(r => r.querySelector('.shortcut-keys')?.textContent.trim()).join(' | ')`);
+const eight = ['Ctrl+B', 'Ctrl+L', 'Ctrl+J', 'Ctrl+K', 'Ctrl+Alt+F', 'Ctrl+Shift+S', 'Ctrl+Shift+U', 'Ctrl+Shift+M'];
+check('the overlay documents all eight new bindings', eight.every((k) => String(listed).includes(k)), String(listed));
+await shot('shortcuts-overlay.png');
+await escape();
+await waitFor(`!document.querySelector('.modal.shortcuts')`, 'the overlay to close');
+
+step(35, 'the commit view says what is waiting in the working directory, and gets back to it');
+// GC-045. The counts survive in the graph's WIP row, but the panel the user is reading dropped
+// them entirely, and getting back meant finding row 0 again.
+log(await selectCommitRow(DELETED_COMMIT));
+await waitFor(`!!document.querySelector('.detail-panel .banner.info')`, "the commit view's working-directory banner");
+const pendingCount = status().split('\n').filter(Boolean).length;
+const bannerText = await ev(`document.querySelector('.detail-panel .banner.info')?.innerText.replace(/\\s+/g, ' ') ?? null`);
+check('the banner counts the same changes the staging header does', String(bannerText).startsWith(`${pendingCount} file changes in the working directory`), `${bannerText} | git says ${pendingCount}`);
+await shot('commit-banner.png');
+log(await liveClick('the View changes button', `(() => { const b = [...document.querySelectorAll('.detail-panel .banner.info button')][0]; if (!b) return 'MISS no View changes button'; b.click(); return 'clicked ' + b.innerText; })()`));
+await waitFor(`!!document.querySelector('.graph-row.wip.selected') && !!document.querySelector('.detail-panel .commit-form')`, 'the WIP row to be selected and the staging view to be showing');
+check('View changes selects the working-directory row and its staging view', (await ev(`!document.querySelector('.detail-panel .banner.info')`)) === true, JSON.stringify(await state()));
+
+step(36, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

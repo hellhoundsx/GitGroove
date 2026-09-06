@@ -12,7 +12,7 @@ import { DiffView, type FileViewSource } from './diff/DiffView';
 import { Preferences } from './components/Preferences';
 import { Shortcuts } from './components/Shortcuts';
 import { setPrefs, usePrefs } from './prefs';
-import { matches } from './shortcuts';
+import { firesWhileTyping, matches, type ShortcutId } from './shortcuts';
 import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
 import type { MenuAnchor } from './ui/UiContext';
@@ -105,6 +105,13 @@ export function App(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(WIP);
   const [fileView, setFileView] = useState<FileViewSource | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
+  // The detail panel hides entirely rather than becoming a rail: it has no icons to keep, and the
+  // graph is what the width is wanted for (GC-033). Any selection brings it back, in `select`.
+  const [detailCollapsed, setDetailCollapsed] = useState(false);
+  // Ticks, not booleans: asking for the same field twice in a row must focus it twice, and this is
+  // the shape the find bar's own `searchTick` already uses (GC-033).
+  const [focusFilter, setFocusFilter] = useState(0);
+  const [focusSummary, setFocusSummary] = useState(0);
   // Both side panels are draggable (GC-050); the widths are remembered state on their own keys,
   // the way the ref column's is, and reach the panels as CSS variables on the app root. Each is
   // also bounded by the window they sit in rather than by its own range alone (GC-105): `limit` is
@@ -136,12 +143,14 @@ export function App(): JSX.Element {
     limit: winW - (leftIsRail ? RAIL_W : panelW.current.left) - MIN_GRAPH_W,
   });
   // A rail is a fixed 44px that ignores `--left-panel-w`, so at that point only the detail panel
-  // has anything to give: it is passed in as a zero-width panel with a zero floor.
+  // has anything to give: it is passed in as a zero-width panel with a zero floor. A detail panel
+  // hidden with Ctrl+K is not drawn at all, so it goes in the same way (GC-033) — the graph then
+  // has the whole window and the fit has nothing left to reduce.
   const applied = fitPanels(
     leftIsRail ? 0 : leftW.width,
-    detailW.width,
+    detailCollapsed ? 0 : detailW.width,
     winW - (leftIsRail ? RAIL_W : 0),
-    { left: leftIsRail ? 0 : LEFT_MIN, detail: DETAIL_MIN },
+    { left: leftIsRail ? 0 : LEFT_MIN, detail: detailCollapsed ? 0 : DETAIL_MIN },
   );
   panelW.current = applied;
   const [workdirVersion, setWorkdirVersion] = useState(0);
@@ -665,9 +674,12 @@ export function App(): JSX.Element {
   const pinnedRef = useMemo(() => (pinned ? snapshot?.refs.find((r) => r.kind === 'head' && r.name === pinned) ?? null : null), [pinned, snapshot]);
   const currentBranch = snapshot?.info.branch ?? null;
 
+  // Selecting anything brings the detail panel back: it is what the selection is for, so a panel
+  // hidden with Ctrl+K stays hidden only until the user asks to read something (GC-033).
   const select = useCallback((sha: string) => {
     setSelected(sha);
     setFileView(null);
+    setDetailCollapsed(false);
   }, []);
 
   // ---- ref / commit / stash operations ------------------------------------------------
@@ -1421,12 +1433,67 @@ export function App(): JSX.Element {
         }
         return;
       }
+      // Whether a binding fires from inside a text field is the table's answer, not this
+      // handler's: `whileTyping` had been sitting there unread while one `isEditable` check
+      // below decided it for everything (GR-002, GC-033).
+      const hit = (id: ShortcutId): boolean => matches(id, e) && (firesWhileTyping(id) || !isEditable(e.target));
       // Ctrl+F works from anywhere, including the commit message field
-      if (matches('openSearch', e)) {
+      if (hit('openSearch')) {
         if (!snapshot) return;
         e.preventDefault();
         setFileView(null);
         openSearch();
+        return;
+      }
+      // Ctrl+Shift+M is the other one that fires while typing: it is how the field is reached, so
+      // it selects the working directory first — the commit form only exists on that row.
+      if (hit('focusSummary')) {
+        if (!snapshot) return;
+        e.preventDefault();
+        setSelected(WIP);
+        setDetailCollapsed(false);
+        setFocusSummary((n) => n + 1);
+        return;
+      }
+      // The panels and the filter cost nothing and need no repository open.
+      if (hit('toggleLeft')) {
+        e.preventDefault();
+        setLeftCollapsed((v) => !v);
+        return;
+      }
+      if (hit('toggleDetail')) {
+        e.preventDefault();
+        setDetailCollapsed((v) => !v);
+        return;
+      }
+      if (hit('focusFilter')) {
+        if (!snapshot) return;
+        e.preventDefault();
+        setLeftCollapsed(false);
+        setFileView(null); // a file view forces the panel to the rail, where there is no filter
+        setFocusFilter((n) => n + 1);
+        return;
+      }
+      // The four that run git follow the toolbar's own disabled states: no repository, an action
+      // already running, no remote to fetch from, nothing to stage or unstage.
+      if (hit('newBranch')) {
+        e.preventDefault();
+        if (snapshot && !busy) void createBranchAt('HEAD', currentBranch ?? 'HEAD');
+        return;
+      }
+      if (hit('fetchAll')) {
+        e.preventDefault();
+        if (snapshot && !busy && snapshot.remotes.length > 0) void run('Fetching', () => window.api.fetch(repo!));
+        return;
+      }
+      if (hit('stageAll')) {
+        e.preventDefault();
+        if (snapshot && !busy && snapshot.status.entries.length > 0) actions.stageAll().catch(() => undefined);
+        return;
+      }
+      if (hit('unstageAll')) {
+        e.preventDefault();
+        if (snapshot && !busy && snapshot.status.entries.some((x) => x.staged)) actions.unstageAll().catch(() => undefined);
         return;
       }
       if (isEditable(e.target)) return;
@@ -1453,7 +1520,7 @@ export function App(): JSX.Element {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui]);
+  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch]);
 
   return (
     <div
@@ -1516,6 +1583,7 @@ export function App(): JSX.Element {
               onToggleHidden={toggleHidden}
               onShowAll={showAll}
               collapsed={leftCollapsed || fileView !== null}
+              focusFilter={focusFilter}
               resize={leftW.handle}
               onExpand={() => (fileView ? setFileView(null) : setLeftCollapsed(false))}
               onCollapse={() => setLeftCollapsed(true)}
@@ -1564,18 +1632,21 @@ export function App(): JSX.Element {
                 onLoadMore={askForMore}
               />
             )}
-            <DetailPanel
-              repo={repo}
-              commit={selectedCommit}
-              headCommit={headCommit}
-              status={snapshot.status}
-              openFile={fileView}
-              actions={actions}
-              resize={detailW.handle}
-              onSelectSha={select}
-              onOpenFile={setFileView}
-              onFileMenu={(e, t) => onMenu(e, fileMenuItems(t))}
-            />
+            {!detailCollapsed && (
+              <DetailPanel
+                repo={repo}
+                commit={selectedCommit}
+                headCommit={headCommit}
+                status={snapshot.status}
+                openFile={fileView}
+                actions={actions}
+                resize={detailW.handle}
+                focusSummary={focusSummary}
+                onSelectSha={select}
+                onOpenFile={setFileView}
+                onFileMenu={(e, t) => onMenu(e, fileMenuItems(t))}
+              />
+            )}
           </>
         ) : (
           <div className="graph-panel">
