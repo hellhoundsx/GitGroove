@@ -8557,3 +8557,97 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
     TIME_WAIT sockets remained and nothing was listening. The only repository written to was the
     review's own scratch root: one stash taken to observe GC-140 and popped again, leaving
     `git status --short` identical to the fixture's.
+
+### GR-017 Backlog review 2026-09-06 11:20
+
+- **Status:** done
+- **Window:** 7a84981..f85d213
+- **Log:**
+  - 2026-09-06 11:20 inbox: **`INBOX.md` exists and its Pending section is empty.** All eight
+    items GR-016 drained are in Handled with what each became, and Ricardo has added nothing since.
+    Nothing was declined and nothing is left unsettled, so this review's additions are its own
+    findings and the zero-to-five budget applies in full.
+  - shipped: five commits in the window, two of them bookkeeping. `ddfda83` closes **GC-133**,
+    **GC-051** and **GC-052**; `9331d9a` is **GC-016**; `f85d213` is the first implementation
+    commit of the batch that was still open while this ran. Read as a reviewer, **GC-016** is the
+    strongest piece: `tabs.ts` answers the three questions the bar asks as pure functions
+    (`readTabs`, `neighbourOf`, `cycle`) rather than inside a click handler, and the two
+    decisions that were easy to get wrong are both right - the parked state is keyed by tab **id**
+    rather than path, because git rewrites the path under it, and the graph and detail panel get
+    **prefixed** keys, because two siblings under one key is not a swap. Verified the failure path
+    in the app rather than trusting the log: a tab whose folder does not exist shows the empty state
+    with the error named in it and in the status bar, keeps its recents list, and drops only the
+    missing path from it (`07-tab-missing-repo.png`) - which is exactly what GC-025's rule asks
+    for. One thing I chased and dropped: `GraphCell`'s `dashColor` derives a colour from a
+    **lane** index while every other line derives it from a `color` field, which looked like a
+    latent mismatch until `lanes.ts` line 127 settled it - `laneColor[i] = i % 10`, so the two
+    are the same number by construction and the expression is correct. No bug found in the window.
+  - health: at `f85d213` in the detached worktree with `node_modules` junctioned - **typecheck
+    ok, 246 tests passed (21 files)** in 2.17s, **build ok**. The worker then pushed `576bd57`
+    while this review was being written, so health was re-run at that tip as well: **typecheck ok,
+    253 tests (21 files)**. e2e was not re-run: the batch that owns every harness-visible change in
+    this window was mid-flight throughout and runs the suite itself in its own step 6, and running
+    a second suite against a second scratch root while it did would have measured nothing new.
+    `MAIN` was never built, tested or launched.
+  - app: the `f85d213` build ran offscreen on 9334, first against
+    `%TEMP%/gitclient-review/e2e` and then against `catena-feed` **loaded read-only**.
+    Seven screenshots in `%TEMP%/gitclient-review/GR-017/`, all looked at. `01-graph.png`: nine
+    rows, lanes continuous, right-angle joins, and GC-144's dashed run now covering the whole
+    distance from the WIP node to `main` rather than 14px of it. `02-commit-view.png` is the
+    merge commit with both parents linked. `03-diff.png` is GC-052 landed - the two hunk arrows,
+    the whitespace and wrap toggles, `Unified | Split`; the toggles carry `.seg-btn.on` with
+    `--accent-soft` behind them, so "on" is visible, which I checked in the CSS after the
+    screenshot showed both off. `04-prefs.png` is the Preferences dialog with GC-052's new DIFF
+    group; all four groups and every documented setting are present and the body scrolls inside the
+    modal (GC-103). `05-two-tabs-real-repo.png` is two tabs with an 881-commit repository in the
+    second, and is the evidence for GC-153 below. `06-commit-menu.png` is the commit context menu
+    on that repository and is fresh evidence for **GC-074**, already `todo`: all three Reset rows
+    have their hints cut to `keep all change...`, `keep changes...` and `discard all cha...`.
+    `07-tab-missing-repo.png` is the missing-folder tab above.
+  - app, the reflow rotation: squeezed the graph panel to 280px and measured what gave way.
+    `fitOptCols` had dropped all three optional columns and `fitRefCol` had taken the ref column
+    to its 100px floor, leaving the message 104px - which is the documented last-resort behaviour,
+    not a defect, because 280 is below `100 + 76 + MIN_MSG_W` and everything had already given
+    way. Recorded because the probe is misleading: shrinking the document does **not** move
+    `window.innerWidth`, so `fitPanels` never ran and the panels stayed at 220/400 - a real
+    narrow window would have reduced them first. A true narrow-window pass needs
+    `Emulation.setDeviceMetricsOverride`, which `tools/gk-recon/cdp.mjs` does not expose; GC-105
+    and GC-110 both have unit tests covering the arithmetic, so this is a gap in the review's tools
+    rather than in the app.
+  - what's next: ran the pass GR-016 could not, against
+    `06-feature-inventory.md`'s context-menu list. Most of it is already covered or already
+    ruled out: the Copy family all exists (`Copy commit sha`, `Copy commit summary`,
+    `Copy branch name`, `Copy tag name`, `Copy file path`, `Copy remote URL`), tag creation
+    and annotation exist, ahead/behind is rendered on every left-panel row already (`.ab`), and
+    Squash / Drop / Move / Interactive rebase are behind `GC-017`, which is `blocked`. What is
+    genuinely missing and not blocked: **Compare against working directory** (now GC-152), the tab
+    context menu (GC-151), and Blame / History / Export changes to patch, which I did **not** file -
+    each is its own M-or-larger ticket and three at once would be a wish list rather than a backlog.
+    Naming them here so the next review can pick one up.
+  - tickets: added **GC-151** (ui, S, P3), **GC-152** (diff, M, P3) and **GC-153** (ui, M, P3) -
+    three of the five allowed. One from the shipped-feature follow-up, one from the what's-next
+    pass, one from the UI pass, which is the spread the routine asks for. No existing ticket was
+    extended: each of the three was checked against the board first and none was covered. Board:
+    GC-151 goes directly below **GC-149** so the two tab-bar tickets are adjacent and a worker can
+    take both against one file; GC-152 and GC-153 go after GC-150 and ahead of GC-026, where GR-015
+    and GR-016 both put their P3 additions. Nothing else moved, and no reordering was needed -
+    GC-128 is still the only P2 and still the first open row a worker meets.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all three
+    still want a decision from Ricardo. No `todo` ticket has gone vague. Dependencies: GC-151
+    depends on GC-016, which is `done`, so it is eligible immediately; GC-152 and GC-153 depend on
+    nothing and touch different surfaces from each other and from GC-151.
+  - notes: `CLAUDE.md` at `f85d213` says "229 tests today" against an actual 253 at the tip, and
+    its Architecture section does not yet mention the stash marker, the clickable ref row or the
+    parked commit draft. That is not stale documentation to report - it is the open batch's step 8,
+    which updates `CLAUDE.md` once for the whole batch, and `576bd57` landed while this was being
+    written. Checked at that sha and it is current. This review did not edit `CLAUDE.md`.
+  - isolation: **six tickets were `in-progress` while this review ran** - GC-145, GC-140, GC-141,
+    GC-142, GC-144 and GC-148 - and not one was touched. `MAIN` was never built, tested or
+    launched, and its working tree was left exactly as found; `TICKETS.md` and
+    `TICKETS-ARCHIVE.md` were both clean in `git status` before this write and are the only files
+    staged. The batch closed out at `576bd57` between the poll and the write, so this write is
+    built on the post-GC-145 split: GR-016 moved to the archive's Reviews section in the same
+    commit, and `576bd57` itself is out of this window and belongs to GR-018. The only repository
+    written to was the review's own scratch root; `catena-feed` was opened read-only for the graph
+    and closed again, and nothing in it was touched. The review's Electron on 9334 was found by
+    command line and stopped by PID.

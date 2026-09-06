@@ -313,6 +313,9 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | in-progress |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | in-progress |
+| GC-156 | A stash marker on a row cuts the primary ref chip’s name down to one letter | graph | S | P2 | todo |
+| GC-157 | The authored timestamp is cut short at the default detail-panel width on any merge commit | ui | S | P2 | todo |
+| GC-158 | The backlog archive is outside the control-byte scan, so 82% of the backlog lost rule 6’s guard | tests | S | P2 | todo |
 | GC-140 | Stashes never appear in the graph, only in the left panel’s list | graph | M | P2 | done |
 | GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | done |
 | GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | done |
@@ -386,6 +389,7 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-150 | A stash row in the left panel is inert on a single click, and never says which commit it came from | ui | S | P3 | todo |
 | GC-152 | A commit can only be read against its parent, never against the working directory | diff | M | P3 | todo |
 | GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P3 | todo |
+| GC-159 | The remote menu can copy a URL but cannot open the remote on its hosting service | actions | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1713,6 +1717,218 @@ decision is missing.
 ---
 
 
+### GC-156 A stash marker on a row cuts the primary ref chip's name down to one letter
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-140, GC-071
+- **Why:** GC-140 put a `.stash-chip` in `.col-ref` and was careful about what it is *not*: it
+  stands for no `GitRef`, is not counted by `chipsFor` and never spends the row's one
+  `MAX_CHIPS` slot, so a commit carrying a branch and a stash shows both and the `+N` is
+  unchanged. All of that holds. What nobody counted is its **width**. GC-071 sizes the primary chip
+  from the column and says so in its own constant: "the column spends 41px on the `+N` chip and
+  the gaps either side of it, so a chip is drawn at `width - 41`", and below
+  `REF_COL_ICONS_MIN` (120px) the trailing upstream cloud is dropped so the name wins. A stash
+  marker adds 20px plus a gap to that furniture and the arithmetic never sees it, so above 120px
+  the cloud is kept and the **name** pays instead.
+  Measured over CDP at `dcffe27` on the review's own fixture, ref column at its fitted 134px,
+  with one stash taken on `main`'s tip: `.col-ref` holds a 69px primary chip, a 26px `+4`, a
+  20px `.stash-chip` and a 4px `.ref-line`; `.chip-name` is given 27px for a 29px string, and
+  `main` renders as `m…`. The same row at the same 134px column with no stash renders `main`
+  in full. The branch that degrades is the checked-out one — the most identifying chip in the app —
+  and it degrades the moment the user stashes, which is an ordinary thing to do rather than an edge
+  case. Screenshots: `05-stash-marker.png` and `07-tip-stash-clip.png` in the GR-018 folder.
+- **Scope:**
+  - The width a primary chip is drawn at accounts for **every** sibling in `.col-ref`, not only
+    the `+N`: a stash marker, and any future non-ref marker, is part of the furniture the chip
+    has to fit beside.
+  - Whatever `REF_COL_ICONS_MIN` decides — the cloud giving way before the name — is applied
+    against that corrected figure, so a row carrying a stash drops its cloud at a wider column than
+    a row without one. That is GC-071's intent, not a change to it.
+  - The name is what must survive: a row carrying a branch, a `+N` and a stash shows the whole
+    branch name at the default column width.
+- **Out of scope:** the stash marker's size, position or meaning, all settled by GC-140; GC-147's
+  node-to-chip connector; the contents of the expanded `+N` block, which is not bound by the
+  column's width and keeps its icons whatever the column is.
+- **Acceptance:**
+  - [ ] With a stash on the checked-out branch's tip and the ref column at its default, the primary
+        chip shows its whole name — asserted as `.chip-name` `scrollWidth <= clientWidth`, not
+        judged by eye.
+  - [ ] With no stash on the row, nothing changes: the same chip, the same cloud and the same
+        `+N` at the same widths as before this ticket.
+  - [ ] The cloud still gives way before the name on a narrow column, with a stash and without one.
+  - [ ] A unit test covers the arithmetic — what a chip is drawn at, given the column width and the
+        markers on the row — so the measurement lives in a test rather than only in a comment.
+  - [ ] `npm run typecheck && npm test` pass.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`,
+  `src/renderer/src/graph/CommitGraph.test.tsx`
+- **Verify:** build, launch through `tools/launch-app.mjs`, `git stash push` in the scratch
+  repository, then measure `.chip-name` over CDP with the stash present and again after
+  `git stash pop --index` — the pop must use `--index` or the fixture's staged changes come back
+  unstaged and later steps fail on drift that looks unrelated.
+- **Log:**
+  - 2026-09-06 proposed by GR-018: measured at `dcffe27`, a stash on `main`'s tip takes the
+    primary chip from `main` to `m…` at a 134px ref column; GC-071's `width - 41` counts the
+    `+N` and nothing else.
+
+---
+
+### GC-157 The authored timestamp is cut short at the default detail-panel width on any merge commit
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** GC-142
+- **Why:** GC-142 made `.author` a three-column grid — `auto minmax(0, 1fr) auto`, avatar |
+  identity | parents — so the parents list "can neither overlap the authored date nor wrap under it
+  as the panel narrows towards its 300px minimum", and gave `.name` and `.when`
+  `overflow: hidden; text-overflow: ellipsis`. The overlap is genuinely gone. What replaced it is
+  a clip at the **default** width rather than at the minimum: the parents column is `auto`, so it
+  is sized to its content and never gives way, and the flexible middle column absorbs the whole
+  shortfall.
+  Measured over CDP at `dcffe27` with the detail panel at its default 400px, on the fixture's
+  merge commit: the grid resolves to `40px 157.047px 153.953px`; `.parents` holds
+  `parents: cb950b4, b99b7b7` in 154px and is not clipped; `.when` needs 172px for
+  `authored 06/09/2026, 12:15:42` and is given 157. The panel reads `authored 06/09/2026, 12:…`
+  and the time is gone. A merge commit is not unusual and 400px is not a narrow panel — the
+  fixture's own merge shows it, in both themes. Screenshots: `02-commit-view.png` and
+  `06-light-commit-view.png` in the GR-018 folder.
+- **Scope:**
+  - The authored date is legible in full at the default panel width on a commit with two parents.
+    Which column gives way is the implementer's call — letting the parents column shrink and
+    ellipsise, or showing one parent and a `+1` with the rest in the `title`, are both
+    reasonable — but the date is not the one that gives way first.
+  - Whatever gives way, GC-142's promise holds: nothing in `.author` overlaps and nothing wraps
+    under a neighbour, all the way down to the panel's 300px minimum.
+- **Out of scope:** the timestamp's format, which belongs to GC-133's single module and must not
+  gain a second answer inside this component; relative "3 hours ago" times, which are GC-135; an
+  octopus merge's full parent list, beyond not letting it break the row.
+- **Acceptance:**
+  - [ ] On a two-parent commit with the detail panel at its 400px default, `.when` is not clipped
+        (`scrollWidth <= clientWidth`).
+  - [ ] At 400px, 350px and 300px nothing in `.author` overlaps or wraps under a neighbour.
+  - [ ] A single-parent commit renders exactly as it does today.
+  - [ ] No component gains a date format of its own: the string still comes from the shared time
+        module (GC-133).
+  - [ ] `npm run typecheck && npm test` pass.
+- **Files:** `src/renderer/src/styles/app.css`, and
+  `src/renderer/src/components/DetailPanel.tsx` if the parents markup changes
+- **Verify:** launch, select the fixture's merge commit, and measure `.when` and `.parents` over
+  CDP at panel widths 400, 350 and 300; screenshot in both themes and look at them.
+- **Log:**
+  - 2026-09-06 proposed by GR-018: measured at `dcffe27`, the fixture's merge commit renders
+    `authored 06/09/2026, 12:…` at the default 400px panel; the parents column takes 154px of 375
+    and is `auto`, so the date pays the entire shortfall.
+
+---
+
+### GC-158 The backlog archive is outside the control-byte scan, so 82% of the backlog lost rule 6's guard
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-145
+- **Why:** `tools/repo-hygiene.test.ts` is what enforces `CLAUDE.md`'s rule 6 — a control
+  character is written as an escape, never as the byte, because a literal one makes git classify
+  the file as binary and `git diff`, `git blame` and review then silently skip it. It walks
+  `src/` and `tools/` and adds a list of root files:
+  `ROOT_FILES = ['TICKETS.md', 'CLAUDE.md', 'README.md']`. GC-145 then moved 630 KB — every
+  `done` ticket's section and every superseded review, 8,233 of the backlog's 10,189 lines — into
+  `TICKETS-ARCHIVE.md`, which is not on that list. The prose that was guarded before the split is
+  unguarded after it, and nothing says so: the split's own consistency checks live in the same file
+  and read *both* files, so the omission reads as deliberate rather than as an oversight.
+  The exposure is real rather than theoretical. GC-042 found a literal U+0000 that a session had
+  typed straight into a source file, where it survived vitest, `tsc` and the build for a whole
+  ticket cycle; and moving a ticket section between two files is exactly the kind of bulk copy that
+  carries one.
+- **Scope:**
+  - `TICKETS-ARCHIVE.md` joins `ROOT_FILES`.
+  - The existing "walks the source trees" test asserts the archive is actually reached, the way it
+    already asserts `CLAUDE.md` is — otherwise the next file the backlog grows can fall out the
+    same way with nothing failing.
+  - If the archive already carries an offending byte, fix the byte and say so in the log. Do not
+    widen `ALLOWED` to make the test pass.
+- **Out of scope:** `INBOX.md`, which is git-ignored and whose whole point is that it is not
+  tracked; `docs/`; changing which control characters are allowed.
+- **Acceptance:**
+  - [ ] `TICKETS-ARCHIVE.md` is in `ROOT_FILES` and appears in `scannedFiles()`.
+  - [ ] The tree-walk test names the archive, and fails if the entry is removed again — checked by
+        removing it once and seeing the failure.
+  - [ ] `npm test` passes, or names the offending file and byte offset if the archive has one.
+- **Files:** `tools/repo-hygiene.test.ts`
+- **Verify:** `npm test`, then remove the new entry once and confirm the tree-walk assertion fails
+  rather than passing quietly. Do not type a control byte to test the scanner — rule 6 applies to
+  this ticket's own work, and the scanner already has coverage for the positive case.
+- **Log:**
+  - 2026-09-06 proposed by GR-018: GC-145 moved 630 KB of backlog prose into a file
+    `ROOT_FILES` does not list, so rule 6's guard now covers 1,956 of the backlog's 10,189 lines.
+
+---
+
+### GC-159 The remote menu can copy a URL but cannot open the remote on its hosting service
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P3
+- **Depends on:** GC-008
+- **Why:** `docs/reference/gitkraken/06-feature-inventory.md` lists GitKraken's remote menu as
+  Fetch, Edit, Remove, **View on service**, Fork on service. Ours (`remoteMenuItems` in
+  `App.tsx`) is Fetch, Edit URL…, Rename…, Remove and Copy remote URL: the user can put
+  `git@github.com:owner/repo.git` on the clipboard and is then left to translate it and paste it
+  into a browser. Opening the remote is the one action in that menu that gets from the client to
+  the pull requests, the issues and the compare view.
+  Of the study's genuinely uncovered features it is by a distance the smallest. The translation is
+  a pure function; `src/shared/remotes.ts` already exists as the shared home for exactly this kind
+  of logic, so that a menu label and the action behind it cannot disagree (that is why
+  `defaultRemote` lives there); and `shell.openExternal` is already imported in
+  `src/main/index.ts`.
+  The care goes into the IPC handler. `shell:*` today is two channels that both go through
+  `repoFile()`, which refuses a path landing outside the repository. A URL channel has no
+  `repoFile()` to lean on, so it has to refuse any scheme but `http:` and `https:` — a
+  `file:` or `javascript:` URL handed to `shell.openExternal` is a way out of the app. While
+  there: `setWindowOpenHandler` in `index.ts` passes **any** url to `shell.openExternal`
+  unchecked. It is only reachable from our own renderer today, but it is the same one-line check
+  and it belongs beside the new one.
+- **Scope:**
+  - `remoteUrlToWeb(fetchUrl)` in `src/shared/remotes.ts`: a pure function turning a git remote
+    URL into a browsable `https:` one, or `null` when it cannot. Covers
+    `git@host:owner/repo.git`, `ssh://git@host/owner/repo.git`,
+    `https://host/owner/repo.git` and each without the `.git`. Host-agnostic: no GitHub
+    special-casing, because the shape is the same everywhere and a provider list would rot.
+  - A `shell:openExternal` handler in `ipc.ts`, validating its argument with the existing
+    `str` validator and then refusing any scheme but `http:`/`https:`; exposed on the existing
+    `window.shell` bridge, not on `window.api`.
+  - A `View on <host>` row in `remoteMenuItems`, **absent rather than disabled** when
+    `remoteUrlToWeb` returns null — the way the file menu already handles an action that does not
+    apply.
+  - The same scheme check applied to `setWindowOpenHandler`.
+  - Unit tests for `remoteUrlToWeb`: each accepted form, and the null cases.
+- **Out of scope:** "Fork on service" and anything else needing a hosting provider's API; deep
+  links to a branch, commit or pull request, whose URL shapes are per-provider and would undo the
+  host-agnostic scope above; a browser inside the app.
+- **Acceptance:**
+  - [ ] `remoteUrlToWeb` returns the right `https:` URL for all four forms and `null` for a
+        path-only or unparseable remote, covered by unit tests.
+  - [ ] The row is **absent** on the fixture's `origin`, whose URL is a bare repository on disk —
+        which is the only case the fixture has, so the positive case needs a remote with an
+        `https:` URL added to the scratch repository first (step 17 already adds a remote through
+        the UI).
+  - [ ] With such a remote added, the row is present and names its host.
+  - [ ] `shell:openExternal` refuses a `file:` and a `javascript:` URL and reports it, rather
+        than passing either to Electron.
+  - [ ] `npm run typecheck && npm test` pass.
+- **Files:** `src/shared/remotes.ts`, `src/shared/remotes.test.ts` (new), `src/main/ipc.ts`,
+  `src/main/index.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
+  `src/renderer/src/App.tsx`
+- **Verify:** unit tests for the pure function; then launch, add an `https:` remote to the scratch
+  repository, open the remote menu and confirm the row is there and names the host, and confirm it
+  is absent on the bare `origin`. **Do not let an unattended run actually open a browser** — that
+  would steal focus, which no run may do; assert on the argument the channel is called with instead.
+- **Log:**
+  - 2026-09-06 proposed by GR-018: the study's remote menu has "View on service" and ours stops at
+    "Copy remote URL"; the translation is a pure function, `shared/remotes.ts` is already the home
+    for it and `shell.openExternal` is already in `index.ts`, so this is the smallest uncovered
+    item left in `06-feature-inventory.md`.
+
+---
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -1720,96 +1936,96 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
 
-### GR-017 Backlog review 2026-09-06 11:20
+### GR-018 Backlog review 2026-09-06 12:35
 
 - **Status:** done
-- **Window:** 7a84981..f85d213
+- **Window:** f85d213..2f66b3e
 - **Log:**
-  - 2026-09-06 11:20 inbox: **`INBOX.md` exists and its Pending section is empty.** All eight
-    items GR-016 drained are in Handled with what each became, and Ricardo has added nothing since.
-    Nothing was declined and nothing is left unsettled, so this review's additions are its own
-    findings and the zero-to-five budget applies in full.
-  - shipped: five commits in the window, two of them bookkeeping. `ddfda83` closes **GC-133**,
-    **GC-051** and **GC-052**; `9331d9a` is **GC-016**; `f85d213` is the first implementation
-    commit of the batch that was still open while this ran. Read as a reviewer, **GC-016** is the
-    strongest piece: `tabs.ts` answers the three questions the bar asks as pure functions
-    (`readTabs`, `neighbourOf`, `cycle`) rather than inside a click handler, and the two
-    decisions that were easy to get wrong are both right - the parked state is keyed by tab **id**
-    rather than path, because git rewrites the path under it, and the graph and detail panel get
-    **prefixed** keys, because two siblings under one key is not a swap. Verified the failure path
-    in the app rather than trusting the log: a tab whose folder does not exist shows the empty state
-    with the error named in it and in the status bar, keeps its recents list, and drops only the
-    missing path from it (`07-tab-missing-repo.png`) - which is exactly what GC-025's rule asks
-    for. One thing I chased and dropped: `GraphCell`'s `dashColor` derives a colour from a
-    **lane** index while every other line derives it from a `color` field, which looked like a
-    latent mismatch until `lanes.ts` line 127 settled it - `laneColor[i] = i % 10`, so the two
-    are the same number by construction and the expression is correct. No bug found in the window.
-  - health: at `f85d213` in the detached worktree with `node_modules` junctioned - **typecheck
-    ok, 246 tests passed (21 files)** in 2.17s, **build ok**. The worker then pushed `576bd57`
-    while this review was being written, so health was re-run at that tip as well: **typecheck ok,
-    253 tests (21 files)**. e2e was not re-run: the batch that owns every harness-visible change in
-    this window was mid-flight throughout and runs the suite itself in its own step 6, and running
-    a second suite against a second scratch root while it did would have measured nothing new.
-    `MAIN` was never built, tested or launched.
-  - app: the `f85d213` build ran offscreen on 9334, first against
-    `%TEMP%/gitclient-review/e2e` and then against `catena-feed` **loaded read-only**.
-    Seven screenshots in `%TEMP%/gitclient-review/GR-017/`, all looked at. `01-graph.png`: nine
-    rows, lanes continuous, right-angle joins, and GC-144's dashed run now covering the whole
-    distance from the WIP node to `main` rather than 14px of it. `02-commit-view.png` is the
-    merge commit with both parents linked. `03-diff.png` is GC-052 landed - the two hunk arrows,
-    the whitespace and wrap toggles, `Unified | Split`; the toggles carry `.seg-btn.on` with
-    `--accent-soft` behind them, so "on" is visible, which I checked in the CSS after the
-    screenshot showed both off. `04-prefs.png` is the Preferences dialog with GC-052's new DIFF
-    group; all four groups and every documented setting are present and the body scrolls inside the
-    modal (GC-103). `05-two-tabs-real-repo.png` is two tabs with an 881-commit repository in the
-    second, and is the evidence for GC-153 below. `06-commit-menu.png` is the commit context menu
-    on that repository and is fresh evidence for **GC-074**, already `todo`: all three Reset rows
-    have their hints cut to `keep all change...`, `keep changes...` and `discard all cha...`.
-    `07-tab-missing-repo.png` is the missing-folder tab above.
-  - app, the reflow rotation: squeezed the graph panel to 280px and measured what gave way.
-    `fitOptCols` had dropped all three optional columns and `fitRefCol` had taken the ref column
-    to its 100px floor, leaving the message 104px - which is the documented last-resort behaviour,
-    not a defect, because 280 is below `100 + 76 + MIN_MSG_W` and everything had already given
-    way. Recorded because the probe is misleading: shrinking the document does **not** move
-    `window.innerWidth`, so `fitPanels` never ran and the panels stayed at 220/400 - a real
-    narrow window would have reduced them first. A true narrow-window pass needs
-    `Emulation.setDeviceMetricsOverride`, which `tools/gk-recon/cdp.mjs` does not expose; GC-105
-    and GC-110 both have unit tests covering the arithmetic, so this is a gap in the review's tools
-    rather than in the app.
-  - what's next: ran the pass GR-016 could not, against
-    `06-feature-inventory.md`'s context-menu list. Most of it is already covered or already
-    ruled out: the Copy family all exists (`Copy commit sha`, `Copy commit summary`,
-    `Copy branch name`, `Copy tag name`, `Copy file path`, `Copy remote URL`), tag creation
-    and annotation exist, ahead/behind is rendered on every left-panel row already (`.ab`), and
-    Squash / Drop / Move / Interactive rebase are behind `GC-017`, which is `blocked`. What is
-    genuinely missing and not blocked: **Compare against working directory** (now GC-152), the tab
-    context menu (GC-151), and Blame / History / Export changes to patch, which I did **not** file -
-    each is its own M-or-larger ticket and three at once would be a wish list rather than a backlog.
-    Naming them here so the next review can pick one up.
-  - tickets: added **GC-151** (ui, S, P3), **GC-152** (diff, M, P3) and **GC-153** (ui, M, P3) -
-    three of the five allowed. One from the shipped-feature follow-up, one from the what's-next
-    pass, one from the UI pass, which is the spread the routine asks for. No existing ticket was
-    extended: each of the three was checked against the board first and none was covered. Board:
-    GC-151 goes directly below **GC-149** so the two tab-bar tickets are adjacent and a worker can
-    take both against one file; GC-152 and GC-153 go after GC-150 and ahead of GC-026, where GR-015
-    and GR-016 both put their P3 additions. Nothing else moved, and no reordering was needed -
-    GC-128 is still the only P2 and still the first open row a worker meets.
+  - 2026-09-06 12:35 inbox: `INBOX.md` exists and its **Pending section is empty**. All eight
+    items GR-016 drained are in Handled with what each became, and Ricardo has added nothing since
+    — so nothing was declined, nothing was left unsettled, and this review's additions are all its
+    own findings under the zero-to-five budget.
+  - shipped: three commits, one of them real code. `576bd57` closes **GC-145**, **GC-142** and
+    the bookkeeping half of the batch `f85d213` began; `81e8446` is GR-017; `2f66b3e` is the
+    next batch's claim. Read as a reviewer, **GC-145** is the strongest piece: `backlogProblems`
+    is pure and reports one plain sentence per problem, and every failure mode has its own case fed
+    synthetic text rather than staged in the real backlog — an id sectioned in both files, a
+    `done` left behind, a board row resolving to nothing, a superseded review kept, and the
+    which-review-is-newer case that is the one that would lose the `Window` sha. **GC-142** is
+    right in the way that matters: a block is a card or a section, both views list their sections in
+    one rule, and `:first-child` takes neither, so the two views cannot drift apart. Verified in
+    the DOM rather than from the diff — the commit view's five children come back
+    `banner info` (0px border, 0 padding), then `message-box`, `author`, `readout`,
+    `file-list` each with a 1px top border and 12px above, which is exactly what the rule
+    promises. No bug found in the diffs; the two defects below were found in the app.
+  - health: at `2f66b3e` in the detached worktree with `node_modules` junctioned — **typecheck
+    ok, 253 tests passed (21 files)** in 2.17s, **build ok**. Verified the build landed in the
+    worktree's own `out/` and that `MAIN/out` was untouched. e2e was not run: a batch was
+    `in-progress` throughout and runs the suite itself in its step 6. `MAIN` was never built,
+    tested or launched.
+  - app: the build ran offscreen on 9334 against the review's own scratch root. Seven screenshots
+    in `%TEMP%/gitclient-review/GR-018/`, all looked at. `01-graph.png`: nine rows, lanes
+    continuous, right-angle joins, GC-144's dash covering the whole WIP-to-`main` run.
+    `02-commit-view.png` is GC-142's commit view and is where **GC-157** came from.
+    `03-diff.png` is the diff header's three GC-052 controls plus `Unified | Split`.
+    `05-stash-marker.png` and `07-tip-stash-clip.png` are **GC-156**. `06-light-commit-view.png`
+    is the light theme, where both defects reproduce and GC-142's bands and hairlines read well.
+  - app, GC-140 seen for the first time: the fixture has **no stashes at rest**, so the marker
+    GC-140 shipped had never actually been on screen in any review. Took one stash in the review's
+    own scratch repository to look at it. The marker itself is right — one `.stash-chip` on the
+    commit the stash was taken from, not draggable, not counted by the `+N`, with the stash
+    message in its `title` — but it revealed GC-156.
+  - app, the reflow rotation, and GR-017's tooling gap closed: GR-017 recorded that a true
+    narrow-window pass needs `Emulation.setDeviceMetricsOverride`, which `tools/gk-recon/cdp.mjs`
+    does not expose, and that shrinking the document instead never moves `window.innerWidth` so
+    `fitPanels` never runs. Drove the override directly this time and measured four widths.
+    **Everything holds exactly as documented**: at 1400 and 1100 the panels stay at 220/400 and
+    `fitRefCol` gives the ref column up (150 stored, 134 and 124 applied) to keep the message at
+    exactly `MIN_MSG_W` = 200; at 940 the panels give way first and the graph pins at
+    `MIN_GRAPH_W` = 440; at 900 — the declared `minWidth` — it is 160 + 440 + 300 = 900 exactly,
+    with `fitOptCols` having dropped all three optional columns. `gitclient.leftPanelW`,
+    `detailPanelW` and `refColW` were **null throughout**, so the "stored widths are never
+    touched" promise holds, and clearing the override restored 220/400/134. No defect; GC-105,
+    GC-110 and GC-116 are now verified live and not only by unit test.
+  - what's next: re-read `06-feature-inventory.md`'s context-menu list against the board. The tab
+    menu is GC-151, "Edit stash message" is GC-129, ahead/behind is already on every left-panel
+    row, and Squash / Drop / Move / Interactive rebase are behind the `blocked` GC-017. What is
+    left genuinely uncovered is **View on service** (now GC-159), Blame, History and Export changes
+    to patch. Filed only the first: it is the one whose core is a pure function in a file that
+    already exists, while the other three each need a surface decision — where a blame or a file
+    history is drawn — and filing them now would be a wish list rather than a backlog. Naming them
+    again so the next review can take one with a design sketch.
+  - tickets: added **GC-156** (graph, S, P2), **GC-157** (ui, S, P2), **GC-158** (tests, S, P2) and
+    **GC-159** (actions, S, P3) — four of the five allowed. Two from the UI/screenshot pass, one
+    from the code review of GC-145's new test, one from the what's-next pass, which is the spread
+    the routine asks for. No existing ticket was extended: each was checked against the board first.
+    GC-156 was checked specifically against **GC-071**, which shipped mid-review — it is not a
+    duplicate: GC-071 drops the cloud below a 120px column, while GC-156 is a 134px column where
+    the cloud is correctly kept and a marker GC-071 never counted takes the name instead.
+  - board: the three P2 rows go after GC-155, in the P2 band and behind the two rows the running
+    batch has claimed; GC-159 goes after GC-153 and ahead of GC-026, where GR-015, GR-016 and
+    GR-017 all put their P3 additions. Nothing else was moved — the board's priority order still
+    reads correctly, with GC-128 the first unclaimed P2 a worker meets.
   - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all three
-    still want a decision from Ricardo. No `todo` ticket has gone vague. Dependencies: GC-151
-    depends on GC-016, which is `done`, so it is eligible immediately; GC-152 and GC-153 depend on
-    nothing and touch different surfaces from each other and from GC-151.
-  - notes: `CLAUDE.md` at `f85d213` says "229 tests today" against an actual 253 at the tip, and
-    its Architecture section does not yet mention the stash marker, the clickable ref row or the
-    parked commit draft. That is not stale documentation to report - it is the open batch's step 8,
-    which updates `CLAUDE.md` once for the whole batch, and `576bd57` landed while this was being
-    written. Checked at that sha and it is current. This review did not edit `CLAUDE.md`.
-  - isolation: **six tickets were `in-progress` while this review ran** - GC-145, GC-140, GC-141,
-    GC-142, GC-144 and GC-148 - and not one was touched. `MAIN` was never built, tested or
-    launched, and its working tree was left exactly as found; `TICKETS.md` and
-    `TICKETS-ARCHIVE.md` were both clean in `git status` before this write and are the only files
-    staged. The batch closed out at `576bd57` between the poll and the write, so this write is
-    built on the post-GC-145 split: GR-016 moved to the archive's Reviews section in the same
-    commit, and `576bd57` itself is out of this window and belongs to GR-018. The only repository
-    written to was the review's own scratch root; `catena-feed` was opened read-only for the graph
-    and closed again, and nothing in it was touched. The review's Electron on 9334 was found by
-    command line and stopped by PID.
+    still want a decision from Ricardo. No `todo` ticket has gone vague. Dependencies on the four
+    added: GC-156 on GC-140 and GC-071, GC-157 on GC-142, GC-158 on GC-145, GC-159 on GC-008 — all
+    `done`, so all four are eligible immediately.
+  - notes: `CLAUDE.md` at `2f66b3e` says "253 tests today", which matched exactly. Its
+    Architecture section is current for GC-142 and GC-145. Nothing stale to report; this review did
+    not edit `CLAUDE.md`.
+  - a moving tip, handled explicitly: the worker pushed `dcffe27` — the whole GC-121 / GC-071 /
+    GC-074 / GC-087 / GC-091 batch — while this review was being written, and claimed GC-154 and
+    GC-155 on top of it. That batch is **out of this window and belongs to GR-019**, which should
+    read its diffs properly. But because GC-156 is about code GC-071 touched, the worktree was moved
+    to `dcffe27`, rebuilt and relaunched, and **both** defects were re-measured there: identical
+    numbers — `.chip-name` 27px for 29px, `.when` 157px for 172px. So both tickets are true of
+    the current tip, not only of the sha this window ends at.
+  - isolation: **five tickets were `in-progress` when this review started and two more when it
+    finished** — GC-121, GC-071, GC-074, GC-087, GC-091, then GC-154 and GC-155 — and not one was
+    touched. `MAIN` was never built, tested or launched, and its working tree was left exactly as
+    found; the worker's unpushed commits were read read-only for deduplication only.
+    `TICKETS.md` and `TICKETS-ARCHIVE.md` were both clean in `git status` before this write
+    and are the only files staged. The only repository written to was the review's own scratch root:
+    two stashes taken to observe GC-140, both popped with `--index`, leaving
+    `git status --short` byte-identical to the fixture's. The review's Electron on 9334 was found
+    by command line and stopped by PID, twice, and never with a machine-wide kill.
