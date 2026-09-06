@@ -256,7 +256,10 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
 | GC-179 | The left panel’s ref filter follows a tab switch, and the other repository looks empty | ui | S | P1 | in-progress |
+| GC-180 | A conflicted file opens a diff pane that is blank, with live buttons over it | diff | M | P1 | todo |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | in-progress |
+| GC-181 | A conflict can be marked resolved but never resolved | actions | S | P2 | todo |
+| GC-182 | The graph’s WIP row has a text field wired to nothing | graph | S | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
 | GC-143 | The detail panel’s file-kind icons are hairlines, and the commit view draws them as text instead | ui | S | P3 | in-progress |
 | GC-146 | A local branch’s chip carries no icon, and an absorbed chip shows only the remote’s | graph | S | P3 | in-progress |
@@ -1285,6 +1288,163 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
+### GC-180 A conflicted file opens a diff pane that is blank, with live buttons over it
+
+- **Status:** todo
+- **Area:** diff | **Size:** M | **Priority:** P1
+- **Depends on:** —
+- **Why:** Reproduced at `3def19a` in a throwaway repository (one file, one content conflict on a
+  merge), driven over CDP: clicking the row in Conflicted Files opens the file view and
+  `.diff-body`'s `innerHTML` is the **empty string** — not "No textual changes.", not "Binary
+  file.", not an error, nothing at all — while the header still reads `f.txt +0 -0` and both
+  `Stage file` and `Discard changes` are enabled over it. The cause is that git answers an
+  unmerged path with a **combined** diff: `diff --cc f.txt`, `@@@ -1,3 -1,3 +1,7 @@@`, and two
+  prefix columns instead of one. `parseUnifiedDiff` keys on `diff --git ` and on `HUNK_RE`, so
+  neither matches: its `if (!file) file = startFile()` fallback still creates a file, every line
+  falls into `headerLines`, and the result is one file with **zero hunks** and `binary: false`.
+  `DiffView`'s four `.diff-empty` branches are `loading`, `loadError`, `text !== null && !file`
+  and `file.binary` — a truthy file with no hunks falls through all four and `file.hunks.map`
+  renders nothing. So the one screen a user needs during a merge is the one screen that shows
+  nothing, and it shows nothing silently. `Discard changes` compounds it: `fileMenuItems`
+  deliberately withholds discarding from a conflicted row because git refuses `checkout --` on an
+  unmerged path, and the file-view header offers it anyway.
+- **Scope:**
+  - `DiffView` can never render an empty body: a parsed file with no hunks takes the same
+    `.diff-empty` treatment as no file at all, so a payload nothing understands says so rather
+    than drawing a void. This is the guard, not the fix.
+  - `parseUnifiedDiff` learns the combined form: a `diff --cc <path>` (and `diff --combined`)
+    header names the file, an `@@@ -a,b -c,d +e,f @@@` header opens a hunk, and a line carries one
+    prefix column per parent plus the merged column. What the view draws from it is one column of
+    code with each side's contribution marked; the conflict markers git wrote into the working
+    tree are part of the file and are shown as they are.
+  - The file-view header follows the rule the row's menu already applies to a conflicted file:
+    `Discard changes` is absent, and the staging button says what `fileMenuItems` says
+    ("Mark resolved").
+  - Every button built from `hunk.raw` stays off for a combined diff, for the reason `-w` turns
+    them off (GC-086): it is not a patch `git apply` will take.
+- **Out of scope:** a three-way merge editor (the study's own "Later"), line picking on a
+  conflicted file, resolving a conflict (GC-181), and the octopus case of more than two parents —
+  parse it without crashing, do not design for it.
+- **Acceptance:**
+  - [ ] Opening a conflicted file never leaves `.diff-body` empty: a driver reading `innerHTML`
+        finds either hunks or a `.diff-empty` message.
+  - [ ] The conflicted file's hunks are drawn, with both sides' lines distinguishable.
+  - [ ] The file-view header on a conflicted file does not offer `Discard changes`.
+  - [ ] `parseDiff.test.ts` covers a real `diff --cc` payload as a fixture string, including the
+        zero-hunk guard, and no test calls git.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/diff/parseDiff.ts`, `src/renderer/src/diff/parseDiff.test.ts`,
+  `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** build, then in a **throwaway** repository under `%TEMP%` (never the fixture, never a
+  real repository) make two branches change one line and merge them; launch through
+  `tools/launch-app.mjs`, open the conflicted file and read `.diff-body` `innerHTML` over CDP.
+- **Log:**
+  - 2026-09-06 proposed by GR-022: reproduced at `3def19a` — the conflicted file's diff body is the
+    empty string, because git's combined diff parses to a file with no hunks and `DiffView` has no
+    branch for that.
+
+---
+
+### GC-181 A conflict can be marked resolved but never resolved
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P2
+- **Depends on:** —
+- **Why:** The staging banner says "merge in progress with 1 conflicted file. Resolve them, then
+  mark as resolved." and the app offers no way to resolve one. Read off the running app at
+  `3def19a`, a conflicted row's context menu is exactly `Mark resolved`, `Open file`, `Show in
+  folder`, `Copy file path` — so the only resolution this client supports is leaving for an
+  external editor, or `Abort merge`. Every operation that reaches this state is one the app itself
+  starts: merge and rebase from a drag (GC-015), cherry-pick and revert from the commit menu, a
+  conflicting stash pop (GC-092). Git already has the two answers that cover most conflicts,
+  `checkout --ours` and `--theirs`, and neither is reachable from anywhere in the UI. The study
+  lists a built-in three-way merge tool as "Later" (`06-feature-inventory.md`); picking a side is
+  not that tool, and it is what turns a dead end into a workflow.
+- **Scope:**
+  - `git.ts` gains `resolveConflict(cwd, path, side)`: `git checkout --ours|--theirs -- <path>`
+    followed by `git add -- <path>`, one function making both calls, so a resolved row leaves the
+    Conflicted group in one action rather than needing `Mark resolved` afterwards.
+  - A conflicted row's context menu gains the two, above `Mark resolved`, worded by what they mean
+    rather than by git's flag. During a rebase "ours" and "theirs" are the reverse of what a user
+    expects, so the labels must be derived from the operation the snapshot reports, not hard-coded.
+  - Both are **absent, not disabled**, on a conflict `--ours` cannot answer (GC-072's rule): a
+    delete/modify or add/add conflict where one side has no blob makes `checkout --ours` fail, so
+    those rows keep `Mark resolved` alone.
+  - The actions go through `App`'s `run()` like every other git action.
+- **Out of scope:** a three-way merge editor, resolving a whole group at once, showing the
+  conflict's two sides (GC-180), and any change to `Mark resolved` or to Abort.
+- **Acceptance:**
+  - [ ] A content conflict can be resolved to either side from the row's menu, and the row moves
+        to Staged in one action.
+  - [ ] The two labels name the right side during a rebase as well as during a merge, and the
+        ticket log says how that was checked.
+  - [ ] A conflict `--ours` cannot answer offers neither row rather than a failing one.
+  - [ ] Unit tests cover `resolveConflict`'s two calls and their order through the `GitRunner`
+        seam, as `stashRenameWith` is covered (GC-167).
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/main/git.ts`, `src/main/git.test.ts`, `src/main/ipc.ts`,
+  `src/preload/index.ts`, `src/shared/types.ts`, `src/renderer/src/App.tsx`.
+- **Verify:** `npm test`, build, then in a **throwaway** repository under `%TEMP%` (never the
+  fixture, never a real repository) create a content conflict, resolve it each way through the
+  menu, and assert with `git status --porcelain` and `git show :0:<path>` that the staged blob is
+  the side that was asked for.
+- **Log:**
+  - 2026-09-06 proposed by GR-022: the conflicted row's menu was read off the running app and
+    offers nothing that resolves anything, on a state four of the app's own actions produce.
+
+---
+
+### GC-182 The graph's WIP row has a text field wired to nothing
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-148
+- **Why:** `CommitGraph.tsx` renders the WIP row's message cell as
+  `<input className="wip-input" placeholder="// WIP" spellCheck={false} onClick={stopPropagation} />`
+  — no `value`, no `onChange`, no `onKeyDown`, no ref. Measured at `3def19a` over CDP: typing
+  `typed into the graph` into it leaves the staging form's Commit summary empty, pressing Enter
+  opens nothing and reports nothing, and the text is still sitting in the row after a Refresh that
+  bumped `data-gen`. It is an uncontrolled DOM node, so what was typed is lost the moment the row
+  is virtualised out of a long history, a file view opens, or a tab is switched — which is exactly
+  the reason GC-148 moved the commit draft out of the panel and into `App` state, and GC-030 moved
+  the find bar's query before it. The study describes this field as GitKraken's inline commit
+  input (`03-graph.md`, "WIP row"): a summary typed in the graph, committed from there. Ours looks
+  like that and is a decoy — a field that accepts input and silently drops it is worse than no
+  field, and screenshot `10-conflict-staging.png`'s predecessor in `%TEMP%/gitclient-review/GR-022`
+  shows the two side by side, the graph holding text while the summary box below is empty.
+- **Scope:**
+  - The field becomes the summary half of the commit draft `App` already holds (GC-148): it reads
+    that value and writes it, so typing here types in the staging form and the other way round,
+    and it is parked and restored with its tab as the rest of `TabState` is.
+  - Enter commits what is staged, through the same call the staging form's button makes and under
+    the same rule — nothing staged, or an empty summary, does nothing and says nothing.
+  - The commit clears the draft exactly as a commit from the panel does; there is one draft, not
+    two.
+- **Out of scope:** the description body and the 72-character counter (the row is one line),
+  amend, inline branch and tag creation on the row (the study lists those separately), and any
+  change to the staging form itself.
+- **Acceptance:**
+  - [ ] Typing in the graph's WIP field puts the same text in the staging form's summary, and the
+        reverse, measured over CDP.
+  - [ ] The text survives opening a file view, switching tabs and coming back, and a reload that
+        bumps `data-gen`.
+  - [ ] Enter with something staged and a non-empty summary makes the commit; with nothing staged
+        it does nothing.
+  - [ ] `CommitGraph.test.tsx` covers the field being controlled, and `npm run typecheck`,
+        `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`,
+  `src/renderer/src/graph/CommitGraph.test.tsx`, `src/renderer/src/App.tsx`,
+  `src/renderer/src/styles/app.css`.
+- **Verify:** `npm test`, build, launch on the scratch repository, type in the graph field and read
+  the staging form's input over CDP; commit with Enter and assert with `git log -1`.
+- **Log:**
+  - 2026-09-06 proposed by GR-022: measured over CDP at `3def19a` — the field takes typing, the
+    staging summary stays empty, Enter does nothing, and the text lives only in an uncontrolled DOM
+    node. If Ricardo would rather the graph did not commit at all, the alternative is to make the
+    cell a non-interactive `// WIP` label; what is not acceptable is a field that keeps nothing.
+
+---
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -1292,94 +1452,86 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
 
-### GR-021 Backlog review 2026-09-06 15:35
+### GR-022 Backlog review 2026-09-06 16:35
 
 - **Status:** done
-- **Window:** 23ce5c2..cfe9aa9
+- **Window:** cfe9aa9..3def19a
 - **Log:**
-  - 2026-09-06 15:35 inbox: `INBOX.md` exists and its **Pending section is empty** — GR-020 drained
-    all three items last hour and Ricardo has added none since. Nothing to investigate, nothing
-    declined, nothing left in Pending, and the file is not rewritten this run. So the whole budget
-    went to the reviewer's own passes.
-  - shipped: **eight commits**, of which three carry code. `a5240f8` closes GC-164 and GC-163,
-    `bb58971` GC-123, `be96b22` GC-124; `89442ba` is their close-out and carries GC-127 and GC-136
-    outright; `10da457` is GC-174; `904b1d3` and `75dea9b` are GR-020's own; `cfe9aa9` is the
-    current batch's claim. Read as a reviewer, **no bug found in any diff**. The one worth naming
-    is **GC-163**, because widening `Tab.path` to `string | null` is the kind of change that leaks:
-    it does not — all four places that compare a path (`tabFor`, the restore of `lastRepo`, the
-    canonical-spelling effect, `storedPaths`) were each given the null guard, and `showEmpty` is
-    extracted from `closeTab`'s last-tab branch rather than duplicated, so the empty state is one
-    piece of code in both places it is now reached from. **GC-124** is a defensive fix whose own
-    comment says nothing is wrong today, which is the honest framing, and it moves both guards to
-    the ref in the same commit rather than one. **GC-123** takes both halves of the hover state,
-    including the `overflow: visible` half that is the load-bearing one, and says so in the CSS.
-    Acceptance evidence is present in every ticket log I spot-checked.
-  - health: at cfe9aa9 in the detached worktree with `node_modules` junctioned — **typecheck ok,
-    337 tests passed (23 files)** in 3.06s, **build ok**. The build landed in the worktree's own
-    `out/` (15:14) while `MAIN/out` kept its 15:06 timestamps: `MAIN` was never built, tested or
-    launched.
-  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Nine
-    screenshots in `%TEMP%/gitclient-review/GR-021/`, all looked at. `01-graph.png` and
-    `04-diff.png` are the graph and an open diff in dark and show nothing new. `05-new-tab-page.png`
-    is **GC-163's new tab**, which is the window's most recently shipped surface and works as
-    Ricardo asked: `+` makes a real tab labelled "New Tab", the recents page is its content, and
-    every toolbar control on it is correctly disabled (`Undo`, `Redo`, both remote buttons,
-    `Branch`, `Stash`, `Pop`, `Refresh`, `Search`) while Shortcuts and Preferences stay live. It
-    also confirms **GC-165** on screen rather than by reading: the recents path renders as
-    `C:/Users/Ricar/AppData/Local/Temp/gitclient-review/w…`, cut at the end, losing the folder that
-    identifies the row — evidence added to that ticket rather than a second one filed.
-  - the rotation surfaces this run were **Preferences** and the **light theme**, neither of which
-    any review had screenshotted. `06-preferences.png` is clean: GC-103's scrolling body keeps the
-    title and Close fixed, every control is the app's own, and nothing is clipped. The light theme
-    is where this review's finding came from — **-> GC-175**, and it is measured rather than
-    impressionistic: reading the tokens back over CDP and computing the WCAG ratio for each pair of
-    adjoining surfaces gives light 1.066 / 1.059 / 1.126 / 1.119 / 1.194 against dark's 1.161 /
-    1.155 / 1.210 / 1.378 / 1.426, so a menu over a panel gets 1.19 where dark gives 1.43 and every
-    raised surface sits at 1.12 over the app where dark gives 1.38. `--border` loses the same way,
-    `rgba(0,0,0,0.1)` against `rgba(255,255,255,0.08)`, which at opposite ends of the transfer curve
-    is the smaller step of the two — so light is drawn with a weaker fill *and* a weaker line at
-    every boundary. The text ramp is fine and is out of scope: `--text-dim` over `--bg-panel` is
-    3.25:1 light against 3.56:1 dark. Filed P3, not higher, because dark is the default, is what
-    the main process remembers and is what Ricardo works in.
-  - tickets: added **GC-175** (ui, M, P3), this review's single finding, from the UI pass. Nothing
-    from the code-review pass, which found no bug. No what's-next ticket either, and the reason is
-    the board rather than the study: the study's own largest open recommendation is
-    "Build open/clone/init", which **is** GC-128 and has been unstartable for four reviews — fixing
-    that is worth more this hour than a fifth P3, and is the reorder below.
-  - board: **GC-026 moves to the top of the todo rows, above GC-128, and is raised P3 -> P2.**
-    GC-128 has been the first unclaimed row for four reviews running and has never once been
-    eligible, because its `Depends on` is GC-026, which sat eighteen rows below it in the P3 pile.
-    A size-S ticket with no dependencies of its own was gating the largest capability the client is
-    missing, and every review since GR-018 has observed that and left the order alone. Now
-    `node tools/backlog.mjs` picks GC-026 the moment the current batch clears, and GC-128 becomes
-    eligible the run after. A ticket's priority should not be lower than that of the ticket it
-    gates, which is the general form of the mistake and is why the cell moved and not just the row.
-    **GC-175** goes after GC-171 and ahead of GC-017/GC-018, where GR-015 onwards have put their
-    P3 additions. Nothing else moved.
-  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all three
-    still want a decision from Ricardo. No `todo` ticket has gone vague. `tools/backlog.mjs`, which
-    the routine now depends on entirely, was read as part of the GC-174 diff: `boardRows` splits on
-    the pipe cell by cell as the file demands rather than by regex, `decide` treats a row and a
-    section that disagree as the hygiene test's problem rather than as a batch to take, and the
-    `done` set is read from the archive's board as well as from both files' sections — so a ticket
-    whose row moved but whose section did not cannot be picked up. It behaves as documented.
-  - notes: `CLAUDE.md` at cfe9aa9 says "337 tests today", which matched the run exactly, and its
-    Architecture and Commands sections are current for GC-163, GC-164, GC-123, GC-124, GC-127,
-    GC-136 and GC-174. GR-020's finding that the GC-135 paragraph is measurably wrong still stands
-    and is still carried by GC-171, which has not been claimed. Nothing else looked stale.
-  - isolation: six tickets were `in-progress` throughout (GC-172, GC-169, GC-170, GC-153, GC-137,
-    GC-138) and not one was touched; the one id added is GC-175, above every id the worker holds.
-    `MAIN` was never built, tested or launched, and its working tree was left exactly as found —
-    the write below waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean in `git status`
-    and stages only those two, while the worker's own `tools/e2e/run.mjs` edit and an untracked
-    `docs/screenshots/gc170-stash-row.png` sat uncommitted beside them. The only repository
-    written to was the review's own scratch root, and only through the app's Preferences dialog:
-    the theme was switched to light for the screenshots and switched back, and `gitclient.prefs`
-    reads `"theme":"dark"` again with every other field unchanged. `catena-feed` was **not opened**
-    this run — the inbox was empty and nothing needed a large real graph. The review's Electron on
-    9334 was found by command line and stopped by PID tree; zero remained afterwards.
-  - the tip moved as usual: `origin/main` is cfe9aa9 and `MAIN` already carries **two unpushed
-    worker commits** above it (`084a779` and `35f5940`, closing out GC-172, GC-169, GC-170 and
-    starting on GC-153/GC-137/GC-138). Those are out of this window and belong to GR-022, which
-    should read their diffs properly — and should note that the six tickets were still marked
-    `in-progress` while their code was committed, so the batch was mid-close-out, not stalled.
+  - 2026-09-06 16:35 inbox: `INBOX.md` exists and its **Pending section is empty** — GR-020 drained
+    the last three items and Ricardo has added none since. Nothing to investigate, nothing declined,
+    nothing left in Pending, and the file is not rewritten this run. The whole budget went to the
+    reviewer's own passes.
+  - shipped: **thirteen commits**, seven of them code, covering two batches. `084a779` and
+    `35f5940` are the previous batch's work that GR-021 explicitly left to this review (GC-172,
+    GC-169, GC-170, GC-153, GC-137, GC-138), `eff57e2` and `cabc4c6` finish and close it out;
+    `2d5bab0` is GC-026, `92f5d55` GC-176 and GC-167, `35acc13` GC-168, `ff1b54f` GC-162,
+    `28f0980` GC-139, `182ea10` the close-out, `3def19a` the current claim. Read as a reviewer,
+    **no bug found in any diff.** GC-169 is the largest and is sound: `runRemote` flags only a
+    failure `isAuthMessage` recognises, so a non-fast-forward push keeps behaving as it did, the
+    URL lookup is best-effort and cannot fail the report, and the prompting child is registered,
+    timed and unregistered on every exit path including `error`. GC-176's test naming the six
+    functions that reach it is the right shape — a convention that cannot drift silently. GC-139's
+    render-phase `setFolded` on a path change is the `DiffView` pattern rather than an effect, and
+    its prune settles in one pass because it only ever shrinks. GC-153's `fitSections` level-by-level
+    fill was read line by line: it terminates, and its one rough edge — a proportional split that
+    clamps a section to `min` can overshoot `avail`, leaving the last section to absorb the drift —
+    is unreachable in any geometry the four sections produce and the column scrolls if it were, so
+    it is noted here rather than ticketed. Acceptance evidence is present in every ticket log I
+    spot-checked.
+  - health: at `3def19a` in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    406 tests passed (25 files)** in 3.21s, **build ok**. One pre-existing `act(...)` warning from
+    `DetailPanel.test.tsx`; it is a warning, not a failure, and predates this window. The build
+    landed in the worktree's own `out/`; `MAIN` was never built, tested or launched.
+  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Eleven
+    screenshots in `%TEMP%/gitclient-review/GR-022/`, all looked at. `01`-`04` are the graph, a
+    commit, the staging view and an open diff and show nothing new. `06`/`07` are **GC-170's stash
+    row**, this window's most visible shipped surface, driven end to end: stashing from the toolbar
+    put a dashed-node row with a `STASH` label directly above its parent commit, selecting it drew
+    the stash view with the whole message, its age, `taken from: c4bdfe0` and the four files, and
+    popping it restored the fixture exactly — `M README.md` staged beside ` M a.txt`, ` M big.txt`,
+    `D main.txt`, `?? new.txt`, so `--index` held. `09` is **GC-026's dialog**: two labelled fields,
+    OK disabled until both are answered. `08` is the branch menu, which is well-formed and whose
+    Fast-forward row I checked is correctly conditional rather than missing.
+  - the rotation surfaces were the **conflict path** and the **WIP row**, and both produced this
+    review's tickets. A conflict was made in a throwaway repository under `%TEMP%` — never the
+    fixture, never a real repository — and opened as a second tab. **-> GC-180:** clicking the
+    conflicted file opens a file view whose `.diff-body` `innerHTML` is the empty string, with no
+    `.diff-empty` element of any kind, while the header reads `f.txt +0 -0` and both `Stage file`
+    and `Discard changes` are enabled. Traced rather than guessed: git answers an unmerged path
+    with `diff --cc` and `@@@ … @@@`, `parseUnifiedDiff`'s `if (!file) file = startFile()` fallback
+    makes a file anyway, no line matches `HUNK_RE`, and a truthy file with zero hunks falls through
+    all four of `DiffView`'s empty branches. Filed P1: it is silent, and it is the one screen a
+    merge needs. **-> GC-181:** the conflicted row's menu is exactly `Mark resolved`, `Open file`,
+    `Show in folder`, `Copy file path`, so the app can mark a conflict resolved and cannot resolve
+    one — `checkout --ours`/`--theirs` are reachable from nowhere, on a state four of the app's own
+    actions produce. **-> GC-182:** the graph's WIP row renders a real `<input class="wip-input">`
+    with no `value`, no `onChange` and no `onKeyDown`; typing `typed into the graph` into it left
+    the staging form's summary empty, Enter did nothing, and the text was still in the row after a
+    Refresh that bumped `data-gen` — an uncontrolled node holding the user's typing, which is the
+    thing GC-148 and GC-030 both exist to prevent.
+  - tickets: added **GC-180** (diff, M, P1), **GC-181** (actions, S, P2) and **GC-182** (graph, S,
+    P2), all three from the UI pass; the code-review pass found no bug and filed nothing. Checked
+    for duplicates against every open row: nothing on the board mentions conflicts, and GC-152 is
+    compare-against-working-directory, not this.
+  - board: **GC-180 goes directly under GC-179**, the only other P1, and above GC-128; **GC-181 and
+    GC-182 go under GC-128**, the other P2, and above the P3 block. Nothing else moved. The
+    what's-next pass deliberately added nothing of its own: the study's largest open
+    recommendation, "Build open/clone/init", **is** GC-128 and is in the current batch, so the
+    board is finally spending its top rows on the biggest gap and did not need pushing.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here — GC-081's
+    block is Ricardo's own decision that its measurement contradicts its target, and the other two
+    want a design. No `todo` ticket has gone vague. The remote menu was checked on screen and still
+    has no "open on the hosting service", which is GC-159 and needs no second ticket.
+  - notes: `CLAUDE.md` at `3def19a` says "406 tests today", which matched the run exactly, and its
+    Architecture, Commands and design-decision paragraphs are current for GC-026, GC-176, GC-167,
+    GC-168, GC-162 and GC-139. GR-020's finding that the GC-135 paragraph is measurably wrong still
+    stands and is still carried by GC-171, unclaimed. Nothing else looked stale.
+  - isolation: six tickets were `in-progress` throughout (GC-179, GC-128, GC-143, GC-146, GC-147,
+    GC-149) and not one was touched; the three ids added are above every id the worker holds.
+    `MAIN` was never built, tested or launched and its working tree was left exactly as found — the
+    write below waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean and stages only those
+    two, while eleven of the worker's source edits sat uncommitted beside them. The only
+    repositories written to were the review's own scratch root and a throwaway conflict repository
+    under `%TEMP%`; the stash taken in the scratch root was popped back and `git status --porcelain`
+    matches the fixture. `catena-feed` was **not opened** this run. The review's Electron on 9334
+    was found by command line and stopped by PID tree; zero remained afterwards.

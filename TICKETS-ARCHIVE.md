@@ -11150,3 +11150,95 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
   - the tip moved as usual: `origin/main` is 23ce5c2 and `MAIN` already carries three unpushed
     worker commits above it (GC-164/GC-163 partial, GC-123, GC-124). Those are **out of this window
     and belong to GR-021**, which should read their diffs properly.
+
+### GR-021 Backlog review 2026-09-06 15:35
+
+- **Status:** done
+- **Window:** 23ce5c2..cfe9aa9
+- **Log:**
+  - 2026-09-06 15:35 inbox: `INBOX.md` exists and its **Pending section is empty** — GR-020 drained
+    all three items last hour and Ricardo has added none since. Nothing to investigate, nothing
+    declined, nothing left in Pending, and the file is not rewritten this run. So the whole budget
+    went to the reviewer's own passes.
+  - shipped: **eight commits**, of which three carry code. `a5240f8` closes GC-164 and GC-163,
+    `bb58971` GC-123, `be96b22` GC-124; `89442ba` is their close-out and carries GC-127 and GC-136
+    outright; `10da457` is GC-174; `904b1d3` and `75dea9b` are GR-020's own; `cfe9aa9` is the
+    current batch's claim. Read as a reviewer, **no bug found in any diff**. The one worth naming
+    is **GC-163**, because widening `Tab.path` to `string | null` is the kind of change that leaks:
+    it does not — all four places that compare a path (`tabFor`, the restore of `lastRepo`, the
+    canonical-spelling effect, `storedPaths`) were each given the null guard, and `showEmpty` is
+    extracted from `closeTab`'s last-tab branch rather than duplicated, so the empty state is one
+    piece of code in both places it is now reached from. **GC-124** is a defensive fix whose own
+    comment says nothing is wrong today, which is the honest framing, and it moves both guards to
+    the ref in the same commit rather than one. **GC-123** takes both halves of the hover state,
+    including the `overflow: visible` half that is the load-bearing one, and says so in the CSS.
+    Acceptance evidence is present in every ticket log I spot-checked.
+  - health: at cfe9aa9 in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    337 tests passed (23 files)** in 3.06s, **build ok**. The build landed in the worktree's own
+    `out/` (15:14) while `MAIN/out` kept its 15:06 timestamps: `MAIN` was never built, tested or
+    launched.
+  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Nine
+    screenshots in `%TEMP%/gitclient-review/GR-021/`, all looked at. `01-graph.png` and
+    `04-diff.png` are the graph and an open diff in dark and show nothing new. `05-new-tab-page.png`
+    is **GC-163's new tab**, which is the window's most recently shipped surface and works as
+    Ricardo asked: `+` makes a real tab labelled "New Tab", the recents page is its content, and
+    every toolbar control on it is correctly disabled (`Undo`, `Redo`, both remote buttons,
+    `Branch`, `Stash`, `Pop`, `Refresh`, `Search`) while Shortcuts and Preferences stay live. It
+    also confirms **GC-165** on screen rather than by reading: the recents path renders as
+    `C:/Users/Ricar/AppData/Local/Temp/gitclient-review/w…`, cut at the end, losing the folder that
+    identifies the row — evidence added to that ticket rather than a second one filed.
+  - the rotation surfaces this run were **Preferences** and the **light theme**, neither of which
+    any review had screenshotted. `06-preferences.png` is clean: GC-103's scrolling body keeps the
+    title and Close fixed, every control is the app's own, and nothing is clipped. The light theme
+    is where this review's finding came from — **-> GC-175**, and it is measured rather than
+    impressionistic: reading the tokens back over CDP and computing the WCAG ratio for each pair of
+    adjoining surfaces gives light 1.066 / 1.059 / 1.126 / 1.119 / 1.194 against dark's 1.161 /
+    1.155 / 1.210 / 1.378 / 1.426, so a menu over a panel gets 1.19 where dark gives 1.43 and every
+    raised surface sits at 1.12 over the app where dark gives 1.38. `--border` loses the same way,
+    `rgba(0,0,0,0.1)` against `rgba(255,255,255,0.08)`, which at opposite ends of the transfer curve
+    is the smaller step of the two — so light is drawn with a weaker fill *and* a weaker line at
+    every boundary. The text ramp is fine and is out of scope: `--text-dim` over `--bg-panel` is
+    3.25:1 light against 3.56:1 dark. Filed P3, not higher, because dark is the default, is what
+    the main process remembers and is what Ricardo works in.
+  - tickets: added **GC-175** (ui, M, P3), this review's single finding, from the UI pass. Nothing
+    from the code-review pass, which found no bug. No what's-next ticket either, and the reason is
+    the board rather than the study: the study's own largest open recommendation is
+    "Build open/clone/init", which **is** GC-128 and has been unstartable for four reviews — fixing
+    that is worth more this hour than a fifth P3, and is the reorder below.
+  - board: **GC-026 moves to the top of the todo rows, above GC-128, and is raised P3 -> P2.**
+    GC-128 has been the first unclaimed row for four reviews running and has never once been
+    eligible, because its `Depends on` is GC-026, which sat eighteen rows below it in the P3 pile.
+    A size-S ticket with no dependencies of its own was gating the largest capability the client is
+    missing, and every review since GR-018 has observed that and left the order alone. Now
+    `node tools/backlog.mjs` picks GC-026 the moment the current batch clears, and GC-128 becomes
+    eligible the run after. A ticket's priority should not be lower than that of the ticket it
+    gates, which is the general form of the mistake and is why the cell moved and not just the row.
+    **GC-175** goes after GC-171 and ahead of GC-017/GC-018, where GR-015 onwards have put their
+    P3 additions. Nothing else moved.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all three
+    still want a decision from Ricardo. No `todo` ticket has gone vague. `tools/backlog.mjs`, which
+    the routine now depends on entirely, was read as part of the GC-174 diff: `boardRows` splits on
+    the pipe cell by cell as the file demands rather than by regex, `decide` treats a row and a
+    section that disagree as the hygiene test's problem rather than as a batch to take, and the
+    `done` set is read from the archive's board as well as from both files' sections — so a ticket
+    whose row moved but whose section did not cannot be picked up. It behaves as documented.
+  - notes: `CLAUDE.md` at cfe9aa9 says "337 tests today", which matched the run exactly, and its
+    Architecture and Commands sections are current for GC-163, GC-164, GC-123, GC-124, GC-127,
+    GC-136 and GC-174. GR-020's finding that the GC-135 paragraph is measurably wrong still stands
+    and is still carried by GC-171, which has not been claimed. Nothing else looked stale.
+  - isolation: six tickets were `in-progress` throughout (GC-172, GC-169, GC-170, GC-153, GC-137,
+    GC-138) and not one was touched; the one id added is GC-175, above every id the worker holds.
+    `MAIN` was never built, tested or launched, and its working tree was left exactly as found —
+    the write below waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean in `git status`
+    and stages only those two, while the worker's own `tools/e2e/run.mjs` edit and an untracked
+    `docs/screenshots/gc170-stash-row.png` sat uncommitted beside them. The only repository
+    written to was the review's own scratch root, and only through the app's Preferences dialog:
+    the theme was switched to light for the screenshots and switched back, and `gitclient.prefs`
+    reads `"theme":"dark"` again with every other field unchanged. `catena-feed` was **not opened**
+    this run — the inbox was empty and nothing needed a large real graph. The review's Electron on
+    9334 was found by command line and stopped by PID tree; zero remained afterwards.
+  - the tip moved as usual: `origin/main` is cfe9aa9 and `MAIN` already carries **two unpushed
+    worker commits** above it (`084a779` and `35f5940`, closing out GC-172, GC-169, GC-170 and
+    starting on GC-153/GC-137/GC-138). Those are out of this window and belong to GR-022, which
+    should read their diffs properly — and should note that the six tickets were still marked
+    `in-progress` while their code was committed, so the batch was mid-close-out, not stalled.
