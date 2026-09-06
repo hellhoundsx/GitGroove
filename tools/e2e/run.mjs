@@ -118,6 +118,28 @@ try {
   process.exit(1);
 }
 
+// Registered the moment there is something to stop, so EVERY exit path stops it and not just the
+// last line of the run (GC-040): an assertion throwing, a CDP timeout, Ctrl+C, or any
+// `process.exit` in between used to leave a stealth Electron running with no window and no
+// taskbar entry to say it was there, until the next run's `stopPort` happened to free the port.
+// `stopApp` is synchronous (taskkill /F /T on Windows), which is what an `exit` handler needs, and
+// this runs at most once however many paths reach it.
+let stopped = false;
+const stopOnce = () => {
+  if (stopped) return;
+  stopped = true;
+  try {
+    stopApp?.();
+  } catch {
+    /* already gone */
+  }
+};
+process.on('exit', stopOnce);
+// A signal ends the process without running `exit` handlers, so it exits explicitly instead. The
+// codes are the shell's own convention for a signalled process (128 + the signal number).
+process.on('SIGINT', () => process.exit(130));
+process.on('SIGTERM', () => process.exit(143));
+
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 let id = 0;
 const pending = new Map();
@@ -149,11 +171,7 @@ const bail = (e) => {
   } catch {
     /* already closed */
   }
-  try {
-    stopApp?.();
-  } catch {
-    /* already gone */
-  }
+  stopOnce();
   console.log(`\n1 FAILED (the run stopped here; screenshots in ${SHOTS})`);
   console.log(`total: ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   process.exit(1);
@@ -1547,7 +1565,7 @@ check('every branch is back on its baseline tip, here and on the bare origin', d
 check('the working tree is the one the next run expects', status() === EXPECTED_STATUS, `${status()} | expected ${EXPECTED_STATUS}`);
 
 ws.close();
-stopApp();
+stopOnce();
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILED'} (screenshots in ${SHOTS})`);
 // The run's own clock, so a speed change is measured in a ticket's log rather than estimated from
 // screenshot timestamps the way GC-080's ~55-60s baseline had to be (GC-080).
