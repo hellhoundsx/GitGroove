@@ -105,7 +105,12 @@ describe('DiffView (GC-014)', () => {
   it('tints each cell by its own side, because a row is one line of each file', async () => {
     setPrefs({ diffView: 'split' });
     await open();
-    const cells = (row: number): string[] => [...document.querySelectorAll('.hunk-lines.split tr.line')[row]!.querySelectorAll('td')].map((td) => td.className);
+    // `pickable` is GC-121's "this line can be clicked", not a tint, so it is dropped here: what
+    // this test is about is that each cell carries the kind of its own side.
+    const cells = (row: number): string[] =>
+      [...document.querySelectorAll('.hunk-lines.split tr.line')[row]!.querySelectorAll('td')].map((td) =>
+        td.className.split(' ').filter((c) => c !== 'pickable').join(' '),
+      );
     expect(cells(1)).toEqual(['no del', 'mark del', 'code del', 'no add', 'mark add', 'code add']);
     expect(cells(2)).toEqual(['no pad', 'mark pad', 'code pad', 'no add', 'mark add', 'code add']);
     expect(cells(3)).toEqual(['no context', 'mark context', 'code context', 'no context', 'mark context', 'code context']);
@@ -176,5 +181,128 @@ describe('DiffView says why the body is empty when the load fails (GC-083)', () 
     await open();
     expect(document.querySelectorAll('.diff-body .diff-empty')).toHaveLength(0);
     expect(document.querySelectorAll('.diff-body .hunk')).toHaveLength(1);
+  });
+});
+
+describe('DiffView line selection (GC-121)', () => {
+  /** Render the unstaged side and keep every patch a hunk button hands to `onApplyPatch`. */
+  const openCapturing = async (): Promise<string[]> => {
+    stubApi();
+    const patches: string[] = [];
+    render(
+      <UiProvider>
+        <DiffView
+          repo="/repo"
+          view={{ source: 'wip', path: 'f.txt', staged: false, kind: 'modified' }}
+          version={0}
+          onClose={noop}
+          onStageFile={noop}
+          onUnstageFile={noop}
+          onDiscardFile={noop}
+          onApplyPatch={(patch) => {
+            patches.push(patch);
+            return Promise.resolve();
+          }}
+        />
+      </UiProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    return patches;
+  };
+
+  const stageLabel = (): string => document.querySelector('.hunk-actions .btn')!.textContent ?? '';
+  const stage = async (): Promise<void> => {
+    fireEvent.click(document.querySelector('.hunk-actions .btn')!);
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+  /** The unified table's rows, in file order: 0 alpha, 1 -beta, 2 +BETA, 3 +GAMMA, 4 delta. */
+  const uniRow = (i: number): HTMLElement => [...document.querySelectorAll<HTMLElement>('.hunk-lines:not(.split) tr.line')][i]!;
+  /** The right-hand code cell of a split row, which is the new file's side. */
+  const splitCell = (row: number, side: 'left' | 'right'): HTMLElement =>
+    [...document.querySelectorAll('.hunk-lines.split tr.line')[row]!.querySelectorAll<HTMLElement>('td')][side === 'left' ? 2 : 5]!;
+
+  it('names the count while lines are picked and goes back to the hunk when they are dropped', async () => {
+    await openCapturing();
+    expect(stageLabel()).toBe('Stage hunk');
+
+    fireEvent.click(uniRow(2)); // +BETA
+    expect(stageLabel()).toBe('Stage 1 line');
+    expect(uniRow(2).className).toContain('sel');
+
+    fireEvent.click(uniRow(3)); // +GAMMA as well
+    expect(stageLabel()).toBe('Stage 2 lines');
+
+    fireEvent.click(uniRow(3)); // clicking a picked line drops it
+    expect(stageLabel()).toBe('Stage 1 line');
+    fireEvent.click(uniRow(2));
+    // Nothing picked is not an empty selection: it is the whole-hunk button again.
+    expect(stageLabel()).toBe('Stage hunk');
+    expect(uniRow(2).className).not.toContain('sel');
+  });
+
+  it('extends a run with shift, over the changed lines only', async () => {
+    await openCapturing();
+    fireEvent.click(uniRow(1)); // -beta
+    fireEvent.click(uniRow(3), { shiftKey: true }); // through +GAMMA
+    expect(stageLabel()).toBe('Stage 3 lines');
+    // The context lines either end are not part of it and cannot be.
+    expect(uniRow(0).className).not.toContain('sel');
+    expect(uniRow(4).className).not.toContain('sel');
+  });
+
+  it('stages only the picked line, leaving the rest of the hunk out of the patch', async () => {
+    const patches = await openCapturing();
+    fireEvent.click(uniRow(2)); // +BETA only
+    await stage();
+    expect(patches).toHaveLength(1);
+    const body = patches[0]!.split('\n').slice(3, -1);
+    // `beta` was not picked, so it stays as context rather than being removed, and `GAMMA` is gone:
+    // applying this leaves alpha, beta, BETA, delta, which is the four lines the new count states.
+    expect(body).toEqual(['@@ -1,3 +1,4 @@', ' alpha', ' beta', '+BETA', ' delta']);
+  });
+
+  it('builds a byte-identical patch from the same selection in either layout', async () => {
+    const unified = await openCapturing();
+    fireEvent.click(uniRow(1)); // -beta
+    fireEvent.click(uniRow(2)); // +BETA
+    await stage();
+    cleanup();
+
+    setPrefs({ diffView: 'split' });
+    const split = await openCapturing();
+    fireEvent.click(splitCell(1, 'left')); // the same -beta
+    fireEvent.click(splitCell(1, 'right')); // the same +BETA
+    expect(stageLabel()).toBe('Stage 2 lines');
+    await stage();
+
+    expect(split[0]).toBe(unified[0]);
+  });
+
+  it('offers no line picking on the staged side, where a partial unstage is not built yet', async () => {
+    stubApi();
+    render(
+      <UiProvider>
+        <DiffView
+          repo="/repo"
+          view={{ source: 'wip', path: 'f.txt', staged: true, kind: 'modified' }}
+          version={0}
+          onClose={noop}
+          onStageFile={noop}
+          onUnstageFile={noop}
+          onDiscardFile={noop}
+          onApplyPatch={noop}
+        />
+      </UiProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.querySelectorAll('.hunk-lines .pickable')).toHaveLength(0);
+    fireEvent.click(uniRow(2));
+    expect(stageLabel()).toBe('Unstage hunk');
   });
 });

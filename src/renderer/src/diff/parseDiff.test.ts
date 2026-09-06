@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignHunks, buildHunkPatch, hunkWordSpans, parseUnifiedDiff, wordDiff, type DiffHunk, type DiffRow } from './parseDiff';
+import { alignHunks, buildHunkPatch, buildLinePatch, hunkWordSpans, parseUnifiedDiff, wordDiff, type DiffHunk, type DiffLine, type DiffRow, type FileDiff } from './parseDiff';
 
 /** Build a diff body the way `git diff` prints it: every line ends with \n. */
 const diff = (...lines: string[]): string => lines.join('\n') + '\n';
@@ -424,5 +424,95 @@ describe('hunkWordSpans', () => {
     expect(unpaired.text).toBe('row 4 appended');
     expect(spans.has(unpaired)).toBe(false);
     expect(hunkWordSpans(hunkOf('@@ -1,1 +1,2 @@', ' kept', '+brand new line')).size).toBe(0);
+  });
+});
+
+describe('buildLinePatch', () => {
+  const fileOf = (...lines: string[]): FileDiff => parseUnifiedDiff(diff('diff --git a/f b/f', 'index 1111111..2222222 100644', '--- a/f', '+++ b/f', ...lines))[0]!;
+  /** The hunk body of a patch: everything after the file preamble, which both builders share. */
+  const bodyOf = (patch: string): string[] => patch.split('\n').slice(3, -1);
+  const pick = (hunk: DiffHunk, ...texts: string[]): Set<DiffLine> =>
+    new Set(hunk.lines.filter((l) => (l.type === 'add' || l.type === 'del') && texts.includes(l.text)));
+
+  it('keeps the selected additions and drops the rest', () => {
+    const file = fileOf('@@ -1,1 +1,4 @@', ' kept', '+one', '+two', '+three');
+    const hunk = file.hunks[0]!;
+    expect(bodyOf(buildLinePatch(file, hunk, pick(hunk, 'one', 'three')))).toEqual(['@@ -1 +1,3 @@', ' kept', '+one', '+three']);
+  });
+
+  it('turns an unselected removal into context rather than dropping it', () => {
+    // The old side must still describe the file on disk, so `three` stays — as a context line, which
+    // is what says it is in both versions.
+    const file = fileOf('@@ -1,4 +1,1 @@', ' kept', '-one', '-two', '-three');
+    const hunk = file.hunks[0]!;
+    expect(bodyOf(buildLinePatch(file, hunk, pick(hunk, 'one', 'two')))).toEqual(['@@ -1,4 +1,2 @@', ' kept', '-one', '-two', ' three']);
+  });
+
+  it('handles a mixed hunk, marking each side by what was picked', () => {
+    const file = fileOf('@@ -1,3 +1,3 @@', ' kept', '-old a', '-old b', '+new a', '+new b');
+    const hunk = file.hunks[0]!;
+    // Take the first removal and the first addition: the second removal becomes context and the
+    // second addition disappears, so the new side is `kept`, `new a`, `old b`.
+    expect(bodyOf(buildLinePatch(file, hunk, pick(hunk, 'old a', 'new a')))).toEqual(['@@ -1,3 +1,3 @@', ' kept', '-old a', ' old b', '+new a']);
+  });
+
+  it('equals buildHunkPatch byte for byte when every changed line is selected', () => {
+    for (const lines of [
+      // Headers in git's own form: it omits the count when it is 1, which is what the rebuilt
+      // header has to reproduce for the two patches to match byte for byte.
+      ['@@ -1 +1,3 @@', ' kept', '+one', '+two'],
+      ['@@ -1,4 +1 @@', ' kept', '-one', '-two', '-three'],
+      ['@@ -10,3 +10,3 @@ function foo()', ' kept', '-old a', '-old b', '+new a', '+new b'],
+      ['@@ -1,2 +1,2 @@', ' kept', '-no trailing', '\\ No newline at end of file', '+no trailing now', '\\ No newline at end of file'],
+    ]) {
+      const file = fileOf(...lines);
+      const hunk = file.hunks[0]!;
+      const all = new Set(hunk.lines.filter((l) => l.type === 'add' || l.type === 'del'));
+      expect(buildLinePatch(file, hunk, all)).toBe(buildHunkPatch(file, hunk));
+    }
+  });
+
+  it('drops the no-newline marker of a dropped addition and keeps the one of a kept line', () => {
+    const file = fileOf('@@ -1 +1,3 @@', ' kept', '+one', '+two', '\\ No newline at end of file');
+    const hunk = file.hunks[0]!;
+    // `two` is not selected, so the marker describing it goes with it.
+    expect(bodyOf(buildLinePatch(file, hunk, pick(hunk, 'one')))).toEqual(['@@ -1 +1,2 @@', ' kept', '+one']);
+    expect(bodyOf(buildLinePatch(file, hunk, pick(hunk, 'one', 'two')))).toEqual(['@@ -1 +1,3 @@', ' kept', '+one', '+two', '\\ No newline at end of file']);
+  });
+
+  // The reverse direction is the one a Discard needs, and it is not the same patch: it is applied
+  // to the working tree, which is the new file, so the unselected lines swap roles. Built the
+  // staging way and reversed onto the working tree, `git apply` refuses it — the unselected
+  // additions are in the file with nothing in the patch accounting for them.
+  it('makes an unselected addition context and drops an unselected removal, in reverse', () => {
+    const file = fileOf('@@ -1 +1,4 @@', ' kept', '+one', '+two', '+three');
+    const hunk = file.hunks[0]!;
+    // Discarding `two` alone: the other two additions stay in the working tree, so they are context,
+    // and the new side therefore describes the file on disk exactly.
+    expect(bodyOf(buildLinePatch(file, hunk, pick(hunk, 'two'), { reverse: true }))).toEqual(['@@ -1,3 +1,4 @@', ' kept', ' one', '+two', ' three']);
+  });
+
+  it('drops an unselected removal in reverse, where the staging direction keeps it', () => {
+    const file = fileOf('@@ -1,3 +1 @@', ' kept', '-one', '-two');
+    const hunk = file.hunks[0]!;
+    // `one` is not coming back, and it is not in the working tree, so the patch cannot mention it.
+    expect(bodyOf(buildLinePatch(file, hunk, pick(hunk, 'two'), { reverse: true }))).toEqual(['@@ -1,2 +1 @@', ' kept', '-two']);
+    // The same selection for staging keeps it, as context: there the patch meets the index.
+    expect(bodyOf(buildLinePatch(file, hunk, pick(hunk, 'two')))).toEqual(['@@ -1,3 +1,2 @@', ' kept', ' one', '-two']);
+  });
+
+  it('is the whole hunk in either direction when everything is selected', () => {
+    const file = fileOf('@@ -1,3 +1,3 @@', ' kept', '-old a', '-old b', '+new a', '+new b');
+    const hunk = file.hunks[0]!;
+    const all = new Set(hunk.lines.filter((l) => l.type === 'add' || l.type === 'del'));
+    expect(buildLinePatch(file, hunk, all, { reverse: true })).toBe(buildHunkPatch(file, hunk));
+    expect(buildLinePatch(file, hunk, all)).toBe(buildHunkPatch(file, hunk));
+  });
+
+  it('selects nothing into a patch that changes nothing', () => {
+    const file = fileOf('@@ -1,2 +1,2 @@', ' kept', '-old', '+new');
+    const hunk = file.hunks[0]!;
+    // Every removal is context and every addition is gone, so both sides are the old file.
+    expect(bodyOf(buildLinePatch(file, hunk, new Set()))).toEqual(['@@ -1,2 +1,2 @@', ' kept', ' old']);
   });
 });

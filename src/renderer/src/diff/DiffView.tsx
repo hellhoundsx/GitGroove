@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { FileChangeKind } from '@shared/types';
-import { alignHunks, buildHunkPatch, hunkWordSpans, parseUnifiedDiff, type DiffHunk, type DiffLine, type FileDiff, type WordSpan } from './parseDiff';
+import { alignHunks, buildHunkPatch, buildLinePatch, hunkWordSpans, parseUnifiedDiff, type DiffHunk, type DiffLine, type FileDiff, type WordSpan } from './parseDiff';
 import { ChevronDown, ChevronUp, Pilcrow, WrapText, X } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { useUi } from '../ui/UiContext';
@@ -84,6 +84,12 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   const [busy, setBusy] = useState(false);
   /** What a Stage/Unstage/Discard click reported, as opposed to what the load did. */
   const [actionError, setActionError] = useState<string | null>(null);
+  // (GC-121) The lines picked out of one hunk. It carries the `viewKey` it was made against and is
+  // compared during render like everything else here, rather than being cleared from an effect: a
+  // selection holds `DiffLine` objects from one parse, so the moment the identity or the version
+  // moves those objects are gone and the count beside them would be describing nothing. One hunk
+  // at a time, because a patch is built from one hunk's header.
+  const [sel, setSel] = useState<{ key: string; hunk: number; lines: Set<DiffLine>; anchor: DiffLine } | null>(null);
   const current = loaded?.identity === identityKey ? loaded : null;
   const text = current?.text ?? null;
   const error = current?.error ?? actionError;
@@ -137,6 +143,48 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   const hunksDisabled = actionsDisabled || ignoreWs;
   const hunkTitle = ignoreWs ? 'Not available while whitespace is ignored: the patch would not apply' : undefined;
 
+  // Lines are picked on the unstaged side only: unstaging a line is the reverse patch and its own
+  // ticket (GC-121, out of scope), and a commit's diff stages nothing at all.
+  const canSelect = isWip && view.source === 'wip' && !view.staged && !ignoreWs;
+  const selection = sel !== null && sel.key === viewKey ? sel : null;
+  const pickedIn = (hi: number): Set<DiffLine> | null => (selection && selection.hunk === hi && selection.lines.size > 0 ? selection.lines : null);
+
+  /**
+   * Click a changed line to take it, click it again to drop it, shift-click to take the run from
+   * the anchor (GC-121). The run is over the hunk's *changed* lines, so extending across a context
+   * line picks the changed ones either side of it and not the context itself, which no patch of
+   * this kind can carry. Clicking into another hunk starts a new selection there.
+   */
+  const clickLine = (hi: number, hunk: DiffHunk, line: DiffLine, shift: boolean): void => {
+    if (!canSelect || (line.type !== 'add' && line.type !== 'del')) return;
+    const fresh = { key: viewKey, hunk: hi, lines: new Set([line]), anchor: line };
+    setSel((prev) => {
+      const cur = prev !== null && prev.key === viewKey && prev.hunk === hi ? prev : null;
+      if (!cur) return fresh;
+      if (shift) {
+        const changed = hunk.lines.filter((l) => l.type === 'add' || l.type === 'del');
+        const from = changed.indexOf(cur.anchor);
+        const to = changed.indexOf(line);
+        if (from < 0 || to < 0) return fresh;
+        const [lo, hi2] = from <= to ? [from, to] : [to, from];
+        return { key: viewKey, hunk: hi, lines: new Set(changed.slice(lo, hi2 + 1)), anchor: cur.anchor };
+      }
+      const lines = new Set(cur.lines);
+      if (lines.has(line)) lines.delete(line);
+      else lines.add(line);
+      // An empty selection is no selection: the buttons go back to the whole-hunk wording.
+      return lines.size === 0 ? null : { key: viewKey, hunk: hi, lines, anchor: line };
+    });
+  };
+
+  /** The click props a selectable line carries, and nothing at all when selection is off. */
+  const lineProps = (hi: number, hunk: DiffHunk, line: DiffLine | null): { onClick?: (e: { shiftKey: boolean }) => void } => {
+    if (!canSelect || !line || (line.type !== 'add' && line.type !== 'del')) return {};
+    return { onClick: (e) => clickLine(hi, hunk, line, e.shiftKey) };
+  };
+  const selClass = (hi: number, line: DiffLine | null): string => (line && pickedIn(hi)?.has(line) ? ' sel' : '');
+  const pickable = (line: DiffLine | null): string => (canSelect && line && (line.type === 'add' || line.type === 'del') ? ' pickable' : '');
+
   /**
    * Scroll to the hunk before or after the one at the top of the body, wrapping at either end.
    * The position is read off the live rects rather than kept in state: the body scrolls freely
@@ -177,20 +225,29 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     }
   };
 
-  const hunkAction = (hunk: DiffHunk): JSX.Element | null => {
+  const hunkAction = (hunk: DiffHunk, hi: number): JSX.Element | null => {
     if (!isWip || !file) return null;
-    const patch = buildHunkPatch(file, hunk);
     if (view.source === 'wip' && view.staged) {
+      const patch = buildHunkPatch(file, hunk);
       return (
         <button className="btn" disabled={hunksDisabled} title={hunkTitle} onClick={() => void run(() => onApplyPatch(patch, { cached: true, reverse: true }))}>
           Unstage hunk
         </button>
       );
     }
+    // With lines picked out of this hunk the buttons act on exactly those and say so; with none
+    // they are the whole-hunk buttons they have always been (GC-121).
+    const picked = pickedIn(hi);
+    // Two patches, not one: staging goes to the index and discarding is reversed onto the working
+    // tree, and the unselected lines have to be written for whichever file the patch must fit
+    // (GC-121). With nothing picked both are the whole hunk, exactly as they were.
+    const patch = picked ? buildLinePatch(file, hunk, picked) : buildHunkPatch(file, hunk);
+    const undoPatch = picked ? buildLinePatch(file, hunk, picked, { reverse: true }) : patch;
+    const what = picked ? `${picked.size} line${picked.size === 1 ? '' : 's'}` : 'hunk';
     return (
       <>
         <button className="btn success" disabled={hunksDisabled} title={hunkTitle} onClick={() => void run(() => onApplyPatch(patch, { cached: true }))}>
-          Stage hunk
+          Stage {what}
         </button>
         {!untracked && (
           <button
@@ -199,11 +256,16 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
             title={hunkTitle}
             onClick={() =>
               void ui
-                .confirm({ title: `Discard this hunk from ${name}?`, message: 'Discard this hunk from the working directory? This cannot be undone.', okLabel: 'Discard hunk', danger: true })
-                .then((ok) => void (ok && run(() => onApplyPatch(patch, { reverse: true }))))
+                .confirm({
+                  title: picked ? `Discard ${what} from ${name}?` : `Discard this hunk from ${name}?`,
+                  message: `Discard ${picked ? `${what} of this hunk` : 'this hunk'} from the working directory? This cannot be undone.`,
+                  okLabel: `Discard ${what}`,
+                  danger: true,
+                })
+                .then((ok) => void (ok && run(() => onApplyPatch(undoPatch, { reverse: true }))))
             }
           >
-            Discard hunk
+            Discard {what}
           </button>
         )}
       </>
@@ -314,7 +376,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                 <span className="hunk-range">{h.header.replace(/ @@.*$/, ' @@')}</span>
                 <span className="hunk-ctx">{h.header.replace(/^@@[^@]*@@ ?/, '')}</span>
                 <span className="spacer" />
-                <span className="hunk-actions">{hunkAction(h)}</span>
+                <span className="hunk-actions">{hunkAction(h, hi)}</span>
               </div>
               {split ? (
                 // Six columns, so both halves keep the gutter the unified table has. The tint is on
@@ -323,13 +385,19 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                 <table className="hunk-lines split">
                   <tbody>
                     {alignHunks(h).map((r, ri) => (
+                      // The selection is per cell here, for the same reason the tint is: a split
+                      // row is one line of each file, and only one of them is the line clicked.
                       <tr key={ri} className="line">
-                        <td className={`no ${sideClass(r.left)}`}>{r.left?.oldNo ?? ''}</td>
-                        <td className={`mark ${sideClass(r.left)}`}>{r.left?.type === 'del' ? '−' : ''}</td>
-                        <td className={`code ${sideClass(r.left)}`}>{r.left && code(r.left, wordSpans)}</td>
-                        <td className={`no ${sideClass(r.right)}`}>{r.right?.newNo ?? ''}</td>
-                        <td className={`mark ${sideClass(r.right)}`}>{r.right?.type === 'add' ? '+' : ''}</td>
-                        <td className={`code ${sideClass(r.right)}`}>{r.right && code(r.right, wordSpans)}</td>
+                        <td className={`no ${sideClass(r.left)}${selClass(hi, r.left)}`}>{r.left?.oldNo ?? ''}</td>
+                        <td className={`mark ${sideClass(r.left)}${selClass(hi, r.left)}`}>{r.left?.type === 'del' ? '−' : ''}</td>
+                        <td className={`code ${sideClass(r.left)}${selClass(hi, r.left)}${pickable(r.left)}`} {...lineProps(hi, h, r.left)}>
+                          {r.left && code(r.left, wordSpans)}
+                        </td>
+                        <td className={`no ${sideClass(r.right)}${selClass(hi, r.right)}`}>{r.right?.newNo ?? ''}</td>
+                        <td className={`mark ${sideClass(r.right)}${selClass(hi, r.right)}`}>{r.right?.type === 'add' ? '+' : ''}</td>
+                        <td className={`code ${sideClass(r.right)}${selClass(hi, r.right)}${pickable(r.right)}`} {...lineProps(hi, h, r.right)}>
+                          {r.right && code(r.right, wordSpans)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -338,7 +406,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                 <table className="hunk-lines">
                   <tbody>
                     {h.lines.map((l, li) => (
-                      <tr key={li} className={`line ${l.type}`}>
+                      <tr key={li} className={`line ${l.type}${selClass(hi, l)}${pickable(l)}`} {...lineProps(hi, h, l)}>
                         <td className="no">{l.oldNo ?? ''}</td>
                         <td className="no">{l.newNo ?? ''}</td>
                         <td className="mark">{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ''}</td>

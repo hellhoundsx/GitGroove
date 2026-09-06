@@ -635,6 +635,59 @@ const wordMarks = (index) =>
     `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'null'; const t = (sel) => [...h.querySelectorAll(sel)].map((s) => s.textContent); return JSON.stringify(h.querySelector('.hunk-lines.split') ? { add: t('td.code.add span.word'), del: t('td.code.del span.word') } : { add: t('tr.line.add td.code span.word'), del: t('tr.line.del td.code span.word') }); })()`,
   );
 
+/** Wait until the snapshot generation has stopped moving (GC-121).
+ *
+ *  `waitIdle` answers "no action is running"; this answers "no reload is still coming", which is a
+ *  different thing and the one a step picking lines needs. `DiffView` keys a selection to the diff's
+ *  `version`, so a watcher echo — debounced 300ms behind the file write a step made, and arriving
+ *  while the status bar is already idle — clears the picks between two clicks and the button goes
+ *  back to saying "Stage hunk". Nothing in the DOM says "no further event is coming", so this is a
+ *  deliberate sleep like the four already here: it samples the counter and waits for it to hold. */
+const waitSettled = async (quiet = 600, max = 8000) => {
+  const start = Date.now();
+  let last = await generation();
+  while (Date.now() - start < max) {
+    await sleep(quiet); // the quiet window itself: what is being waited for is the absence of an event
+    const now = await generation();
+    if (now === last) return true;
+    last = now;
+  }
+  check('waited for the reloads to stop', false, `the generation was still moving after ${max}ms`);
+  return false;
+};
+/** How many hunks the file view is showing, so a step can address the last one without counting. */
+const hunkCount = () => ev(`document.querySelectorAll('.file-view .diff-body .hunk').length`);
+/** The hunk's action buttons as their exact labels, which is where a line selection announces itself
+ *  ("Stage 2 lines" rather than "Stage hunk") — GC-121. */
+const hunkButtons = (index) =>
+  ev(
+    `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'null'; return JSON.stringify([...h.querySelectorAll('.hunk-actions .btn')].map((b) => b.textContent.trim())); })()`,
+  );
+/** Click one changed line of a hunk, in whichever layout is showing (GC-121). Unified marks the row
+ *  `pickable` and split the code cell, for the same reason each tints what it does, so the target is
+ *  read the same way `wordMarks` reads its spans. A line that is not pickable is `DISABLED` rather
+ *  than a silent miss: that is the state the staged side and the whitespace toggle both produce. */
+const clickDiffLine = (index, text, shift = false) =>
+  liveClick(
+    `the line ${text} of hunk ${index}${shift ? ' (shift)' : ''}`,
+    `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'MISS no hunk ' + ${index};` +
+      ` const split = !!h.querySelector('.hunk-lines.split');` +
+      ` const cells = [...h.querySelectorAll(split ? 'td.code.add, td.code.del' : 'tr.line.add td.code, tr.line.del td.code')];` +
+      ` const c = cells.find((x) => (x.querySelector('pre') ? x.querySelector('pre').textContent : '') === ${q(text)});` +
+      ` if (!c) return 'MISS no line ' + ${q(text)} + ' in hunk ' + ${index};` +
+      ` const t = split ? c : c.closest('tr');` +
+      ` if (!t.classList.contains('pickable')) return 'DISABLED line is not pickable: ' + ${q(text)};` +
+      ` t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: ${shift} }));` +
+      ` return 'clicked ' + ${q(text)}; })()`,
+  );
+/** The lines currently picked in a hunk, read off the `sel` class both layouts carry (GC-121). */
+const pickedLines = (index) =>
+  ev(
+    `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'null'; const split = !!h.querySelector('.hunk-lines.split');` +
+      ` const cells = [...h.querySelectorAll(split ? 'td.code.sel' : 'tr.line.sel td.code')];` +
+      ` return JSON.stringify(cells.map((x) => (x.querySelector('pre') ? x.querySelector('pre').textContent : ''))); })()`,
+  );
+
 // ---- make the scratch repo state predictable when re-running --------------------------------------------
 gitMay(['cherry-pick', '--abort']);
 gitMay(['merge', '--abort']);
@@ -2459,7 +2512,106 @@ log(await act(() => tool('Refresh')));
 await waitFor(`!${FEAT_FOLDER}`, 'the folder row to go with its last branch');
 check('the folder goes when its last ref does', !git(['branch', '--format=%(refname:short)']).includes('feat/'), git(['branch', '--format=%(refname:short)']).replace(/\n/g, ' '));
 
-step(37, 'the run leaves the fixture exactly as it found it');
+step(37, 'lines picked out of a hunk are staged on their own, in either layout');
+// GC-121. `buildLinePatch` is unit tested, including that a full selection is byte-for-byte what
+// `buildHunkPatch` produces; what only the running app shows is that a click reaches the right
+// `DiffLine`, that the button renames itself, and that the patch git ends up applying contains the
+// picked lines and not the ones between them.
+//
+// The change is made here rather than taken from the fixture: the fixture's a.txt gains a single
+// line and big.txt's hunks change one line each, so no hunk in it has three changed lines to pick a
+// middle one out of. Three are appended to whatever a.txt currently holds — the step restores the
+// file byte for byte at the end — so the additions land in the last hunk whatever earlier steps left.
+const PICK_FILE = 'a.txt';
+const PICKS = ['pick one', 'pick two', 'pick three'];
+const pickFileBefore = readFileSync(join(R, PICK_FILE), 'utf8');
+const pickShortBefore = shortOf(PICK_FILE);
+writeFileSync(join(R, PICK_FILE), pickFileBefore + PICKS.join('\n') + '\n');
+log(await act(() => tool('Refresh'), 'pick up the appended lines'));
+log(await selectWip());
+await inGroup('Unstaged Files', PICK_FILE);
+log(await clickFileRow('Unstaged Files', PICK_FILE));
+await waitFor(
+  `[...document.querySelectorAll('.file-view .diff-body .hunk .line.add .code')].map((c) => c.textContent).join('|').includes(${q(PICKS.join('|'))})` + LIVE_DIFF,
+  `the unstaged diff of ${PICK_FILE} to show the three appended lines`,
+);
+// Every reload the write and the refresh set off has to have landed before a line is picked: the
+// selection is keyed to the diff's version, so a late one clears it (GC-121).
+await waitIdle();
+await waitSettled();
+const pickHunk = (await hunkCount()) - 1;
+check('with nothing picked the buttons are the whole-hunk ones they have always been', (await hunkButtons(pickHunk)) === JSON.stringify(['Stage hunk', 'Discard hunk']), await hunkButtons(pickHunk));
+
+log(await clickDiffLine(pickHunk, PICKS[0]));
+check('one picked line renames both buttons and says how many', (await hunkButtons(pickHunk)) === JSON.stringify(['Stage 1 line', 'Discard 1 line']), await hunkButtons(pickHunk));
+log(await clickDiffLine(pickHunk, PICKS[2], true));
+check('shift takes the whole run from the anchor', (await hunkButtons(pickHunk)) === JSON.stringify(['Stage 3 lines', 'Discard 3 lines']), await hunkButtons(pickHunk));
+log(await clickDiffLine(pickHunk, PICKS[1]));
+check('clicking a picked line drops that one and leaves the rest', (await pickedLines(pickHunk)) === JSON.stringify([PICKS[0], PICKS[2]]), await pickedLines(pickHunk));
+await shot('diff-line-selection.png');
+
+log(await hunkAction(pickHunk, 'Stage 2 lines'));
+await waitIdle();
+const pickCached = git(['diff', '--cached', '--', PICK_FILE]);
+const pickAdds = pickCached.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++'));
+check('exactly the two picked lines are staged, and the one between them is not', pickAdds.join('|') === `+${PICKS[0]}|+${PICKS[2]}`, pickAdds.join(' | ') || '(nothing staged)');
+check('the unpicked line is still in the working tree, untouched', readFileSync(join(R, PICK_FILE), 'utf8').includes(`${PICKS[1]}\n`), JSON.stringify(readFileSync(join(R, PICK_FILE), 'utf8').slice(-40)));
+
+// The same pick made in the split layout: the click lands on the cell rather than the row, and the
+// patch has to come out the same, which is the property parseDiff.test.ts pins byte for byte.
+git(['reset', '-q', '--', PICK_FILE]);
+log(await act(() => tool('Refresh'), 'unstage the picked lines again'));
+await inGroup('Unstaged Files', PICK_FILE);
+log(await clickFileRow('Unstaged Files', PICK_FILE));
+await waitFor(
+  `[...document.querySelectorAll('.file-view .diff-body .hunk .line.add .code')].map((c) => c.textContent).join('|').includes(${q(PICKS.join('|'))})` + LIVE_DIFF,
+  `the unstaged diff of ${PICK_FILE} to come back with nothing staged`,
+);
+log(await setLayout('Split'));
+await waitFor(`document.querySelectorAll('.file-view .hunk-lines.split').length > 0` + LIVE_DIFF, 'the split layout to render');
+await waitIdle();
+await waitSettled();
+const splitHunk = (await hunkCount()) - 1;
+log(await clickDiffLine(splitHunk, PICKS[0]));
+log(await clickDiffLine(splitHunk, PICKS[2]));
+check('the split layout picks the same two lines, by their cells', (await pickedLines(splitHunk)) === JSON.stringify([PICKS[0], PICKS[2]]), await pickedLines(splitHunk));
+log(await hunkAction(splitHunk, 'Stage 2 lines'));
+await waitIdle();
+check('the same pick staged from either layout records the same patch', git(['diff', '--cached', '--', PICK_FILE]) === pickCached && pickCached !== '', `split: ${git(['diff', '--cached', '--', PICK_FILE]).length} bytes | unified: ${pickCached.length} bytes`);
+
+log(await setLayout('Unified'));
+
+// Discard is the same patch applied in reverse, so the one thing to prove is that it takes the
+// picked line out of the working tree and leaves the others where they were.
+git(['reset', '-q', '--', PICK_FILE]);
+log(await act(() => tool('Refresh'), 'empty the index before discarding'));
+await inGroup('Unstaged Files', PICK_FILE);
+log(await clickFileRow('Unstaged Files', PICK_FILE));
+await waitFor(
+  `[...document.querySelectorAll('.file-view .diff-body .hunk .line.add .code')].map((c) => c.textContent).join('|').includes(${q(PICKS.join('|'))})` + LIVE_DIFF,
+  `the unstaged diff of ${PICK_FILE} to come back for the discard`,
+);
+await waitIdle();
+await waitSettled();
+const discardHunk = (await hunkCount()) - 1;
+log(await clickDiffLine(discardHunk, PICKS[1]));
+log(await hunkAction(discardHunk, 'Discard 1 line'));
+log(await modal());
+log(await modalOk());
+await waitIdle();
+const pickDiscarded = readFileSync(join(R, PICK_FILE), 'utf8');
+check(
+  'discarding one picked line takes that line and leaves the others in the working tree',
+  !pickDiscarded.includes(`${PICKS[1]}\n`) && pickDiscarded.includes(`${PICKS[0]}\n`) && pickDiscarded.includes(`${PICKS[2]}\n`),
+  JSON.stringify(pickDiscarded.slice(-40)),
+);
+
+git(['reset', '-q', '--', PICK_FILE]);
+writeFileSync(join(R, PICK_FILE), pickFileBefore);
+log(await act(() => tool('Refresh'), "put the step's own change back"));
+check('the step leaves the file exactly as it found it', shortOf(PICK_FILE) === pickShortBefore && readFileSync(join(R, PICK_FILE), 'utf8') === pickFileBefore, `${shortOf(PICK_FILE) || '(clean)'} | expected ${pickShortBefore || '(clean)'}`);
+
+step(38, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

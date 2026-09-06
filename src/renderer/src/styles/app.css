@@ -1737,6 +1737,24 @@ input[type='radio']:disabled {
   font-style: italic;
 }
 
+/* Picking lines out of a hunk (GC-121). A changed line on the unstaged side is clickable, and a
+   picked one takes the accent over its own add/del tint — the tint still says which kind of line
+   it is, the accent says the button above is about to act on it. The left edge is what makes a run
+   read as one block rather than as several separately shaded rows. In split the classes land on
+   the cells, for the same reason the tint does: only one side of the row was clicked. */
+.hunk-lines .line.pickable,
+.hunk-lines.split td.code.pickable {
+  cursor: pointer;
+}
+.hunk-lines .line.sel,
+.hunk-lines.split td.sel {
+  background-image: linear-gradient(var(--diff-sel), var(--diff-sel));
+}
+.hunk-lines .line.sel .no:first-child,
+.hunk-lines.split td.no.sel {
+  box-shadow: inset 2px 0 0 var(--diff-sel-edge);
+}
+
 /* Side-by-side layout (GC-014). Six columns, so each half keeps the number and marker gutter the
    unified table has, and `table-layout: fixed` so the two halves stay exactly equal whatever the
    content is. Equal halves mean a long line has to wrap: halving the width is the point of the

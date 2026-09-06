@@ -306,8 +306,8 @@ export function hunkWordSpans(hunk: DiffHunk): Map<DiffLine, WordSpan[]> {
   return out;
 }
 
-/** Build a patch containing only the given hunk of a file, suitable for `git apply`. */
-export function buildHunkPatch(file: FileDiff, hunk: DiffHunk): string {
+/** The `diff --git`/`---`/`+++` preamble a one-hunk patch needs, shared by both patch builders. */
+function patchHeader(file: FileDiff): string {
   const header = file.headerLines.filter((l) => !l.startsWith('index ')); // let git apply ignore blob ids
   const hasOld = header.some((l) => l.startsWith('--- '));
   const hasNew = header.some((l) => l.startsWith('+++ '));
@@ -315,5 +315,78 @@ export function buildHunkPatch(file: FileDiff, hunk: DiffHunk): string {
   if (!hasOld) header.push(file.oldPath ? `--- a/${file.oldPath}` : '--- /dev/null');
   if (!hasNew) header.push(file.newPath ? `+++ b/${file.newPath}` : '+++ /dev/null');
   if (!header.some((l) => l.startsWith('diff --git '))) header.unshift(`diff --git a/${path} b/${path}`);
-  return header.join('\n') + '\n' + hunk.raw;
+  return header.join('\n') + '\n';
+}
+
+/** Build a patch containing only the given hunk of a file, suitable for `git apply`. */
+export function buildHunkPatch(file: FileDiff, hunk: DiffHunk): string {
+  return patchHeader(file) + hunk.raw;
+}
+
+/** git omits the count when it is 1, so reproducing that is what keeps a full selection byte-identical. */
+const range = (start: number, count: number): string => (count === 1 ? `${start}` : `${start},${count}`);
+
+/**
+ * Build a patch containing only the selected lines of one hunk (GC-121).
+ *
+ * **Which file the patch has to fit decides how the unselected lines are written**, and the two
+ * callers want opposite things:
+ *
+ * - Staging applies it to the *index*, which still matches the old file. A removal the user did not
+ *   pick therefore cannot be dropped — the old side must still describe what is there — so it
+ *   becomes a context line, present in both versions. An unselected addition is not in the old file
+ *   at all and is dropped outright.
+ * - Discarding applies it in reverse to the *working tree*, which is the new file, so the rule
+ *   mirrors: an unselected addition is in the file and staying, so it is the context line, and an
+ *   unselected removal is not in the file at all and is dropped. Built the other way round, the
+ *   patch's context does not match the file and `git apply` refuses it — the unselected additions
+ *   are sitting in the working tree with nothing in the patch accounting for them.
+ *
+ * The `@@` counts are recomputed from whatever survived either way.
+ *
+ * A `\ No newline at end of file` marker describes the line above it, so it goes wherever that line
+ * went: kept when the line was kept or turned into context, dropped when the line was dropped.
+ *
+ * With every changed line selected nothing is rewritten in either direction and the counts come back
+ * to what they were, so the result is byte-for-byte `buildHunkPatch`'s — which is the property
+ * `parseDiff.test.ts` pins, and what lets both layouts share one selection without either drifting.
+ */
+export function buildLinePatch(file: FileDiff, hunk: DiffHunk, selected: ReadonlySet<DiffLine>, opts: { reverse?: boolean } = {}): string {
+  const reverse = opts.reverse === true;
+  const body: string[] = [];
+  let oldLines = 0;
+  let newLines = 0;
+  /** Whether the line a following `\ No newline` marker would describe is still in the patch. */
+  let kept = true;
+
+  const context = (text: string): void => {
+    body.push(' ' + text);
+    oldLines++;
+    newLines++;
+  };
+
+  for (const line of hunk.lines) {
+    if (line.type === 'meta') {
+      if (kept) body.push(line.text);
+      continue;
+    }
+    kept = true;
+    const picked = selected.has(line);
+    if (line.type === 'context') context(line.text);
+    else if (line.type === 'del') {
+      if (picked) {
+        body.push('-' + line.text);
+        oldLines++;
+      } else if (reverse) kept = false; // not in the working tree, so the patch cannot mention it
+      else context(line.text);
+    } else if (picked) {
+      body.push('+' + line.text);
+      newLines++;
+    } else if (reverse) context(line.text); // in the working tree and staying put
+    else kept = false;
+  }
+
+  const suffix = hunk.header.replace(/^@@[^@]*@@/, '');
+  const head = `@@ -${range(hunk.oldStart, oldLines)} +${range(hunk.newStart, newLines)} @@${suffix}`;
+  return patchHeader(file) + head + '\n' + body.map((l) => l + '\n').join('');
 }
