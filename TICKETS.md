@@ -310,9 +310,9 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
 | GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
 | GC-145 | TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible | infra | M | P1 | done |
-| GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | todo |
+| GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | in-progress |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
-| GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | todo |
+| GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | in-progress |
 | GC-140 | Stashes never appear in the graph, only in the left panel’s list | graph | M | P2 | done |
 | GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | done |
 | GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | done |
@@ -361,10 +361,10 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | done |
 | GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | done |
 | GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | done |
-| GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | todo |
-| GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | todo |
-| GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
-| GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
+| GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | in-progress |
+| GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | in-progress |
+| GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | in-progress |
+| GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | in-progress |
 | GC-129 | A stash message cannot be edited once the stash is made | actions | S | P3 | todo |
 | GC-134 | remoteCopyOf is inline and untested, and its comment justifies a state git forbids | tests | S | P3 | todo |
 | GC-135 | Nothing says how long ago anything happened, and the stash date is fetched and thrown away | ui | M | P3 | todo |
@@ -583,7 +583,7 @@ decision is missing.
 
 ### GC-085 Dead CSS and an unreachable tooltip left over from the one-chip ref column
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-078
 - **Why:** GC-078 fixed the ref column at one chip, which left two things behind that no longer
@@ -614,12 +614,13 @@ decision is missing.
   - 2026-09-06 02:22 proposed by GC-078 (this ticket): pinning the column at one chip left GC-023's
     shrink rule matching nothing in the row and the `+N` tooltip behind a chip that hides itself
     before the tooltip can appear.
+  - 2026-09-06 12:22 claimed
 
 ---
 
 ### GC-094 The left panel header counts refs and never says which branch is checked out
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-061
 - **Why:** The left panel's header is `Viewing <N>`, where N is `local + remotes + tags` — 7 on
@@ -657,12 +658,13 @@ decision is missing.
   - 2026-09-06 note from GC-073: "Viewing" now counts only the refs the graph is drawing, so a
     hidden branch leaves the number. The header still repeats its sections and still says nothing
     about HEAD, so this ticket stands; its "N is local + remotes + tags" is out of date.
+  - 2026-09-06 12:22 claimed
 
 ---
 
 ### GC-096 The branch crumb menu lists every branch, with nothing to narrow it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-088
 - **Why:** GC-088 wired the branch breadcrumb and left the study's search box out of scope, on the
@@ -692,12 +694,13 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-088 (this ticket): the follow-up its Out of scope invited, filed now
     that the menu exists and its length is a real repository's problem rather than a hypothetical.
+  - 2026-09-06 12:22 claimed
 
 ---
 
 ### GC-097 The sequencer guard stashes untracked files git never objected to
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P3
 - **Depends on:** GC-090
 - **Why:** GC-090's "Stash and continue" runs `stashSave({ includeUntracked: true })`, copied from
@@ -724,6 +727,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-090 (this ticket): noticed while driving the guard — the stash it
     makes is wider than the refusal it works around, and the mid-operation path makes that visible.
+  - 2026-09-06 12:22 claimed
 
 ---
 
@@ -1625,7 +1629,7 @@ decision is missing.
     fixture - the scratch repo's nine refs cannot produce it.
 ### GC-154 A driver script that throws leaves its Electron alive, so the next run verifies a stale build
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** GC-040 gave `tools/e2e/run.mjs` a `stopOnce()` on `process.on('exit')`, so a throw or a
@@ -1666,12 +1670,13 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-091 (this ticket): a driver that threw left its Electron on 9333, and
     three later runs silently measured that stale build instead of the one just built.
+  - 2026-09-06 12:22 claimed
 
 ---
 
 ### GC-155 e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-016
 - **Why:** step 1 clears `gitclient.prefs` and every `gitclient.hidden.*` key, because the per-port
@@ -1703,6 +1708,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-091 (this ticket): a deleted probe repository left in
     `gitclient.tabs` failed step 1 and cascaded into 30 failures unrelated to any code change.
+  - 2026-09-06 12:22 claimed
 
 ---
 
