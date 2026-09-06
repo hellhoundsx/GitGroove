@@ -1736,12 +1736,19 @@ export function App(): JSX.Element {
   );
 
   const addRemote = useCallback(async () => {
-    const r = await ui.prompt({ title: 'Add remote', label: 'Remote name', placeholder: 'upstream', okLabel: 'Next' });
-    if (!r || !r.value.trim()) return;
-    const name = r.value.trim();
-    const u = await ui.prompt({ title: `Add remote ${name}`, label: 'URL', placeholder: 'https://github.com/owner/repo.git', okLabel: 'Add' });
-    if (!u || !u.value.trim()) return;
-    await run(`Adding remote ${name}`, () => window.api.remoteAdd(repo!, name, u.value.trim()));
+    // One dialog for both halves of a remote (GC-026): asked separately, cancelling the URL left
+    // the name answered and nothing added, which read as the app losing the first answer.
+    const r = await ui.prompt({
+      title: 'Add remote',
+      okLabel: 'Add',
+      fields: [
+        { name: 'name', label: 'Remote name', placeholder: 'upstream' },
+        { name: 'url', label: 'URL', placeholder: 'https://github.com/owner/repo.git' },
+      ],
+    });
+    if (!r) return;
+    const { name, url } = r.values;
+    await run(`Adding remote ${name}`, () => window.api.remoteAdd(repo!, name, url));
   }, [repo, run, ui]);
 
   const remoteMenuItems = useCallback(

@@ -283,6 +283,13 @@ const menuClick = (label) =>
   liveClick(`the menu item ${label}`, `(() => { const items = [...document.querySelectorAll('.ctx-menu .ctx-item')]; const it = items.find(i => (i.querySelector('.ctx-label')?.textContent.trim() ?? '').startsWith(${q(label)})); if (!it) return 'MISS menu item not found: ' + ${q(label)}; if (it.disabled) return 'DISABLED: ' + ${q(label)}; it.click(); return 'clicked: ' + ${q(label)}; })()`);
 const modal = (value, checked) =>
   liveClick('the modal', `(() => { const m = document.querySelector('.modal'); if (!m) return 'MISS no modal'; const input = m.querySelector('.modal-field input'); if (input && ${q(value)} !== null) { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${q(value)}); input.dispatchEvent(new Event('input', { bubbles: true })); } const cb = m.querySelector('.modal-check input'); if (cb && ${q(checked)} !== null && cb.checked !== ${q(checked)}) cb.click(); return JSON.stringify({ title: m.querySelector('h3')?.textContent, value: input?.value, checked: cb?.checked, ok: m.querySelector('.modal-buttons .btn:last-child')?.textContent }); })()`);
+/** Fill a dialog that asks for several things at once (GC-026): each key names one field's input,
+ *  which carries its `PromptField.name`. `modal()` above stays the single-field form. */
+const modalFill = (values) =>
+  liveClick(
+    'the modal fields',
+    `(() => { const m = document.querySelector('.modal'); if (!m) return 'MISS no modal'; const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; for (const [name, v] of Object.entries(JSON.parse(${q(JSON.stringify(values))}))) { const el = m.querySelector('.modal-field input[name="' + name + '"]'); if (!el) return 'MISS no field named ' + name; setter.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); } return JSON.stringify({ title: m.querySelector('h3')?.textContent, fields: [...m.querySelectorAll('.modal-field input')].map(i => i.name + '=' + i.value).join(' '), ok: m.querySelector('.modal-buttons .btn:last-child')?.textContent }); })()`,
+  );
 const modalOk = () => liveClick('the modal OK button', `(() => { const b = document.querySelector('.modal .modal-buttons .btn:last-child'); if (!b) return 'MISS no modal'; if (b.disabled) return 'DISABLED OK'; b.click(); return 'OK clicked'; })()`);
 const modalButtons = () => ev(`[...document.querySelectorAll('.modal .modal-buttons .btn')].map(b => b.textContent.trim()).join(' | ')`);
 const modalMessage = () => ev(`document.querySelector('.modal .modal-message')?.textContent ?? 'no modal message'`);
@@ -405,8 +412,8 @@ const waitFor = async (expression, what, max = 5000) => {
   return false;
 };
 /** Wait for a dialog. Every caller has closed the previous one and settled, so this cannot be
- *  satisfied by the dialog of the step before; the one place where two prompts follow each other
- *  back to back (step 17's Add remote) waits on the second one's own title instead (GC-053). */
+ *  satisfied by the dialog of the step before (GC-053). Nothing opens two prompts back to back any
+ *  more: step 17's Add remote was the one place, and it is one dialog now (GC-026). */
 const waitModal = () => waitFor(`!!document.querySelector('.modal .modal-buttons .btn')`, 'the dialog to open');
 const waitNoModal = () => waitFor(`!document.querySelector('.modal')`, 'the dialog to close');
 const waitNoMenu = () => waitFor(`!document.querySelector('.ctx-menu')`, 'the previous context menu to close');
@@ -1370,12 +1377,11 @@ step(17, 'remotes: add and fetch, push to a chosen remote from the branch menu a
 const remoteUrl = REMOTE2.replace(/\\/g, '/');
 log(await sectionAction('Add remote'));
 await waitModal();
-log(await modal('upstream', null));
-log(await modalOk());
-// the two prompts follow each other with no settle in between, so this waits on the second one's
-// own title: `.modal` alone would still be showing the name prompt that was just answered (GC-053)
-await waitFor(`document.querySelector('.modal h3')?.textContent === 'Add remote upstream'`, 'the URL prompt to replace the name prompt');
-log(await modal(remoteUrl, null));
+// One dialog for both halves, filled and confirmed once (GC-026). It used to be two prompts back
+// to back, which is why `waitModal` carried a note about the one place that could not use it.
+const addFields = await modalFill({ name: 'upstream', url: remoteUrl });
+log(addFields);
+check('Add remote asks for the name and the URL in one dialog', /"fields":"name=upstream url=/.test(addFields) && /"title":"Add remote"/.test(addFields), addFields);
 log(await act(() => modalOk()));
 // An empty bare repository has no branches, so there is no `refs/remotes/upstream/main` to look
 // for any more (GC-056); what the fetch has to have produced is the remote itself, at the URL the

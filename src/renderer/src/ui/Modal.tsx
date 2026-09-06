@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { matches } from '../shortcuts';
 
+/**
+ * One field of a dialog that asks for several things at once (GC-026). `name` is the key its
+ * answer takes in `PromptResult.values`, and is also the input's `name`, so a driver can fill one
+ * field by name rather than by position.
+ */
+export interface PromptField {
+  name: string;
+  label?: string;
+  defaultValue?: string;
+  placeholder?: string;
+  /** Whether OK waits for this field (default true). */
+  required?: boolean;
+}
+
 export interface PromptOptions {
   title: string;
   message?: string;
@@ -9,6 +23,11 @@ export interface PromptOptions {
   label?: string;
   defaultValue?: string;
   placeholder?: string;
+  /**
+   * Ask for several things in one dialog instead of one (GC-026). When given, the four
+   * single-field options above are ignored: each field carries its own.
+   */
+  fields?: PromptField[];
   checkbox?: { label: string; defaultChecked?: boolean };
   okLabel?: string;
   cancelLabel?: string;
@@ -20,10 +39,25 @@ export interface PromptOptions {
 }
 
 export interface PromptResult {
+  /** The first field's answer, which for a single-field dialog is the whole of it. */
   value: string;
+  /** Every field's answer, keyed by `PromptField.name` (GC-026). */
+  values: Record<string, string>;
   checked: boolean;
   /** Which button resolved the modal. `'secondary'` only when `options.secondary` was given. */
   choice: 'ok' | 'secondary';
+}
+
+/**
+ * What a dialog actually renders, so the rest of the component knows only about fields (GC-026).
+ * The single-field form is one field named `value` built from the top-level options, which is why
+ * no existing caller had to move: `result.value` is still the first field's answer, and
+ * `input: false` is still no fields at all.
+ */
+export function promptFields(options: PromptOptions): PromptField[] {
+  if (options.fields) return options.fields;
+  if (options.input === false) return [];
+  return [{ name: 'value', label: options.label, defaultValue: options.defaultValue, placeholder: options.placeholder, required: options.required }];
 }
 
 interface Props {
@@ -32,13 +66,16 @@ interface Props {
 }
 
 export function Modal({ options, onResolve }: Props): JSX.Element {
-  const hasInput = options.input !== false;
-  const needsValue = hasInput && options.required !== false;
+  const fields = promptFields(options);
+  const hasInput = fields.length > 0;
   const hasBody = Boolean(options.message) || hasInput || Boolean(options.checkbox);
-  const [value, setValue] = useState(options.defaultValue ?? '');
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((f) => [f.name, f.defaultValue ?? ''])));
   const [checked, setChecked] = useState(options.checkbox?.defaultChecked ?? false);
   const inputRef = useRef<HTMLInputElement>(null);
   const okRef = useRef<HTMLButtonElement>(null);
+  // OK waits for every field that asked to be waited for, not only the first: a dialog with two
+  // fields is not answered until both are (GC-026).
+  const incomplete = fields.some((f) => f.required !== false && (values[f.name] ?? '').trim().length === 0);
 
   useEffect(() => {
     (hasInput ? inputRef.current : okRef.current)?.focus();
@@ -46,8 +83,9 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
   }, [hasInput]);
 
   const resolveWith = (choice: 'ok' | 'secondary'): void => {
-    if (needsValue && value.trim().length === 0) return;
-    onResolve({ value: value.trim(), checked, choice });
+    if (incomplete) return;
+    const answers = Object.fromEntries(fields.map((f) => [f.name, (values[f.name] ?? '').trim()]));
+    onResolve({ value: fields.length > 0 ? (answers[fields[0].name] ?? '') : '', values: answers, checked, choice });
   };
   const ok = (): void => resolveWith('ok');
 
@@ -73,12 +111,19 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
         {hasBody && (
           <div className="modal-body">
             {options.message && <p className="modal-message">{options.message}</p>}
-            {hasInput && (
-              <label className="modal-field">
-                {options.label && <span>{options.label}</span>}
-                <input ref={inputRef} value={value} placeholder={options.placeholder} onChange={(e) => setValue(e.target.value)} spellCheck={false} />
+            {fields.map((f, i) => (
+              <label className="modal-field" key={f.name}>
+                {f.label && <span>{f.label}</span>}
+                <input
+                  ref={i === 0 ? inputRef : undefined}
+                  name={f.name}
+                  value={values[f.name] ?? ''}
+                  placeholder={f.placeholder}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                  spellCheck={false}
+                />
               </label>
-            )}
+            ))}
             {options.checkbox && (
               <label className="modal-check">
                 <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {options.checkbox.label}
@@ -91,11 +136,11 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
             {options.cancelLabel ?? 'Cancel'}
           </button>
           {options.secondary && (
-            <button className="btn" disabled={needsValue && value.trim().length === 0} onClick={() => resolveWith('secondary')}>
+            <button className="btn" disabled={incomplete} onClick={() => resolveWith('secondary')}>
               {options.secondary.label}
             </button>
           )}
-          <button ref={okRef} className={`btn ${options.danger ? 'danger' : 'primary'}`} disabled={needsValue && value.trim().length === 0} onClick={ok}>
+          <button ref={okRef} className={`btn ${options.danger ? 'danger' : 'primary'}`} disabled={incomplete} onClick={ok}>
             {options.okLabel ?? 'OK'}
           </button>
         </div>
