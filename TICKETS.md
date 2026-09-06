@@ -311,8 +311,8 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
 | GC-145 | TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible | infra | M | P1 | done |
 | GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | done |
-| GC-164 | A repository picked from the recents list replaces the tab it was picked from | ui | S | P2 | todo |
-| GC-163 | The `+` button opens a folder dialog instead of a new tab | ui | M | P2 | todo |
+| GC-164 | A repository picked from the recents list replaces the tab it was picked from | ui | S | P2 | in-progress |
+| GC-163 | The `+` button opens a folder dialog instead of a new tab | ui | M | P2 | in-progress |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | done |
 | GC-156 | A stash marker on a row cuts the primary ref chip’s name down to one letter | graph | S | P2 | done |
@@ -378,10 +378,10 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | done |
 | GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | done |
 | GC-122 | The graph does not scroll while a branch is being dragged | graph | S | P3 | done |
-| GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | todo |
-| GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | todo |
-| GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | todo |
-| GC-136 | A hidden detail panel has nothing on screen to bring it back | ui | S | P3 | todo |
+| GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | in-progress |
+| GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | in-progress |
+| GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | in-progress |
+| GC-136 | A hidden detail panel has nothing on screen to bring it back | ui | S | P3 | in-progress |
 | GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | todo |
 | GC-138 | The diff’s hunk navigation is inline in the component and untested | tests | S | P3 | todo |
 | GC-167 | stashRename's index shift is the one piece of stash arithmetic with no unit test | tests | S | P3 | todo |
@@ -559,7 +559,7 @@ decision is missing.
 
 ### GC-123 A ref folded behind +N can neither be dragged nor dropped on
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-015
 - **Why:** The ref column shows one chip and folds the rest into `+N` (GC-078); the folded block
@@ -583,12 +583,13 @@ decision is missing.
   - 2026-09-06 proposed by GC-015 (this ticket): four of the fixture's seven refs on `main` are
     unreachable by drag, and the negative case in step 29 had to be built from a chip on itself
     because no remote chip is ever the visible one.
+  - 2026-09-06 09:12 claimed
 
 ---
 
 ### GC-124 The staged-changes guard reads the snapshot from before a drop’s checkout
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P3
 - **Depends on:** GC-015
 - **Why:** `runOnBranch` (GC-015) checks a branch out and then calls `runSequencer`, but the
@@ -613,12 +614,13 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-015 (this ticket): found while composing the checkout and the
     sequencer guard into one gesture.
+  - 2026-09-06 09:12 claimed
 
 ---
 
 ### GC-127 A chip offers a grab cursor it cannot honour, and lights up less than the row beside it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-015 (`done`)
 - **Why:** GC-015 gave one gesture two surfaces, and the affordances that say so came out uneven
@@ -665,6 +667,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-014: found in the screenshot pass over GC-015's first build, from
     measurements in the running app rather than from reading the CSS.
+  - 2026-09-06 09:12 claimed
 
 ---
 
@@ -719,7 +722,7 @@ decision is missing.
 
 ### GC-136 A hidden detail panel has nothing on screen to bring it back
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-033
 - **Why:** Ctrl+K (GC-033) hides the detail panel outright, and the left panel's own Ctrl+J leaves
@@ -747,6 +750,7 @@ decision is missing.
   - 2026-09-06 proposed by GC-033 (this ticket): the binding shipped and the panel it hides is the
     one panel with no rail, so hiding it is the only reversible action in the app with nothing on
     screen to reverse it.
+  - 2026-09-06 09:12 claimed
 
 ---
 
@@ -1385,7 +1389,7 @@ decision is missing.
 
 ### GC-163 The `+` button opens a folder dialog instead of a new tab
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-016
 - **Why:** `newTab` in `App.tsx` is `const path = await window.api.openRepoDialog(); if (path) await
@@ -1450,12 +1454,13 @@ decision is missing.
   - 2026-09-06 proposed by GR-019, from Ricardo's inbox: `+` goes straight to the folder dialog,
     and the page it should open instead already exists as the empty state — what is missing is a
     tab that may hold no repository.
+  - 2026-09-06 09:12 claimed
 
 ---
 
 ### GC-164 A repository picked from the recents list replaces the tab it was picked from
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-016
 - **Why:** Every recents row calls `openPath`, and `openPath` with a tab showing rewrites **that
@@ -1507,6 +1512,7 @@ decision is missing.
   - 2026-09-06 proposed by GR-019, from Ricardo's inbox: picking from "recently opened" replaces
     the active tab. Reproduced in the app — two repositories opened in a row and the bar never grew
     past one tab, with `gitclient.tabs` overwritten each time.
+  - 2026-09-06 09:12 claimed
 
 ---
 
