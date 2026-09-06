@@ -262,14 +262,14 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-202 | A rejected push draws the least useful line git wrote and hides the four that explain it | ui | S | P1 | todo |
-| GC-200 | The lane band's flat edge and the node's arc leave a crescent of untinted row between them | ui | S | P2 | todo |
+| GC-202 | A rejected push draws the least useful line git wrote and hides the four that explain it | ui | S | P1 | in-progress |
+| GC-200 | The lane band's flat edge and the node's arc leave a crescent of untinted row between them | ui | S | P2 | in-progress |
 | GC-203 | `--force-with-lease` is implemented, typed and validated, and no call site can reach it | actions | S | P2 | todo |
-| GC-197 | The staging view's two file lists cannot be collapsed, so Staged is unreachable past 20 files | ui | S | P2 | todo |
-| GC-196 | The detail panel's second design pass: an audit against the study before anything changes | ui | M | P2 | todo |
+| GC-197 | The staging view's two file lists cannot be collapsed, so Staged is unreachable past 20 files | ui | S | P2 | in-progress |
+| GC-196 | The detail panel's second design pass: an audit against the study before anything changes | ui | M | P2 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-178 | A selected stash says what it is and offers nothing to do with it | ui | S | P3 | todo |
-| GC-183 | The graph row's own change readout is the text glyphs GC-143 took out of the panel | ui | S | P3 | todo |
+| GC-178 | A selected stash says what it is and offers nothing to do with it | ui | S | P3 | in-progress |
+| GC-183 | The graph row's own change readout is the text glyphs GC-143 took out of the panel | ui | S | P3 | in-progress |
 | GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | todo |
 | GC-198 | `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk | infra | S | P3 | todo |
 | GC-199 | A stash row carries five things at a 220px panel and the message gets 48px of them | ui | S | P3 | todo |
@@ -408,7 +408,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-178 A selected stash says what it is and offers nothing to do with it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-170
 - **Why:** GC-170's stash row is selectable, and selecting it draws a stash view in the detail
@@ -439,12 +439,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-170 (this ticket): the stash view it added is the only thing the
     detail panel can show that offers no action on what it is showing.
+  - 2026-09-06 19:43 claimed
 
 ---
 
 ### GC-183 The graph row's own change readout is the text glyphs GC-143 took out of the panel
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-143
 - **Why:** GC-143 replaced the detail panel's literal `+`, `✎`, `−` and `→` with `FileKindIcon`,
@@ -470,6 +471,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-143 (this ticket): found while replacing the panel's glyphs. The
     ticket named the panel's two renderings and fixed both; this is the third, one surface over,
     and it was put out of scope rather than missed.
+  - 2026-09-06 19:43 claimed
 
 ---
 
@@ -514,7 +516,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-196 The detail panel's second design pass: an audit against the study before anything changes
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-191, GC-192
 - **Why:** GC-142 gave the panel its boundary treatment and GC-143 its file-kind marks, and both
@@ -568,12 +570,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
     finished after GC-142 and GC-143, and the four defects the same look produced are carved off
     as GC-191, GC-192 and GC-197 so this one is the judgement call that is left — with the
     finding list as its first deliverable, which is what Ricardo asked for.
+  - 2026-09-06 19:43 claimed
 
 ---
 
 ### GC-197 The staging view's two file lists cannot be collapsed, so Staged is unreachable past 20 files
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-191
 - **Why:** `docs/reference/gitkraken/04-panels.md` line 62 describes the staging view as "two
@@ -622,6 +625,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-024: the study calls these lists collapsible and ours are not, and
     with 29 unstaged files the Unstaged list measured 788px, putting the Staged head — the group
     you are staging into — below the fold.
+  - 2026-09-06 19:43 claimed
 
 ---
 
@@ -716,7 +720,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-200 The lane band's flat edge and the node's arc leave a crescent of untinted row between them
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** GC-186 put the band right of the node on every row, which is the study's own shape
@@ -767,6 +771,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-025, from Ricardo's inbox: the band butts a square corner against a
     circle, so at the measured `cx 18, r 9` / `x 27, h 22` the two touch at exactly one point and
     leave about 6.6px of untinted row above and below it.
+  - 2026-09-06 19:43 claimed
 
 ---
 
@@ -820,7 +825,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-202 A rejected push draws the least useful line git wrote and hides the four that explain it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** Reproduced in the running app on 2026-09-06 on the review's own scratch repository, by
@@ -873,6 +878,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GR-025, from Ricardo's inbox: measured in the app, git's seven lines
     reach the renderer and sit on a `title` while the bar draws the one line that explains nothing.
+  - 2026-09-06 19:43 claimed
 
 ---
 
