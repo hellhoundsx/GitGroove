@@ -104,8 +104,8 @@ useless, a frameless window reports an empty title even on screen.
 
 `src/main/` is `index.ts` (the window), `git.ts`, `ipc.ts` and `watch.ts`; `src/preload/` is the
 contextBridge; `src/shared/` holds `types.ts` and `remotes.ts`; `src/renderer/src/` holds
-`App.tsx`, `components/`, `graph/`, `diff/`, `ui/`, `prefs.ts`, `shortcuts.ts` and `styles/`
-(`tokens.css` plus `app.css`, one file for every component). Outside `src/`: `docs/screenshots/`
+`App.tsx`, `components/`, `graph/`, `diff/`, `ui/`, `prefs.ts`, `shortcuts.ts`, `time.ts` and
+`styles/` (`tokens.css` plus `app.css`, one file for every component). Outside `src/`: `docs/screenshots/`
 for screenshots of our app, `docs/reference/gitkraken/` for the study, and `tools/`
 (`launch-app.mjs`, `gk-recon/`, `e2e/`). Each is described below or under Testing.
 
@@ -461,6 +461,16 @@ an ordinary open costs one `git log`, not two, and no frame is painted with a ch
 already excludes. `App` hands `CommitGraph` only the visible refs; the left panel gets all of them
 and marks the hidden.
 
+**Slash-separated names fold into folders in the left panel** (GC-051). `buildRefTree(refs, label)`
+in `LeftPanel.tsx` is the pure half: `label` is the name **relative to the section**, so a remote
+groups without its own segment — the remote's row is already the first level — and a folder's count
+is the refs beneath it at any depth, never its sub-folders. A folder row is `.ref-row.folder`; every
+row carries its own `--row-depth`, and `app.css` turns that into 16px of padding a level, so a name
+with no slash renders exactly where it always did. The collapsed set is component state keyed
+`<section>/<folder path>` and lasts the session; it stores what is **closed**, so a folder that
+appears later starts open. A filter forces every drawn folder open, which is sound because the tree
+is built from the matches alone. "Viewing" still counts refs.
+
 ### Diff (`diff/`)
 
 `parseUnifiedDiff` handles `diff --git` headers, `@@` hunks with line numbers, `\ No newline` meta
@@ -499,6 +509,22 @@ so only a removal sitting opposite an addition is marked and **both layouts read
 are `span.word` tinted with `--diff-add-word` / `--diff-del-word` over the line's own tint; the hunk
 buttons are untouched, since they still build from `hunk.raw`.
 
+**Three controls in the header, and only one of them costs a reload** (GC-052). Previous / next
+change scroll by **stop** — the `scrollTop` that would put a `.hunk-head` at the top of the body,
+clamped to what the body can actually reach — rather than by a header's offset from the border box:
+the body has top padding, so the first header is a few pixels down when nothing is scrolled and
+read as being *below* the top, which sent the first Next click nowhere. Clamping is what makes the
+wrap-around true at the bottom, where the last hunks all share one position. **Wrap** is a class on
+the body and nothing more, so it costs no reload and disables nothing; a hunk scrolls sideways
+inside itself when it is off (it used to be `overflow: hidden`, which clipped a long line away with
+nothing to say it was there). **Ignore whitespace** is the one that reaches git: `-w` on the diff
+command, carried by `WorkdirDiffRequest.ignoreWhitespace` and the new `DiffOptions`. It belongs to
+the load key and **not** to the identity, so the hunks on screen stay and dim while it reloads
+(GC-086), and while it is on **every button built from `hunk.raw` is disabled and says why** — a
+`-w` diff is not a patch `git apply` will take. Stage file, Discard changes and Unstage file go
+through no patch and stay live. Both toggles are preferences, so the header and Preferences cannot
+disagree.
+
 **A load that fails says so in the body** (GC-083): `loadError` is a `current` whose `text` is null,
 and it gets a fourth `.diff-empty` branch beside "Loading diff…", "No textual changes." and "Binary
 file." An action error is deliberately not that — it leaves the diff on screen and reports in the
@@ -532,11 +558,12 @@ by turning the box RTL and a `/` at either end is reordered to the other one.
 `prefs.ts` is the single home for user settings: a typed `Prefs` with `DEFAULT_PREFS`, persisted as
 one JSON blob under `gitclient.prefs`, read with `usePrefs()` and written with `setPrefs(patch)`.
 `load()` validates each field and falls back to the default, so a hand-edited blob cannot break the
-app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `theme`, `diffView`
-and `graphColumns` — the one nested value, so `load()` falls back per column and a `defaults()` helper
-copies it, a bare spread having shared the nested object. Adding a setting means: a field with a
-default in `prefs.ts`, validation in `load()`, a row in `components/Preferences.tsx`, and reading
-it with `usePrefs()`. There is no OK/Cancel; every change applies immediately.
+app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `theme`, `diffView`,
+`diffIgnoreWhitespace`, `diffWordWrap` and `graphColumns` — the one nested value, so `load()` falls
+back per column and a `defaults()` helper copies it, a bare spread having shared the nested object.
+Adding a setting means: a field with a default in `prefs.ts`, validation in `load()`, a row in
+`components/Preferences.tsx`, and reading it with `usePrefs()`. There is no OK/Cancel; every change
+applies immediately.
 
 **`theme` is `dark` | `light` | `system`, and `prefs.ts` resolves `system` itself** with `matchMedia`
 rather than leaving it to a media query (GC-013): there has to be one answer to which theme is
@@ -629,7 +656,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-190 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+210 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -638,8 +665,8 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 36 steps, 228 assertions, ~36s. It ends with
-`total: 37.0s | git: 335 calls, 9.1s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 37 steps, 241 assertions, ~36s. It ends with
+`total: 35.5s | git: 343 calls, 9.0s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -755,6 +782,12 @@ a scheduled session follows; the hourly backlog reviewer adds tickets and writes
 in the Reviews section. Do not keep a second roadmap here: when a ticket ships, update the ticket,
 and this file only where a convention, a command or an invariant above changed.
 
+**`INBOX.md` is Ricardo's, and it is git-ignored.** He drops small plain-English observations there
+as `- ` bullets; the reviewer drains it at the start of every run, investigates each item and turns
+it into a ticket, an extension of one, or a written reason for neither — see "Review routine" in
+`TICKETS.md`. It is deliberately outside git so it can be edited at any moment without dirtying the
+worker's `git status`. Nothing else reads it, and no ticket is ever written *in* it.
+
 Design decisions that must not be quietly undone, and where each is explained above: date order in
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
 one layer, a drop that opens no empty menu and checks out the branch it acts on, one shortcut
@@ -770,10 +803,12 @@ and only a strict extension counted as one (Graph); every modal `h3` + `.modal-b
 every checkbox and every radio styled once by type (UI layer); `--index` on
 stash apply and pop, `defaultRemote` shared both ways, a remote tag delete fully qualified (Main process); the diff keyed to its view
 identity, the split layout a render of what is already loaded, a hunk patch built from
-`hunk.raw` whichever layout is showing, and both layouts marking intra-line changes from one map
-(Diff); the hidden set applied to a path's first load
+`hunk.raw` whichever layout is showing, both layouts marking intra-line changes from one map, and
+the whitespace flag in the load key rather than the identity, with every patch button off while it
+is on (Diff); the hidden set applied to a path's first load
 (Graph); the lane colours interleaved rather than ramped (Graph); every colour a token, the
-theme resolved in `prefs.ts` (Styling, Preferences); a failing e2e git call throwing, its Electron
+theme resolved in `prefs.ts`, one module answering how a timestamp is written so no component
+reaches for `toLocaleString` (Styling, Preferences); a failing e2e git call throwing, its Electron
 stopped on every exit path, a wait before a click proving the control is live rather than only
 the content right, and every click going through `liveClick` so a missing or dead control fails
 where it happened (Testing); one rule for which shortcuts fire while typing, read off the table's

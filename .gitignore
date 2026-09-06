@@ -7,3 +7,7 @@ Thumbs.db
 shots/
 *.local
 .claude/settings.local.json
+# Ricardo's inbox for the hourly backlog reviewer: edited by hand at any time and rewritten by the
+# reviewer, so it stays out of git entirely — a tracked one would dirty the worker's status and
+# stall the review's own TICKETS.md write.
+INBOX.md

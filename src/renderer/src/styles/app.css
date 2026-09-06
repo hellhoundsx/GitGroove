@@ -1537,7 +1537,12 @@ input[type='radio']:disabled {
   margin-bottom: var(--sp-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  overflow: hidden;
+  /* A line wider than the panel scrolls inside its own hunk, so the hunk keeps its header, its
+     border and its buttons in place while the code moves (GC-052). It used to be `overflow:
+     hidden`, which clipped that line away with nothing to say it was there. With Wrap on there is
+     nothing to scroll. `overflow-y` stays hidden, which is what the rounded corners need. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .hunk-head {
   display: flex;

@@ -138,21 +138,31 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   const hunkTitle = ignoreWs ? 'Not available while whitespace is ignored: the patch would not apply' : undefined;
 
   /**
-   * Scroll to the hunk header before or after the top of the body, wrapping at either end. The
-   * position is read off the live rects rather than kept in state: the body scrolls freely with
-   * the wheel between two clicks, and a remembered index would then jump somewhere else.
+   * Scroll to the hunk before or after the one at the top of the body, wrapping at either end.
+   * The position is read off the live rects rather than kept in state: the body scrolls freely
+   * with the wheel between two clicks, and a remembered index would then jump somewhere else.
+   *
+   * Each header's *stop* — the scrollTop that puts it at the top of the content box — is what is
+   * compared, not its offset from the body's border box: the body has top padding, so the first
+   * header sits a few pixels down when nothing is scrolled at all and would otherwise read as
+   * being below the top, which made the very first Next click go nowhere.
    */
   const gotoHunk = (where: 'next' | 'prev'): void => {
     const body = bodyRef.current;
     if (!body) return;
     const heads = [...body.querySelectorAll<HTMLElement>('.hunk-head')];
     if (heads.length === 0) return;
-    const top = body.getBoundingClientRect().top;
-    // 1px of tolerance: a header scrolled exactly to the top is the current one, not the next.
-    const offsets = heads.map((h) => h.getBoundingClientRect().top - top);
-    const i = where === 'next' ? offsets.findIndex((o) => o > 1) : offsets.map((o) => o < -1).lastIndexOf(true);
+    const contentTop = body.getBoundingClientRect().top + parseFloat(getComputedStyle(body).paddingTop || '0');
+    // Clamped to what the body can actually scroll to: the last hunks all share the bottom
+    // position, so at the bottom there is no next one to reach and the wrap-around is what is left.
+    const maxScroll = body.scrollHeight - body.clientHeight;
+    const stops = heads.map((h) => Math.min(body.scrollTop + h.getBoundingClientRect().top - contentTop, maxScroll));
+    const at = body.scrollTop;
+    // 1px of tolerance: the header already at the top is the current one, not the next.
+    const i = where === 'next' ? stops.findIndex((s) => s > at + 1) : stops.map((s) => s < at - 1).lastIndexOf(true);
     const target = i >= 0 ? i : where === 'next' ? 0 : heads.length - 1;
-    body.scrollTop += offsets[target]!;
+    // The browser clamps a stop past the end, which is the right answer for the last hunks.
+    body.scrollTop = stops[target]!;
   };
 
   const run = async (fn: () => Promise<void>): Promise<void> => {

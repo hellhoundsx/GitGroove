@@ -2434,6 +2434,17 @@ log(await clickFolder());
 await waitFor(`${FEAT_FOLDER}?.classList.contains('open') === true`, 'the feat folder to open again');
 check('clearing the filter restores the list, and the folder is as the user left it', String(await leafNames()) === withFolder, `${await leafNames()} | before: ${withFolder}`);
 
+// The row stands for the whole ref even though it draws one segment, and both ways of activating
+// it name the full ref. Double-click first: the fixture's tracked changes put the checkout guard
+// in front of it, which is what says which branch was aimed at — and Cancel leaves HEAD alone,
+// so the step still costs the fixture nothing.
+log(await liveClick('the alpha row, to double-click it', `(() => { const r = [...document.querySelectorAll(${q(LEAF_SEL)})].find(x => x.querySelector('.row-name')?.textContent === 'alpha'); if (!r) return 'MISS no alpha row'; r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return 'double-clicked alpha'; })()`));
+await waitModal();
+check('double-clicking a row inside a folder checks out its full ref', String(await modalMessage()).includes('Check out feat/alpha anyway?'), String(await modalMessage()));
+log(await modalClick('Cancel'));
+await waitNoModal();
+check('and Cancel leaves HEAD where it was', git(['branch', '--show-current']) === 'main', git(['branch', '--show-current']));
+
 // The row stands for the whole ref even though it draws one segment: its menu says so.
 log(await contextMenuOn(LEAF_SEL, 'alpha'));
 const leafMenu = await menuList();
