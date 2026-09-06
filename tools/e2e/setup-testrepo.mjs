@@ -9,6 +9,11 @@ import { join } from 'node:path';
 const root = process.env.GITCLIENT_E2E_ROOT ?? join(tmpdir(), 'gitclient-e2e');
 const R = join(root, 'testrepo');
 const REMOTE = join(root, 'remote.git');
+// The second remote's own bare repository (GC-056). Step 17 adds it through the UI as `upstream`,
+// so nothing is pushed to it here: it exists, empty, so that a per-remote assertion can tell the
+// two remotes apart. It used to be `remote.git` under a second name, which made every one of those
+// assertions pass whichever remote the push actually reached.
+const REMOTE2 = join(root, 'remote2.git');
 
 // Two routines share this machine and only one of them passes GITCLIENT_E2E_ROOT, so a run that
 // reaches for the default root used to delete the repository, the bare origin and the shots
@@ -98,6 +103,21 @@ git(['add', 'wip.txt']);
 git(['commit', '-qm', 'Work on wip branch']);
 git(['checkout', '-q', 'main']);
 
+// The busiest row in the fixture (GC-055). Nothing here used to carry more than two chips —
+// `feature` and `wip-branch` were pushed without `-u`, so neither absorbs its remote, and two
+// chips is exactly what the column shows at the default width — which left the `+N` chip, its
+// hover dropdown, the chip order and the shrink weights with no coverage at all: GC-020 and
+// GC-023 both had to build this state by hand before they could see it.
+//
+// `main`'s tip now carries the checked-out branch, a tracking local, a non-tracking local with a
+// remote of its own, and a tag. That is seven refs and five chips once each tracking local absorbs
+// its upstream, so the column folds to one chip plus `+4` at every width. The names are chosen so
+// the order the graph applies — HEAD, the pin, tracking locals, other locals, remotes, tags — can
+// be read off them: main, release, sandbox, origin/sandbox, v0.2.0.
+git(['branch', 'release']);
+git(['branch', 'sandbox']);
+git(['tag', 'v0.2.0']);
+
 // A ref outside heads, remotes and tags, so the suite covers what the graph traverses at all
 // (GC-095). `git notes` keeps its own commit under refs/notes/commits, and `git log --all` draws
 // that commit as a row with no chip and no left-panel row to account for it. The app asks for the
@@ -108,8 +128,15 @@ git(['notes', 'add', '-m', 'a note whose own commit the graph must not draw']);
 git(['init', '-q', '--bare', REMOTE], root);
 git(['symbolic-ref', 'HEAD', 'refs/heads/main'], REMOTE);
 git(['remote', 'add', 'origin', REMOTE]);
-git(['push', '-q', '-u', 'origin', 'main']);
-git(['push', '-q', 'origin', 'feature', 'wip-branch']);
+// `release` is pushed with -u so it tracks and absorbs its remote chip; `sandbox` without, so it
+// and `origin/sandbox` are two chips on the same commit (GC-055).
+git(['push', '-q', '-u', 'origin', 'main', 'release']);
+git(['push', '-q', 'origin', 'feature', 'wip-branch', 'sandbox']);
+
+// The second remote's repository: created bare and left empty, and deliberately NOT added as a
+// remote — adding it through the UI is what step 17 tests (GC-056).
+git(['init', '-q', '--bare', REMOTE2], root);
+git(['symbolic-ref', 'HEAD', 'refs/heads/main'], REMOTE2);
 
 // mixed working-directory state: unstaged edits, an untracked file, a staged edit, a staged deletion
 write('a.txt', 'line1\nline2 changed\nline3\nline4 new\n');
@@ -132,7 +159,7 @@ write('big.txt', bigRows({ 3: 'row 3 edited', 35: 'row 35 edited' }));
 for (const r of git(['for-each-ref', '--format=%(refname)', 'refs/e2e']).split(String.fromCharCode(10)).filter(Boolean)) git(['update-ref', '-d', r]);
 writeFileSync(
   BASELINE,
-  JSON.stringify(Object.fromEntries(['main', 'feature', 'wip-branch'].map((b) => [b, git(['rev-parse', b])])), null, 2),
+  JSON.stringify(Object.fromEntries(['main', 'feature', 'wip-branch', 'release', 'sandbox'].map((b) => [b, git(['rev-parse', b])])), null, 2),
 );
 
 // Claim the root for as long as this process lives. It exits immediately after, so the marker is

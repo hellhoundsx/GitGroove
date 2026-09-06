@@ -186,6 +186,10 @@ unsubscribe.
   It also takes a **busy token** on entry and clears `busy` — and applies its error — only while it
   still owns it (GC-084), so of two overlapping actions the one that finishes first no longer takes
   the status bar away from the one still running. A `rethrow` caller gets its exception either way.
+  **`takeBusy(label)` is where that token is taken, and every writer of `busy` goes through it**
+  (GC-108) — `run()`, the mount effect and `openPath()`, the last two of which used to set and clear
+  the bar with no token at all, so an action running when a repository was opened cleared the open's
+  spinner. Whichever started last owns the bar; only the owner takes it down.
 - **Two counters.** `generation` is bumped by `run()` and `openPath()`; `load()`, `refreshStatus()`
   and `applyChange()` capture it and silently drop their result if it has moved, so a background
   reload cannot overwrite a fresher snapshot. `dataGen` records what has been *applied* to state
@@ -248,10 +252,23 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
   hint ellipsised at its *start*, so the folder naming an entry survives) and `caption` (a
   non-interactive heading rendered as `div.ctx-caption`, so no menu selector picks it up). In a row
   the label gives way last: `.ctx-label` is `flex: 0 1 auto`, `.ctx-hint` `flex: 1 1 0`.
-- `useDragWidth({ key, def, min, max, dir })` is the one drag-to-resize implementation — clamp,
-  persist, double-click reset — used by the ref column and both side panels. It computes the
+- `useDragWidth({ key, def, min, max, dir, limit })` is the one drag-to-resize implementation —
+  clamp, persist, double-click reset — used by the ref column and both side panels. It computes the
   released width from the release position rather than from state: the pointerup arrives before
   React has committed the last pointermove, so the closure's width is one step behind.
+- **The centre is the last thing to give way, not the first** (GC-105). Each panel's own range
+  (160–420, 300–720) says nothing about the window they share, and the two maxima sum to 1140
+  against a 900px `minWidth`. `MIN_GRAPH_W` (440) is the graph's reserved share, and
+  `fitPanels(left, detail, windowW, min)` answers the widths actually applied: the wider panel gives
+  way first, down to the narrower one, then both in proportion to what each still has above its own
+  minimum, and if even the two minima do not fit they stay at them and the centre takes the
+  shortfall. 440 is not a round number — it makes `160 + 440 + 300` come to exactly the declared
+  `minWidth`, and it is what keeps the message column over 200px at the default ref column.
+  **The stored widths are never touched**: only `--left-panel-w` / `--detail-panel-w` are reduced,
+  so widening the window restores what the user chose. `useWindowWidth()` re-applies the fit on
+  resize, and `limit` — as far as a drag may go given the other panel — bounds the drag alone, never
+  the width restored at mount or the double-click reset. A collapsed left panel is a fixed 44px rail
+  that ignores its variable, so `App` passes it in as a zero-width panel with a zero floor.
 
 ### Graph (`graph/`)
 
@@ -260,6 +277,17 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
 continues them instead of restarting at column 0, and the pin is not re-seeded on a page that is
 not the first (GC-012). `lanes.test.ts` pins the property that matters: splitting a history at any
 row and laying out the halves equals laying out the whole.
+
+**`useLaneLayout` in `CommitGraph.tsx` is the one caller, and it is what makes that paging real**
+(GC-106): a ref caches the last `(commits, pinned, layout)`, an unchanged pair returns the cached
+layout, and only a strict **extension** lays out the new tail with the previous `state` and
+concatenates — the old `RowLayout` objects are reused, and only the array holding them is new.
+Everything else replaces `commits` wholesale — a reload, another repository, a change of pin or of
+the hidden set — and is laid out from the first row. `continuesRange(prev, next)` in `lanes.ts` is
+that decision, exported so it is tested rather than inlined: it requires `next` to be longer **and
+both ends of `prev` still in place**, because a commit removed from the middle moves the sha that
+used to sit last and a new commit at the top moves the first. Getting it wrong is not a slow graph
+but a wrong one, carrying lanes from commits that are no longer there.
 
 - **Column 0 is reserved for HEAD's lineage** (`active[0] = headSha` before the loop), so the
   checked-out branch is the leftmost straight line and the WIP node sits above it. "Pin to Left"
@@ -408,9 +436,11 @@ Remembered **state** deliberately stays on its own keys, never in the blob:
 
 Both side panels drag from a 4px `.panel-resize` handle on their own edge, absolutely positioned so
 nothing reflows during the drag; `App` writes the widths as `--left-panel-w` / `--detail-panel-w`
-on the app root and `tokens.css` keeps only the defaults. Double-clicking a handle resets it and
-removes its key. While a file view is open the left panel is the icon rail and its handle is not
-shown; the detail panel's handle keeps working.
+on the app root and `tokens.css` keeps only the defaults. What it writes is `fitPanels`' answer, not
+the stored number (GC-105, see the UI layer): the two keys keep what the user chose and the applied
+value is what gives way on a narrow window. Double-clicking a handle resets it and removes its key.
+While a file view is open the left panel is the icon rail and its handle is not shown; the detail
+panel's handle keeps working.
 
 Avatars are gated inside `useGravatar` itself, the one place `ui/Avatar.tsx` and the graph's
 `NodeAvatar` both go through, so switching them off makes no request. Gravatar is the renderer's
@@ -465,7 +495,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-130 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+147 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -474,14 +504,26 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 29 steps, 151 assertions, ~24s. **The run stops its own
+asserting against git after each step. 29 steps, 151 assertions, ~23s. It ends with
+`total: 23.4s | git: 219 calls, 5.5s` — the run's own clock (GC-080) beside the cost of its own
+verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
+A change that makes the suite slower is then a number, not an impression; the git half spawns a
+fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
+those spawns so the suite's own `git status` does not rewrite the index the app's watcher is
+looking at. **The run stops its own
 Electron on every exit path**: `stopOnce()` is registered on `process.on('exit')` as soon as
 `launchApp` resolves, and SIGINT/SIGTERM exit explicitly so they reach it, so a throw, a CDP timeout
 or a Ctrl+C no longer leaves a windowless app running until some later run frees the port (GC-040).
 
-The fixture (`setup-testrepo.mjs`) has a merge, a tag, three branches, a commit that deletes a
-file, a bare `origin`, a git note — a ref outside heads/remotes/tags, so the suite can tell that the
-graph never draws one (GC-095) — and a mixed working tree covering every staging state. It records the branch
+The fixture (`setup-testrepo.mjs`) has a merge, two tags, five branches, a commit that deletes a
+file, a bare `origin`, a **second bare repository `remote2.git`, empty and not added as a remote**
+(GC-056: step 17 adds it through the UI, and with both remotes pointing at one repository every
+per-remote assertion passed whichever one the push had reached), a git note — a ref outside
+heads/remotes/tags, so the suite can tell that the graph never draws one (GC-095) — and a mixed
+working tree covering every staging state. **`main`'s tip carries seven refs** (GC-055): the
+checked-out branch, a tracking local, a non-tracking local with a remote of its own, and a tag, so
+the ref column folds to one chip plus `+4` and the fold has coverage at all — before it, nothing in
+the fixture carried more than two chips and GC-020 and GC-023 both built the state by hand. It records the branch
 tips in `<root>/.e2e-baseline.json` — a **file**, not a ref namespace, because `git log --all`
 means every ref under `refs/` and a baseline ref kept a hidden branch's commits in the graph — and
 writes `<root>/.e2e-owner.json` with its pid, refusing to wipe a root whose marker belongs to a
@@ -558,8 +600,11 @@ and this file only where a convention, a command or an invariant above changed.
 
 Design decisions that must not be quietly undone, and where each is explained above: date order in
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
-one layer, one shortcut table, every confirmation on the modal, the busy token on `run()` (App
-state, UI layer); every modal `h3` + `.modal-body` + `.modal-buttons`, with only the body scrolling
+one layer, one shortcut table, every confirmation on the modal, the busy token every writer of
+`busy` takes (App state, UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, and
+only the applied widths ever clamped (UI layer); a page continuing the previous range's `LaneState`,
+and only a strict extension counted as one (Graph); every modal `h3` + `.modal-body` +
+`.modal-buttons`, with only the body scrolling
 (UI layer); `--index` on
 stash apply and pop, `defaultRemote` shared both ways (Main process); the diff keyed to its view
 identity, the split layout a render of what is already loaded, a hunk patch built from

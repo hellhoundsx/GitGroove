@@ -41,6 +41,23 @@ export interface LaneState {
   laneCount: number;
 }
 
+/**
+ * Whether `next` is `prev` with more commits on the end — the only shape the `prev` parameter of
+ * `layoutGraph` is valid for (GC-106). A page appends, so the range already laid out survives as a
+ * prefix; everything else replaces `commits` wholesale — a reload, another repository, a change of
+ * pin or of the hidden set — and must be laid out from the first row. Checking both ends of the
+ * old range catches a replacement that happens to be longer: a commit removed from the middle
+ * moves the sha that used to sit last, and a new commit at the top moves the first.
+ */
+export function continuesRange(prev: Commit[], next: Commit[]): boolean {
+  return (
+    prev.length > 0 &&
+    next.length > prev.length &&
+    next[0]!.sha === prev[0]!.sha &&
+    next[prev.length - 1]!.sha === prev[prev.length - 1]!.sha
+  );
+}
+
 export interface GraphLayout {
   rows: RowLayout[];
   laneCount: number;

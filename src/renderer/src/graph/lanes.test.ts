@@ -1,6 +1,6 @@
 import type { Commit } from '@shared/types';
 import { describe, expect, it } from 'vitest';
-import { layoutGraph, type RowLayout } from './lanes';
+import { continuesRange, layoutGraph, type RowLayout } from './lanes';
 
 /** A commit with only the fields the layout reads; everything else is filler. */
 const commit = (sha: string, ...parents: string[]): Commit => ({
@@ -226,6 +226,57 @@ describe('layoutGraph', () => {
       expect(JSON.stringify(head.state)).toBe(before);
       const twice = layoutGraph(history.slice(3), 'm', head.state);
       expect(twice.rows).toEqual(once.rows);
+    });
+  });
+
+  // What `CommitGraph` uses to decide whether the range it already laid out can be continued or
+  // has to be laid out again (GC-106). Getting this wrong is not a slow graph, it is a wrong one:
+  // continuing a range that was actually replaced would carry lanes from commits no longer there.
+  describe('continuesRange (GC-106)', () => {
+    const history = [commit('m', 'a', 'b'), commit('a', 'a2'), commit('b', 'b2'), commit('a2', 'base'), commit('b2', 'base'), commit('base')];
+    const page1 = history.slice(0, 3);
+
+    it('accepts a page appended to the range already laid out', () => {
+      expect(continuesRange(page1, history)).toBe(true);
+    });
+
+    it('rejects the same range, so nothing is appended twice', () => {
+      expect(continuesRange(page1, page1)).toBe(false);
+    });
+
+    it('rejects a shorter range', () => {
+      expect(continuesRange(history, page1)).toBe(false);
+    });
+
+    it('rejects a longer range with a new commit at the top', () => {
+      // A reload after a commit: the array grew, but not on the end.
+      expect(continuesRange(page1, [commit('new', 'm'), ...history])).toBe(false);
+    });
+
+    it('rejects a longer range with a commit removed from the middle', () => {
+      // A reload with another branch hidden: longer than the first page, but not an extension of it.
+      const reloaded = [history[0]!, history[2]!, history[3]!, history[4]!, history[5]!];
+      expect(reloaded.length).toBeGreaterThan(page1.length);
+      expect(continuesRange(page1, reloaded)).toBe(false);
+    });
+
+    it('rejects anything against an empty range', () => {
+      expect(continuesRange([], history)).toBe(false);
+    });
+
+    it('appending a page gives exactly the rows of laying out the concatenation', () => {
+      // The path the component takes, end to end: lay out a page, continue it, concatenate.
+      const first = layoutGraph(page1, 'm');
+      const next = layoutGraph(history.slice(page1.length), 'm', first.state);
+      expect(continuesRange(page1, history)).toBe(true);
+      expect([...first.rows, ...next.rows]).toEqual(layoutGraph(history, 'm').rows);
+      expect(next.laneCount).toBe(layoutGraph(history, 'm').laneCount);
+    });
+
+    it('a replaced range laid out afresh matches a single call, as the fallback must', () => {
+      const reloaded = [history[0]!, history[2]!, history[4]!, history[5]!];
+      expect(continuesRange(page1, reloaded)).toBe(false);
+      expect(layoutGraph(reloaded, 'm').rows).toEqual(layoutGraph(reloaded, 'm').rows);
     });
   });
 

@@ -249,8 +249,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
 | GC-013 | Light theme | ui | M | P3 | done |
 | GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
-| GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | in-progress |
-| GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | in-progress |
+| GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | done |
+| GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
+| GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -258,7 +259,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | done |
 | GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | done |
 | GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | done |
-| GC-108 | The repository-open path clears the status bar without owning it | actions | S | P3 | in-progress |
+| GC-108 | The repository-open path clears the status bar without owning it | actions | S | P3 | done |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | done |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
@@ -268,11 +269,11 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
-| GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | in-progress |
+| GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | done |
 | GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | done |
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
-| GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | in-progress |
-| GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | in-progress |
+| GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | done |
+| GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
 | GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | todo |
@@ -1438,7 +1439,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-055 The scratch repo has no commit with more than two refs, so chip folding is untested
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `setup-testrepo.mjs` pushes only `main` with `-u`, so `feature` and `wip-branch` have no
@@ -1456,8 +1457,8 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Out of scope:** new assertions about folding itself (GC-020, GC-022 and GC-023 own those), and
   the e2e prologue.
 - **Acceptance:**
-  - [ ] A commit in the scratch repo carries at least four refs, so `+N` renders at 150px.
-  - [ ] `npm run e2e` passes back to back and stays re-entrant.
+  - [x] A commit in the scratch repo carries at least four refs, so `+N` renders at 150px.
+  - [x] `npm run e2e` passes back to back and stays re-entrant.
 - **Files:** `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e:setup && npm run e2e` twice, plus a screenshot showing a folded `+N`.
 - **Log:**
@@ -1466,6 +1467,23 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 23:14 GR-006: GC-023 was the second ticket to build the four-ref commit by hand (its 300px and
     400px measurements), and GC-071 now waits on this one; still P3 because nothing else is blocked.
   - 2026-09-06 05:43 claimed
+  - 2026-09-06 06:25 done: `setup-testrepo.mjs` puts `release` (pushed with `-u`, so it tracks and
+    absorbs its remote chip), `sandbox` (pushed without, so it and `origin/sandbox` are two chips) and the
+    tag `v0.2.0` on `main`'s tip. That commit now carries **seven refs** — main, origin/main, release,
+    origin/release, sandbox, origin/sandbox, v0.2.0 — and **five chips** after absorption. Both new
+    branches are in `.e2e-baseline.json`, or `restoreFixture` would delete them as a run's own.
+  - Measured over CDP on the built app at the default 150px ref column: the row renders exactly
+    `['main', '+4']`, and the folded block carries `main | release | sandbox | origin/sandbox | v0.2.0` —
+    the chip order `CLAUDE.md` documents (HEAD, tracking locals, other locals, remotes, tags) read off the
+    names. Hovering with a real `Input.dispatchMouseEvent` pointer move (a dispatched `MouseEvent` never
+    produces the CSS `:hover` the fold opens on) shows the list and leaves the `+4` chip
+    `visibility: hidden`, as GC-078 designed. Screenshots looked at:
+    `docs/screenshots/gc055-plus-n-chip.png` and `gc055-plus-n-hover.png`.
+  - **No existing step needed changing.** Every branch-sensitive assertion in `run.mjs` is computed from
+    git rather than written as a constant — step 25's row deltas, the Viewing count difference, the drift
+    scan — which is why five extra refs and two extra branches moved nothing. `npm run e2e` passed back
+    to back (29 steps, 151 assertions, ~23s each) and the fixture matched its baseline both times.
+  - GC-071 was waiting on this: the four-ref commit it needs is now in the fixture.
 
 ### GC-102 The window is built dark whatever the theme is, so a light start flashes and keeps dark controls
 
@@ -1872,7 +1890,7 @@ decision is missing.
 
 ### GC-056 The scratch repo's second remote is the same bare repo as origin
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** e2e step 17 adds a second remote (`upstream`, later renamed `mirror`) pointing at
@@ -1894,16 +1912,32 @@ decision is missing.
     push-target` is empty. Clean-up deletes it from `remote2.git` only.
 - **Out of scope:** a third remote, pull from a chosen remote, changing any other step.
 - **Acceptance:**
-  - [ ] `npm run e2e:setup` creates `<root>/remote2.git` as an empty bare repository.
-  - [ ] Step 17 passes with the exclusive assertion (the sha on `upstream`, nothing on `origin`).
-  - [ ] Pointing that push back at `origin` in `App.tsx` fails the assertion (mutation check).
-  - [ ] The run stays re-entrant: a second `npm run e2e` straight afterwards passes unchanged.
+  - [x] `npm run e2e:setup` creates `<root>/remote2.git` as an empty bare repository.
+  - [x] Step 17 passes with the exclusive assertion (the sha on `upstream`, nothing on `origin`).
+  - [x] Pointing that push back at `origin` in `App.tsx` fails the assertion (mutation check).
+  - [x] The run stays re-entrant: a second `npm run e2e` straight afterwards passes unchanged.
 - **Files:** `tools/e2e/setup-testrepo.mjs`, `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e:setup && npm run e2e` twice in a row, then the mutation check above.
 - **Log:**
   - 2026-09-05 proposed by GC-031 (this ticket): the per-remote push assertion GC-031 added
     cannot tell the two remotes apart, because step 17 points both at the same bare repository.
   - 2026-09-06 05:43 claimed
+  - 2026-09-06 06:25 done: `setup-testrepo.mjs` creates `<root>/remote2.git`, bare and empty, and does
+    not add it as a remote — step 17 still adds it through the UI, which is the thing being tested.
+    `run.mjs` points `upstream` at it, and `run.mjs` exits 2 with the `npm run e2e:setup` message when a
+    fixture predates it, the way it already does for the baseline.
+  - "remote added and fetched" became "remote added at the URL it was given": an empty bare repository
+    has no `refs/remotes/upstream/main` to look for, so the check now asserts the remote exists and
+    `git remote get-url upstream` is `remote2.git`.
+  - The GC-031 push check is exclusive: `git ls-remote upstream push-target` carries the sha **and**
+    `git ls-remote origin push-target` is empty. Clean-up deletes from `upstream` only, and the prologue
+    empties `remote2.git` of anything a dead run left there.
+  - Mutation check run, not assumed: with `App.tsx`'s per-remote push item forced to
+    `remote: 'origin'`, rebuilt, the step fails —
+    `FAIL the chosen remote received the branch, and only that remote | upstream: (nothing) | origin:
+    1f0b831... refs/heads/push-target`. Before this ticket that push passed, because both names resolved
+    to the same bare repository. `App.tsx` restored (same bundle hash), and the run is re-entrant: two
+    back-to-back passes, 151 assertions each.
 
 ### GC-057 Toolbar Push and Pull cannot choose the remote
 
@@ -4267,7 +4301,7 @@ decision is missing.
 
 ### GC-081 Time the e2e run's 141 git spawns and drop the redundant ones
 
-- **Status:** in-progress
+- **Status:** blocked
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-080
 - **Why:** After GC-080 the largest remaining cost in the run is its own verification: `git()`
@@ -4294,16 +4328,51 @@ decision is missing.
   nature, action then read), changing what any step asserts, the fixture (GC-055, GC-056, GC-064,
   GC-076).
 - **Acceptance:**
-  - [ ] The `git:` line is printed; its before value is in this log.
+  - [x] The `git:` line is printed; its before value is in this log.
   - [ ] Call count and git wall time both down by at least a third, every assertion still passing
         over three runs; the after values are in this log.
-  - [ ] Each removed call is named in the log with the surviving call that covers it.
+  - [x] Each removed call is named in the log with the surviving call that covers it.
 - **Files:** `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e` three times; compare the two printed lines with the ones GC-080 left.
 - **Log:**
   - 2026-09-06 requested by Ricardo alongside GC-080, with the note that the ceiling is about 5s
     and it is worth doing only once GC-080 has made that a meaningful share of the run.
   - 2026-09-06 05:43 claimed
+  - 2026-09-06 06:25 **blocked on a decision from Ricardo: the measurement contradicts the target.**
+    The instrumentation and every safe cut are done and committed; what is left needs a call this session
+    should not make alone.
+  - **Measured.** `gitRun` — the one place every spawn in the file goes through, so it covers `git` and
+    `gitMay` both — counts calls and accumulates wall time, and the run prints `git: N calls, X.Xs` next
+    to GC-080's total line. The first number contradicts the ticket immediately: **243 calls, 6.1s** of a
+    23.6s run, not the 141 the ticket estimated from grepping call sites. (After GC-055 and GC-056 landed
+    earlier in this batch it was 249 calls, 6.2s, which is the fair "before" for the cuts below.)
+  - **Cut, 249 -> 219 calls and 6.2s -> 5.4s** (-12%, -13%), every assertion still passing over four runs.
+    Each removed call was a duplicate of one still made in the same step:
+    - 15 `check()` sites read the working tree once for the condition and again for the detail string,
+      with no action in between; the value is hoisted into a local and both uses read it. Steps 5 (x2), 6
+      (x2), 8, 14, 15 (x3, which also duplicated `branch --show-current` and `stash list`), 20 (x2), 21,
+      27 (x2) and 29.
+    - 4 more of the same shape on `shortOf(file)` (`git status --short -- <file>`), in steps 19 (x2), 20
+      and 28.
+    - The prologue read `git log -1 --format=%s` **inside** a `.some()` callback, so it spawned git once
+      per regex in `RUN_COMMITS` rather than once per iteration; hoisted out.
+    - `restoreFixture` read `rev-parse main` twice when it had to rewind the bare origin, and step 29
+      counted each of its two revision ranges twice (condition, then message).
+    - `GIT_OPTIONAL_LOCKS=0` in the spawn environment, so the suite's own `git status` does not refresh
+      and rewrite the fixture's index, and git's absolute path resolved once instead of a PATH walk per
+      spawn. Kept: they are part of the 6.2s -> 5.4s above.
+  - **Why the third is not reachable.** After the cuts the per-call-site tally is flat — the busiest
+    remaining site is 4 calls, and the 219 are spread over about 150 sites at one or two each. The whole
+    prologue, measured separately, is 29 calls and 0.6s, so deleting it outright would still only reach
+    190 / 4.9s against a target of 166 / 4.1s. There is no duplication left to remove: every remaining
+    call is one read backing one assertion, and cutting further means cutting assertions, which this
+    ticket forbids.
+  - **The decision.** Either (a) accept 219 / 5.4s and close this at what the duplicates were worth, or
+    (b) take the one further option that exists — make `check()`'s *detail* argument lazy so its git calls
+      run only when an assertion fails. That would remove a large share of the remaining calls without
+      weakening a single condition, but it also stops passing lines from printing their measured values,
+      and those values are what tickets in this file cite as evidence. That is a trade about what the run
+      reports, not a refactor, so it is Ricardo's to make.
 
 ### GC-082 Popping a stash through the toolbar loses what was staged
 
@@ -5399,7 +5468,7 @@ decision is missing.
 
 ### GC-105 Panel widths are clamped only against themselves, so the graph can be squeezed to nothing
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `useDragWidth` clamps the left panel to 160-420 and the detail panel to 300-720 (GC-050),
@@ -5441,16 +5510,16 @@ decision is missing.
   making the panels remember a per-window-size width; any change to the drag handles themselves or
   to `useDragWidth`'s persistence and double-click reset.
 - **Acceptance:**
-  - [ ] With no stored widths, at a 900px viewport the commit message column measures at least
+  - [x] With no stored widths, at a 900px viewport the commit message column measures at least
         200px, and `.graph-panel` at least `MIN_GRAPH_W` - the same CDP measurement the table above
         was taken with (`document.querySelector('.col-msg').getBoundingClientRect().width`).
-  - [ ] With `gitclient.leftPanelW=420` and `gitclient.detailPanelW=720` stored, at a 900px viewport
+  - [x] With `gitclient.leftPanelW=420` and `gitclient.detailPanelW=720` stored, at a 900px viewport
         `.detail-panel`'s right edge is inside the window and `.graph-panel` is at least
         `MIN_GRAPH_W` wide.
-  - [ ] Widening back to 1400 restores 420 and 720; the two `localStorage` keys still read 420 and
+  - [x] Widening back to 1400 restores 420 and 720; the two `localStorage` keys still read 420 and
         720 throughout, so nothing the user chose was thrown away.
-  - [ ] Screenshots at 900 and 1400 with both panel configurations, looked at.
-  - [ ] `npm test`, `npm run typecheck`, `npm run build` pass.
+  - [x] Screenshots at 900 and 1400 with both panel configurations, looked at.
+  - [x] `npm test`, `npm run typecheck`, `npm run build` pass.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/ui/useDragWidth.ts`,
   `src/renderer/src/styles/app.css`, `src/main/index.ts`.
 - **Verify:** typecheck, build, launch through `tools/launch-app.mjs`, drive the viewport with
@@ -5462,10 +5531,42 @@ decision is missing.
     declared `minWidth`, and the maximum-panels case needs no resize at all to produce a 34px message
     column on the default window.
   - 2026-09-06 05:43 claimed
+  - 2026-09-06 06:25 done: `MIN_GRAPH_W` and `fitPanels(left, detail, windowW, min)` live in
+    `useDragWidth.ts`. The fit reduces only the **applied** widths — the wider panel first, down to the
+    narrower one, then both in proportion to what each still has above its own minimum — and
+    `useWindowWidth()` re-applies it on resize. A drag takes the same bound through a new `limit`
+    option that `App` computes from the other panel, so a handle stops rather than pushing the graph
+    away; the stored widths, the persistence and the double-click reset are untouched, and `App` writes
+    `applied.left`/`applied.detail` to the CSS variables instead of the raw hook widths.
+  - **440, not the ~360 the scope suggested.** 360 leaves the message column at roughly 134px against a
+    150px ref column, under the 200px this ticket's own first acceptance line asks for. 440 makes the
+    app's declared minimum add up exactly — `160 + 440 + 300 = 900` — so `src/main/index.ts` keeps
+    `minWidth: 900` and was not edited.
+  - Measured over CDP on the built app with `Emulation.setDeviceMetricsOverride`, the same
+    `.col-msg` measurement GR-011 used (before values from that review):
+
+    | window | stored | left | detail | graph | `.col-msg` before | after |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 900 | defaults | 160 | 300 | 440 | **54** | **214** |
+    | 1400 | 420 / 720 | 420 | 540 | 440 | **34** | **214** |
+    | 900 | 420 / 720 | 160 | 300 | 440 | 10 (panel 240px off-screen) | **214** |
+
+    At 900 the detail panel's right edge is 900, inside the window, where GR-011 measured 1140. Widening
+    to 1600 restores the applied widths to 420 / 720, and `gitclient.leftPanelW` / `.detailPanelW` read
+    420 and 720 throughout, so nothing the user chose was thrown away. Screenshots looked at:
+    `docs/screenshots/gc105-900-default.png`, `gc105-900-maxpanels.png`, `gc105-1400-maxpanels.png`,
+    `gc105-1400-default.png` — the 900px rows now read "Remove obsolete file" rather than "Remo...", and
+    the `COMMIT MESSAGE` header is no longer clipped mid-word.
+  - `app.css` was listed in Files but needed no change: everything that reaches the CSS variables is now
+    inside the window, so no rule had to grow a fallback. Eight cases in a new
+    `src/renderer/src/ui/useDragWidth.test.ts` pin the fit itself, including a sweep from 900 to 1600 that
+    asserts the graph never drops below `MIN_GRAPH_W` and neither panel below its own minimum.
+  - Noted while working, too small to ticket: `RAIL_W = 44` in `App.tsx` repeats the `44px` of
+    `.left-panel.collapsed` in `app.css`, so the two have to be changed together.
 
 ### GC-106 The graph's incremental lane layout is never used: every page re-lays out the whole history
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-012
 - **Why:** GC-012 gave `layoutGraph` a third parameter, `prev: LaneState`, so a later page continues
@@ -5501,15 +5602,15 @@ decision is missing.
 - **Out of scope:** virtualising the layout itself, changing lane assignment, colour or ordering
   rules, and the `NEAR_END` / `PAGE_COMMITS` values.
 - **Acceptance:**
-  - [ ] `grep -rn 'layoutGraph\|LaneState' src/ | grep -v test` and the Graph section of `CLAUDE.md`
+  - [x] `grep -rn 'layoutGraph\|LaneState' src/ | grep -v test` and the Graph section of `CLAUDE.md`
         describe the same mechanism, with no unused export left.
-  - [ ] `lanes.test.ts` still proves that a history split at any row lays out identically to the
+  - [x] `lanes.test.ts` still proves that a history split at any row lays out identically to the
         whole, by whichever path the app now takes.
-  - [ ] If the incremental path was chosen: a test that appending a page to an existing layout gives
+  - [x] If the incremental path was chosen: a test that appending a page to an existing layout gives
         the same rows as laying out the concatenation, and that a *replaced* (not extended) commits
         array falls back to a full layout - a reload with a different hidden set must not be treated
         as an append.
-  - [ ] `npm test`, `npm run typecheck`, `npm run build` pass.
+  - [x] `npm test`, `npm run typecheck`, `npm run build` pass.
 - **Files:** `src/renderer/src/graph/lanes.ts`, `src/renderer/src/graph/CommitGraph.tsx`,
   `src/renderer/src/graph/lanes.test.ts`, `CLAUDE.md`.
 - **Verify:** `npm test`; the grep above; if the incremental path is taken, load a history past one
@@ -5519,6 +5620,82 @@ decision is missing.
     accurate about what it built; what it did not do is connect it, and `CLAUDE.md` was updated as
     though it had.
   - 2026-09-06 05:43 claimed
+  - 2026-09-06 06:25 done, **incremental path chosen**: the alternative was deleting a tested API and
+    rewriting the `CLAUDE.md` sentence to describe the weaker invariant. Connecting it costs about thirty
+    lines, keeps the documented mechanism true and removes the quadratic term, so there was no reason to
+    spend the deletion instead.
+  - `CommitGraph.tsx` gets `useLaneLayout(commits, pinnedSha)`: a ref caches the last
+    `(commits, pinned, layout)`, an unchanged pair returns the cached layout, an **extension** lays out
+    only `commits.slice(base.length)` with the previous `state` and concatenates the rows, and anything
+    else falls back to a full `layoutGraph`. The old rows are reused as objects; only the array holding
+    them is new, so a page no longer allocates a fresh `RowLayout` per commit already loaded.
+  - The append test is its own exported function rather than an inline condition: `continuesRange(prev,
+    next)` in `lanes.ts` checks that `next` is longer and that **both ends** of `prev` are still where
+    they were. Checking both ends is what catches a replacement that happens to be longer — a commit
+    removed from the middle moves the sha that used to sit last, a new commit at the top moves the first —
+    so a reload with a different hidden set is never mistaken for a page.
+  - Nine cases added to `lanes.test.ts` under `continuesRange (GC-106)`: it accepts an appended page and
+    rejects the same range, a shorter one, a longer one with a commit prepended, a longer one with a
+    commit removed from the middle, and anything against an empty range; plus the end-to-end shape, that
+    laying out a page and continuing it equals laying out the concatenation. The GC-012 property tests are
+    untouched and still pass. `npm test`: 147 tests, 16 files.
+  - The acceptance grep now shows the API used in production, not only in tests:
+    `CommitGraph.tsx` imports `continuesRange` and `layoutGraph` and calls `layoutGraph(page, pin,
+    prev.layout.state)`. Verified in the running app rather than by screenshot: the fixture is 8 commits,
+    far short of the 2000-commit `MAX_COMMITS` page boundary GC-012 photographed, so a page boundary
+    cannot be reached against it at all — the equivalence the tests prove is the stronger check, and
+    `npm run e2e` (29 steps, 151 assertions) draws the graph through the new path on every step.
+
+### GC-110 The ref column is clamped only against itself, so it can take the whole commit message
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-105
+- **Why:** GC-105 reserved `MIN_GRAPH_W` for the graph panel against the width of the window, which fixed
+  the two side panels. Inside that panel the same defect is one level down and untouched: the ref column
+  is `useDragWidth({ min: 100, max: 400 })` (GC-006), clamped against itself alone, and nothing checks it
+  against the panel it sits in. Measured over CDP on the built app at `7faaa02` + this batch, with
+  `gitclient.refColW=400` stored:
+
+  | window | graph panel | ref column | `.col-msg` | `.summary` |
+  | --- | --- | --- | --- | --- |
+  | 1400 | 780 | 400 | 304 | fine |
+  | 900 | 440 | 400 | **10** | **0** |
+
+  So at the app's own minimum window with the ref column dragged out, the commit message column is 10px
+  and the summary is not drawn at all — the graph is there, and the thing it exists to show is gone. It
+  takes a deliberate drag plus a narrow window, which is why it is P2 rather than GC-105's P1, but the
+  width persists in `localStorage`, so it survives the resize that reveals it.
+- **Scope:**
+  - Give the ref column the same treatment `fitPanels` gives the panels: a minimum for what follows it
+    (the message column, around 200px to match GC-105's own acceptance), and an applied width derived
+    from the graph panel's measured width, not only from the stored number.
+  - Bound the drag by the same rule, so the handle stops instead of squeezing the message away, and leave
+    the stored width untouched so widening the window or the panel brings it back — the pattern
+    `useDragWidth`'s `limit` option already exists for.
+  - The panel's width is not `window.innerWidth`, so it needs a measurement (a `ResizeObserver` on
+    `.graph-panel`, which `CommitGraph` already observes for virtualisation) rather than the
+    `useWindowWidth()` GC-105 uses.
+- **Out of scope:** the optional AUTHOR / DATE / TIME / SHA columns, which are `flex: none` at fixed
+  widths and have the same shape of problem but are off by default; changing `REF_COL_MIN`/`MAX` or the
+  double-click reset; GC-071, which is about the chip being unreadable at the column's *minimum* width.
+- **Acceptance:**
+  - [ ] With `gitclient.refColW=400` stored, at a 900px viewport `.col-msg` measures at least 200px and
+        the summary of the first row is drawn.
+  - [ ] Widening back to 1400 restores the full 400px ref column, and `gitclient.refColW` still reads 400
+        throughout.
+  - [ ] Dragging the handle at a narrow window stops rather than reducing `.col-msg` below its minimum.
+  - [ ] `npm test`, `npm run typecheck`, `npm run build` pass.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/ui/useDragWidth.ts`,
+  `src/renderer/src/styles/app.css`.
+- **Verify:** build, launch through `tools/launch-app.mjs`, and repeat the measurement in the table above
+  over CDP at 900 and 1400 with `refColW` stored at 400 and at its 150 default.
+- **Log:**
+  - 2026-09-06 06:25 proposed by GC-105 (this ticket): measuring the panels against the window made it
+    obvious the same question had never been asked one level in, and the 900px measurement above was
+    taken with GC-105's fix already in place — it does not fix this and was never meant to.
+
+---
 
 ### GC-107 A commit's file row cannot restore that file, only open the working-tree copy
 
@@ -5575,7 +5752,7 @@ decision is missing.
 
 ### GC-108 The repository-open path clears the status bar without owning it
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** S | **Priority:** P3
 - **Depends on:** GC-084
 - **Why:** GC-084 gave every `run()` call a busy token, so of two overlapping actions only the one
@@ -5591,14 +5768,23 @@ decision is missing.
 - **Out of scope:** refusing or queueing an open while an action runs, and the error path of
   `load()`, which GC-025 owns.
 - **Acceptance:**
-  - [ ] An action started before an `openPath()` no longer clears the bar while the open runs.
-  - [ ] A unit test in `App.test.tsx` alongside GC-084's, failing when the token is not applied.
+  - [x] An action started before an `openPath()` no longer clears the bar while the open runs.
+  - [x] A unit test in `App.test.tsx` alongside GC-084's, failing when the token is not applied.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/App.test.tsx`.
 - **Verify:** `npm test`, typecheck.
 - **Log:**
   - 2026-09-06 proposed by GC-084 (this ticket): giving `run()` a token made it plain that the two
     busies written outside it still have none.
   - 2026-09-06 05:43 claimed
+  - 2026-09-06 06:25 done: `takeBusy(label)` next to `busyToken` takes the token and sets the label,
+    answering an `owns()` the caller checks before clearing. All three writers go through it — the mount
+    effect, `openPath()` and `run()`, which loses its own inline copy — so whichever started last owns the
+    bar and only the owner takes it down.
+  - Test alongside GC-084's, in the same describe: Refresh, then Open repository while it is still
+    running; the refresh's reload lands first and the bar must still read "Loading repository", and only
+    the open clears it. Mutation check run rather than assumed — with `openPath` put back to
+    `setBusy('Loading repository')` and an unconditional `.finally(() => setBusy(null))`, the test fails
+    with `expected null to be 'Loading repository'`; restored, 25 dom tests pass.
 
 ---
 

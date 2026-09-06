@@ -16,6 +16,10 @@ const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const root = process.env.GITCLIENT_E2E_ROOT ?? join(tmpdir(), 'gitclient-e2e');
 const R = join(root, 'testrepo');
 const REMOTE = join(root, 'remote.git');
+// The second remote's own bare repository, empty in the fixture (GC-056). Step 17 adds it as
+// `upstream` through the UI; before it existed both remotes pointed at REMOTE, so every per-remote
+// assertion passed whichever one the push had actually reached.
+const REMOTE2 = join(root, 'remote2.git');
 const SHOTS = join(root, 'shots');
 // The branch-tip snapshot setup-testrepo.mjs writes (GC-076); a file rather than refs (GC-073).
 const BASELINE = join(root, '.e2e-baseline.json');
@@ -42,19 +46,49 @@ const LOCK_RETRIES = 5;
 // execFileSync is synchronous, so the wait between attempts has to be too.
 const sleepSync = (ms) => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+// Resolved once instead of a PATH walk per spawn, and `GIT_OPTIONAL_LOCKS=0` so the suite's own
+// `git status` reads the index rather than refreshing and rewriting it — this run makes 40-odd of
+// them against a fixture the app's watcher is already looking at, and every rewrite is a
+// `.git/index.lock` the watcher then reports back (GC-081). `where` is asked once and its answer
+// used only if it looks like a path, so a machine where it fails still runs on plain `git`.
+const GIT_EXE = (() => {
+  try {
+    const first = execFileSync(process.platform === 'win32' ? 'where' : 'which', ['git'], { encoding: 'utf8' }).split('\n')[0].trim();
+    return first.toLowerCase().endsWith('git.exe') || first.endsWith('/git') ? first : 'git';
+  } catch {
+    return 'git';
+  }
+})();
+const GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
+
+// Every spawn in this file goes through `gitRun`, so counting and timing it here covers `git` and
+// `gitMay` both (GC-081). The run prints the pair next to GC-080's total line, which is what makes
+// the cost of the suite's own verification a number a later change can be checked against rather
+// than the estimate the ticket started from. One call is one `gitRun`, not one spawn: a lock retry
+// is the same assertion costing more, and its wait belongs in the time it reports.
+let gitCalls = 0;
+let gitMs = 0;
+const gitLine = () => `git: ${gitCalls} calls, ${(gitMs / 1000).toFixed(1)}s`;
+
 /** Run git once, answering `{ out }` or `{ stderr }`, retrying only a lock the watcher will drop. */
 const gitRun = (args, cwd) => {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return { out: execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() };
-    } catch (e) {
-      const stderr = (e.stderr || e.message).toString().trim();
-      if (LOCKED_RE.test(stderr) && attempt < LOCK_RETRIES) {
-        sleepSync(200);
-        continue;
+  gitCalls++;
+  const started = Date.now();
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return { out: execFileSync(GIT_EXE, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: GIT_ENV }).trim() };
+      } catch (e) {
+        const stderr = (e.stderr || e.message).toString().trim();
+        if (LOCKED_RE.test(stderr) && attempt < LOCK_RETRIES) {
+          sleepSync(200);
+          continue;
+        }
+        return { stderr };
       }
-      return { stderr };
     }
+  } finally {
+    gitMs += Date.now() - started;
   }
 };
 
@@ -92,6 +126,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const baseline = new Map(Object.entries(existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : {}));
 if (baseline.size === 0) {
   console.error(`The test repository at ${R} predates the fixture baseline. Run: node tools/e2e/setup-testrepo.mjs`);
+  process.exit(2);
+}
+// The same staleness check for the second bare repository (GC-056): a fixture built before it
+// existed would take step 17 through a remote with no repository behind it, and fail there rather
+// than here with the one line that says what to do.
+if (!existsSync(REMOTE2)) {
+  console.error(`The test repository at ${R} predates the second remote (${REMOTE2}). Run: node tools/e2e/setup-testrepo.mjs`);
   process.exit(2);
 }
 
@@ -173,7 +214,7 @@ const bail = (e) => {
   }
   stopOnce();
   console.log(`\n1 FAILED (the run stopped here; screenshots in ${SHOTS})`);
-  console.log(`total: ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
+  console.log(`total: ${((Date.now() - runStart) / 1000).toFixed(1)}s | ${gitLine()}`);
   process.exit(1);
 };
 process.on('uncaughtException', bail);
@@ -523,7 +564,10 @@ const restoreFixture = () => {
   // staged README.md change and main.txt deletion and the tree holds the edits every step asserts
   // against, so a hard reset would undo the commits by gutting the fixture.
   for (let i = 0; i < RUN_COMMITS.length; i++) {
-    if (!RUN_COMMITS.some((re) => re.test(git(['log', '-1', '--format=%s'])))) break;
+    // One read per iteration, not one per pattern: the call used to sit inside the `some`
+    // callback, so it spawned git once for every regex in RUN_COMMITS (GC-081).
+    const subject = git(['log', '-1', '--format=%s']);
+    if (!RUN_COMMITS.some((re) => re.test(subject))) break;
     git(['reset', '--soft', 'HEAD^']);
   }
   for (const f of git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean)) {
@@ -544,10 +588,17 @@ const restoreFixture = () => {
   for (const b of git(['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads'], REMOTE).split('\n').filter(Boolean)) {
     if (!baseline.has(b)) git(['update-ref', '-d', `refs/heads/${b}`], REMOTE);
   }
+  // remote2.git is empty in the fixture (GC-056), so anything in it is a branch step 17 pushed
+  // there and a run that died before its clean-up left behind — and the next run's exclusive
+  // assertion would read it as the push having gone to the wrong place.
+  for (const r of git(['for-each-ref', '--format=%(refname)', 'refs/heads'], REMOTE2).split('\n').filter(Boolean)) {
+    git(['update-ref', '-d', r], REMOTE2);
+  }
   // steps 9 and 10 push main to the bare origin. Write the ref rather than force-pushing: the remote
   // is ours and a rewind is not a push any step performs.
-  if (git(['rev-parse', 'refs/heads/main'], REMOTE) !== git(['rev-parse', 'main'])) {
-    git(['update-ref', 'refs/heads/main', git(['rev-parse', 'main'])], REMOTE);
+  const mainSha = git(['rev-parse', 'main']);
+  if (git(['rev-parse', 'refs/heads/main'], REMOTE) !== mainSha) {
+    git(['update-ref', 'refs/heads/main', mainSha], REMOTE);
   }
   git(['fetch', '-q', 'origin', '--prune']);
   // the second clone step 10 makes to commit from, which it clones fresh every run
@@ -621,7 +672,8 @@ const emptyOk = String(await ev(`(() => { const b = document.querySelector('.mod
 check('Stash OK stays enabled on an empty message', emptyOk === 'enabled', emptyOk);
 log(await act(() => modalOk()));
 const autoMessage = git(['stash', 'list', '-1', '--format=%gs']);
-check("empty message stashes under git's own WIP message", /^WIP on /.test(autoMessage) && status() === '', `${autoMessage} | ${status()}`);
+const afterAutoStash = status();
+check("empty message stashes under git's own WIP message", /^WIP on /.test(autoMessage) && afterAutoStash === '', `${autoMessage} | ${afterAutoStash}`);
 // put the mixed working tree back exactly as it was so the named stash below sees the same state
 git(['stash', 'pop', '--index', '-q']);
 log(await act(() => tool('Refresh')));
@@ -631,7 +683,8 @@ await waitModal();
 log(await modal(NAMED_STASH, true));
 await shot('modal-stash.png');
 log(await act(() => modalOk()));
-check('stash created and tree clean', git(['stash', 'list']).includes(NAMED_STASH) && status() === '', status());
+const afterNamedStash = status();
+check('stash created and tree clean', git(['stash', 'list']).includes(NAMED_STASH) && afterNamedStash === '', afterNamedStash);
 
 step(6, 'merge with a real conflict, then abort');
 git(['checkout', '-qb', 'conflict-branch']);
@@ -644,12 +697,14 @@ log(await act(() => tool('Refresh')));
 log(await contextMenuOn('.left-panel .ref-row', 'conflict-branch'));
 log(await act(() => menuClick('Merge conflict-branch into main')));
 s = await state();
-check('conflict reported by git', status().includes('UU a.txt'), status());
+const conflicted = status();
+check('conflict reported by git', conflicted.includes('UU a.txt'), conflicted);
 check('conflict banner shown', !!s.banner && /merge in progress/.test(s.banner), s.banner ?? '');
 check('conflict error shown', !!s.err && /conflict/i.test(s.err), s.err ?? '');
 await shot('merge-conflict.png');
 log(await act(() => clickBanner('/Abort/')));
-check('merge aborted', !existsSync(join(R, '.git', 'MERGE_HEAD')) && status() === '', status());
+const afterAbort = status();
+check('merge aborted', !existsSync(join(R, '.git', 'MERGE_HEAD')) && afterAbort === '', afterAbort);
 
 step(7, 'cherry-pick a fresh commit onto main');
 git(['checkout', '-q', 'wip-branch']);
@@ -664,7 +719,8 @@ check('cherry-pick applied', git(['log', '--oneline', '-1']).includes('Pickable 
 
 step(8, 'pop stash via toolbar');
 log(await act(() => tool('Pop')));
-check('stash popped', git(['stash', 'list']) === '' && status().includes('README.md'), status());
+const afterPop = status();
+check('stash popped', git(['stash', 'list']) === '' && afterPop.includes('README.md'), afterPop);
 // GC-082: the stash step 5 made held a staged README.md edit and a staged main.txt deletion, and a
 // pop without --index used to hand both back as working-directory changes, silently costing the
 // user their staging. `git status --short` marks a staged path in the first column.
@@ -778,13 +834,15 @@ const discardModal = String(await modal(null, null));
 check('confirm modal replaced the native dialog and names the file', discardModal.includes(`Delete ${scratch}?`), discardModal);
 await shot('modal-discard-file.png');
 log(await act(() => modalOk()));
-check('untracked file deleted after confirming', !existsSync(join(R, scratch)) && !status().includes(scratch), status());
+const afterDiscard = status();
+check('untracked file deleted after confirming', !existsSync(join(R, scratch)) && !afterDiscard.includes(scratch), afterDiscard);
 
 step(15, 'checkout guard: clean and untracked-only trees are silent, Cancel is inert, Stash and check out re-applies');
 // park the working tree so the clean-tree path can be exercised, restored at the end of the step
 git(['stash', 'push', '-u', '-q', '-m', GUARD_STASH]);
 log(await act(() => tool('Refresh')));
-check('tree parked before the clean-tree checkout', status() === '', status());
+const parked = status();
+check('tree parked before the clean-tree checkout', parked === '', parked);
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
 log(await menuClick('Checkout wip-branch'));
 // a prompt from the guard would be up before the checkout ever ran, so the new branch reaching the
@@ -828,16 +886,19 @@ log(await modalClick('Cancel'));
 // the dialog has to be gone before the next one opens, or the wait for it would pass on this one
 await waitNoModal();
 await waitIdle();
-check('cancel leaves HEAD and the tree untouched', git(['branch', '--show-current']) === 'main' && status() === dirtyBefore, `${git(['branch', '--show-current'])} | ${status()}`);
+const afterCancel = { branch: git(['branch', '--show-current']), tree: status() };
+check('cancel leaves HEAD and the tree untouched', afterCancel.branch === 'main' && afterCancel.tree === dirtyBefore, `${afterCancel.branch} | ${afterCancel.tree}`);
 
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
 log(await menuClick('Checkout wip-branch'));
 await waitModal();
 log(await act(() => modalClick('Stash and check out')));
+// One read of each, used by both the condition and the detail (GC-081).
+const afterStashCheckout = { branch: git(['branch', '--show-current']), tree: status(), stashes: git(['stash', 'list']).split('\n').filter(Boolean).length };
 check(
   'stash and check out lands on the branch with the changes re-applied',
-  git(['branch', '--show-current']) === 'wip-branch' && status() === dirtyBefore && git(['stash', 'list']).split('\n').filter(Boolean).length === stashesBefore,
-  `${git(['branch', '--show-current'])} | ${status()} | stashes=${git(['stash', 'list']).split('\n').filter(Boolean).length}`,
+  afterStashCheckout.branch === 'wip-branch' && afterStashCheckout.tree === dirtyBefore && afterStashCheckout.stashes === stashesBefore,
+  `${afterStashCheckout.branch} | ${afterStashCheckout.tree} | stashes=${afterStashCheckout.stashes}`,
 );
 // restore what this step parked so the run stays re-entrant, the tracked edit included: every later
 // step compares against the mixed working tree the stash is about to put back, and nothing else
@@ -916,7 +977,10 @@ sr = JSON.parse(await searchState());
 check('Escape closes the search bar and clears the dimming', sr.open === false && sr.dimmed === 0, JSON.stringify(sr));
 
 step(17, 'remotes: add and fetch, rename, edit URL, remove');
-const remoteUrl = REMOTE.replace(/\\/g, '/');
+// `upstream` is the *second* bare repository, not another name for origin's (GC-056): with both
+// pointing at the same one, "the chosen remote received the branch" below would have passed just
+// as well if the push had gone to origin.
+const remoteUrl = REMOTE2.replace(/\\/g, '/');
 log(await sectionAction('Add remote'));
 await waitModal();
 log(await modal('upstream', null));
@@ -926,7 +990,14 @@ log(await modalOk());
 await waitFor(`document.querySelector('.modal h3')?.textContent === 'Add remote upstream'`, 'the URL prompt to replace the name prompt');
 log(await modal(remoteUrl, null));
 log(await act(() => modalOk()));
-check('remote added and fetched', git(['remote']).split('\n').includes('upstream') && git(['for-each-ref', '--format=%(refname)', 'refs/remotes/upstream']).includes('refs/remotes/upstream/main'), git(['remote', '-v']).replace(/\n/g, ' '));
+// An empty bare repository has no branches, so there is no `refs/remotes/upstream/main` to look
+// for any more (GC-056); what the fetch has to have produced is the remote itself, at the URL the
+// dialog was given.
+check(
+  'remote added at the URL it was given',
+  git(['remote']).split('\n').includes('upstream') && git(['remote', 'get-url', 'upstream']).replace(/\\/g, '/') === remoteUrl,
+  git(['remote', '-v']).replace(/\n/g, ' '),
+);
 check('the new remote shows in the left panel', String(await ev(`[...document.querySelectorAll('.left-panel .ref-row.remote-group .row-name')].map(x => x.textContent).join(',')`)).includes('upstream'));
 await shot('remotes-added.png');
 
@@ -937,12 +1008,16 @@ log(await contextMenuOn('.left-panel .ref-row', 'push-target'));
 const pushMenu = await menuList();
 check('branch menu lists a push entry per remote', /Push push-target to origin/.test(pushMenu) && /Push push-target to upstream/.test(pushMenu), pushMenu);
 log(await act(() => menuClick('Push push-target to upstream')));
+// Exclusive, now that the two remotes are two repositories (GC-056): the branch is on the remote
+// that was chosen and on no other. Pointing this push back at origin fails the second half.
+const onUpstream = git(['ls-remote', 'upstream', 'push-target']);
+const onOrigin = git(['ls-remote', 'origin', 'push-target']);
 check(
-  'the chosen remote received the branch',
-  git(['ls-remote', 'upstream', 'push-target']).includes(git(['rev-parse', 'push-target'])),
-  git(['ls-remote', 'upstream', 'push-target']) || '(nothing on upstream)',
+  'the chosen remote received the branch, and only that remote',
+  onUpstream.includes(git(['rev-parse', 'push-target'])) && onOrigin === '',
+  `upstream: ${onUpstream || '(nothing)'} | origin: ${onOrigin || '(nothing)'}`,
 );
-gitMay(['push', '-q', 'origin', '--delete', 'push-target']);
+gitMay(['push', '-q', 'upstream', '--delete', 'push-target']);
 git(['branch', '-D', 'push-target']);
 log(await act(() => tool('Refresh')));
 
@@ -1064,7 +1139,8 @@ await shot('file-row-menu.png');
 log(await menuClick('Stage file'));
 await inGroup('Staged Files', MENU_FILE);
 await waitIdle();
-check('Stage file from the row menu stages it', shortOf(MENU_FILE) === `M  ${MENU_FILE}`, shortOf(MENU_FILE));
+const staged19 = shortOf(MENU_FILE);
+check('Stage file from the row menu stages it', staged19 === `M  ${MENU_FILE}`, staged19);
 
 log(await contextMenuOn('.detail-panel .file-row', MENU_FILE));
 const stagedFileMenu = await menuList();
@@ -1072,7 +1148,8 @@ check('a staged row offers Unstage and neither Stage nor Discard', /Unstage file
 log(await menuClick('Unstage file'));
 await inGroup('Unstaged Files', MENU_FILE);
 await waitIdle();
-check('Unstage file from the row menu unstages it again', shortOf(MENU_FILE) === `M ${MENU_FILE}`, shortOf(MENU_FILE));
+const unstaged19 = shortOf(MENU_FILE);
+check('Unstage file from the row menu unstages it again', unstaged19 === `M ${MENU_FILE}`, unstaged19);
 
 // put the file back so the run stays re-entrant
 git(['checkout', '-q', '--', MENU_FILE]);
@@ -1097,7 +1174,8 @@ await inGroup('Unstaged Files', COMMIT_FILE);
 log(await stageRow(COMMIT_FILE));
 await inGroup('Staged Files', COMMIT_FILE);
 await waitIdle();
-check('the row Stage button stages the file', shortOf(COMMIT_FILE) === `A  ${COMMIT_FILE}`, shortOf(COMMIT_FILE));
+const staged20 = shortOf(COMMIT_FILE);
+check('the row Stage button stages the file', staged20 === `A  ${COMMIT_FILE}`, staged20);
 
 log(await setField('.commit-form .summary-wrap input', COMMIT_SUMMARY));
 log(await setField('.commit-form textarea', COMMIT_BODY));
@@ -1118,7 +1196,8 @@ await waitFor(
 );
 await waitIdle();
 check('Ctrl+Enter commits the summary and the description', git(['log', '-1', '--format=%B']) === `${COMMIT_SUMMARY}\n\n${COMMIT_BODY}`, git(['log', '-1', '--format=%B']).replace(/\n/g, ' | '));
-check('the committed file left the staging list', !status().includes(COMMIT_FILE), status());
+const afterCommit = status();
+check('the committed file left the staging list', !afterCommit.includes(COMMIT_FILE), afterCommit);
 // the prefill below only fires on an empty form, so a commit that silently did nothing would leave
 // the typed summary sitting there and the amend assertion would pass for the wrong reason
 const cleared = JSON.parse(await ev(`JSON.stringify({ summary: document.querySelector('.commit-form .summary-wrap input')?.value ?? null, body: document.querySelector('.commit-form textarea')?.value ?? null })`));
@@ -1149,7 +1228,8 @@ git(['reset', '--soft', headBefore]);
 git(['reset', '-q', '--', COMMIT_FILE]);
 rmSync(join(R, COMMIT_FILE), { force: true });
 log(await act(() => tool('Refresh')));
-check('the commit step left the repository as it found it', git(['rev-parse', 'HEAD']) === headBefore && status() === statusBefore, `${status()} | expected ${statusBefore}`);
+const afterCommitStep = status();
+check('the commit step left the repository as it found it', git(['rev-parse', 'HEAD']) === headBefore && afterCommitStep === statusBefore, `${afterCommitStep} | expected ${statusBefore}`);
 
 step(21, 'hunk staging: Stage hunk, Unstage hunk, and a Discard hunk that is cancelled');
 // GC-062. `git apply --cached --recount` on a patch rebuilt by `buildHunkPatch` had no coverage
@@ -1208,10 +1288,11 @@ check('the discard prompt offers Cancel and Discard hunk', String(await modalBut
 log(await modalClick('Cancel'));
 await waitNoModal();
 await waitIdle();
+const afterHunkStep = status();
 check(
   'cancelling the discard leaves the working tree exactly as it was',
-  git(['diff', '--', HUNK_FILE]) === unstagedDiff && status() === hunkStatusBefore,
-  `${status()} | expected ${hunkStatusBefore}`,
+  git(['diff', '--', HUNK_FILE]) === unstagedDiff && afterHunkStep === hunkStatusBefore,
+  `${afterHunkStep} | expected ${hunkStatusBefore}`,
 );
 await escape();
 await waitFor(`!document.querySelector('.file-view')`, 'the diff to close');
@@ -1467,7 +1548,8 @@ await shot('14-ignore-menu.png');
 log(await act(() => menuClick('Ignore file'), 'ignore new.txt'));
 check('the pattern is rooted at the repository', readFileSync(GITIGNORE, 'utf8') === '/new.txt\n', JSON.stringify(readFileSync(GITIGNORE, 'utf8')));
 check('git agrees the file is ignored', gitMay(['check-ignore', '-v', 'new.txt']).includes('/new.txt'), gitMay(['check-ignore', '-v', 'new.txt']));
-check('the row leaves Unstaged and .gitignore takes its place', status() === statusBeforeIgnore.replace('?? new.txt', '?? .gitignore'), `${status()} | before ${statusBeforeIgnore}`);
+const afterIgnore = status();
+check('the row leaves Unstaged and .gitignore takes its place', afterIgnore === statusBeforeIgnore.replace('?? new.txt', '?? .gitignore'), `${afterIgnore} | before ${statusBeforeIgnore}`);
 check('the ignored row is gone from the staging list', (await ev(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === 'new.txt')`)) === false);
 // A .gitignore of its own is untracked too, so it offers the entries in turn.
 log(await contextMenuOn('.detail-panel .file-row', '.gitignore'));
@@ -1485,7 +1567,8 @@ log(await callIgnore('file'));
 check('an exact repeat adds no second line', readFileSync(GITIGNORE, 'utf8') === '/new.txt\n*.tmp\n*.txt\n', JSON.stringify(readFileSync(GITIGNORE, 'utf8')));
 rmSync(GITIGNORE, { force: true });
 log(await act(() => tool('Refresh'), "drop the step's .gitignore"));
-check('the step puts the fixture back as it found it', status() === statusBeforeIgnore, `${status()} | expected ${statusBeforeIgnore}`);
+const afterIgnoreStep = status();
+check('the step puts the fixture back as it found it', afterIgnoreStep === statusBeforeIgnore, `${afterIgnoreStep} | expected ${statusBeforeIgnore}`);
 
 step(28, 'the split diff: rows are aligned, and a hunk staged from it is the same patch as unified');
 // GC-014. The alignment itself is unit tested in parseDiff.test.ts; what only the running app shows
@@ -1545,7 +1628,8 @@ await waitDiff('Staged', 1, [HUNK_EDIT_2]);
 log(await hunkAction(0, 'Unstage hunk'));
 await waitFor(`!document.querySelector('.file-view')`, `the file view to close as ${HUNK_FILE} leaves the Staged group`);
 await waitIdle();
-check('the step leaves both edits unstaged, the way it found them', git(['diff', '--cached', '--', HUNK_FILE]) === '' && shortOf(HUNK_FILE) === `M ${HUNK_FILE}`, `${shortOf(HUNK_FILE)} | staged: ${git(['diff', '--cached', '--name-status', '--', HUNK_FILE]).replace(/\n/g, ' ') || 'none'}`);
+const hunkFileState = shortOf(HUNK_FILE);
+check('the step leaves both edits unstaged, the way it found them', git(['diff', '--cached', '--', HUNK_FILE]) === '' && hunkFileState === `M ${HUNK_FILE}`, `${hunkFileState} | staged: ${git(['diff', '--cached', '--name-status', '--', HUNK_FILE]).replace(/\n/g, ' ') || 'none'}`);
 log(await act(() => tool('Refresh')));
 
 step(29, 'the run leaves the fixture exactly as it found it');
@@ -1555,19 +1639,23 @@ step(29, 'the run leaves the fixture exactly as it found it');
 restoreFixture();
 const drift = [...baseline].filter(([b, sha]) => gitMay(['rev-parse', b]) !== sha).map(([b]) => b);
 const remoteDrift = [...baseline].filter(([b, sha]) => gitMay(['rev-parse', `refs/heads/${b}`], REMOTE) !== sha).map(([b]) => b);
+// Each range counted once, for the condition and the message both (GC-081).
+const headCount = git(['rev-list', '--count', 'HEAD']);
+const fixtureCount = git(['rev-list', '--count', baseline.get('main')]);
 check(
   'main carries the commits the fixture was built with and no more',
-  git(['rev-list', '--count', 'HEAD']) === git(['rev-list', '--count', baseline.get('main')]),
-  `${git(['rev-list', '--count', 'HEAD'])} commits, the fixture has ${git(['rev-list', '--count', baseline.get('main')])}` +
+  headCount === fixtureCount,
+  `${headCount} commits, the fixture has ${fixtureCount}` +
     ` | run: npm run e2e:setup${drift.length ? ' | drifted: ' + git(['log', '--oneline', `${baseline.get('main')}..HEAD`]).replace(/\n/g, ' ') : ''}`,
 );
 check('every branch is back on its baseline tip, here and on the bare origin', drift.length === 0 && remoteDrift.length === 0, `local: ${drift.join(', ') || 'none'} | origin: ${remoteDrift.join(', ') || 'none'}`);
-check('the working tree is the one the next run expects', status() === EXPECTED_STATUS, `${status()} | expected ${EXPECTED_STATUS}`);
+const finalTree = status();
+check('the working tree is the one the next run expects', finalTree === EXPECTED_STATUS, `${finalTree} | expected ${EXPECTED_STATUS}`);
 
 ws.close();
 stopOnce();
 console.log(`\n${failures === 0 ? 'ALL PASSED' : failures + ' FAILED'} (screenshots in ${SHOTS})`);
 // The run's own clock, so a speed change is measured in a ticket's log rather than estimated from
 // screenshot timestamps the way GC-080's ~55-60s baseline had to be (GC-080).
-console.log(`total: ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
+console.log(`total: ${((Date.now() - runStart) / 1000).toFixed(1)}s | ${gitLine()}`);
 process.exit(failures === 0 ? 0 : 1);

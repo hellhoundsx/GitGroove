@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent } from 'react';
 import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { defaultRemote } from '@shared/remotes';
-import { useDragWidth } from './ui/useDragWidth';
+import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type PanelFit } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
@@ -36,6 +36,16 @@ function readHidden(path: string): string[] {
 }
 /** Two hidden sets holding the same names in the same order (GC-099). */
 const sameNames = (a: string[], b: string[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
+// Both side panels' ranges, and the 44px the left panel occupies once it is an icon rail. They
+// are named because GC-105 needs them in three places: the two hooks, the drag limits each one
+// imposes on the other, and the fit that decides what is actually applied.
+const LEFT_DEF = 220;
+const LEFT_MIN = 160;
+const LEFT_MAX = 420;
+const DETAIL_DEF = 400;
+const DETAIL_MIN = 300;
+const DETAIL_MAX = 720;
+const RAIL_W = 44;
 const MAX_COMMITS = 2000;
 /** Commits appended each time the graph is scrolled near the end of what is loaded (GC-012). */
 const PAGE_COMMITS = 1000;
@@ -95,9 +105,39 @@ export function App(): JSX.Element {
   const [fileView, setFileView] = useState<FileViewSource | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   // Both side panels are draggable (GC-050); the widths are remembered state on their own keys,
-  // the way the ref column's is, and reach the panels as CSS variables on the app root.
-  const leftW = useDragWidth({ key: 'gitclient.leftPanelW', def: 220, min: 160, max: 420 });
-  const detailW = useDragWidth({ key: 'gitclient.detailPanelW', def: 400, min: 300, max: 720, dir: -1 });
+  // the way the ref column's is, and reach the panels as CSS variables on the app root. Each is
+  // also bounded by the window they sit in rather than by its own range alone (GC-105): `limit` is
+  // as far as a drag may go given the other panel, and `applied` below is what actually reaches the
+  // CSS variables. The two limits refer to each other, so each reads the other's width from a cache
+  // written at the end of this block rather than from a hook declared after it — only one panel is
+  // ever being dragged, so the other's width is steady and a single render's lag is invisible.
+  const winW = useWindowWidth();
+  const leftIsRail = leftCollapsed || fileView !== null;
+  const panelW = useRef<PanelFit>({ left: LEFT_DEF, detail: DETAIL_DEF });
+  const leftW = useDragWidth({
+    key: 'gitclient.leftPanelW',
+    def: LEFT_DEF,
+    min: LEFT_MIN,
+    max: LEFT_MAX,
+    limit: winW - panelW.current.detail - MIN_GRAPH_W,
+  });
+  const detailW = useDragWidth({
+    key: 'gitclient.detailPanelW',
+    def: DETAIL_DEF,
+    min: DETAIL_MIN,
+    max: DETAIL_MAX,
+    dir: -1,
+    limit: winW - (leftIsRail ? RAIL_W : panelW.current.left) - MIN_GRAPH_W,
+  });
+  panelW.current = { left: leftW.width, detail: detailW.width };
+  // A rail is a fixed 44px that ignores `--left-panel-w`, so at that point only the detail panel
+  // has anything to give: it is passed in as a zero-width panel with a zero floor.
+  const applied = fitPanels(
+    leftIsRail ? 0 : leftW.width,
+    detailW.width,
+    winW - (leftIsRail ? RAIL_W : 0),
+    { left: leftIsRail ? 0 : LEFT_MIN, detail: DETAIL_MIN },
+  );
   const [workdirVersion, setWorkdirVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +186,18 @@ export function App(): JSX.Element {
   const generation = useRef(0);
   /** Which `run()` call owns the status bar: the counterpart of `generation`, for the writes (GC-084). */
   const busyToken = useRef(0);
+  /**
+   * Take the status bar for one piece of work, answering whether that work still owns it. `run()`
+   * has taken a token since GC-084; the two "Loading repository" paths outside it — the mount
+   * effect and `openPath()` — did not, so opening a repository from the recents dropdown while an
+   * action was still running cleared the spinner the action had put up (GC-108). Whichever started
+   * last owns the bar, and only the owner may take it down.
+   */
+  const takeBusy = useCallback((label: string): (() => boolean) => {
+    const token = (busyToken.current += 1);
+    setBusy(label);
+    return () => busyToken.current === token;
+  }, []);
 
   // What the app has actually put on screen, as opposed to the invalidation counter above: bumped
   // every time a snapshot or a status is applied to state, whether that came from `run()`'s reload
@@ -264,9 +316,11 @@ export function App(): JSX.Element {
       .then((r) => setGitError(r.available ? null : r.error ?? null))
       .catch((e) => setGitError(msg(e)));
     if (repoPath) {
-      setBusy('Loading repository');
+      const owns = takeBusy('Loading repository');
       setError(null);
-      void load(repoPath).finally(() => setBusy(null));
+      void load(repoPath).finally(() => {
+        if (owns()) setBusy(null);
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -279,11 +333,13 @@ export function App(): JSX.Element {
       generation.current += 1;
       setFileView(null);
       setSelected(WIP);
-      setBusy('Loading repository');
+      const owns = takeBusy('Loading repository');
       setError(null);
-      await load(path).finally(() => setBusy(null));
+      await load(path).finally(() => {
+        if (owns()) setBusy(null);
+      });
     },
-    [load],
+    [load, takeBusy],
   );
 
   const openRepo = useCallback(async () => {
@@ -341,9 +397,7 @@ export function App(): JSX.Element {
       // The writes need an identity of their own, the way GC-068 gave the reads one (GC-084):
       // without it, of two actions overlapping, whichever finishes first clears the status bar
       // while the other is still running, and its own error lands over the other's state.
-      const token = (busyToken.current += 1);
-      const owns = (): boolean => busyToken.current === token;
-      setBusy(label);
+      const owns = takeBusy(label);
       setError(null);
       let failure: unknown = null;
       try {
@@ -373,7 +427,7 @@ export function App(): JSX.Element {
         if (opts.rethrow) throw failure;
       }
     },
-    [repo, load, refreshStatus],
+    [repo, load, refreshStatus, takeBusy],
   );
 
   // ---- hidden refs (GC-073) ----------------------------------------------------------
@@ -1160,7 +1214,7 @@ export function App(): JSX.Element {
   return (
     <div
       className={`app ${leftW.resizing || detailW.resizing ? 'resizing' : ''}`}
-      style={{ '--left-panel-w': `${leftW.width}px`, '--detail-panel-w': `${detailW.width}px` } as CSSProperties}
+      style={{ '--left-panel-w': `${applied.left}px`, '--detail-panel-w': `${applied.detail}px` } as CSSProperties}
     >
       <TitleBar repoName={snapshot?.info.name ?? null} onOpenRepo={openRepo} onRepoMenu={openRepoMenu} />
       <Toolbar

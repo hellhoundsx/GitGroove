@@ -259,6 +259,32 @@ describe('App keeps the status bar with the action that still owns it (GC-084)',
     expect(groupCount('Staged')).toBe(1);
   });
 
+  it('leaves the bar with a repository open started after it (GC-108)', async () => {
+    // The two "Loading repository" busies were written outside `run()` and took no token, so the
+    // action that started first still believed it owned the bar and took the open's spinner down
+    // with it — the same lie GC-084 fixed, from the other direction.
+    const OTHER = '/other';
+    (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = async () => OTHER;
+
+    await mount();
+    await settle(() => fireEvent.click(screen.getByTitle('Refresh')));
+    expect(busyLabel()).toBe('Refreshing');
+    expect(loads).toHaveLength(2);
+
+    await settle(() => fireEvent.click(screen.getByTitle('Open repository')));
+    expect(busyLabel()).toBe('Loading repository');
+    expect(loads).toHaveLength(3);
+    expect(loadArgs[2]?.path).toBe(OTHER);
+
+    // The refresh's reload lands while the open is still running. It no longer owns the bar.
+    await settle(() => loads[1]?.resolve(snapshot(UNSTAGED)));
+    expect(busyLabel()).toBe('Loading repository');
+
+    // The open owns it, so the open clears it.
+    await settle(() => loads[2]?.resolve(snapshot(UNSTAGED)));
+    expect(busyLabel()).toBeNull();
+  });
+
   it('does not raise the earlier action\'s error over the later one', async () => {
     await overlap();
 

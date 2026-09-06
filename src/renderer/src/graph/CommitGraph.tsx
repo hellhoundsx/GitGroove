@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react';
 import { Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus, Search, Tag, TriangleAlert, X } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus } from '@shared/types';
-import { layoutGraph, type RowLayout } from './lanes';
+import { continuesRange, layoutGraph, type GraphLayout, type RowLayout } from './lanes';
 import { GraphCell, LANE_W, ROW_H, laneColor, type WipDash } from './GraphCell';
 import { Icon } from '../ui/icons';
 import { initialsOf } from '../ui/avatars';
@@ -91,6 +91,41 @@ function localDateTime(iso: string): string {
   return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+/**
+ * The rows for the loaded range, laid out one page at a time rather than from scratch on every
+ * append (GC-106). `layoutGraph` has taken a `LaneState` since GC-012, so a later page continues
+ * the lanes the previous range left open; calling it that way here is what makes that true of the
+ * app and not only of `lanes.test.ts`, which is where the mechanism `CLAUDE.md` describes had been
+ * living. Only a strict **extension** of the range already laid out takes that path: a reload,
+ * another repository, a change of pin or of the hidden set all replace `commits` wholesale, and
+ * each of those falls back to laying out the whole array.
+ *
+ * The cache is a ref written during render, which is safe because the answer for a given
+ * `(commits, pinnedSha)` is the same whichever render asks for it — StrictMode's second render
+ * finds the identity it just stored and returns it untouched.
+ */
+function useLaneLayout(commits: Commit[], pinnedSha: string | null | undefined): GraphLayout {
+  const cache = useRef<{ commits: Commit[]; pinned: string | null; layout: GraphLayout } | null>(null);
+  const pin = pinnedSha ?? null;
+  const prev = cache.current;
+  if (prev && prev.commits === commits && prev.pinned === pin) return prev.layout;
+
+  // The pin seeds column 0 on the first page only, so a change of pin has to start again.
+  const base = prev && prev.pinned === pin ? prev.commits : null;
+
+  let layout: GraphLayout;
+  if (base !== null && continuesRange(base, commits)) {
+    const page = layoutGraph(commits.slice(base!.length), pin, prev!.layout.state);
+    // `page.laneCount` is carried in from the state it continues, so it is already the running
+    // maximum. The old rows are reused as they are: only the array holding them is new.
+    layout = { rows: prev!.layout.rows.concat(page.rows), laneCount: page.laneCount, state: page.state };
+  } else {
+    layout = layoutGraph(commits, pin);
+  }
+  cache.current = { commits, pinned: pin, layout };
+  return layout;
+}
+
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
@@ -98,7 +133,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   // The optional columns after the message; all off by default (GC-032).
   const cols = usePrefs().graphColumns;
   // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
-  const layout = useMemo(() => layoutGraph(commits, pinnedSha ?? headSha), [commits, headSha, pinnedSha]);
+  const layout = useLaneLayout(commits, pinnedSha ?? headSha);
   const refsBySha = useMemo(() => {
     const m = new Map<string, GitRef[]>();
     if (detached && headSha) m.set(headSha, [headChipFor(headSha)]);
