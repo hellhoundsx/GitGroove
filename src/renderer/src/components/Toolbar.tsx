@@ -35,6 +35,8 @@ interface Props extends ToolbarHandlers {
   onPullOpenChange(open: boolean): void;
   /** Opens the recent-repositories menu, anchored where the caller says (GC-044). */
   onRepoMenu(at: MenuAnchor): void;
+  /** Opens the branch list, anchored the same way (GC-088). */
+  onBranchMenu(at: MenuAnchor): void;
 }
 
 const PULL_MODES: { mode: PullMode; label: string }[] = [
@@ -100,7 +102,16 @@ export function Toolbar(p: Props): JSX.Element {
           <span className="value">{p.info?.name ?? '—'}</span>
         </button>
         {p.info && (
-          <div className="crumb">
+          // Drawn like the repository crumb since GC-044 and inert until GC-088: the same anchor,
+          // the same owner toggle, and the branch list hanging off its bottom-left corner.
+          <button
+            className="crumb as-button"
+            title="Switch branch"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              p.onBranchMenu({ clientX: r.left, clientY: r.bottom, owner: e.currentTarget });
+            }}
+          >
             <span className="caption">branch</span>
             <span className="value plain">
               {p.info.branch ?? 'detached HEAD'}
@@ -110,7 +121,7 @@ export function Toolbar(p: Props): JSX.Element {
                 </span>
               )}
             </span>
-          </div>
+          </button>
         )}
       </div>
       <div className="actions">

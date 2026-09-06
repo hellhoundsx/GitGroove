@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type {
@@ -15,6 +15,7 @@ import type {
   FileChangeKind,
   GitAvailability,
   GitRef,
+  IgnoreRequest,
   PullMode,
   PushRequest,
   Remote,
@@ -132,24 +133,39 @@ export async function getRepoInfo(cwd: string): Promise<RepoInfo> {
 
 const LOG_FORMAT = ['%H', '%P', '%an', '%ae', '%aI', '%cn', '%cI', '%s', '%b', '%D'].join(FIELD) + RECORD;
 
+/** The ref namespaces the graph draws, in the order the traversal walks them (GC-095). */
+const GRAPH_GLOBS = ['refs/heads/*', 'refs/remotes/*', 'refs/tags/*'];
+
 /**
- * `exclude` is a list of full ref names to keep out of the graph (GC-073). Each becomes an
- * `--exclude=` **before** `--all`, which is the only position git honours: the option applies to
- * the `--all` that follows it. A commit reachable from any ref that is still included keeps its
- * row, so hiding one of two branches over the same history removes nothing. HEAD comes in with
- * `--all` and is never excluded, so column 0 keeps the checked-out lineage whatever is hidden.
+ * What the graph traverses: the three namespaces `getRefs` lists, plus HEAD — not `--all`, which
+ * means every ref under `refs/` and so put rows in the graph that no chip and no left-panel row
+ * could account for: notes, a `refs/pull/*` fetch refspec, any tool's private namespace, and since
+ * GC-073 they could also keep a hidden branch's commits on screen with nothing saying why (GC-095).
+ * `refs/stash` is out by construction now rather than by name.
+ *
+ * `exclude` is a list of full ref names to keep out of the graph (GC-073), and each traversal
+ * option consumes the `--exclude=`s accumulated before it — so the list is repeated ahead of every
+ * glob, or only the first namespace would honour it. `--glob` matches those patterns against the
+ * full ref name, which is the form the renderer stores; `--branches`/`--tags` would match them
+ * relative to their own namespace and silently exclude nothing. A commit reachable from any ref
+ * that is still included keeps its row, so hiding one of two branches over the same history removes
+ * nothing. HEAD is a revision rather than a glob, so it is never excluded and column 0 keeps the
+ * checked-out lineage whatever is hidden; `--ignore-missing` covers the unborn branch, where HEAD
+ * resolves to nothing and git would otherwise refuse the whole traversal.
  */
 export async function getLog(cwd: string, maxCount = 500, exclude: string[] = []): Promise<Commit[]> {
   let out: string;
+  const excludes = exclude.map((r) => `--exclude=${r}`);
   try {
     out = await runGit(cwd, [
       'log',
-      '--exclude=refs/stash',
-      ...exclude.map((r) => `--exclude=${r}`),
-      '--all',
+      ...GRAPH_GLOBS.flatMap((g) => [...excludes, `--glob=${g}`]),
+      '--ignore-missing',
+      'HEAD',
       '--date-order',
       `--max-count=${maxCount}`,
       `--format=${LOG_FORMAT}`,
+      '--',
     ]);
   } catch (e) {
     if (e instanceof GitError && /does not have any commits|bad default revision|unknown revision/i.test(e.stderr)) return [];
@@ -435,6 +451,48 @@ export async function discard(cwd: string, req: DiscardRequest): Promise<void> {
   if (req.untracked.length) await runGit(cwd, ['clean', '-f', '-q', '--', ...req.untracked]);
 }
 
+/**
+ * The `.gitignore` line one of the row menu's three "Ignore …" entries writes (GC-093), or null
+ * when that entry does not apply to this path — no extension to match, or no folder above the
+ * repository root. A file and a folder pattern are rooted with a leading `/` so `build` at the top
+ * does not also ignore `src/build`; an extension pattern deliberately is not, because matching it
+ * anywhere is the whole point of asking for one.
+ */
+export function ignorePattern(rel: string, kind: IgnoreRequest['kind']): string | null {
+  const posix = rel.replace(/\\/g, '/').replace(/^\/+/, '');
+  const base = posix.split('/').pop() ?? '';
+  if (kind === 'extension') {
+    const dot = base.lastIndexOf('.');
+    // a leading dot is a dotfile's name, not an extension: ".gitignore" has nothing to generalise
+    return dot > 0 ? `*${base.slice(dot)}` : null;
+  }
+  if (kind === 'folder') {
+    const dir = posix.split('/').slice(0, -1).join('/');
+    return dir ? `/${dir}/` : null;
+  }
+  return `/${posix}`;
+}
+
+/**
+ * Append a pattern to the repository's root `.gitignore`, creating the file if it is not there
+ * (GC-093). An existing file that does not end in a newline gains one first, or the pattern would
+ * join the last line and neither would match. An exact repeat of a line already present is left
+ * alone, so asking twice is not an error and writes nothing.
+ */
+export async function ignore(cwd: string, req: IgnoreRequest): Promise<void> {
+  const pattern = ignorePattern(req.path, req.kind);
+  if (!pattern) throw new GitError(`There is nothing to ignore for ${req.path}`, ['ignore'], '', null);
+  const file = join(cwd, '.gitignore');
+  let text = '';
+  try {
+    text = await readFile(file, 'utf8');
+  } catch {
+    text = ''; // no .gitignore yet: the append creates it
+  }
+  if (text.split(/\r?\n/).some((l) => l.trim() === pattern)) return;
+  await appendFile(file, `${text.length && !text.endsWith('\n') ? '\n' : ''}${pattern}\n`, 'utf8');
+}
+
 /** Apply a unified diff to the index (cached) or the working tree, optionally in reverse. */
 export async function applyPatch(cwd: string, patch: string, opts: ApplyPatchOptions): Promise<void> {
   const args = ['apply', '--whitespace=nowarn', '--recount'];
@@ -468,20 +526,47 @@ export async function stashSave(cwd: string, req: StashSaveRequest): Promise<voi
   await runGit(cwd, args);
 }
 
+/** One git call, bound to a repository: what `restoreStashWith` runs and what a test replaces. */
+export type GitRunner = (args: string[]) => Promise<string>;
+
+/** The porcelain codes for an unmerged path — both sides of the pair, in either order. */
+const UNMERGED = /^(DD|AU|UD|UA|DU|AA|UU) /m;
+
+/** `git status --porcelain`, or null when even that fails. */
+async function statusOrNull(run: GitRunner): Promise<string | null> {
+  try {
+    return await run(['status', '--porcelain']);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Apply or pop a stash, index and all. Without `--index` git merges everything the stash held into
  * the working directory, so what the user had staged when they stashed comes back unstaged and the
- * staging is lost with no way back but redoing it by hand (GC-082). `--index` refuses when the
- * stashed index cannot be reinstated and applies nothing when it refuses, so the plain form is
- * retried — and the retry succeeding is reported rather than passed off as a clean result, because
- * the working directory came back and the staging did not.
+ * staging is lost with no way back but redoing it by hand (GC-082).
+ *
+ * `--index` fails in two ways that need opposite handling (GC-092). It can refuse before touching
+ * anything, when the stashed index will not go back on ("conflicts in index"), and then retrying
+ * the plain form is worth it: the working directory comes back, the staging does not, and saying so
+ * beats failing outright. Or it can merge, write conflict markers, keep the stash and exit non-zero
+ * — the common case of popping onto a tree that has moved on — and there a retry only fails again
+ * against the tree it has just conflicted, reporting `could not write index` in place of git's own
+ * conflict message. Which one happened is read off the repository state rather than the wording,
+ * which is stable across neither git versions nor locales: an unmerged entry, or any change to the
+ * status at all, means it applied.
  */
-async function restoreStash(cwd: string, verb: 'apply' | 'pop', index: number): Promise<string> {
+export async function restoreStashWith(run: GitRunner, verb: 'apply' | 'pop', index: number): Promise<string> {
   const ref = `stash@{${index}}`;
+  const before = await statusOrNull(run);
   try {
-    return await runGit(cwd, ['stash', verb, '-q', '--index', ref]);
-  } catch {
-    await runGit(cwd, ['stash', verb, '-q', ref]);
+    return await run(['stash', verb, '-q', '--index', ref]);
+  } catch (first) {
+    const after = await statusOrNull(run);
+    // No reading of the state is a reading that nothing happened: propagate git's own error
+    // rather than retrying an apply that may already be half done.
+    if (before === null || after === null || after !== before || UNMERGED.test(after)) throw first;
+    await run(['stash', verb, '-q', ref]);
     throw new GitError(
       `The stash was ${verb === 'pop' ? 'popped' : 'applied'} to the working directory, but what it had staged could not be put back in the index.`,
       ['stash', verb, ref],
@@ -490,6 +575,9 @@ async function restoreStash(cwd: string, verb: 'apply' | 'pop', index: number): 
     );
   }
 }
+
+const restoreStash = (cwd: string, verb: 'apply' | 'pop', index: number): Promise<string> =>
+  restoreStashWith((args) => runGit(cwd, args), verb, index);
 
 export const stashApply = (cwd: string, index: number): Promise<string> => restoreStash(cwd, 'apply', index);
 export const stashPop = (cwd: string, index: number): Promise<string> => restoreStash(cwd, 'pop', index);

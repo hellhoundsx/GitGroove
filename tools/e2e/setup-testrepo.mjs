@@ -98,6 +98,12 @@ git(['add', 'wip.txt']);
 git(['commit', '-qm', 'Work on wip branch']);
 git(['checkout', '-q', 'main']);
 
+// A ref outside heads, remotes and tags, so the suite covers what the graph traverses at all
+// (GC-095). `git notes` keeps its own commit under refs/notes/commits, and `git log --all` draws
+// that commit as a row with no chip and no left-panel row to account for it. The app asks for the
+// three namespaces it lists, plus HEAD, so this note must never reach the graph.
+git(['notes', 'add', '-m', 'a note whose own commit the graph must not draw']);
+
 // bare remote with every branch pushed and main tracking origin/main
 git(['init', '-q', '--bare', REMOTE], root);
 git(['symbolic-ref', 'HEAD', 'refs/heads/main'], REMOTE);

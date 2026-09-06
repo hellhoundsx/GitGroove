@@ -102,6 +102,15 @@ export interface WorkdirDiffRequest {
   untracked: boolean;
 }
 
+/** What an "Ignore …" row writes: the file itself, everything with its extension, or its folder (GC-093). */
+export type IgnoreKind = 'file' | 'extension' | 'folder';
+
+export interface IgnoreRequest {
+  /** Repository-relative path of the row the menu was opened on. */
+  path: string;
+  kind: IgnoreKind;
+}
+
 export interface DiscardRequest {
   tracked: string[];
   untracked: string[];
@@ -170,6 +179,7 @@ export interface GitApi {
   stageAll(repo: string): Promise<void>;
   unstageAll(repo: string): Promise<void>;
   discard(repo: string, req: DiscardRequest): Promise<void>;
+  ignore(repo: string, req: IgnoreRequest): Promise<void>;
   applyPatch(repo: string, patch: string, opts: ApplyPatchOptions): Promise<void>;
   commit(repo: string, req: CommitRequest): Promise<string>;
   // refs and history

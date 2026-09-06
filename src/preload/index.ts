@@ -29,6 +29,7 @@ const api: GitApi = {
   stageAll: call('workdir:stageAll'),
   unstageAll: call('workdir:unstageAll'),
   discard: call('workdir:discard'),
+  ignore: call('workdir:ignore'),
   applyPatch: call('workdir:applyPatch'),
   commit: call('workdir:commit'),
   checkout: call('ref:checkout'),

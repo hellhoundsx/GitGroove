@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent } from 'react';
-import type { CheckoutOptions, Commit, GitRef, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
+import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { defaultRemote } from '@shared/remotes';
 import { useDragWidth } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
@@ -15,6 +15,7 @@ import { setPrefs, usePrefs } from './prefs';
 import { matches } from './shortcuts';
 import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
+import type { MenuAnchor } from './ui/UiContext';
 
 const LAST_REPO_KEY = 'gitclient.lastRepo';
 /** Remembered state like `gitclient.lastRepo`, not a preference: the list of paths, newest first (GC-044). */
@@ -58,6 +59,11 @@ const isEditable = (t: EventTarget | null): boolean => t instanceof HTMLElement 
  * recreated is on disk again, and a staged edit the user then deleted is not.
  */
 const deletedFromTree = (e: StatusEntry): boolean => (e.unstaged ? e.unstaged === 'deleted' : e.staged === 'deleted');
+/** The ahead/behind a branch row shows, in the toolbar badge's arrows; null when it tracks nothing (GC-088). */
+const aheadBehind = (r: GitRef): string | null => {
+  const parts = [r.ahead ? `↑${r.ahead}` : '', r.behind ? `↓${r.behind}` : ''].filter(Boolean);
+  return parts.length ? parts.join(' ') : null;
+};
 /** Human-readable error text: strips Electron's IPC wrapper and the error class name. */
 const msg = (e: unknown): string =>
   (e instanceof Error ? e.message : String(e))
@@ -532,6 +538,49 @@ export function App(): JSX.Element {
     [prefs.confirmDirtyCheckout, repo, run, snapshot, ui],
   );
 
+  // git refuses to start a cherry-pick, a revert, a merge or a rebase while anything is staged: it
+  // prints its hint and stops before touching the repository, so the click looks valid and the only
+  // feedback is a line naming a fix the user has to leave the app for. Same shape as the checkout
+  // guard above — ask first, offer to stash — minus "continue anyway", which git would only refuse
+  // (GC-090). Untracked and unstaged-only trees are not in the way and are never asked about: git
+  // carries those into the action.
+  const runSequencer = useCallback(
+    async (what: string, label: string, action: () => Promise<unknown>): Promise<void> => {
+      const staged = (snapshot?.status.entries ?? []).filter((e) => e.staged !== null || e.unstaged === 'conflicted');
+      if (!staged.length) {
+        await run(label, action);
+        return;
+      }
+      const r = await ui.prompt({
+        title: 'Staged changes in the way',
+        message: `git refuses to ${what} while anything is staged, and you have ${staged.length} staged file${staged.length === 1 ? '' : 's'}. Stash them, ${what}, and put them back?`,
+        input: false,
+        okLabel: 'Stash and continue',
+      });
+      if (!r) return;
+      const stashMessage = `Before ${label.toLowerCase()}`;
+      await run(label, async () => {
+        await window.api.stashSave(repo!, { includeUntracked: true, message: stashMessage });
+        try {
+          await action();
+        } catch (e) {
+          // The action failed. When git stopped mid-operation — a conflicted cherry-pick, a rebase
+          // waiting to be continued — the stash stays where it is: a pop runs `git reset`, which
+          // removes CHERRY_PICK_HEAD and the rest, so putting the index back would quietly clear
+          // the state the user has to resolve or abort. Say where the changes are instead. With
+          // nothing in flight they go straight back, and a pop that cannot land leaves the stash in
+          // the list rather than losing it.
+          const after = await window.api.getStatus(repo!).catch(() => null);
+          if (after?.operation) throw new Error(`${msg(e)}\nYour staged changes are in the stash "${stashMessage}" until this ${after.operation} is finished or aborted.`);
+          await window.api.stashPop(repo!, 0).catch(() => undefined);
+          throw e;
+        }
+        await window.api.stashPop(repo!, 0);
+      });
+    },
+    [repo, run, snapshot, ui],
+  );
+
   const checkoutRef = useCallback(
     (r: GitRef): Promise<void> => {
       if (r.isHead) return Promise.resolve();
@@ -599,14 +648,14 @@ export function App(): JSX.Element {
         },
       });
       return {
-        cherryPick: { label: 'Cherry pick commit', disabled: !currentBranch, onClick: () => run(`Cherry-picking ${short}`, () => window.api.cherryPick(repo!, sha)) } as MenuItem,
-        revert: { label: 'Revert commit', disabled: !currentBranch, onClick: () => run(`Reverting ${short}`, () => window.api.revert(repo!, sha)) } as MenuItem,
+        cherryPick: { label: 'Cherry pick commit', disabled: !currentBranch, onClick: () => runSequencer('cherry-pick', `Cherry-picking ${short}`, () => window.api.cherryPick(repo!, sha)) } as MenuItem,
+        revert: { label: 'Revert commit', disabled: !currentBranch, onClick: () => runSequencer('revert', `Reverting ${short}`, () => window.api.revert(repo!, sha)) } as MenuItem,
         resets: [resetItem('soft', 'keep all changes staged'), resetItem('mixed', 'keep changes in the working directory'), resetItem('hard', 'discard all changes')],
         createTag: { label: 'Create tag here…', onClick: () => createTagAt(sha) } as MenuItem,
         copySha: { label: 'Copy commit sha', onClick: () => void navigator.clipboard.writeText(sha) } as MenuItem,
       };
     },
-    [createTagAt, currentBranch, repo, run, ui],
+    [createTagAt, currentBranch, repo, run, runSequencer, ui],
   );
 
   const refMenuItems = useCallback(
@@ -633,8 +682,8 @@ export function App(): JSX.Element {
       }
       items.push({ label: r.isHead ? `${r.name} is checked out` : `Checkout ${r.name}`, disabled: r.isHead, onClick: () => checkoutRef(r) });
       if (!r.isHead && currentBranch) {
-        items.push({ label: `Merge ${r.name} into ${cur}`, onClick: () => run(`Merging ${r.name}`, () => window.api.merge(repo!, r.name)) });
-        items.push({ label: `Rebase ${cur} onto ${r.name}`, onClick: () => run(`Rebasing onto ${r.name}`, () => window.api.rebase(repo!, r.name)) });
+        items.push({ label: `Merge ${r.name} into ${cur}`, onClick: () => runSequencer('merge', `Merging ${r.name}`, () => window.api.merge(repo!, r.name)) });
+        items.push({ label: `Rebase ${cur} onto ${r.name}`, onClick: () => runSequencer('rebase', `Rebasing onto ${r.name}`, () => window.api.rebase(repo!, r.name)) });
       }
       items.push({ separator: true });
       items.push({ label: `Create branch from ${r.name}…`, onClick: () => createBranchAt(r.name, r.name) });
@@ -692,7 +741,7 @@ export function App(): JSX.Element {
       items.push({ label: 'Copy branch name', onClick: () => void navigator.clipboard.writeText(r.name) });
       return items;
     },
-    [checkoutRef, createBranchAt, currentBranch, deleteBranch, pinBranch, pinned, repo, run, snapshot, ui, visibilityItems],
+    [checkoutRef, createBranchAt, currentBranch, deleteBranch, pinBranch, pinned, repo, run, runSequencer, snapshot, ui, visibilityItems],
   );
 
   const commitMenuItems = useCallback(
@@ -714,8 +763,8 @@ export function App(): JSX.Element {
         { label: 'Create branch here…', onClick: () => createBranchAt(c.sha, `commit ${short}`) },
         { label: 'Create tag here…', onClick: () => createTagAt(c.sha) },
         { separator: true },
-        { label: 'Cherry pick commit', disabled: !currentBranch, onClick: () => run(`Cherry-picking ${short}`, () => window.api.cherryPick(repo!, c.sha)) },
-        { label: 'Revert commit', disabled: !currentBranch, onClick: () => run(`Reverting ${short}`, () => window.api.revert(repo!, c.sha)) },
+        { label: 'Cherry pick commit', disabled: !currentBranch, onClick: () => runSequencer('cherry-pick', `Cherry-picking ${short}`, () => window.api.cherryPick(repo!, c.sha)) },
+        { label: 'Revert commit', disabled: !currentBranch, onClick: () => runSequencer('revert', `Reverting ${short}`, () => window.api.revert(repo!, c.sha)) },
         { separator: true },
         resetItem('soft', 'keep all changes staged'),
         resetItem('mixed', 'keep changes in the working directory'),
@@ -725,7 +774,7 @@ export function App(): JSX.Element {
         { label: 'Copy commit summary', onClick: () => void navigator.clipboard.writeText(c.summary) },
       ];
     },
-    [createBranchAt, createTagAt, currentBranch, repo, run, runCheckout, ui],
+    [createBranchAt, createTagAt, currentBranch, repo, run, runCheckout, runSequencer, ui],
   );
 
   const stashChanges = useCallback(async () => {
@@ -768,6 +817,13 @@ export function App(): JSX.Element {
   // status bar the way every other error does (GC-043).
   const inShell = useCallback((fn: () => Promise<void>) => void fn().catch((e: unknown) => setError(msg(e))), []);
 
+  // Writing the pattern is an action like any other, so it goes through `run()`: the status
+  // refreshes, the row leaves Unstaged and .gitignore itself turns up as the change (GC-093).
+  const ignoreFile = useCallback(
+    (path: string, kind: IgnoreKind): Promise<void> => run(`Ignoring ${path}`, () => window.api.ignore(repo!, { path, kind })),
+    [repo, run],
+  );
+
   const fileMenuItems = useCallback(
     (t: FileMenuTarget): MenuItem[] => {
       const path = t.source === 'wip' ? t.entry.path : t.file.path;
@@ -787,6 +843,22 @@ export function App(): JSX.Element {
             onClick: async () => (await ui.confirm(discardFileConfirm(e))) && actions.discard([e]).catch(() => undefined),
           });
         }
+        // Ignoring is offered on an untracked row and nowhere else: a tracked file is already in
+        // the index, where .gitignore has no say, so the entry would look like it did something
+        // and change nothing (GC-093). The two generalising rows are absent when they have nothing
+        // to say — a name with no extension, a file at the repository root.
+        if (t.group === 'unstaged' && e.unstaged === 'untracked') {
+          const dot = path.split('/').pop()?.lastIndexOf('.') ?? -1;
+          const folder = path.split('/').slice(0, -1).join('/');
+          items.push({ separator: true });
+          // The hints are bare paths, without the leading `/` and trailing `/` the patterns
+          // themselves carry: `.ctx-hint.path` ellipsises at the start by turning the box RTL, and
+          // a slash at either end of the string is a neutral character, so it is reordered to the
+          // opposite end — `/build/out/x.log` read as `build/out/x.log/` on screen (GC-067).
+          items.push({ label: 'Ignore file', hint: path, hintPath: true, onClick: () => void ignoreFile(path, 'file') });
+          if (dot > 0) items.push({ label: `Ignore all *${path.slice(path.lastIndexOf('.'))} files`, onClick: () => void ignoreFile(path, 'extension') });
+          if (folder) items.push({ label: 'Ignore this folder', hint: folder, hintPath: true, onClick: () => void ignoreFile(path, 'folder') });
+        }
         items.push({ separator: true });
       }
       // Both shell actions go through `repoFile()`, which refuses a path that is not in the
@@ -804,7 +876,7 @@ export function App(): JSX.Element {
       items.push({ label: 'Copy file path', hint: 'relative to the repository', onClick: () => void navigator.clipboard.writeText(path) });
       return items;
     },
-    [actions, inShell, repo, ui],
+    [actions, ignoreFile, inShell, repo, ui],
   );
 
   const addRemote = useCallback(async () => {
@@ -875,6 +947,38 @@ export function App(): JSX.Element {
       ui.openMenu(at, items);
     },
     [openPath, openRepo, recents, repoPath, ui],
+  );
+
+  // The branch crumb's dropdown: the quickest way to switch branches without hunting for the row
+  // in the left panel or the chip in the graph (GC-088). Rows are the branch names themselves, so
+  // the checked-out one is marked with the same check the left panel puts on its row rather than
+  // reworded, and every selection goes through `checkoutRef` — the dirty-tree guard, the stash
+  // offer and the tracking-branch path all come with it.
+  const openBranchMenu = useCallback(
+    (at: MenuAnchor) => {
+      const refs = snapshot?.refs ?? [];
+      const row = (r: GitRef): MenuItem => ({
+        label: r.isHead ? `✓ ${r.name}` : r.name,
+        hint: aheadBehind(r) ?? r.sha.slice(0, 7),
+        disabled: r.isHead,
+        onClick: () => void checkoutRef(r),
+      });
+      const items: MenuItem[] = [];
+      const locals = refs.filter((r) => r.kind === 'head');
+      const remotes = refs.filter((r) => r.kind === 'remote');
+      if (locals.length) {
+        items.push({ label: 'Local', caption: true });
+        for (const r of locals) items.push(row(r));
+      }
+      if (remotes.length) {
+        if (locals.length) items.push({ separator: true });
+        items.push({ label: 'Remote', caption: true });
+        for (const r of remotes) items.push(row(r));
+      }
+      if (!items.length) items.push({ label: 'No branches yet', disabled: true });
+      ui.openMenu(at, items);
+    },
+    [checkoutRef, snapshot, ui],
   );
 
   // ---- keyboard ----------------------------------------------------------------------
@@ -962,6 +1066,7 @@ export function App(): JSX.Element {
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenShortcuts={() => setShortcutsOpen(true)}
         onRepoMenu={openRepoMenu}
+        onBranchMenu={openBranchMenu}
         onPush={() => void run('Pushing', () => window.api.push(repo!, { setUpstream: !headRef?.upstream }))}
         onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
         onStash={() => void stashChanges()}

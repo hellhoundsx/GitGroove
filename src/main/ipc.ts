@@ -8,6 +8,8 @@ import type {
   CreateBranchRequest,
   CreateTagRequest,
   DiscardRequest,
+  IgnoreKind,
+  IgnoreRequest,
   PullMode,
   PushRequest,
   ResetMode,
@@ -39,6 +41,9 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: st
 
 const repoOf = (v: unknown): string => str(v, 'A repository path');
 
+/** The three patterns the row menu can write, validated like every other enum argument (GC-093). */
+const IGNORE_KINDS: readonly IgnoreKind[] = ['file', 'extension', 'folder'];
+
 /**
  * A repository-relative file path for the `shell:*` channels, resolved to an absolute one (GC-043).
  * Those two hand a path straight to the operating system, so the renderer is not trusted with it:
@@ -47,6 +52,15 @@ const repoOf = (v: unknown): string => str(v, 'A repository path');
  * too so a file that has since been deleted reports that rather than opening nothing.
  */
 function repoFile(repo: unknown, path: unknown): string {
+  return resolve(resolve(repoOf(repo)), repoRel(repo, path));
+}
+
+/**
+ * The same check, answering the repository-relative path instead of the absolute one: what
+ * `workdir:ignore` builds its pattern from, so a pattern can never be made out of a path that
+ * does not belong to this repository (GC-093).
+ */
+function repoRel(repo: unknown, path: unknown): string {
   const root = resolve(repoOf(repo));
   const rel = str(path, 'A file path');
   const full = resolve(root, rel);
@@ -55,7 +69,7 @@ function repoFile(repo: unknown, path: unknown): string {
   // different Windows drives, so neither is "inside".
   if (inside === '' || inside === '..' || inside.startsWith('../') || inside.startsWith('..\\') || isAbsolute(inside)) throw new Error(`Path is outside the repository: ${rel}`);
   if (!existsSync(full)) throw new Error(`File not found in the working tree: ${rel}`);
-  return full;
+  return inside.replace(/\\/g, '/');
 }
 
 export function registerIpc(): void {
@@ -96,6 +110,12 @@ export function registerIpc(): void {
   ipcMain.handle('workdir:discard', (_e, repo: unknown, req: unknown) => {
     const r = (req ?? {}) as Partial<DiscardRequest>;
     return git.discard(repoOf(repo), { tracked: r.tracked ? strs(r.tracked, 'tracked') : [], untracked: r.untracked ? strs(r.untracked, 'untracked') : [] });
+  });
+  ipcMain.handle('workdir:ignore', (_e, repo: unknown, req: unknown) => {
+    const r = (req ?? {}) as Partial<IgnoreRequest>;
+    // The path is validated the way the shell channels validate theirs, and the pattern is built
+    // from what comes back rather than from what the renderer sent (GC-093).
+    return git.ignore(repoOf(repo), { path: repoRel(repo, r.path), kind: oneOf(r.kind, IGNORE_KINDS, 'An ignore kind') });
   });
   ipcMain.handle('workdir:applyPatch', (_e, repo: unknown, patch: unknown, opts: unknown) => {
     const o = (opts ?? {}) as ApplyPatchOptions;

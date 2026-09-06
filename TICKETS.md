@@ -239,11 +239,12 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | done |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | done |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | done |
-| GC-092 | A conflicting stash pop reports "could not write index" instead of the conflict | actions | S | P1 | in-progress |
-| GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | in-progress |
-| GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | in-progress |
-| GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | in-progress |
-| GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | in-progress |
+| GC-092 | A conflicting stash pop reports "could not write index" instead of the conflict | actions | S | P1 | done |
+| GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | done |
+| GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | done |
+| GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | done |
+| GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | done |
+| GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -280,6 +281,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | todo |
 | GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | todo |
 | GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | todo |
+| GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
+| GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -4375,7 +4378,7 @@ decision is missing.
 
 ### GC-088 Branch breadcrumb dropdown: switch branches from the toolbar
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-066, GC-067
 - **Why:** The toolbar's breadcrumb is two controls in the study — `repository / name` and
@@ -4405,15 +4408,15 @@ decision is missing.
   list is long on a real repository), favourites, tags in the menu, the study's fixed 250px width
   (our menus size to content, capped at 420px).
 - **Acceptance:**
-  - [ ] Clicking the branch crumb on the fixture opens a menu with `Local` (feature, main marked,
+  - [x] Clicking the branch crumb on the fixture opens a menu with `Local` (feature, main marked,
         wip-branch) and `Remote` (origin/feature, origin/main, origin/wip-branch); a second click
         closes it; Escape closes it and nothing behind it.
-  - [ ] Choosing `feature` with the fixture's dirty tree raises the GC-004 prompt naming the files at
+  - [x] Choosing `feature` with the fixture's dirty tree raises the GC-004 prompt naming the files at
         risk; Cancel leaves `git rev-parse --abbrev-ref HEAD` at `main`; "Stash and check out" lands
         on `feature` with the tree re-applied (the e2e step 15 pattern).
-  - [ ] Choosing a remote branch with no local counterpart creates the tracking branch and checks it
+  - [x] Choosing a remote branch with no local counterpart creates the tracking branch and checks it
         out (`git branch -vv` shows `[origin/<name>]`).
-  - [ ] An e2e step covers the first two; `npm run e2e` passes.
+  - [x] An e2e step covers the first two; `npm run e2e` passes.
 - **Files:** `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/App.tsx` (an
   `openBranchMenu(at)` beside `openRepoMenu`), `src/renderer/src/styles/app.css` (the crumb's hover
   state), `tools/e2e/run.mjs`, `CLAUDE.md` (the "openPath / openRepoMenu" paragraph).
@@ -4423,6 +4426,8 @@ decision is missing.
   - 2026-09-06 proposed by GR-008: from the what's-next pass against `05-menus-shortcuts.md`
     "Toolbar dropdowns" — the one toolbar control in the study that ours draws but does not wire.
   - 2026-09-06 03:42 claimed
+  - 2026-09-06 04:15 done. The branch crumb is a `button.crumb.as-button` opening `openBranchMenu(at)` at its own bottom-left with `owner` set, so a second click closes it (GC-066). Captions `Local` and `Remote`, one row per branch named by the branch itself, the checked-out one labelled `✓ main` and disabled — the same check the left panel puts on its row — and each row's hint the ahead/behind in the toolbar badge's arrows, else the short sha. Every row goes through `checkoutRef`, so the dirty-tree guard, the stash offer and the tracking-branch path come with it and nothing new joins the Escape handler. e2e step 26 covers the menu's contents, the owner toggle, Escape closing exactly it, and the guard naming 3 files at risk with Cancel leaving HEAD on `main` (7 assertions); screenshot `docs/screenshots/gc-088-branch-crumb.png`.
+    The two criteria the fixture cannot show were driven over CDP against a throwaway repository in `%TEMP%`: choosing `origin/only-remote`, which has no local counterpart, created and checked out the tracking branch (`git branch -vv` → `* only-remote 55241c3 [origin/only-remote]`), and choosing `side` with a dirty tree took the "Stash and check out" offer, landing on `side` with `M  a.txt ?? .gitignore` re-applied and an empty stash list.
 
 
 ### GC-089 Slim CLAUDE.md back down to a handover: the history moves to the tickets
@@ -4512,7 +4517,7 @@ decision is missing.
 
 ### GC-090 A sequencer action with a dirty index fails with git's raw refusal
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** GC-082
 - **Why:** git refuses to start a cherry-pick, a revert, a merge or a rebase while anything is
@@ -4539,11 +4544,11 @@ decision is missing.
   cherry-pick when the files do not overlap, so it is not a refusal), the checkout guard itself,
   a preference to switch the prompt off.
 - **Acceptance:**
-  - [ ] Scratch repository with one staged file: Cherry pick commit prompts instead of running,
+  - [x] Scratch repository with one staged file: Cherry pick commit prompts instead of running,
         and Cancel leaves HEAD, the index and the working tree untouched.
-  - [ ] "Stash and continue" applies the cherry-pick and puts the staged file back staged.
-  - [ ] The same guard fires for Revert, Merge and Rebase; a clean index raises no prompt.
-  - [ ] `npm run e2e` passes with step 12's manual index parking removed.
+  - [x] "Stash and continue" applies the cherry-pick and puts the staged file back staged.
+  - [x] The same guard fires for Revert, Merge and Rebase; a clean index raises no prompt.
+  - [x] `npm run e2e` passes with step 12's manual index parking removed.
 - **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
 - **Verify:** typecheck, build, `npm run e2e`, and the three CDP checks above.
 - **Log:**
@@ -4551,6 +4556,9 @@ decision is missing.
     unguarded sequencer actions reachable in the fixture for the first time, and step 12 had to
     unstage the fixture's own staged half by hand to keep asserting what it asserts.
   - 2026-09-06 03:42 claimed
+  - 2026-09-06 04:15 done. One `runSequencer(what, label, action)` in `App.tsx` guards cherry-pick, revert, merge and rebase from both menus: with any staged or conflicted entry it asks first, naming the count, and offers Cancel / "Stash and continue" only. Verified over CDP in a throwaway repository — all four actions prompt with `1 staged file` and run nothing on Cancel (HEAD and the index unmoved), a clean index runs the merge with no prompt at all, and "Stash and continue" on a clean cherry-pick landed the commit, left `a.txt` staged again, no stash behind it and no error in the status bar. Screenshot `docs/screenshots/gc-090-sequencer-guard.png`.
+    One deviation from the scope, found by e2e step 12: the stash is **not** popped back when the action leaves git mid-operation. `git stash pop` runs `git reset` internally, which deletes `CHERRY_PICK_HEAD`, so putting the index back quietly cleared the in-progress state the banner and Abort exist for — the step's `cherry-pick in progress` assertion caught it. The guard now reads the status after a failure and, when `operation` is set, keeps the stash and says which stash holds the changes. That sentence reaches the status bar's tooltip only, because `headline()` shows one line: evidence for GC-091, which owns that, rather than a new ticket.
+    Step 12 no longer parks the fixture's staged half by hand: it drives the guard, asserts Cancel is inert, takes the stash offer to reach the already-applied cherry-pick, and pops the guard's stash back after the abort. The prologue pops a stranded `Before cherry-picking …` stash for a run that dies in between. `npm run e2e`: 28 steps, 143 assertions, ALL PASSED, twice in a row.
 
 
 ### GC-091 The status bar can only report a failure, so a partial success reads as one
@@ -4590,7 +4598,7 @@ decision is missing.
 
 ### GC-092 A conflicting stash pop reports "could not write index" instead of the conflict
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** GC-082 wrapped `stash apply` and `stash pop` in `restoreStash`, which tries
@@ -4622,11 +4630,11 @@ decision is missing.
 - **Out of scope:** re-classifying that message as a notice rather than an error (GC-091 owns
   that), conflict resolution UI, `stash branch`.
 - **Acceptance:**
-  - [ ] The scratch-repository sequence in Why pops with git's conflict message, not
+  - [x] The scratch-repository sequence in Why pops with git's conflict message, not
         "could not write index"; the conflicted file shows in the Conflicted group.
-  - [ ] The GC-082 case still reports that the staging could not be reinstated.
-  - [ ] A clean pop still restores the index (`git status --short` keeps its first column).
-  - [ ] A unit test over the decision, feeding `restoreStash` a fake runner: applied-with-conflict
+  - [x] The GC-082 case still reports that the staging could not be reinstated.
+  - [x] A clean pop still restores the index (`git status --short` keeps its first column).
+  - [x] A unit test over the decision, feeding `restoreStash` a fake runner: applied-with-conflict
         does not retry, refused-without-applying does.
 - **Files:** `src/main/git.ts`, a new or extended test beside it, `tools/e2e/run.mjs` if the
   conflicting pop is worth a step, `CLAUDE.md` (the GC-082 paragraph states the false premise).
@@ -4636,10 +4644,12 @@ decision is missing.
   - 2026-09-06 proposed by GR-009: measured in a scratch repository against e5b3b33; the retry
     destroys git's real error and reports one caused by the retry itself.
   - 2026-09-06 03:42 claimed
+  - 2026-09-06 04:15 done. `restoreStashWith(run, verb, index)` reads `git status --porcelain` before the `--index` attempt and again when it fails: an unmerged entry, or any change to the status at all, means it applied, and git's own error then propagates untouched; only an unchanged status retries the plain form. State, not wording, because neither survives a git version or a locale. Driven through the real module (an esbuild bundle of `git.ts`) against three scratch repositories in `%TEMP%`: (1) the Why sequence now rejects with git's `Index was not unstashed.` and leaves `UU f.txt`, `A  g.txt` and the stash in place — the same sequence against e5b3b33 retried the plain form and reported `error: could not write index` / `f.txt: needs merge`, measured side by side; (2) a stash whose staged half a later commit landed identically (`apply --cached` refuses, the 3-way merge is clean) still reports "…could not be put back in the index.", tree back, stash dropped; (3) a clean pop keeps its first column (`M  f.txt`, ` M h.txt`). Six unit tests over the decision with a fake runner in the new `src/main/git.test.ts`.
+    Two notes on the acceptance. `-q` suppresses git's CONFLICT line, so the message that reaches the status bar in case (1) is `Index was not unstashed.`, not a CONFLICT line — the conflicted file does show in the Conflicted group, which is the half that matters. And no e2e step: a conflicting pop leaves conflict markers and a kept stash in the fixture, which the restore step would have to unpick, for a decision the unit tests already pin down.
 
 ### GC-093 No way to ignore a file: the row menu cannot write .gitignore
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-043
 - **Why:** GC-043 gave every file row a context menu and explicitly left "Ignore file /
@@ -4667,15 +4677,15 @@ decision is missing.
   global excludes, un-ignoring, templates, ignoring from the commit file list (a committed file
   is tracked).
 - **Acceptance:**
-  - [ ] Right-clicking an untracked `new.txt` offers the three entries; right-clicking a tracked
+  - [x] Right-clicking an untracked `new.txt` offers the three entries; right-clicking a tracked
         modified file offers none of them.
-  - [ ] "Ignore file" appends `/new.txt`, the row leaves Unstaged, and `.gitignore` itself appears
+  - [x] "Ignore file" appends `/new.txt`, the row leaves Unstaged, and `.gitignore` itself appears
         as the untracked change.
-  - [ ] "Ignore all *.txt files" appends `*.txt`; a second invocation adds no duplicate line.
-  - [ ] A file with no extension shows no extension entry; a root-level file shows no folder entry.
-  - [ ] An existing `.gitignore` without a trailing newline gains one before the new pattern
+  - [x] "Ignore all *.txt files" appends `*.txt`; a second invocation adds no duplicate line.
+  - [x] A file with no extension shows no extension entry; a root-level file shows no folder entry.
+  - [x] An existing `.gitignore` without a trailing newline gains one before the new pattern
         rather than joining the last line.
-  - [ ] e2e step: ignore a scratch untracked file, assert `git check-ignore` agrees, then restore
+  - [x] e2e step: ignore a scratch untracked file, assert `git check-ignore` agrees, then restore
         `.gitignore` so the fixture is unchanged (step 25 must still pass).
 - **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
   `src/shared/types.ts`, `src/renderer/src/App.tsx` (`fileMenuItems`), `tools/e2e/run.mjs`.
@@ -4685,6 +4695,9 @@ decision is missing.
   - 2026-09-06 proposed by GR-009 (what's-next pass): the follow-up GC-043 invited, and the last
     common untracked-file action the row menu is missing.
   - 2026-09-06 03:42 claimed
+  - 2026-09-06 04:15 done. `workdir:ignore` appends to the repository's root `.gitignore`: `ignorePattern(rel, kind)` builds `/path`, `*.ext` or `/dir/`, `ignore()` creates the file when absent, adds the missing newline first and writes nothing for a line already there. The path is validated by `repoRel()` in `ipc.ts` — the containment check `repoFile()` already applied, refactored to share it — so the pattern is built from what the check returns, never from what the renderer sent, and `oneOf` validates the kind. The three entries appear in their own group on an **untracked** row only.
+    Acceptance, e2e step 27: an untracked `new.txt` offers file and `*.txt` and no folder entry, a tracked README.md offers none of them, `Ignore file` writes `/new.txt`, `git check-ignore -v` agrees, the row leaves Unstaged and `.gitignore` takes its place, a file with no trailing newline gains one before the next pattern, an exact repeat adds no second line, and the step removes `.gitignore` again so step 28 still passes. Over CDP in a throwaway repository: a name with no extension offers no extension entry, a nested `build/out/bundle.log` offers all three and `Ignore this folder` wrote `/build/out/`. Nine unit tests over `ignorePattern`. Screenshot `docs/screenshots/gc-093-ignore-menu.png`.
+    The hints are bare paths on purpose: `.ctx-hint.path` ellipsises at the start by turning the box RTL (GC-067), and a `/` at either end of the string is a neutral character, so it is reordered to the other end — `/build/out/bundle.log` first rendered as `build/out/bundle.log/`, seen in the screenshot and fixed before closing.
 
 ### GC-094 The left panel header counts refs and never says which branch is checked out
 
@@ -4729,7 +4742,7 @@ decision is missing.
 
 ### GC-095 The graph draws commits from refs the left panel never lists
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-073
 - **Why:** `getLog` runs `git log --all`, and `--all` means *every* ref under `refs/` plus HEAD —
@@ -4756,14 +4769,14 @@ decision is missing.
 - **Out of scope:** showing the other namespaces in the left panel, a preference for including
   them, stashes in the graph (deliberately excluded), submodules.
 - **Acceptance:**
-  - [ ] On a repository carrying a `refs/notes/commits` ref, the graph's commit rows equal
+  - [x] On a repository carrying a `refs/notes/commits` ref, the graph's commit rows equal
         `git log --branches --remotes --tags --oneline | wc -l` (plus HEAD's own lineage), and no
         row is present that no listed ref reaches.
-  - [ ] Hiding every ref that reaches a commit removes its row, with no residue from another
+  - [x] Hiding every ref that reaches a commit removes its row, with no residue from another
         namespace; the GC-073 e2e step still passes.
-  - [ ] catena-feed read-only: the row count before and after the change is compared and the
+  - [x] catena-feed read-only: the row count before and after the change is compared and the
         difference is explained by naming the refs responsible.
-  - [ ] `npm test` and `npm run e2e` pass.
+  - [x] `npm test` and `npm run e2e` pass.
 - **Files:** `src/main/git.ts`, possibly `tools/e2e/setup-testrepo.mjs` (a fixture ref in another
   namespace, so the suite covers this at all).
 - **Verify:** typecheck, build, `npm run e2e`, and the two git counts above on a repository with
@@ -4773,6 +4786,116 @@ decision is missing.
     the graph can show commits nothing on screen explains and hiding a branch can silently fail to
     remove its rows. Found when the fixture's own baseline refs did exactly that.
   - 2026-09-06 03:42 claimed
+  - 2026-09-06 04:15 done. `getLog` traverses `--glob=refs/heads/*`, `--glob=refs/remotes/*`, `--glob=refs/tags/*` and the revision `HEAD`, with `--ignore-missing` for the unborn branch, instead of `--all`. Two measurements decided the form: `--exclude=` accumulates only up to the *next* traversal option, so GC-073's list is repeated ahead of each glob (proved by a scratch repo where excluding a branch before `--branches` alone left it in), and `--branches`/`--tags` match an exclude pattern relative to their own namespace while `--glob` matches the full ref name the renderer stores — `--exclude=refs/heads/side --branches` excluded nothing. `refs/stash` needs no naming now; it is out by construction.
+    Acceptance: on a scratch repository carrying `refs/notes/commits` and a private `refs/e2e/baseline/*`, the graph drew 2 rows against `git log --branches --remotes --tags` = 2, with no notes row and no private-namespace row; hiding `refs/heads/side` and `refs/remotes/origin/side` removed `side work` entirely, with no residue from the other namespace. catena-feed, read-only (`log` and `for-each-ref` only): 881 rows before and 881 after — it carries refs/heads, refs/remotes and refs/tags and nothing else, which is the whole of the difference. The fixture now creates a git note so the suite covers this at all, and e2e step 25 asserts no row comes from it; its counts moved from `--all` to the same traversal the app uses.
+
+### GC-096 The branch crumb menu lists every branch, with nothing to narrow it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-088
+- **Why:** GC-088 wired the branch breadcrumb and left the study's search box out of scope, on the
+  grounds that a `MenuItem` hosting an input is a new UI primitive and the left panel's
+  `Filter refs` is the filter today. On the e2e fixture the menu is eight rows and reads well; on a
+  repository with fifty branches and their remotes it is a list nobody can use, and the control it
+  replaces — finding the row in the left panel — is the one with a filter. The study has the search
+  box at the top of this exact menu (`05-menus-shortcuts.md`, "Toolbar dropdowns").
+- **Scope:**
+  - A filter row at the top of the branch crumb's menu: a `MenuItem` kind that renders an input,
+    focused when the menu opens, narrowing the rows beneath it as it is typed (name substring, both
+    groups, captions hidden when their group empties).
+  - Enter checks the first remaining row out; Escape closes the menu, which is `App.tsx`'s Escape
+    and not a listener of its own.
+  - The rows stay what they are today, so nothing about `openBranchMenu` changes but the list it
+    hands over.
+- **Out of scope:** the same input in every other menu, fuzzy matching, favourites, remembering the
+  last filter, the study's fixed 250px width.
+- **Acceptance:**
+  - [ ] Typing narrows the list and hides a group's caption when that group has no rows left.
+  - [ ] Enter checks the first row out through `checkoutRef`, so the dirty-tree guard still applies.
+  - [ ] Escape closes exactly the menu, with the field focused and non-empty.
+  - [ ] A component test over the filtering, and an e2e step that types and lands on a branch.
+- **Files:** `src/renderer/src/ui/ContextMenu.tsx`, `src/renderer/src/App.tsx`,
+  `src/renderer/src/styles/app.css`, `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, `npm test`, `npm run e2e`, and a screenshot of the filtered menu.
+- **Log:**
+  - 2026-09-06 proposed by GC-088 (this ticket): the follow-up its Out of scope invited, filed now
+    that the menu exists and its length is a real repository's problem rather than a hypothetical.
+
+### GC-097 The sequencer guard stashes untracked files git never objected to
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P3
+- **Depends on:** GC-090
+- **Why:** GC-090's "Stash and continue" runs `stashSave({ includeUntracked: true })`, copied from
+  the checkout guard, where untracked files genuinely can be in the way. Here they cannot: git
+  refuses a cherry-pick, revert, merge or rebase for the **index**, and carries untracked files into
+  all four untouched. So the guard moves files it had no reason to move, and in the case GC-090
+  found — the action leaving git mid-operation, where the stash is deliberately kept — the user's
+  untracked files sit in that stash too, out of the working tree, until they pop it.
+- **Scope:**
+  - The guard stashes without `-u`, so untracked files stay where they are.
+  - Its message says what it will stash, in the same sentence that names the staged count.
+  - The checkout guard is not touched: its own reason for `-u` still holds.
+- **Out of scope:** `--keep-index`, stashing only the staged half (git has no such push), the
+  checkout guard, GC-091's message classification.
+- **Acceptance:**
+  - [ ] Scratch repository with a staged file and an untracked one: "Stash and continue" leaves the
+        untracked file on disk throughout, and the staged file comes back staged.
+  - [ ] The mid-operation case keeps only the staged half in the stash; the untracked file is still
+        in the working tree while the operation is in progress.
+  - [ ] `npm run e2e` passes: step 12's assertions on the fixture's untracked `new.txt` are
+        extended to say it never left.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, `npm run e2e`, and the two CDP checks above.
+- **Log:**
+  - 2026-09-06 proposed by GC-090 (this ticket): noticed while driving the guard — the stash it
+    makes is wider than the refusal it works around, and the mid-operation path makes that visible.
+
+### GC-098 A failed git call in the e2e suite is silent, so a lost race reads as a UI bug
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** `run.mjs`'s `git()` helper returns `GIT-ERROR: <stderr>` as a **string** when a command
+  fails, and almost every call site ignores what it returns — the fixture-mutating ones
+  (`checkout`, `add`, `commit`, `update-ref`) always do. Seen once in six consecutive runs while
+  closing GC-090: step 7's `git add` / `git commit` did not produce a commit, so the row it then
+  right-clicks was not in the graph, and the run reported "waited for the context menu on Pickable
+  commit" plus fourteen downstream failures across steps 7 and 12 — none of which named the actual
+  cause, and the run took 91s instead of 22s waiting for things that could never appear. The
+  fixture was left with an untracked `pick-<stamp>.txt` the epilogue does not clean, because the
+  file was never staged. The likely race is `.git/index.lock`: the app's watcher runs `git status`
+  on its own schedule 300ms after any change, and the suite writes to the same index with no retry —
+  but the suite threw the message away, so even that is a hypothesis rather than a reading.
+- **Scope:**
+  - `git()` throws on a non-zero exit, carrying the command and stderr, so a broken fixture call
+    stops the run where it happened. The handful of calls that legitimately expect failure — the
+    prologue's `branch -D`, `tag -d`, `remote remove`, `push --delete`, the `--abort`s — go through
+    an explicit `gitMay()` that keeps today's swallowing behaviour.
+  - A command that fails on `index.lock` (or `Unable to create`) is retried a few times over about
+    a second before it gives up, since the collision is with a watcher refresh that ends on its own.
+  - The prologue removes a stray `pick-*.txt` so a run that died mid-step-7 leaves nothing behind
+    (`RUN_FILE_RE` already names the pattern; only the untracked case is missed).
+- **Out of scope:** the app's watcher timing, retries anywhere in `src/`, GC-081's spawn count.
+- **Acceptance:**
+  - [ ] A deliberately broken fixture call (a bad ref name) ends the run with that command and
+        git's stderr in the message, at the step where it happened.
+  - [ ] The calls that are allowed to fail still pass through `gitMay()` and the prologue is still a
+        no-op on a clean fixture.
+  - [ ] A run against a repository holding a stale `.git/index.lock` retries and then reports the
+        lock by name rather than a missing row.
+  - [ ] `npm run e2e` passes three times in a row.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e` three times, plus the two injected-failure checks above.
+- **Log:**
+  - 2026-09-06 proposed by GC-090 (this ticket): one run in six failed this way while verifying the
+    batch; the next five passed unchanged. What made it expensive was not the flake but that the
+    suite reported everything except what went wrong.
+
+
+
+
 
 
 

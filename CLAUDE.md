@@ -120,15 +120,26 @@ last repository, whose path may be stale. Non-zero exit rejects with `GitError` 
 the last six stdout lines when stderr is empty — conflicts report on stdout. Invariants:
 
 - **The log is `--date-order`, deliberately**: it reproduces GitKraken's row order, where
-  topo-order groups branches into blocks and was wrong. `refs/stash` is excluded so stashes are not
-  anonymous rows. The renderer asks for 2000 commits (`MAX_COMMITS`).
-- `getLog(cwd, max, exclude)` puts one `--exclude=<fullName>` per hidden ref **ahead of** `--all`,
-  the only position git honours. A commit reachable from an included ref keeps its row; HEAD
-  arrives with `--all` and is never excluded.
+  topo-order groups branches into blocks and was wrong. The renderer asks for 2000 commits
+  (`MAX_COMMITS`).
+- **The graph traverses the namespaces the UI lists, never `--all`** (GC-095): `--glob=refs/heads/*`,
+  `--glob=refs/remotes/*`, `--glob=refs/tags/*` and the revision `HEAD`, with `--ignore-missing` so
+  an unborn HEAD is skipped rather than fatal. `--all` means every ref under `refs/`, which drew
+  rows no chip and no left-panel row could account for — notes, `refs/pull/*`, a tool's private
+  namespace — and kept a hidden branch's commits on screen with nothing saying why. `refs/stash` is
+  out by construction now, not by name.
+- `getLog(cwd, max, exclude)` repeats one `--exclude=<fullName>` per hidden ref **ahead of every
+  glob** (GC-073, GC-095): the accumulated excludes are consumed by the next traversal option, and
+  `--glob` is what matches them against the *full* ref name — `--branches`/`--tags` match relative
+  to their own namespace and would exclude nothing. A commit reachable from an included ref keeps
+  its row; HEAD is a revision, so it is never excluded.
 - **`stashApply` and `stashPop` pass `--index`**, or what was staged when the stash was made comes
-  back unstaged and is gone. `--index` applies nothing when it refuses, so `restoreStash` retries
-  the plain form and then **rejects**: the working directory came back and the staging did not, and
-  calling that a clean success is the loss all over again.
+  back unstaged and is gone. `--index` fails two ways that need opposite handling (GC-092), so
+  `restoreStashWith` reads `git status --porcelain` either side of the attempt rather than trusting
+  a message: an unmerged entry or any change to the status means it **applied** — the ordinary
+  conflicting pop — and git's own error propagates untouched; only an unchanged status means it
+  refused before touching anything, and then the plain form is retried and the result **rejected**,
+  because the working directory came back and the staging did not.
 - **A push with no remote named uses `defaultRemote(remotes)`** (`origin`, else the first remote).
   `src/shared/` is the only place code is shared both ways, so a menu label cannot promise a
   different remote from the one the push uses.
@@ -152,7 +163,9 @@ pure fs.
 `shell:*` is the group that never touches git: its two handlers live in `ipc.ts` itself, go through
 `repoFile()` — which resolves a repository-relative path against the repository and **refuses one
 landing outside it** (a `..`, an absolute path, another drive) or missing from the working tree —
-and are exposed as their own `window.shell` bridge, not as more of `window.api`. `repo:changed` is
+and are exposed as their own `window.shell` bridge, not as more of `window.api`. `repoRel()` is the
+same check answering the relative path, which is what `workdir:ignore` builds its `.gitignore`
+pattern from (GC-093), so a pattern can never be made out of a path outside the repository. `repo:changed` is
 the **one main → renderer push**, subscribed by a hand-written preload entry returning an
 unsubscribe.
 
@@ -179,6 +192,13 @@ unsubscribe.
   and check out" whenever a **tracked** file has staged, unstaged or conflicted changes. A tree
   holding only untracked files checks out silently — git carries those across untouched — and the
   prompt names the number of files actually at risk.
+- **Cherry-pick, revert, merge and rebase go through `runSequencer(what, label, action)`** (GC-090),
+  the same shape one step further on: git refuses all four outright while anything is staged, so the
+  guard asks first, naming the staged count, and offers Cancel or "Stash and continue" — never
+  "continue anyway", which git would only refuse. On failure the stash goes back **unless git
+  stopped mid-operation**: a pop runs `git reset`, which deletes `CHERRY_PICK_HEAD`, so putting the
+  index back would quietly clear the state the banner and Abort exist for; the error then says which
+  stash holds the changes.
 - Menus come from `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`,
   `remoteMenuItems` and `fileMenuItems`; `tipCommitActions(sha)` is the shared source for the
   commit actions the branch and commit menus both carry, so their wording cannot drift.
@@ -297,7 +317,10 @@ list). Every file row's context menu comes from `fileMenuItems`, whose Discard u
 `discardFileConfirm` — the same wording the row's `✕` button uses. An action that does not apply is
 **absent rather than disabled**; Discard is offered only in the unstaged group; and **both shell
 actions are disabled together on a row whose file is not in the working tree**, because
-`repoFile()` refuses a path that is not on disk and neither could do anything but fail.
+`repoFile()` refuses a path that is not on disk and neither could do anything but fail. The three
+"Ignore …" rows are offered on an **untracked** row only (GC-093) — a tracked file is in the index,
+where `.gitignore` has no say — and their hints are bare paths, because `.ctx-hint.path` ellipsises
+by turning the box RTL and a `/` at either end is reordered to the other one.
 
 ### Preferences and remembered state
 
@@ -374,7 +397,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-77 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+92 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -383,10 +406,11 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 26 steps, 117 assertions, ~21s.
+asserting against git after each step. 28 steps, 143 assertions, ~22s.
 
 The fixture (`setup-testrepo.mjs`) has a merge, a tag, three branches, a commit that deletes a
-file, a bare `origin`, and a mixed working tree covering every staging state. It records the branch
+file, a bare `origin`, a git note — a ref outside heads/remotes/tags, so the suite can tell that the
+graph never draws one (GC-095) — and a mixed working tree covering every staging state. It records the branch
 tips in `<root>/.e2e-baseline.json` — a **file**, not a ref namespace, because `git log --all`
 means every ref under `refs/` and a baseline ref kept a hidden branch's commits in the graph — and
 writes `<root>/.e2e-owner.json` with its pid, refusing to wipe a root whose marker belongs to a

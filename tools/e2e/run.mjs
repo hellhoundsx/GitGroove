@@ -342,6 +342,14 @@ for (let i = 0; i < 5; i++) {
 // step 5 parks the whole tree in an unnamed stash for a moment; pop it back if a run died there
 for (let i = 0; i < 5; i++) {
   if (!/^WIP on /.test(git(['stash', 'list', '-1', '--format=%gs']))) break;
+  log('popping the guard stash back: ' + git(['stash', 'pop', '--index']));
+}
+// step 12 drives the staged-index guard, which stashes the fixture's staged half, cherry-picks and
+// pops it back (GC-090). A run that died between the stash and the pop left it in the list, holding
+// the staged README.md edit and main.txt deletion every later step asserts against: pop it, index
+// and all, for the same reason the named stash below is popped rather than dropped.
+for (let i = 0; i < 3; i++) {
+  if (!/Before cherry-picking /.test(git(['stash', 'list', '-1', '--format=%gs']))) break;
   git(['stash', 'pop', '--index', '-q']);
 }
 // step 5 creates this named stash and step 8 pops it, asserting the list is then empty; a run that
@@ -353,6 +361,9 @@ for (let i = 0; i < 5; i++) {
   if (idx < 0) break;
   git(['stash', 'pop', '--index', '-q', `stash@{${idx}}`]);
 }
+// step 27 writes .gitignore through a file row's menu and removes it again (GC-093). The fixture
+// has none of its own, so whatever is there belongs to a run that died mid-step.
+rmSync(join(R, '.gitignore'), { force: true });
 // step 19 edits this file and stages it from its row's context menu, then unstages it and puts it
 // back (GC-043). a.txt is also part of the fixture's mixed working tree, so only the state that step
 // can leave behind is undone: it is the one step in the run that ever stages the file, and an
@@ -590,25 +601,49 @@ await waitModal();
 log(await act(() => modalOk()));
 check('tag deleted', !git(['tag']).split('\n').includes('t-test'));
 
-step(12, 'already-applied cherry-pick: error kept visible, in-progress banner, abort');
-// git refuses a sequencer operation outright while the index carries staged changes ("your local
-// changes would be overwritten by cherry-pick"), so the in-progress state this step exists to
-// assert cannot be reached with the fixture's staged half in place — which it is again now that a
-// pop restores the index (GC-082). Park it for the step and put it back exactly as it was: `add -A`
-// re-stages a modification and a deletion alike, main.txt being gone from the working tree.
+step(12, 'the staged-index guard, then an already-applied cherry-pick: error kept visible, in-progress banner, abort');
+// git refuses a cherry-pick outright while the index carries staged changes ("your local changes
+// would be overwritten by cherry-pick"), and the fixture's staged half is back in place now that a
+// pop restores the index (GC-082). This step used to park that half by hand; the app asks instead
+// (GC-090), so the guard is what gets driven here — Cancel first, proving it runs nothing, then
+// "Stash and continue", which is the only way to reach the in-progress state the rest asserts.
 const stagedForPick = git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean);
-if (stagedForPick.length) git(['reset', '-q', '--', ...stagedForPick]);
+check('the fixture has a staged half for the guard to catch', stagedForPick.length > 0, stagedForPick.join(' ') || 'nothing staged');
+const headBeforePick = git(['rev-parse', 'HEAD']);
 log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
-log(await act(() => menuClick('Cherry pick commit')));
+log(await menuClick('Cherry pick commit'));
+await waitModal();
+check('the guard names the files in the way', new RegExp(`${stagedForPick.length} staged files?`).test(await modalMessage()), await modalMessage());
+check('it offers Cancel and stashing, and nothing that git would only refuse', (await modalButtons()) === 'Cancel | Stash and continue', await modalButtons());
+log(await modalClick('Cancel'));
+await waitNoModal();
+check(
+  'Cancel runs nothing: HEAD, the index and the working tree are where they were',
+  git(['rev-parse', 'HEAD']) === headBeforePick && git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean).join(' ') === stagedForPick.join(' ') && !existsSync(join(R, '.git', 'CHERRY_PICK_HEAD')),
+  status(),
+);
+log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
+log(await menuClick('Cherry pick commit'));
+await waitModal();
+log(await act(() => modalOk(), 'stash and cherry-pick'));
 s = await state();
 check('cherry-pick left in progress', existsSync(join(R, '.git', 'CHERRY_PICK_HEAD')) && /cherry-pick in progress/.test(s.banner ?? ''), s.banner ?? '');
 check('git message visible', /now empty/.test(s.err ?? ''), s.err ?? '');
+// The status bar shows one headline line and carries the whole message in its title (GC-091).
+const errTitle = await ev(`document.querySelector('.statusbar .err')?.title ?? ''`);
+check('and it says where the guard put the staged changes', /stash "Before cherry-picking/.test(errTitle), errTitle);
+check('which is where they are', /Before cherry-picking /.test(git(['stash', 'list', '-1', '--format=%gs'])), git(['stash', 'list', '-1', '--format=%gs']));
 log(await act(() => clickBanner('/Abort/')));
 s = await state();
 check('cherry-pick aborted', !existsSync(join(R, '.git', 'CHERRY_PICK_HEAD')) && s.banner === null && s.err === null);
-if (stagedForPick.length) git(['add', '-A', '--', ...stagedForPick]);
+// The guard's stash is left alone while git is mid-operation, because a pop would clear the state
+// the banner is about (`git reset` takes CHERRY_PICK_HEAD with it): it is the step's to pop now.
+for (let i = 0; i < 3; i++) {
+  if (!/Before cherry-picking /.test(git(['stash', 'list', '-1', '--format=%gs']))) break;
+  git(['stash', 'pop', '--index', '-q']);
+}
 log(await act(() => tool('Refresh')));
-check('the staged half the step parked is back', git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean).join(' ') === stagedForPick.join(' '), git(['status', '--short']).replace(/\n/g, ' '));
+check('the staged half the guard stashed is staged again', git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean).join(' ') === stagedForPick.join(' '), status());
 
 step(13, 'WIP row menu');
 log(await contextMenuOn('.graph-row.wip', null));
@@ -1204,6 +1239,13 @@ const hasWipCommit = () => ev(`[...document.querySelectorAll('.graph-row .summar
 
 const rowsBefore = await graphRows();
 const viewingBefore = await viewingCount();
+// GC-095: the fixture carries a git note, whose own commit `git log --all` draws as a row with no
+// chip and no left-panel row to explain it — and, before this, one an exclude could never remove.
+check(
+  'no row comes from a ref outside heads, remotes and tags',
+  (await ev(`[...document.querySelectorAll('.graph-row .summary')].some(x => /Notes added by/.test(x.textContent))`)) === false,
+  `the fixture's note is ${git(['rev-parse', 'refs/notes/commits'])}`,
+);
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
 const hideMenu = await menuList();
 check('the branch menu offers Hide and Solo next to Pin to Left', hideMenu.includes('Pin to Left') && hideMenu.includes('Hide in graph') && hideMenu.includes('Solo in graph'), hideMenu);
@@ -1216,9 +1258,13 @@ const rowsHidden = await graphRows();
 const viewingHidden = await viewingCount();
 check('with both halves hidden the wip commit leaves the graph', (await hasWipCommit()) === false, `rows ${rowsBefore} -> ${rowsHidden}`);
 // How many rows go is git's answer, not a constant: earlier steps leave commits of their own on
-// the branch, so what the two excludes take is whatever is reachable only through them.
-const allCount = ['rev-list', '--count', '--exclude=refs/stash', '--all'];
-const wipExcludes = ['rev-list', '--count', '--exclude=refs/stash', '--exclude=refs/heads/wip-branch', '--exclude=refs/remotes/origin/wip-branch', '--all'];
+// the branch, so what the two excludes take is whatever is reachable only through them. The
+// traversal is the app's, not `--all` (GC-095): heads, remotes and tags plus HEAD, with the
+// excludes repeated ahead of every glob because each traversal option consumes the ones before it.
+const GRAPH_GLOBS = ['refs/heads/*', 'refs/remotes/*', 'refs/tags/*'];
+const graphRevs = (...excludes) => [...GRAPH_GLOBS.flatMap((g) => [...excludes.map((r) => `--exclude=${r}`), `--glob=${g}`]), '--ignore-missing', 'HEAD'];
+const allCount = ['rev-list', '--count', ...graphRevs()];
+const wipExcludes = ['rev-list', '--count', ...graphRevs('refs/heads/wip-branch', 'refs/remotes/origin/wip-branch')];
 const drawn = await commitRows();
 check(
   'the rows that went are exactly the ones only those two refs reached',
@@ -1253,7 +1299,85 @@ log(await act(() => sectionAction('Show all remote branches in the graph'), 'sho
 check('the graph comes back after a solo is cleared', (await graphRows()) === rowsBefore, `${await graphRows()} / ${rowsBefore}`);
 check('nothing is left hidden in localStorage', (await ev(`localStorage.getItem(${q(hiddenKeyName)})`)) === null, String(await ev(`localStorage.getItem(${q(hiddenKeyName)})`)));
 
-step(26, 'the run leaves the fixture exactly as it found it');
+step(26, 'the branch crumb is a dropdown: local and remote branches, the owner toggle, and the checkout guard behind it');
+// GC-088. The crumb was drawn like the repository crumb beside it since GC-044 and did nothing;
+// it opens the branch list now. Both crumbs are `.crumb`, so the branch one is the second.
+const branchCrumb = () =>
+  ev(`(() => { const c = [...document.querySelectorAll('.breadcrumb .crumb')][1]; if (!c) return 'no branch crumb'; if (c.tagName !== 'BUTTON') return 'the branch crumb is not a button'; c.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); c.click(); return 'clicked the branch crumb'; })()`);
+const menuCaptions = () => ev(`[...document.querySelectorAll('.ctx-menu .ctx-caption')].map(c => c.textContent.trim()).join(' | ')`);
+await waitNoMenu();
+log(await branchCrumb());
+await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the branch menu');
+const crumbMenu = await menuList();
+check('the two groups are captioned Local and Remote', (await menuCaptions()) === 'Local | Remote', await menuCaptions());
+check('every local branch is a row, the checked-out one marked and disabled', /\(x\) ✓ main/.test(crumbMenu) && crumbMenu.includes('feature') && crumbMenu.includes('wip-branch'), crumbMenu);
+check('every remote branch is a row too', crumbMenu.includes('origin/feature') && crumbMenu.includes('origin/main') && crumbMenu.includes('origin/wip-branch'), crumbMenu);
+await shot('13-branch-crumb-menu.png');
+// A second click closes it rather than reopening it: the crumb owns its menu (GC-066).
+log(await branchCrumb());
+await waitNoMenu();
+check('a second click on the crumb closes the menu', (await ev(`!document.querySelector('.ctx-menu')`)) === true);
+// Escape closes exactly it: it is a ContextMenu, so `layerOpen` already covers it (GC-034/GC-037).
+log(await branchCrumb());
+await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the branch menu again');
+await escape();
+await waitNoMenu();
+const afterEscape = JSON.parse(await layerState());
+check('Escape closes the menu and nothing behind it', afterEscape.menu === false && afterEscape.modal === false && afterEscape.popover === false && afterEscape.search === false, JSON.stringify(afterEscape));
+// Choosing another branch goes through `runCheckout`, so the dirty-tree guard applies unchanged.
+log(await branchCrumb());
+await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the branch menu once more');
+log(await menuClick('feature'));
+await waitModal();
+const atRisk = git(['status', '--porcelain']).split('\n').filter((l) => l && !l.startsWith('??')).length;
+check('the checkout guard names the files actually at risk', new RegExp(`${atRisk} files?`).test(await modalMessage()), await modalMessage());
+log(await modalClick('Cancel'));
+await waitNoModal();
+check('Cancel leaves the checkout undone', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'main', git(['rev-parse', '--abbrev-ref', 'HEAD']));
+
+step(27, 'a file row can write .gitignore, and only an untracked one offers it');
+// GC-093. `new.txt` is the fixture's untracked file; README.md is tracked and staged, where a
+// .gitignore pattern would do nothing at all, so the entries are absent rather than disabled.
+const GITIGNORE = join(R, '.gitignore');
+// Earlier steps leave the working tree in a state of their own (step 23's mixed reset takes the
+// a.txt edit back into the index), so what this step must restore is the status it found, not the
+// constant the last step compares against.
+const statusBeforeIgnore = status();
+// A tracked file is in the index, where a .gitignore pattern has no say, so the entries are absent
+// rather than offered and quietly doing nothing.
+log(await contextMenuOn('.detail-panel .file-row', 'README.md'));
+check('a tracked row offers none of the ignore entries', !(await menuList()).includes('Ignore'), await menuList());
+await escape(); // a synthetic contextmenu fires no mousedown, so the open menu has to be dismissed
+await waitNoMenu();
+log(await contextMenuOn('.detail-panel .file-row', 'new.txt'));
+const ignoreMenu = await menuList();
+check('an untracked row offers the three ignore entries', ignoreMenu.includes('Ignore file') && ignoreMenu.includes('Ignore all *.txt files') && !ignoreMenu.includes('Ignore this folder'), ignoreMenu);
+check('a root-level file offers no folder entry', !ignoreMenu.includes('Ignore this folder'), ignoreMenu);
+await shot('14-ignore-menu.png');
+log(await act(() => menuClick('Ignore file'), 'ignore new.txt'));
+check('the pattern is rooted at the repository', readFileSync(GITIGNORE, 'utf8') === '/new.txt\n', JSON.stringify(readFileSync(GITIGNORE, 'utf8')));
+check('git agrees the file is ignored', git(['check-ignore', '-v', 'new.txt']).includes('/new.txt'), git(['check-ignore', '-v', 'new.txt']));
+check('the row leaves Unstaged and .gitignore takes its place', status() === statusBeforeIgnore.replace('?? new.txt', '?? .gitignore'), `${status()} | before ${statusBeforeIgnore}`);
+check('the ignored row is gone from the staging list', (await ev(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === 'new.txt')`)) === false);
+// A .gitignore of its own is untracked too, so it offers the entries in turn.
+log(await contextMenuOn('.detail-panel .file-row', '.gitignore'));
+check('the entries are offered on any untracked row', (await menuList()).includes('Ignore file'), await menuList());
+await escape();
+await waitNoMenu();
+// A file that does not end in a newline gains one before the pattern, rather than joining the last
+// line, and an exact repeat writes nothing at all. Both are one call away from the UI, so they are
+// driven through the bridge directly: nothing on screen distinguishes the two.
+writeFileSync(GITIGNORE, '/new.txt\n*.tmp');
+const callIgnore = (kind) => ev(`window.api.ignore(localStorage.getItem('gitclient.lastRepo'), { path: 'new.txt', kind: ${q(kind)} }).then(() => 'ok', (e) => 'FAILED: ' + e.message)`);
+log(await callIgnore('extension'));
+check('a file with no trailing newline gains one before the new pattern', readFileSync(GITIGNORE, 'utf8') === '/new.txt\n*.tmp\n*.txt\n', JSON.stringify(readFileSync(GITIGNORE, 'utf8')));
+log(await callIgnore('file'));
+check('an exact repeat adds no second line', readFileSync(GITIGNORE, 'utf8') === '/new.txt\n*.tmp\n*.txt\n', JSON.stringify(readFileSync(GITIGNORE, 'utf8')));
+rmSync(GITIGNORE, { force: true });
+log(await act(() => tool('Refresh'), "drop the step's .gitignore"));
+check('the step puts the fixture back as it found it', status() === statusBeforeIgnore, `${status()} | expected ${statusBeforeIgnore}`);
+
+step(28, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).
