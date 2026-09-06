@@ -206,6 +206,13 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   // distance the index has no part in, so it is not a patch git will take against it in either
   // direction, and nothing about a commit's contents can be staged or discarded anyway.
   const isCompare = view.source === 'compare';
+  // What the body is actually drawn as, which on a combined diff is not what the preference asks
+  // for: a split row is one line of each file and a combined line belongs to neither side, so a
+  // combined diff is one column whatever `prefs.diffView` says (GC-180). The switch below reads
+  // this rather than the preference — GC-117's rule, that a control never shows a setting which is
+  // not what is on screen, one component over (GC-188). The preference itself is untouched, so the
+  // next ordinary file opens in the layout the user chose.
+  const drawSplit = split && !isCombined;
   const hunksDisabled = actionsDisabled || ignoreWs || isCombined || isCompare;
   const hunkTitle = ignoreWs
     ? 'Not available while whitespace is ignored: the patch would not apply'
@@ -383,17 +390,24 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
             an action: `hunk.raw` is what a Stage/Discard patch is built from, and alignment does not
             touch it (GC-014). */}
         <div className="seg" role="group" aria-label="Diff layout">
-          {VIEW_MODES.map((m) => (
-            <button
-              key={m.mode}
-              className={`seg-btn${split === (m.mode === 'split') ? ' on' : ''}`}
-              title={m.title}
-              aria-pressed={split === (m.mode === 'split')}
-              onClick={() => setPrefs({ diffView: m.mode })}
-            >
-              {m.label}
-            </button>
-          ))}
+          {VIEW_MODES.map((m) => {
+            const isSplit = m.mode === 'split';
+            // Disabled rather than absent, and with the reason on it: the layout it cannot express
+            // is a property of this file, not of the app (GC-188).
+            const unavailable = isCombined && isSplit;
+            return (
+              <button
+                key={m.mode}
+                className={`seg-btn${drawSplit === isSplit ? ' on' : ''}`}
+                title={unavailable ? 'Not available on a conflicted file: a combined diff has a column per parent, which no side-by-side layout can show' : m.title}
+                aria-pressed={drawSplit === isSplit}
+                disabled={unavailable}
+                onClick={() => setPrefs({ diffView: m.mode })}
+              >
+                {m.label}
+              </button>
+            );
+          })}
         </div>
         {isWip && view.source === 'wip' && !view.staged && (
           <>
@@ -456,7 +470,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                 <span className="spacer" />
                 <span className="hunk-actions">{hunkAction(h, hi)}</span>
               </div>
-              {split && !isCombined ? (
+              {drawSplit ? (
                 // Six columns, so both halves keep the gutter the unified table has. The tint is on
                 // the cells rather than the row: a split row is one line of each file and the two
                 // sides are rarely the same kind (GC-014).

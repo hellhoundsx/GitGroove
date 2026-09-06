@@ -1153,26 +1153,26 @@ input[type='radio']:disabled {
   color: var(--text-muted);
   font-style: italic;
 }
-/* The connector between the last chip on a row and its node (GC-147). It was a 1px hairline at
-   0.8 opacity, and the 30px of free ref column it crossed read as empty: the eye had to bridge
-   the chip and the node itself, which is hardest exactly where it matters — a crowded row whose
-   refs are folded behind `+N`.
+/* The connector between the last chip on a row and its node (GC-147, GC-186). It crosses the free
+   ref column, which read as empty when this was a 1px hairline at 0.8: the eye had to bridge the
+   chip and the node itself, which is hardest exactly where it matters — a crowded row whose refs
+   are folded behind `+N`.
 
-   It is a band with the line on it, in two halves that meet at the column boundary: this one, and
-   a rect in the row's SVG so its end lines up with the node to the pixel (`GraphCell`). Both take
-   the row's lane colour, set inline the way a chip's background is, so nothing here is a colour.
-   `color` carries the lane so the line can be drawn from `currentColor` in this stylesheet.
+   It is a 2px line in the lane colour and nothing else, which is what `03-graph.md` line 58
+   records; GC-147 also gave it a band, and the band belongs on the other side of the node
+   entirely (GC-186, and `Band` in `GraphCell.tsx`). Two halves meeting at the column boundary:
+   this one, and a line in the row's SVG so its end lines up with the node to the pixel. `color`
+   carries the row's lane, set inline the way a chip's background is, so the line can be drawn
+   from `currentColor` and nothing here is a colour.
 
-   22px, the height `.col-msg` uses, so the band reads as part of the row rather than as a second
-   row treatment; rounded on the chip's side only, since its other end is the node. It stays a
-   normal-flow sibling, so the absolutely positioned `.more-list` still paints over it when the
-   folded block opens (GC-022, GC-078). */
+   The element stays 22px and keeps its place in the flex row — `chipRoom` counts it either way
+   (GC-156) — and stays a normal-flow sibling, so the absolutely positioned `.more-list` still
+   paints over it when the folded block opens (GC-022, GC-078). */
 .ref-line {
   flex: 1;
   min-width: 4px;
   height: 22px;
   position: relative;
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
 .ref-line::after {
   content: '';
@@ -1180,9 +1180,9 @@ input[type='radio']:disabled {
   left: 0;
   right: 0;
   top: 50%;
-  height: 1px;
+  margin-top: -1px;
+  height: 2px;
   background: currentColor;
-  opacity: 0.8;
 }
 .graph-empty {
   display: grid;
@@ -1239,12 +1239,18 @@ input[type='radio']:disabled {
   flex: none;
   font-weight: 600;
 }
+/* `direction` — which end of a path gives way — is set once for this row and the menu's hint
+   together, further down beside `.ctx-hint.path` (GC-165). `text-align: left` is this surface's
+   own: the path sits beside the name it belongs to, so a path short enough to fit keeps its left
+   edge rather than being pushed to the far side of the row by the RTL box. Alignment decides
+   where a path that fits is placed and never which end the ellipsis goes on. */
 .recent-row .recent-path {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
   font-size: var(--fs-sm);
   color: var(--text-dim);
 }
@@ -1609,8 +1615,16 @@ input[type='radio']:disabled {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
 }
-.seg-btn.toggle:disabled {
+/* An unavailable segment stays put and says why in its title rather than disappearing (GC-188):
+   it comes back the moment another file is opened, which is the reason the whitespace-disabled
+   hunk buttons stay put too (GC-052, GC-086). On `.seg-btn` rather than on `.seg-btn.toggle`,
+   because one choice of several can be unavailable just as a toggle can — Split cannot express a
+   combined diff. The hover is neutralised with it, or a dead button still lights up. */
+.seg-btn:disabled {
   opacity: 0.4;
+}
+.seg-btn:disabled:hover {
+  color: var(--text-muted);
 }
 
 /* ---- Collapsed left panel (icon rail) -------------------------------------- */
@@ -2089,14 +2103,22 @@ input[type='radio']:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* A path hint loses its head rather than its tail, so the folder that names the entry stays
-   readable (GC-067). An RTL box puts its overflow — and with it the ellipsis — at the leading
-   edge, while the path itself stays one unbroken left-to-right run (every character in it is
-   either a Latin letter or a neutral between two of them), so it still reads normally.
+/* A path loses its head rather than its tail, so the folder that names the entry stays readable
+   (GC-067). An RTL box puts its overflow — and with it the ellipsis — at the leading edge, while
+   the path itself stays one unbroken left-to-right run (every character in it is either a Latin
+   letter or a neutral between two of them), so it still reads normally.
    `unicode-bidi: plaintext` was tried here and does the wrong thing: it takes the paragraph
    direction from the leading `C` and puts the ellipsis back at the end. Every other hint is short
-   and keeps the ordinary end ellipsis. */
-.ctx-item .ctx-hint.path {
+   and keeps the ordinary end ellipsis.
+
+   Both surfaces that draw the recents list are here, in one rule (GC-165): the breadcrumb menu's
+   hint and the empty state's row. They are the same list of the same paths, and the empty state
+   ellipsised at the end — the half of a path that identifies a repository is exactly the half it
+   was throwing away, on the one screen where a user has nothing else on screen to go by. Which
+   end gives way is one declaration; where a path that *fits* sits is each surface's own business,
+   and stays in its own block (the menu's hint is right-aligned, a recents row's path is not). */
+.ctx-item .ctx-hint.path,
+.recent-row .recent-path {
   direction: rtl;
 }
 .ctx-sep {

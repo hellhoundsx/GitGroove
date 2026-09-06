@@ -33,11 +33,32 @@ const DIFF = [
   '',
 ].join('\n');
 
+/**
+ * What git answers with for an unmerged path (GC-180): `diff --cc`, an `@@@` header and one prefix
+ * column per parent. It is drawn as one column of code whatever the layout preference says, which
+ * is the state GC-188 is about.
+ */
+const COMBINED_DIFF = [
+  'diff --cc f.txt',
+  'index 90eb71e,6a9aab3..0000000',
+  '--- a/f.txt',
+  '+++ b/f.txt',
+  '@@@ -1,3 -1,3 +1,7 @@@',
+  '  alpha',
+  '++<<<<<<< HEAD',
+  ' +OURS',
+  '++=======',
+  '+ THEIRS',
+  '++>>>>>>> other',
+  '  gamma',
+  '',
+].join('\n');
+
 /** Only the two calls `DiffView` makes; `prefs.ts` reaches for `setTheme` on every write. */
-const stubApi = (): void => {
+const stubApi = (diff = DIFF): void => {
   (window as unknown as { api: Record<string, unknown> }).api = {
-    getWorkdirFileDiff: () => Promise.resolve(DIFF),
-    getCommitFileDiff: () => Promise.resolve(DIFF),
+    getWorkdirFileDiff: () => Promise.resolve(diff),
+    getCommitFileDiff: () => Promise.resolve(diff),
     setTheme: () => Promise.resolve(),
   };
 };
@@ -45,8 +66,8 @@ const stubApi = (): void => {
 const noop = (): Promise<void> => Promise.resolve();
 
 /** Render the unstaged side of `f.txt` and let the diff promise resolve. */
-const open = async (): Promise<void> => {
-  stubApi();
+const open = async (diff = DIFF): Promise<void> => {
+  stubApi(diff);
   render(
     <UiProvider>
       <DiffView
@@ -304,5 +325,39 @@ describe('DiffView line selection (GC-121)', () => {
     expect(document.querySelectorAll('.hunk-lines .pickable')).toHaveLength(0);
     fireEvent.click(uniRow(2));
     expect(stageLabel()).toBe('Unstage hunk');
+  });
+});
+
+// GC-188: a combined diff is drawn unified by construction, so the switch above it has to say
+// Unified — a control showing a setting that is not what is on screen is the disagreement GC-117
+// fixed for the graph's optional columns, one component over.
+describe('DiffView, the layout switch on a combined diff (GC-188)', () => {
+  it('shows Unified pressed and Split disabled with the reason, with Split remembered', async () => {
+    setPrefs({ diffView: 'split' });
+    await open(COMBINED_DIFF);
+
+    // one column of code, whatever the preference asks for (GC-180)
+    expect(document.querySelector('.hunk-lines.split')).toBeNull();
+    expect(seg('Unified').className).toContain('on');
+    expect(seg('Unified').getAttribute('aria-pressed')).toBe('true');
+    expect(seg('Split').className).not.toContain('on');
+    expect(seg('Split').getAttribute('aria-pressed')).toBe('false');
+    expect((seg('Split') as HTMLButtonElement).disabled).toBe(true);
+    expect(seg('Split').title).toContain('conflicted file');
+    // the preference is untouched, so the next ordinary file opens in the layout the user chose
+    expect(getPrefs().diffView).toBe('split');
+  });
+
+  it('comes back to split on the next ordinary file, from that untouched preference', async () => {
+    setPrefs({ diffView: 'split' });
+    await open(COMBINED_DIFF);
+    expect(seg('Unified').className).toContain('on');
+
+    cleanup();
+    await open();
+
+    expect(document.querySelector('.hunk-lines.split')).not.toBeNull();
+    expect(seg('Split').className).toContain('on');
+    expect((seg('Split') as HTMLButtonElement).disabled).toBe(false);
   });
 });

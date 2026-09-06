@@ -77,6 +77,7 @@ const api: GitApi = {
 const shell: ShellApi = {
   openFile: call('shell:openPath'),
   showInFolder: call('shell:showItemInFolder'),
+  openExternal: call('shell:openExternal'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

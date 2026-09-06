@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GitRef, Remote } from './types';
-import { defaultRemote, remoteCopyOf } from './remotes';
+import { defaultRemote, isWebUrl, remoteCopyOf, remoteUrlToWeb } from './remotes';
 
 const r = (name: string): Remote => ({ name, fetchUrl: `https://example.invalid/${name}.git`, pushUrl: `https://example.invalid/${name}.git` });
 
@@ -65,5 +65,68 @@ describe('remoteCopyOf', () => {
     // The ref is there but no remote accounts for its prefix, so nothing can be told to delete it.
     const refs = [local('main'), tracked('gone/main')];
     expect(remoteCopyOf(refs[0]!, refs, [r('origin')])).toBeNull();
+  });
+});
+
+describe('remoteUrlToWeb', () => {
+  it('reads the scp form, with and without the .git', () => {
+    expect(remoteUrlToWeb('git@github.com:owner/repo.git')).toBe('https://github.com/owner/repo');
+    expect(remoteUrlToWeb('git@github.com:owner/repo')).toBe('https://github.com/owner/repo');
+  });
+
+  it('reads ssh:// and drops the port, which is not the web one', () => {
+    expect(remoteUrlToWeb('ssh://git@gitlab.com/owner/repo.git')).toBe('https://gitlab.com/owner/repo');
+    expect(remoteUrlToWeb('ssh://git@gitlab.com/owner/repo')).toBe('https://gitlab.com/owner/repo');
+    expect(remoteUrlToWeb('ssh://git@ssh.dev.azure.com:2222/org/proj/_git/repo.git')).toBe('https://ssh.dev.azure.com/org/proj/_git/repo');
+  });
+
+  it('keeps an https remote as it is, less the .git', () => {
+    expect(remoteUrlToWeb('https://github.com/owner/repo.git')).toBe('https://github.com/owner/repo');
+    expect(remoteUrlToWeb('https://github.com/owner/repo')).toBe('https://github.com/owner/repo');
+    expect(remoteUrlToWeb('https://github.com/owner/repo.git/')).toBe('https://github.com/owner/repo');
+  });
+
+  it('keeps an http remote on http, rather than rewriting an intranet host to a scheme it may not answer', () => {
+    expect(remoteUrlToWeb('http://git.internal:8080/owner/repo.git')).toBe('http://git.internal:8080/owner/repo');
+  });
+
+  it('drops a user@ in front of an http(s) host, which does not belong in a browser link', () => {
+    expect(remoteUrlToWeb('https://someone@github.com/owner/repo.git')).toBe('https://github.com/owner/repo');
+  });
+
+  it('makes a browsable URL of a git:// remote, which has no browsable scheme of its own', () => {
+    expect(remoteUrlToWeb('git://host.example/owner/repo.git')).toBe('https://host.example/owner/repo');
+  });
+
+  it('is null for a local bare repository, which is what the e2e fixture s origin is', () => {
+    expect(remoteUrlToWeb('C:/Users/x/AppData/Local/Temp/gitclient-e2e/origin.git')).toBe(null);
+    expect(remoteUrlToWeb('C:\\Users\\x\\Temp\\origin.git')).toBe(null);
+    expect(remoteUrlToWeb('/srv/git/repo.git')).toBe(null);
+    expect(remoteUrlToWeb('../sibling/repo.git')).toBe(null);
+    expect(remoteUrlToWeb('file:///srv/git/repo.git')).toBe(null);
+    // a path relative to a drive: `C` is a drive letter, not a host
+    expect(remoteUrlToWeb('C:repos/repo.git')).toBe(null);
+  });
+
+  it('is null for a URL with no path to read, and for an empty one', () => {
+    expect(remoteUrlToWeb('https://github.com')).toBe(null);
+    expect(remoteUrlToWeb('https://github.com/')).toBe(null);
+    expect(remoteUrlToWeb('git@github.com:.git')).toBe(null);
+    expect(remoteUrlToWeb('')).toBe(null);
+    expect(remoteUrlToWeb('   ')).toBe(null);
+    expect(remoteUrlToWeb('not a url at all')).toBe(null);
+  });
+});
+
+describe('isWebUrl', () => {
+  it('accepts http and https and nothing else', () => {
+    expect(isWebUrl('https://github.com/owner/repo')).toBe(true);
+    expect(isWebUrl('http://git.internal:8080/owner/repo')).toBe(true);
+    expect(isWebUrl('file:///C:/Windows/System32/calc.exe')).toBe(false);
+    expect(isWebUrl('javascript:alert(1)')).toBe(false);
+    expect(isWebUrl('data:text/html,<script>1</script>')).toBe(false);
+    expect(isWebUrl('ms-settings:privacy')).toBe(false);
+    expect(isWebUrl('/srv/git/repo.git')).toBe(false);
+    expect(isWebUrl('')).toBe(false);
   });
 });

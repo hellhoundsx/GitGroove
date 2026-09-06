@@ -19,6 +19,7 @@ import type {
   StashSaveRequest,
   WorkdirDiffRequest,
 } from '@shared/types';
+import { isWebUrl } from '@shared/remotes';
 import * as git from './git';
 import { watchRepo } from './watch';
 
@@ -329,5 +330,14 @@ export function registerIpc(): void {
   });
   ipcMain.handle('shell:showItemInFolder', (_e, repo: unknown, path: unknown) => {
     shell.showItemInFolder(repoFile(repo, path));
+  });
+  // The one `shell:*` channel with no repository and so no `repoFile()` to lean on (GC-159): what
+  // it hands to the OS is a URL, and `shell.openExternal` follows whatever it is given, so a
+  // `file:` or `javascript:` URL would be a way out of the app. `isWebUrl` is the whole check and
+  // it is shared with `setWindowOpenHandler`, the other place a URL reaches `openExternal`.
+  ipcMain.handle('shell:openExternal', async (_e, url: unknown) => {
+    const u = str(url, 'url');
+    if (!isWebUrl(u)) throw new Error(`Refusing to open ${u}: only http and https links are opened`);
+    await shell.openExternal(u);
   });
 }

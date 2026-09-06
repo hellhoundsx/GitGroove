@@ -34,8 +34,17 @@ export interface PromptOptions {
   danger?: boolean;
   /** Whether the text input must be non-empty for OK to be enabled (default true). */
   required?: boolean;
-  /** Optional third button, between Cancel and OK. Resolves with `choice: 'secondary'`. */
-  secondary?: { label: string };
+  /**
+   * Optional third button, between Cancel and OK. Resolves with `choice: 'secondary'`.
+   *
+   * `fillsIn` says the button does not **answer** the question but supplies part of the answer —
+   * the clone dialog's "Browse…", which is that dialog reopened with the folder the OS picker
+   * returned (GC-185). Such a button is not gated on the form being complete, because the form
+   * being incomplete is exactly when it is wanted; the two guard dialogs' secondaries do answer
+   * their question and stay gated, which is why the distinction lives here rather than as a
+   * special case in `App`. Omitted means an answer.
+   */
+  secondary?: { label: string; fillsIn?: boolean };
 }
 
 export interface PromptResult {
@@ -82,8 +91,12 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
     inputRef.current?.select();
   }, [hasInput]);
 
+  // A secondary that fills the form in is live while the form is incomplete, so this guard has to
+  // agree with the button or a live button would do nothing when clicked (GC-185).
+  const fillsIn = (choice: 'ok' | 'secondary'): boolean => choice === 'secondary' && options.secondary?.fillsIn === true;
+
   const resolveWith = (choice: 'ok' | 'secondary'): void => {
-    if (incomplete) return;
+    if (incomplete && !fillsIn(choice)) return;
     const answers = Object.fromEntries(fields.map((f) => [f.name, (values[f.name] ?? '').trim()]));
     onResolve({ value: fields.length > 0 ? (answers[fields[0].name] ?? '') : '', values: answers, checked, choice });
   };
@@ -136,7 +149,7 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
             {options.cancelLabel ?? 'Cancel'}
           </button>
           {options.secondary && (
-            <button className="btn" disabled={incomplete} onClick={() => resolveWith('secondary')}>
+            <button className="btn" disabled={incomplete && !fillsIn('secondary')} onClick={() => resolveWith('secondary')}>
               {options.secondary.label}
             </button>
           )}

@@ -255,13 +255,9 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-186 | The row band GC-147 added is on the wrong side of the node, and on four rows in nine | graph | M | P1 | in-progress |
-| GC-185 | The clone dialog’s folder picker is disabled until the folder is typed by hand | ui | S | P1 | in-progress |
-| GC-187 | A file compared against the working directory cannot be restored from the commit it is being read against | ui | S | P3 | in-progress |
-| GC-188 | The Unified / Split switch stays pressed on Split while a conflicted file is drawn unified | diff | S | P3 | in-progress |
+| GC-189 | Removing a review worktree can delete the real `node_modules` through its junction | infra | S | P1 | todo |
+| GC-190 | A remote added outside the app never appears until the window is reloaded | ui | S | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-159 | The remote menu can copy a URL but cannot open the remote on its hosting service | actions | S | P3 | in-progress |
-| GC-165 | The empty state’s recents paths ellipsise at the wrong end, unlike the menu’s | ui | S | P3 | in-progress |
 | GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | todo |
 | GC-166 | A file can be diffed but never followed: no history for one path | graph | M | P3 | todo |
 | GC-171 | A stash row spends 66px on its age and leaves its message 77px of the 192 it wants | ui | S | P3 | todo |
@@ -399,73 +395,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
-### GC-159 The remote menu can copy a URL but cannot open the remote on its hosting service
-
-- **Status:** in-progress
-- **Area:** actions | **Size:** S | **Priority:** P3
-- **Depends on:** GC-008
-- **Why:** `docs/reference/gitkraken/06-feature-inventory.md` lists GitKraken's remote menu as
-  Fetch, Edit, Remove, **View on service**, Fork on service. Ours (`remoteMenuItems` in
-  `App.tsx`) is Fetch, Edit URL…, Rename…, Remove and Copy remote URL: the user can put
-  `git@github.com:owner/repo.git` on the clipboard and is then left to translate it and paste it
-  into a browser. Opening the remote is the one action in that menu that gets from the client to
-  the pull requests, the issues and the compare view.
-  Of the study's genuinely uncovered features it is by a distance the smallest. The translation is
-  a pure function; `src/shared/remotes.ts` already exists as the shared home for exactly this kind
-  of logic, so that a menu label and the action behind it cannot disagree (that is why
-  `defaultRemote` lives there); and `shell.openExternal` is already imported in
-  `src/main/index.ts`.
-  The care goes into the IPC handler. `shell:*` today is two channels that both go through
-  `repoFile()`, which refuses a path landing outside the repository. A URL channel has no
-  `repoFile()` to lean on, so it has to refuse any scheme but `http:` and `https:` — a
-  `file:` or `javascript:` URL handed to `shell.openExternal` is a way out of the app. While
-  there: `setWindowOpenHandler` in `index.ts` passes **any** url to `shell.openExternal`
-  unchecked. It is only reachable from our own renderer today, but it is the same one-line check
-  and it belongs beside the new one.
-- **Scope:**
-  - `remoteUrlToWeb(fetchUrl)` in `src/shared/remotes.ts`: a pure function turning a git remote
-    URL into a browsable `https:` one, or `null` when it cannot. Covers
-    `git@host:owner/repo.git`, `ssh://git@host/owner/repo.git`,
-    `https://host/owner/repo.git` and each without the `.git`. Host-agnostic: no GitHub
-    special-casing, because the shape is the same everywhere and a provider list would rot.
-  - A `shell:openExternal` handler in `ipc.ts`, validating its argument with the existing
-    `str` validator and then refusing any scheme but `http:`/`https:`; exposed on the existing
-    `window.shell` bridge, not on `window.api`.
-  - A `View on <host>` row in `remoteMenuItems`, **absent rather than disabled** when
-    `remoteUrlToWeb` returns null — the way the file menu already handles an action that does not
-    apply.
-  - The same scheme check applied to `setWindowOpenHandler`.
-  - Unit tests for `remoteUrlToWeb`: each accepted form, and the null cases.
-- **Out of scope:** "Fork on service" and anything else needing a hosting provider's API; deep
-  links to a branch, commit or pull request, whose URL shapes are per-provider and would undo the
-  host-agnostic scope above; a browser inside the app.
-- **Acceptance:**
-  - [ ] `remoteUrlToWeb` returns the right `https:` URL for all four forms and `null` for a
-        path-only or unparseable remote, covered by unit tests.
-  - [ ] The row is **absent** on the fixture's `origin`, whose URL is a bare repository on disk —
-        which is the only case the fixture has, so the positive case needs a remote with an
-        `https:` URL added to the scratch repository first (step 17 already adds a remote through
-        the UI).
-  - [ ] With such a remote added, the row is present and names its host.
-  - [ ] `shell:openExternal` refuses a `file:` and a `javascript:` URL and reports it, rather
-        than passing either to Electron.
-  - [ ] `npm run typecheck && npm test` pass.
-- **Files:** `src/shared/remotes.ts`, `src/shared/remotes.test.ts` (new), `src/main/ipc.ts`,
-  `src/main/index.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
-  `src/renderer/src/App.tsx`
-- **Verify:** unit tests for the pure function; then launch, add an `https:` remote to the scratch
-  repository, open the remote menu and confirm the row is there and names the host, and confirm it
-  is absent on the bare `origin`. **Do not let an unattended run actually open a browser** — that
-  would steal focus, which no run may do; assert on the argument the channel is called with instead.
-- **Log:**
-  - 2026-09-06 proposed by GR-018: the study's remote menu has "View on service" and ours stops at
-    "Copy remote URL"; the translation is a pure function, `shared/remotes.ts` is already the home
-    for it and `shell.openExternal` is already in `index.ts`, so this is the smallest uncovered
-    item left in `06-feature-inventory.md`.
-  - 2026-09-06 17:35 claimed
-
----
-
 ### GC-173 An empty tab given a repository that is already open is left behind
 
 - **Status:** todo
@@ -496,54 +425,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-163 (this ticket): found while driving the new tab page — the empty
     tab is filled in place for a repository that is new to the bar, and left standing for one that
     is not.
-
----
-
-### GC-165 The empty state's recents paths ellipsise at the wrong end, unlike the menu's
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-044
-- **Why:** The same recents list is drawn twice, and the two truncate opposite ways. In the menu a
-  path is a `hintPath`, and `.ctx-item .ctx-hint.path { direction: rtl; }` ellipsises it at its
-  **start**, so the folder that names the entry survives — GC-067's whole point. In the empty state
-  `.recent-row .recent-path` has `overflow: hidden; text-overflow: ellipsis` and no `direction`, so
-  it ellipsises at its **end** and eats the tail. Measured at `ae3a492` in the running app: the
-  same row rendered `…/Ricar/AppData/Local/Temp/gitclient-review/e2e/testrepo` in the menu and
-  `C:/Users/Ricar/AppData/Local/Temp/gitclient-review/e2e/t…` in the empty state, where
-  `scrollWidth` 367 against `clientWidth` 335 confirms it is genuinely clipped rather than merely
-  long. `CLAUDE.md` calls the empty state's copy "the same list the breadcrumb menu offers", and it
-  is not: the half a path that identifies a repository is exactly the half the empty state throws
-  away, and it is the surface where a user has nothing else on screen to go by. It gets worse, not
-  better, with GC-163, which makes that page the thing `+` opens.
-- **Scope:**
-  - `.recent-row .recent-path` ellipsises at the start, the way the menu's hint does.
-  - `direction: rtl` on a left-to-right path reorders a leading or trailing `/` to the other end —
-    the reason `fileMenuItems`' ignore hints are bare paths (GC-093). The recents paths are
-    absolute and end in a folder name, so the trailing side is safe, but the drive prefix and any
-    trailing separator must be checked in the app rather than assumed; if `rtl` is not clean here,
-    take the same result another way and say in the log which and why.
-  - One rule, not two: whatever answers it should be reachable by both call sites, so a third copy
-    of the list cannot drift again.
-- **Out of scope:** the row's layout, the name/path split, how many recents are kept, and the
-  `title` attribute, which already carries the full path on hover in both places.
-- **Acceptance:**
-  - [ ] A recents row too long for the empty state shows the end of its path, not the beginning.
-  - [ ] The menu's rows are unchanged.
-  - [ ] A path is rendered with its separators in the right places and its drive letter where it
-        belongs — checked by reading the row's rendered text, not only by looking at it.
-  - [ ] A path that fits is drawn in full, with no ellipsis and no reordering.
-- **Files:** `src/renderer/src/styles/app.css`, and `src/renderer/src/App.tsx` only if the shared
-  rule needs a class the empty state does not already carry.
-- **Verify:** `npm run typecheck`, `npm run build`, then over CDP seed `gitclient.recentRepos` with
-  one deep path and one short one, close every tab to reach the empty state, and compare the two
-  rows' rendered text against the menu's for the same entries. Screenshot both and look at them
-  side by side.
-- **Log:**
-  - 2026-09-06 proposed by GR-019: from the UI pass over the empty state, a surface no review had
-    screenshotted before. Found while investigating Ricardo's inbox item about `+`, since that page
-    is where GC-163 sends it.
-  - 2026-09-06 17:35 claimed
 
 ---
 
@@ -909,205 +790,100 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
-### GC-185 The clone dialog's folder picker is disabled until the folder is typed by hand
+### GC-189 Removing a review worktree can delete the real node_modules through its junction
 
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P1
-- **Depends on:** GC-128
-- **Why:** GC-128's clone dialog asks for two things — a URL and a parent folder — and offers
-  "Browse…" as its `secondary` button so the folder can be picked instead of typed, which is the
-  whole reason the third button is there. `Modal.tsx` disables **both** the secondary and OK on the
-  same `incomplete`, which is true while any field that did not say `required: false` is empty.
-  Both of the clone dialog's fields are required, so on opening, Browse is dead, and it comes alive
-  only once "Clone into" already holds a path the user typed — at which point Browse has nothing
-  left to contribute but overwriting it. Measured at `6996bc0` in the running app: on opening
-  `Cancel:live | Browse…:disabled | Clone:disabled`; after filling the URL alone, unchanged; only
-  with both fields filled does Browse become live. The folder picker is unreachable for its purpose
-  from a cold dialog, which is every first clone.
-  The gate has been invisible until now because the only other two `secondary` callers — the
-  checkout guard and the sequencer guard — pass `input: false`, so `incomplete` is false by
-  construction and their third button was never gated by anything. GC-128 is the first caller where
-  a secondary meets a required field, and it is exactly the case the gate breaks.
-  The distinction to draw is what the third button *is*: OK and the secondary in the two guards
-  both **answer** the question and are rightly gated; "Browse…" **fills in** part of the answer and
-  is not an answer at all, so gating it on the answer being complete is backwards.
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** The review routine's isolation recipe — "a detached git worktree of `origin/main` under
+  `%TEMP%/gitclient-review/wt` (with `node_modules` junctioned from here), which it removes when
+  done" — has a hole in its last step. A recursive removal of that worktree **follows the
+  junction** and deletes files out of this checkout's real `node_modules`.
+  Measured on 2026-09-06 during the GC-186 batch, which made the same kind of worktree to read a
+  baseline test count: after `Remove-Item <wt>/node_modules -Force` (which failed on its own
+  confirmation prompt) and `git worktree remove --force <wt>`, this repository's
+  `node_modules/.bin` and 129 packages were gone — every entry alphabetically before
+  `@esbuild`, `@babel/*` among them. `npm run typecheck` then failed with "'tsc' is not
+  recognized" and `npm run build` with "Cannot find package '@babel/core'". The repair was
+  `npm rebuild --ignore-scripts` followed by `npm install --ignore-scripts`, and it was nearly
+  worse: a plain `npm install` was refused with `EBUSY` on
+  `node_modules/electron/dist/resources/default_app.asar` because an unrelated Electron was
+  running, and killing it is exactly what rule 4 forbids.
+  The hourly reviewer has been doing this for weeks without the damage showing, so whatever order
+  it uses is either safe or lucky; either way the order is currently a sentence in
+  `TICKETS.md` rather than something a script gets right by construction, and every session that
+  follows the recipe by hand can hit it.
 - **Scope:**
-  - A secondary button that is not a resolution of the form is not gated by the form being
-    complete. Express that on `PromptOptions.secondary` rather than by special-casing the clone
-    dialog — an extra field on it that the clone dialog's "Browse…" sets and the two guards do not,
-    so the guards are unchanged and the rule is stated once.
-  - `resolveWith`'s own `if (incomplete) return` has to agree with whatever the button says, or a
-    live button does nothing when clicked.
-  - The clone dialog's loop already handles a `secondary` result correctly and needs no change
-    beyond setting the new flag.
-- **Out of scope:** making either field optional (a clone needs both), any change to the two
-  existing guards' buttons, and the dialog's copy or layout.
+  - One helper both routines can call — `tools/scratch-worktree.mjs` or similar — that makes a
+    worktree with a junctioned `node_modules` and removes it again, in the one order that is
+    safe: delete the junction as a **link** (not its contents), assert it is gone and that this
+    checkout's `node_modules/.bin` still exists, and only then `git worktree remove`.
+  - It refuses to remove anything if the junction is still present, so a failure leaves the
+    worktree standing rather than reaching through it.
+  - A unit test beside it, on a temporary directory, pinning that the link is removed and the
+    target's contents are not — the property that was violated.
+  - The "Review routine" paragraph in `TICKETS.md` names the helper instead of describing the
+    steps.
+- **Out of scope:** the review routine's own scheduled prompt (outside this repository), and any
+  change to how `node_modules` is shared.
 - **Acceptance:**
-  - [ ] Opening "Clone repository…" from a cold start shows Browse… live and Clone disabled.
-  - [ ] Clicking Browse… with both fields empty opens the folder picker and, on a pick, returns to
-        the dialog with "Clone into" filled and the URL field still empty.
-  - [ ] Typing a URL, clicking Browse…, then picking a folder leaves the typed URL intact — the
-        loop's existing promise, now reachable.
-  - [ ] The checkout guard's "Stash and check out" and the sequencer guard's buttons behave exactly
-        as they do today.
-  - [ ] `npm run typecheck && npm test` pass, with a unit test pinning that a secondary marked as
-        filling-in is live while a required field is empty, and that an ordinary one is not.
-- **Files:** `src/renderer/src/ui/Modal.tsx`, `src/renderer/src/App.tsx`, and a test beside
-  `Modal.tsx`.
-- **Verify:** `npm run typecheck`, `npm test`, then launch and read the three buttons' `disabled`
-  off the DOM on the dialog's opening state, which is how the defect was measured. **Do not let an
-  unattended run open the OS folder picker**: it is a native modal and would steal focus. Assert
-  the button is live and stop there; drive the picker by hand only with Ricardo at the machine.
+  - [ ] The helper creates and removes a worktree whose `node_modules` is a junction, and this
+        checkout's `node_modules` is byte-identical before and after — checked by counting entries
+        and asserting `.bin` survives.
+  - [ ] A unit test covers the link-versus-contents distinction.
+  - [ ] Removal refuses to proceed while the junction is still there.
+  - [ ] `TICKETS.md`'s review-routine paragraph points at the helper.
+- **Files:** new `tools/scratch-worktree.mjs`, new `tools/scratch-worktree.test.ts`, `TICKETS.md`
+- **Verify:** run the helper twice over, and after each removal print
+  `(Get-ChildItem node_modules).Count` and `Test-Path node_modules/.bin` for this checkout; both
+  must be unchanged. Then `npm test`.
 - **Log:**
-  - 2026-09-06 proposed by GR-023: measured in the running app at `6996bc0` — Browse… is disabled
-    on the clone dialog's opening state and becomes live only once the folder it exists to supply
-    has already been typed.
-  - 2026-09-06 17:35 claimed
+  - 2026-09-06 proposed by GC-186 (this ticket's batch): the batch's own baseline measurement
+    destroyed 129 packages and `node_modules/.bin` in this checkout by removing a worktree whose
+    `node_modules` was a junction, and the repair was blocked by an unrelated running Electron.
 
 ---
 
-### GC-186 The row band GC-147 added is on the wrong side of the node, and on four rows in nine
+### GC-190 A remote added outside the app never appears until the window is reloaded
 
-- **Status:** in-progress
-- **Area:** graph | **Size:** M | **Priority:** P1
-- **Depends on:** GC-147
-- **Why:** GC-147 read the study backwards. `docs/reference/gitkraken/03-graph.md` records two
-  separate things and GC-147 merged them into one on the wrong side of the node. Its line 45: "A
-  background band (`commit-bg-color`, 50% lane tint) fills the graph cell **to the right of the
-  node** on the selected row and WIP row". Its line 58: "A **2px `hr` line** in the lane colour
-  connects the chip to the node." So the chip-to-node stretch is a 2px line and nothing else, and
-  the band belongs on the other side of the node entirely. What shipped is a 22px lane-tinted band
-  **left** of the node carrying a 1px line at 0.8 opacity, and nothing at all to its right.
-  Ricardo confirmed it against his own GitKraken capture of `catena-feed` while this review was
-  running: the band "should of been on the right side and on all commits". His screenshot shows
-  `master` and three tag rows whose chips reach their nodes by a thin lane-coloured line with no
-  band under it.
-  Measured at `6996bc0` in the running app on the fixture: **4 of 9 rows carry a `.ref-line`** —
-  `joined = rowRefs.length > 0` in `CommitGraph.tsx`, so a commit with no chip gets no connector
-  and no band, which is most of any real history. To the right of the node there is nothing:
-  `.col-msg`'s computed background is `rgba(0, 0, 0, 0)` and the only lane colour there is a 2x22
-  `.strip`. The selected row is a flat accent wash, `rgba(77, 136, 255, 0.2)` across the whole row,
-  rather than the lane-tinted band the study describes.
-  This matters beyond fidelity: a band that appears on some rows and not others reads as a property
-  of *those commits* rather than as the row's lane, which is the opposite of what it is for.
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** GC-011
+- **Why:** `scopeOf` in `watch.ts` answers `refs` for `.git/refs`, `.git/HEAD` and
+  `.git/packed-refs`, and `tree` for everything else. `.git/config` is everything else, so a
+  change to it refreshes the status and nothing more — and the remotes, which only the full
+  snapshot carries, stay as they were.
+  Measured on 2026-09-06 while verifying GC-159: `git remote add web <url>` in the scratch
+  repository, with the app open on it, never produced a REMOTE row — a 20-second wait on the DOM
+  timed out, and the row appeared immediately after a page reload. The same is true of anything
+  else `.git/config` holds that the app draws: a branch's upstream set with
+  `git branch --set-upstream-to` on the command line, a remote's URL edited by hand, a remote
+  renamed or removed. The app's own actions are unaffected, because `run()` reloads the snapshot
+  itself; this is only about a change made outside it, which is exactly what GC-011 exists for.
 - **Scope:**
-  - Move the lane-tinted band to the **right** of the node, and draw it on **every** commit row,
-    not only rows carrying a chip. Ricardo's instruction is "all commits"; the study observed it on
-    the selected and WIP rows only, so the two disagree and Ricardo's reading wins. Say in the log
-    what the band's opacity had to come down to for it to be bearable on every row, since 14% was
-    chosen for a band that appeared four times in nine.
-  - The chip-to-node connector becomes what the study says it is: a 2px line in the lane colour,
-    with no band under it. `.ref-line`'s band and `GraphCell`'s `rect` both go; the line stays and
-    goes to 2px.
-  - Decide and state what the **selected** row does now that every row carries a band. The current
-    flat accent wash with a per-row lane band under it is one wash too many; whichever survives, a
-    selected row must stay unmistakable at a glance down the column.
-  - Both halves still meeting at the column boundary to the pixel is GC-147's one part that was
-    right and is worth keeping — and the band's new half is entirely inside the graph cell, so this
-    gets easier rather than harder.
-- **Out of scope:** the `.col-msg` `.strip`, the lane colours themselves, the WIP row's dashed run
-  (GC-144), and the chip's own background tint — all of which stay as they are.
+  - `scopeOf` answers `refs` for `config` as well, so a `.git/config` write triggers the full
+    reload that a ref change already does.
+  - Check that this cannot loop: the app writes `.git/config` itself (`remoteAdd`,
+    `remoteSetUrl`, `setUpstream`), and a full reload must not be able to cause another write to
+    it. The `.git/index.lock` loop that `watch.ts` documents is the precedent to check against.
+  - A unit test in `watch.test.ts` beside the existing `scopeOf` cases.
+- **Out of scope:** watching anything else under `.git/` that is currently ignored, and the
+  debounce.
 - **Acceptance:**
-  - [ ] Every commit row draws the lane-tinted band to the right of its node, rows with no ref chip
-        included — the row count and the band count are equal on the fixture, where they are 9 and
-        4 today.
-  - [ ] No row draws a band between its chip and its node; the connector there is a 2px line in the
-        lane colour, present only on rows that have a chip.
-  - [ ] A selected row is still unmistakable against its neighbours, stated in the log with what it
-        is drawn as and why.
-  - [ ] No colour is added to `app.css` — the band is a tint of the lane variable, as GC-147's was,
-        so `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing.
-  - [ ] Screenshots at full scale into `docs/screenshots/`, dark and light, next to Ricardo's
-        GitKraken capture.
-- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/graph/GraphCell.tsx`,
-  `src/renderer/src/styles/app.css`, `docs/reference/gitkraken/03-graph.md` (record that the band
-  is on every row, not only the selected and WIP ones, and which capture that came from).
-- **Verify:** `npm run typecheck`, `npm run build`, then launch on the scratch fixture and count
-  rows against bands over CDP; screenshot the ref column and the message column at 2x and look at
-  both. Then load `catena-feed` **read-only** for a dense real graph, which is where a band on every
-  row either works or does not.
+  - [ ] `scopeOf('.git/config')` is `refs`, covered by a unit test.
+  - [ ] With the app open on the scratch repository, `git remote add` on the command line makes
+        the REMOTE row appear without a reload.
+  - [ ] `git branch --set-upstream-to` on the command line updates the branch row's
+        ahead/behind the same way.
+  - [ ] Adding a remote through the app still costs one reload, not two.
+- **Files:** `src/main/watch.ts`, `src/main/watch.test.ts`
+- **Verify:** `npm test`, then launch on the scratch repository and run `git remote add` and
+  `git remote remove` from a shell, watching `data-gen` on the status bar move and the row
+  appear and go.
 - **Log:**
-  - 2026-09-06 proposed by GR-023, from Ricardo in-session: he saw GC-147's band on the wrong side
-    of the node and on too few rows; the study's own lines 45 and 58 put the band right of the node
-    and make the chip connector a 2px line, and the running app measures 4 bands on 9 rows with a
-    transparent message column.
-  - 2026-09-06 17:35 claimed
-
----
-
-### GC-187 A file compared against the working directory cannot be restored from the commit it is being read against
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-152
-- **Why:** GC-152's comparison lists the files that differ between a commit and the working tree,
-  and its rows carry `fileMenuItems` with `source: 'commit'` — so "Restore file from this commit"
-  (GC-107) is on them, which is right: it is the one action that reaches a version of the file
-  other than the working tree's, and a comparison is precisely where a user is looking at that
-  difference. But the row is left out on `kind === 'deleted'`, and in a comparison the codes are
-  relative to the **commit**: `deleted` there means the working tree no longer has the file the
-  commit does, which is exactly the case restoring exists for. So the action is absent on the one
-  row it would help most, and present on rows where it only rewrites a file the user already has.
-  The guard was written for the commit view, where `deleted` means the commit removed the file and
-  there is genuinely nothing at that sha — the same word, two directions.
-- **Scope:**
-  - `FileMenuTarget` says which of the two lists the row came from, so `fileMenuItems` can read the
-    kind in the right direction; the compare row's `Restore file from this commit` is offered on a
-    `deleted` row and left out on an `added` one, which is the mirror of today's rule.
-  - The confirmation still says that it overwrites the working-tree copy and stages it (GC-107).
-- **Out of scope:** any other row of that menu, and restoring more than one file at a time.
-- **Acceptance:**
-  - [ ] In a comparison, a file the working tree no longer has offers "Restore file from this commit".
-  - [ ] A file the working tree has and the commit does not offers no restore.
-  - [ ] The commit view's own rule is unchanged.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/App.tsx`
-- **Verify:** launch on the scratch repository, compare a commit that added a file the working tree
-  has since lost, and check the row is offered and restores it.
-- **Log:**
-  - 2026-09-06 proposed by GC-152 (this ticket): the compare list reuses the commit list's menu, and
-    the one guard in it reads its kind in the opposite direction from the one the comparison means.
-  - 2026-09-06 17:35 claimed
-
----
-
-### GC-188 The Unified / Split switch stays pressed on Split while a conflicted file is drawn unified
-
-- **Status:** in-progress
-- **Area:** diff | **Size:** S | **Priority:** P3
-- **Depends on:** GC-180
-- **Why:** GC-180 draws a combined diff as one column of code, because that is what a combined diff
-  is — the split layout pairs one file's removals with another's additions, and a combined line
-  belongs to neither side. So `DiffView` renders the unified table whatever `prefs.diffView` says.
-  The switch above it does not know that: with Split remembered, its button keeps `aria-pressed`
-  and the `on` class while a single column is drawn beneath it. That is the disagreement GC-117
-  fixed for the graph's optional columns — a control showing a setting that is not what is on
-  screen — one component over, and it is worth fixing the same way rather than by making a
-  conflicted file honour a layout it cannot express.
-- **Scope:**
-  - The switch reflects what is **drawn**, not the preference: on a combined diff, Unified is the
-    pressed button.
-  - Split says why it is not available on this file, the way the whitespace-disabled hunk buttons
-    say why (GC-052, GC-086) — disabled with a title, rather than absent, because it comes back the
-    moment another file is opened.
-  - The preference itself is untouched, so the next ordinary file opens in the layout the user chose.
-- **Out of scope:** a split rendering of a combined diff, and any change to `prefs.diffView`.
-- **Acceptance:**
-  - [ ] With Split remembered, opening a conflicted file leaves Unified pressed and Split disabled
-        with a title saying why.
-  - [ ] Opening an ordinary file after it comes back to Split, from the untouched preference.
-  - [ ] A component test covers both.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/diff/DiffView.test.tsx` (new),
-  `src/renderer/src/styles/app.css`
-- **Verify:** build, make a conflict in a throwaway repository under `%TEMP%`, set
-  `prefs.diffView` to split and read the two buttons' `aria-pressed` over CDP.
-- **Log:**
-  - 2026-09-06 proposed by GC-180 (this ticket): the combined diff is drawn unified by construction
-    and the segmented control above it still shows Split as the pressed button.
-  - 2026-09-06 17:35 claimed
-
----
+  - 2026-09-06 proposed by GC-159 (this ticket's batch): the ticket's own positive case could not
+    be reached without a page reload, because a `.git/config` change scopes the watcher to
+    `tree` and the remotes only come with a full snapshot.
 
 ---
 

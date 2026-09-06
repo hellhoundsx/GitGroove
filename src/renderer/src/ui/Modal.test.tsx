@@ -13,6 +13,8 @@ afterEach(cleanup);
 
 const okButton = (): HTMLButtonElement => document.querySelector('.modal-buttons .btn:last-child') as HTMLButtonElement;
 const field = (name: string): HTMLInputElement => document.querySelector(`.modal-field input[name="${name}"]`) as HTMLInputElement;
+// Cancel, then the secondary, then OK — the order `.modal-buttons` renders them in.
+const secondaryButton = (): HTMLButtonElement => document.querySelectorAll('.modal-buttons .btn')[1] as HTMLButtonElement;
 
 describe('promptFields', () => {
   it('reads the single-field options as one field named value', () => {
@@ -98,6 +100,45 @@ describe('Modal', () => {
     expect(okButton().disabled).toBe(false);
     fireEvent.click(okButton());
     expect(result).toEqual({ value: 'v1', values: { name: 'v1', message: '' }, checked: false, choice: 'ok' });
+  });
+
+  // GC-185: the third button is not always an answer. The clone dialog's "Browse…" supplies the
+  // folder the form is waiting for, so gating it on the form being complete made the folder picker
+  // unreachable from a cold dialog, which is every first clone. The two guard dialogs' secondaries
+  // do answer their question and must stay gated.
+  it('keeps a secondary that fills the form in live while a required field is empty', () => {
+    let result: PromptResult | null = null;
+    render(
+      <Modal
+        options={{
+          title: 'Clone repository',
+          okLabel: 'Clone',
+          fields: [{ name: 'url' }, { name: 'parent' }],
+          secondary: { label: 'Browse…', fillsIn: true },
+        }}
+        onResolve={(r) => (result = r)}
+      />,
+    );
+
+    expect(secondaryButton().disabled).toBe(false);
+    expect(okButton().disabled).toBe(true);
+
+    // and clicking it resolves: `resolveWith`'s own guard has to agree with the button, or a live
+    // button does nothing.
+    fireEvent.click(secondaryButton());
+    expect(result).toEqual({ value: '', values: { url: '', parent: '' }, checked: false, choice: 'secondary' });
+  });
+
+  it('gates an ordinary secondary on the form being complete, as the two guards rely on', () => {
+    let result: PromptResult | null = null;
+    render(<Modal options={{ title: 'Rename', fields: [{ name: 'name' }], secondary: { label: 'Something else' } }} onResolve={(r) => (result = r)} />);
+
+    expect(secondaryButton().disabled).toBe(true);
+    fireEvent.click(secondaryButton());
+    expect(result).toBe(null);
+
+    fireEvent.change(field('name'), { target: { value: 'v2' } });
+    expect(secondaryButton().disabled).toBe(false);
   });
 
   it('focuses the first field', () => {

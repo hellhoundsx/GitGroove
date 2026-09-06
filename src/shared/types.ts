@@ -308,6 +308,12 @@ export interface ShellApi {
   openFile(repo: string, path: string): Promise<void>;
   /** Reveal the file in the OS file manager. */
   showInFolder(repo: string, path: string): Promise<void>;
+  /**
+   * Open a URL in the default browser (GC-159). The one channel in this group with no repository
+   * and so no path check to lean on: the main process refuses any scheme but `http:` and `https:`,
+   * because `shell.openExternal` follows whatever it is handed.
+   */
+  openExternal(url: string): Promise<void>;
 }
 
 /**

@@ -834,10 +834,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
               </span>
             </>
           )}
-          {/* The band and the line on it are one element; the lane colour reaches the line through
-              `color`, and the band is the same tint a chip takes, so no colour is added to the
-              stylesheet for either (GC-147). */}
-          {joined && <span className="ref-line" style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }} />}
+          {/* The chip-to-node connector, which is a 2px line in the lane colour and nothing else
+              (GC-186): the lane reaches the line through `color`, so no colour is added to the
+              stylesheet. The band GC-147 drew under it is now right of the node, in `GraphCell`. */}
+          {joined && <span className="ref-line" style={{ color }} />}
         </div>
         <div className="col-graph" style={{ width: graphWidth }}>
           <GraphCell

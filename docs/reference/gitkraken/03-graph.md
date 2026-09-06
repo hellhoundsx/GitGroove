@@ -45,6 +45,14 @@ default or compact layout from preferences.
 - A background band (`commit-bg-color`, 50% lane tint) fills the graph cell to the
   right of the node on the selected row and WIP row, and a wider app-background
   mask hides lines behind the node.
+  - Corrected 2026-09-06 from Ricardo's own capture of `catena-feed` open in
+    GitKraken 11.10.0, shown in-session during GR-023: the band is on **every**
+    commit row, not only the selected and WIP ones. The 50% tint above was read
+    off the selected row, which is the strongest instance of it; the ordinary
+    rows carry the same band far fainter. We draw it on every row at 10% of the
+    lane colour (GC-186) — that capture is what the earlier reading missed, and
+    the band on some rows only reads as a property of those commits rather than
+    of the row's lane.
 - Lane x positions step by a fixed lane width; the graph column grows or gets a
   horizontal scrollbar when more lanes are active than fit.
 

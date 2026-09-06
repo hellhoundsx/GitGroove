@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
 import { registerIpc, rememberedTheme, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND } from './ipc';
+import { isWebUrl } from '@shared/remotes';
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL;
 
@@ -51,9 +52,12 @@ function createWindow(): BrowserWindow {
     win.on('ready-to-show', () => win.show());
   }
 
-  // Open external links in the default browser, never inside the app window.
+  // Open external links in the default browser, never inside the app window — and only the two
+  // schemes a browser follows (GC-159). This is reachable only from our own renderer today, but it
+  // is the same one-line check the `shell:openExternal` channel makes and belongs beside it: what
+  // `openExternal` is given, it follows, `file:` and `javascript:` included.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (isWebUrl(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
 

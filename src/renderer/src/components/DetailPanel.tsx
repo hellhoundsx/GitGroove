@@ -18,9 +18,16 @@ import type { DragHandleProps } from '../ui/useDragWidth';
  * Which file row a context menu was opened on (GC-043). The panel knows the row; `App` owns the
  * items, the same way `commitMenuItems` and friends own every other menu in the app.
  */
+/**
+ * `compare` is its own source rather than a flag on `commit` (GC-187): the two lists carry the
+ * same `CommitFile` rows and their `kind` means opposite things — in a commit it is what that
+ * commit did to the file, in a comparison it is what the working tree has done since. A menu
+ * reading one for the other offers "Restore file from this commit" on the rows it can do nothing
+ * for and leaves it off the one row it exists for. Same vocabulary as the diff view's own sources.
+ */
 export type FileMenuTarget =
   | { source: 'wip'; entry: StatusEntry; group: 'conflicted' | 'unstaged' | 'staged' }
-  | { source: 'commit'; file: CommitFile };
+  | { source: 'commit' | 'compare'; file: CommitFile };
 
 /**
  * The one wording for throwing a single file's changes away, so the row's ✕ button and the same
@@ -505,7 +512,7 @@ function CommitView({
               kind={f.kind}
               active={isActive(openFile, f.path)}
               onClick={() => onOpenFile({ source, sha: commit.sha, path: f.path, kind: f.kind })}
-              onContextMenu={(ev) => onFileMenu(ev, { source: 'commit', file: f })}
+              onContextMenu={(ev) => onFileMenu(ev, { source, file: f })}
             />
           ))}
         </div>

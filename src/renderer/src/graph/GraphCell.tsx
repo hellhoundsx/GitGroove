@@ -57,13 +57,32 @@ interface Props {
 
 const DASH = '2 3';
 /**
- * The chip-to-node band (GC-147): 22px, the height `.col-msg` and `.ref-line` both use, and the
- * tint `.ref-line`'s own `color-mix` comes to. Stated here rather than in the stylesheet because
- * this half is drawn in SVG, where a `color-mix` on a lane variable has no equivalent — an
+ * The row's lane band (GC-186): 22px, the height `.col-msg` uses, filling the graph cell to the
+ * **right** of the node. `03-graph.md` line 45 puts it there and GC-147 put it on the other side
+ * of the node, where it doubled as the chip connector; the connector is a 2px line and nothing
+ * else (line 58), so the two are separate things again.
+ *
+ * On every row, not only the selected and WIP ones the study observed it on: Ricardo's own
+ * capture of `catena-feed` has it throughout, and a band appearing on some rows and not others
+ * reads as a property of those commits rather than of the row's lane.
+ *
+ * 10% rather than GC-147's 14% for exactly that reason — a tint chosen for four rows in nine is a
+ * stripe when it is on all nine — and not lower: 8% was measured first and, at 100% on the
+ * fixture, read as a smudge rather than as the lane. Stated here rather than in the stylesheet
+ * because this is drawn in SVG, where a `color-mix` on a lane variable has no equivalent; an
  * opacity on the lane colour is the same result and takes the theme with it.
  */
-const CONNECTOR_H = 22;
-const CONNECTOR_TINT = 0.14;
+const BAND_H = 22;
+const BAND_TINT = 0.1;
+
+/**
+ * The band, drawn from the node's right edge to the cell's own right edge. First in the SVG, so
+ * every line and node paints over it — it is a background, not a mark.
+ */
+function Band({ x, color, width }: { x: number; color: string; width: number }): JSX.Element {
+  const mid = ROW_H / 2;
+  return <rect x={x + NODE / 2 - 1} y={mid - BAND_H / 2} width={Math.max(0, width - x - NODE / 2 + 1)} height={BAND_H} fill={color} opacity={BAND_TINT} />;
+}
 
 function NodeAvatar({ x, y, author, color }: { x: number; y: number; author: Props['author']; color: string }): JSX.Element {
   const url = useGravatar(author?.email);
@@ -118,6 +137,7 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
     const dashX = stashDash ? laneX(stashDash.lane) : 0;
     return (
       <svg width={width} height={ROW_H} aria-hidden="true">
+        <Band x={x} color={color} width={width} />
         {above.map((s) => (
           <line key={`t${s.lane}`} x1={laneX(s.lane)} y1={0} x2={laneX(s.lane)} y2={ROW_H} stroke={laneColor(s.color)} strokeWidth={2} />
         ))}
@@ -140,6 +160,7 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
     const color = laneColor(wip.color);
     return (
       <svg width={width} height={ROW_H} aria-hidden="true">
+        <Band x={x} color={color} width={width} />
         {wip.linked && <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
         <circle cx={x} cy={mid} r={NODE / 2 - 1} fill="var(--bg-app)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
       </svg>
@@ -176,6 +197,7 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
 
   return (
     <svg width={width} height={ROW_H} aria-hidden="true">
+      <Band x={x} color={color} width={width} />
       {through.map((s) => (
         <line key={`t${s.lane}`} x1={laneX(s.lane)} y1={0} x2={laneX(s.lane)} y2={ROW_H} stroke={laneColor(s.color)} strokeWidth={2} />
       ))}
@@ -189,16 +211,12 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
       {row.outgoing.map((s) => (
         <path key={`o${s.lane}`} d={curveOut(s.lane)} fill="none" stroke={laneColor(s.color)} strokeWidth={2} />
       ))}
-      {/* The graph cell's half of the chip-to-node connector (GC-147): the same band and line the
-          ref column draws, continuing from the column boundary to the node's edge. Inside the
-          row's own SVG, like the hairline it replaces, so it meets the node exactly; `CONNECTOR_H`
-          and the 0.8 are what `.ref-line` uses, and the two halves are flush at x = 0. */}
-      {connector && (
-        <>
-          <rect x={0} y={mid - CONNECTOR_H / 2} width={Math.max(0, x - NODE / 2 + 1)} height={CONNECTOR_H} fill={color} opacity={CONNECTOR_TINT} />
-          <line x1={0} y1={mid + 0.5} x2={x - NODE / 2 + 1} y2={mid + 0.5} stroke={color} strokeWidth={1} shapeRendering="crispEdges" opacity={0.8} />
-        </>
-      )}
+      {/* The graph cell's half of the chip-to-node connector: a 2px line in the lane colour and
+          nothing else, which is what `03-graph.md` line 58 records (GC-186). Inside the row's own
+          SVG so it meets the node exactly, and flush with `.ref-line`'s half at x = 0 — the one
+          part of GC-147 that was right. Centred on `mid` at 2px, so it covers the same 13..15 the
+          stylesheet's half does. */}
+      {connector && <line x1={0} y1={mid} x2={x - NODE / 2 + 1} y2={mid} stroke={color} strokeWidth={2} shapeRendering="crispEdges" />}
       <NodeAvatar x={x} y={mid} author={author} color={color} />
     </svg>
   );

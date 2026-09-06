@@ -3,7 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 import { Icon } from './ui/icons';
 import type { CheckoutOptions, Commit, ConflictSide, GitRef, IgnoreKind, Remote, RepoChange, RepoOperation, RepoSnapshot, RepoStatus, Stash, StatusEntry } from '@shared/types';
 import { ADVISORY, AUTH_FAILURE, conflictSides } from '@shared/types';
-import { defaultRemote, remoteCopyOf } from '@shared/remotes';
+import { defaultRemote, remoteCopyOf, remoteUrlToWeb } from '@shared/remotes';
 import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type OptCols, type PanelFit } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
@@ -888,7 +888,9 @@ export function App(): JSX.Element {
           { name: 'parent', label: 'Clone into', placeholder: 'The folder to make it in', defaultValue: parent },
         ],
         okLabel: 'Clone',
-        secondary: { label: 'Browse…' },
+        // It fills the form in rather than answering it, so it is live on a cold dialog — which
+        // is the only state a first clone has, and the state the picker exists for (GC-185).
+        secondary: { label: 'Browse…', fillsIn: true },
       });
       if (!res) return;
       url = res.values.url ?? '';
@@ -1907,11 +1909,16 @@ export function App(): JSX.Element {
       // A commit's file row is the only place an older version of a file can be reached: the three
       // rows below all act on the working tree, so on a row belonging to last week's commit "Open
       // file" opens today's content (GC-107). It is destructive and it stages what it writes, so it
-      // asks first and the confirmation says so. Absent, not disabled, on a file the commit deleted
-      // — there is nothing at that sha to restore, and GC-072 settled that an action which cannot
-      // work is left out rather than shown greyed. The sha is `selectedCommit`'s, because a commit
-      // file row is only ever drawn for the commit the detail panel is showing.
-      if (t.source === 'commit' && t.file.kind !== 'deleted' && selectedCommit) {
+      // asks first and the confirmation says so. Absent, not disabled, when there is nothing at
+      // that sha to restore, GC-072's rule; which kind that is depends on which list the row came
+      // from, because the two read in opposite directions (GC-187). In a commit, `deleted` means
+      // the commit removed the file and the sha holds nothing. In a comparison the codes are
+      // relative to the commit, so `deleted` means the working tree has since lost a file the
+      // commit still has — the case restoring exists for — and `added` is the empty one. The sha
+      // is `selectedCommit`'s, because a commit file row is only ever drawn for the commit the
+      // detail panel is showing.
+      const nothingAtSha = t.source === 'compare' ? 'added' : 'deleted';
+      if (t.source !== 'wip' && t.file.kind !== nothingAtSha && selectedCommit) {
         const sha = selectedCommit.sha;
         items.push({
           label: 'Restore file from this commit',
@@ -1931,7 +1938,10 @@ export function App(): JSX.Element {
       // working tree, so on a row whose file is gone neither of them can do anything but put an
       // error in the status bar. They are disabled together rather than one of them being left
       // offered as the only item that always fails (GC-072).
-      const gone = t.source === 'commit' ? t.file.kind === 'deleted' : deletedFromTree(t.entry);
+      // `deleted` says the file is not in the working tree in both of the two commit-side lists: in
+      // a commit's own list because the commit removed it, and in a comparison because that is
+      // precisely what the code means there (GC-187).
+      const gone = t.source !== 'wip' ? t.file.kind === 'deleted' : deletedFromTree(t.entry);
       items.push({
         label: 'Open file',
         disabled: gone,
@@ -1992,35 +2002,54 @@ export function App(): JSX.Element {
   );
 
   const remoteMenuItems = useCallback(
-    (rem: Remote): MenuItem[] => [
-      { label: `Fetch ${rem.name}`, onClick: () => run(`Fetching ${rem.name}`, () => window.api.fetch(repo!, rem.name), { remote: true }) },
-      { separator: true },
-      {
-        label: 'Edit URL…',
-        onClick: async () => {
-          const r = await ui.prompt({ title: `Edit ${rem.name}`, label: 'URL', defaultValue: rem.fetchUrl, okLabel: 'Save' });
-          if (r && r.value.trim() && r.value.trim() !== rem.fetchUrl) await run(`Updating ${rem.name}`, () => window.api.remoteSetUrl(repo!, rem.name, r.value.trim()));
+    (rem: Remote): MenuItem[] => {
+      // Where this remote can be read in a browser, which is the one action in this menu that
+      // gets from the client to the pull requests, the issues and the compare view (GC-159). The
+      // row is absent rather than disabled when the remote has no web address at all — a bare
+      // repository on disk, which is what the e2e fixture's `origin` is — following the rule the
+      // file menu already applies to an action that cannot work (GC-072). The label names the host
+      // rather than the URL, and both come from `remoteUrlToWeb`, so they cannot disagree.
+      const web = remoteUrlToWeb(rem.fetchUrl);
+      return [
+        { label: `Fetch ${rem.name}`, onClick: () => run(`Fetching ${rem.name}`, () => window.api.fetch(repo!, rem.name), { remote: true }) },
+        ...(web
+          ? [
+              {
+                label: `View on ${new URL(web).host}`,
+                hint: web,
+                hintPath: true,
+                onClick: () => inShell(() => window.shell.openExternal(web)),
+              },
+            ]
+          : []),
+        { separator: true },
+        {
+          label: 'Edit URL…',
+          onClick: async () => {
+            const r = await ui.prompt({ title: `Edit ${rem.name}`, label: 'URL', defaultValue: rem.fetchUrl, okLabel: 'Save' });
+            if (r && r.value.trim() && r.value.trim() !== rem.fetchUrl) await run(`Updating ${rem.name}`, () => window.api.remoteSetUrl(repo!, rem.name, r.value.trim()));
+          },
         },
-      },
-      {
-        label: 'Rename…',
-        onClick: async () => {
-          const r = await ui.prompt({ title: 'Rename remote', label: 'New name', defaultValue: rem.name, okLabel: 'Rename' });
-          if (r && r.value.trim() && r.value.trim() !== rem.name) await run(`Renaming ${rem.name}`, () => window.api.remoteRename(repo!, rem.name, r.value.trim()));
+        {
+          label: 'Rename…',
+          onClick: async () => {
+            const r = await ui.prompt({ title: 'Rename remote', label: 'New name', defaultValue: rem.name, okLabel: 'Rename' });
+            if (r && r.value.trim() && r.value.trim() !== rem.name) await run(`Renaming ${rem.name}`, () => window.api.remoteRename(repo!, rem.name, r.value.trim()));
+          },
         },
-      },
-      {
-        label: `Remove ${rem.name}`,
-        danger: true,
-        onClick: async () => {
-          if (!(await ui.confirm({ title: `Remove remote ${rem.name}?`, message: 'Its remote-tracking branches are deleted locally. The remote repository is untouched.', okLabel: 'Remove', danger: true }))) return;
-          await run(`Removing ${rem.name}`, () => window.api.remoteRemove(repo!, rem.name));
+        {
+          label: `Remove ${rem.name}`,
+          danger: true,
+          onClick: async () => {
+            if (!(await ui.confirm({ title: `Remove remote ${rem.name}?`, message: 'Its remote-tracking branches are deleted locally. The remote repository is untouched.', okLabel: 'Remove', danger: true }))) return;
+            await run(`Removing ${rem.name}`, () => window.api.remoteRemove(repo!, rem.name));
+          },
         },
-      },
-      { separator: true },
-      { label: 'Copy remote URL', onClick: () => void navigator.clipboard.writeText(rem.fetchUrl) },
-    ],
-    [repo, run, ui],
+        { separator: true },
+        { label: 'Copy remote URL', onClick: () => void navigator.clipboard.writeText(rem.fetchUrl) },
+      ];
+    },
+    [inShell, repo, run, ui],
   );
 
   const onMenu = useCallback((e: MouseEvent, items: MenuItem[]) => ui.openMenu(e, items), [ui]);

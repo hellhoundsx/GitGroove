@@ -238,10 +238,15 @@ used to sit. Nothing remembered still means dark. Adding an API means: type in
 `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`.
 `remote:cancel` is the only handler besides `repo:checkGit` that takes no arguments at all: what
 it stops is a process, not something inside a repository (GC-169). `shell:*` is the group that
-never touches git: its two handlers live in `ipc.ts` itself, go through
+never touches git: its three handlers live in `ipc.ts` itself, and the two that take a file go through
 `repoFile()` — which resolves a repository-relative path against the repository and **refuses one
 landing outside it** (a `..`, an absolute path, another drive) or missing from the working tree —
-and are exposed as their own `window.shell` bridge, not as more of `window.api`. `repoRel()` is the
+and are exposed as their own `window.shell` bridge, not as more of `window.api`.
+**`shell:openExternal` is the third, and it has no `repoFile()` to lean on** (GC-159): what it hands
+to the OS is a URL, and `shell.openExternal` follows whatever it is given, so it refuses any scheme
+but `http:` and `https:` — `isWebUrl` in `shared/remotes.ts`, the same one line
+`setWindowOpenHandler` in `index.ts` now asks, because a second copy of a security check is a second
+chance to get it wrong. `repoRel()` is the
 same check answering the relative path, which is what `workdir:ignore` builds its `.gitignore`
 pattern from (GC-093), so a pattern can never be made out of a path outside the repository. `repo:changed` is
 the **one main → renderer push**, subscribed by a hand-written preload entry returning an
@@ -328,6 +333,12 @@ under it the moment git answers with its canonical form.
   rather than opening a second copy of it. Closing a tab falls to its right neighbour, then its
   left, then the empty state. The graph's scroll offset reaches `App` as a ref (`graphTop`)
   reported by `CommitGraph`, so a wheel event re-renders nothing.
+- **And both surfaces lose the same end of a path** (GC-165): `direction: rtl` is set once, for
+  `.ctx-item .ctx-hint.path` and `.recent-row .recent-path` together, so the folder that names an
+  entry survives on the empty state as it already did in the menu — that page ellipsised at the end
+  and threw away the half that identifies a repository, on the one screen with nothing else on it to
+  go by. Which end gives way is the shared declaration; where a path that *fits* sits stays each
+  surface's own (`text-align`), since a recents path sits beside the name it belongs to.
 - **And because scrolling re-renders nothing, the offset is read at park time, not from the
   mirror** (GC-172). `live.current` is rebuilt on every render, so its copy of `graphTop` is only
   as fresh as the last one, and a tab scrolled and then switched away from was parked at the offset
@@ -485,6 +496,13 @@ a zero floor, exactly as the collapsed left rail does.
 - `PromptOptions.secondary` adds a third button resolving `choice: 'secondary'`; `required`
   defaults to true and only the stash prompt sets it false. OK stays
   `.modal-buttons .btn:last-child`, which the e2e helpers rely on.
+- **A third button that fills the form in is not gated on the form being complete** (GC-185):
+  `secondary.fillsIn` says so, and `resolveWith`'s own `incomplete` guard reads it too, or a live
+  button would do nothing when clicked. The clone dialog's "Browse…" is the one caller — it supplies
+  the folder the form is waiting for, so gating it on the answer being complete made the picker
+  unreachable from a cold dialog, which is every first clone. The two guard dialogs' secondaries
+  **answer** their question and stay gated; that is the whole distinction, and it is stated on the
+  option rather than special-cased in `App`.
 - **A dialog may ask for several things at once** (GC-026): `PromptOptions.fields` is a list of
   `PromptField`s and `PromptResult.values` answers them keyed by name, each input carrying its
   `name` so a driver fills one by name rather than by position. OK waits for **every** field that
@@ -723,15 +741,26 @@ the ref column's minimum is exactly as wide as it was before the laptop existed.
 fixture: at 100px `main` keeps its whole 29px name where GC-071 recorded `ma…`, and its two marks
 come back at a 135px column rather than the 120 one mark needed.
 
-**A band joins the last chip on a row to its node** (GC-147), across the ref column's free width
-and the graph cell both: 30px of the column had nothing in it and the only thing beyond it was a
-1px hairline at 0.8 opacity, so the eye had to bridge the gap itself on exactly the crowded rows
-where it matters. It is two halves that meet at the column boundary — `.ref-line`, whose band is
-a `color-mix` on the lane colour set inline and whose line is drawn from `currentColor`, and a
-rect in the row's SVG so the far end meets the node to the pixel. 22px, `.col-msg`'s own height;
-rounded on the chip's side only; and drawn only on a row that has a chip. It stays a normal-flow
+**A line joins the last chip on a row to its node, and a band fills the cell on the other side of
+it** (GC-147, GC-186). They are two separate things, which GC-147 had merged into one on the wrong
+side of the node: `03-graph.md` line 58 makes the chip-to-node stretch a **2px line in the lane
+colour and nothing else**, and its line 45 puts a lane-tinted **band right of the node**.
+
+The connector is two halves that meet at the column boundary — `.ref-line`, whose line is drawn
+from `currentColor` with the lane set inline, and a line in the row's SVG so the far end meets the
+node to the pixel — and it is drawn only on a row that has a chip. `.ref-line` stays a normal-flow
 sibling, so the absolutely positioned `.more-list` still paints over it opaquely when the fold
-opens. Neither half adds a colour to a stylesheet.
+opens.
+
+The band is `Band` in `GraphCell.tsx`, drawn **first** in every one of the three cell kinds
+(commit, stash, WIP) so every line and node paints over it: 22px, `.col-msg`'s own height, from the
+node's right edge to the cell's own, at `BAND_TINT` (10%) of the lane colour. On **every** row, not
+only the selected and WIP ones the study first recorded — Ricardo's own capture of `catena-feed`
+has it throughout, and a band on some rows only reads as a property of *those commits* rather than
+of the row's lane. 10% because a tint chosen for four rows in nine is a stripe on all nine, and
+because 8% was measured first and read as a smudge. A selected row keeps its accent wash, which is
+the app's own selection language and spans the whole row where the band spans one cell. Nothing
+here adds a colour to a stylesheet: both halves take the lane variable.
 
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold. With **no branch checked out** a synthetic `HEAD` chip is
@@ -884,6 +913,14 @@ combined diff is drawn as **one column** whatever `prefs.diffView` says, with ev
 button off for the reason `-w` turns them off. On a conflicted file the file-view header follows the
 row menu's own rule: `Discard changes` is absent and staging says `Mark resolved`.
 
+**And the layout switch says what is drawn, not what is preferred** (GC-188). `drawSplit`
+(`split && !isCombined`) is what both the segmented control and the body read, so a control can
+never show a setting that is not on screen — GC-117's rule for the graph's optional columns, one
+component over. Split is **disabled with its reason in a `title`** rather than absent, since it
+comes back the moment another file is opened, and `prefs.diffView` is never written, so the next
+ordinary file opens in the layout the user chose. `.seg-btn:disabled` carries that state for the
+whole control, not only for `.toggle`.
+
 **A commit can also be read against the working directory** (GC-152). `getCompare(cwd, sha)` and
 `getCompareFileDiff(cwd, sha, path, opts)` are `git diff <sha>` — a third diff **source**, not a
 flag on the commit one, so `compare` is part of `DiffView`'s *identity* and the same file at the
@@ -1033,7 +1070,12 @@ actions are disabled together on a row whose file is not in the working tree**, 
 commit's file row also offers "Restore file from this commit"** (GC-107), the one action in that
 menu that reaches a version of the file other than the working tree's: it is
 `git checkout <sha> -- <path>`, which overwrites the working-tree copy **and stages it**, so it
-asks first and the confirmation says so, and it is absent on a file the commit deleted. The three
+asks first and the confirmation says so. It is absent when there is nothing at that sha to restore,
+and **which kind that is depends on which list the row came from** (GC-187): `FileMenuTarget`'s
+source is `commit` or `compare`, because the two read `CommitFile.kind` in opposite directions — in
+a commit `deleted` means the commit removed the file, while in a comparison the codes are relative
+to the commit, so `deleted` means the working tree has since lost a file the commit still has, which
+is the case restoring exists for, and `added` is the empty one. The three
 "Ignore …" rows are offered on an **untracked** row only (GC-093) — a tracked file is in the index,
 where `.gitignore` has no say — and their hints are bare paths, because `.ctx-hint.path` ellipsises
 by turning the box RTL and a `/` at either end is reordered to the other one.
@@ -1144,7 +1186,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-466 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+479 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
 
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
@@ -1390,6 +1432,12 @@ against the working directory as a third source in the view identity with every 
 the WIP row's field the one commit draft rather than a decoy, a tab answering a right-click with
 several tabs closed through one path so the stored list is written once, and a stash row selecting
 the stash the graph draws a row for (Diff, Main process, App state, Graph);
+the lane band right of the node on every row and the chip connector a 2px line with nothing under
+it, a layout switch reading what is drawn rather than what is preferred, a third dialog button that
+fills the form in never gated on the form being complete, a restore whose direction is read from
+the list the row came from, one scheme check shared by the two places a URL can reach
+`openExternal`, and one `direction` rule for both surfaces that draw the recents (Graph, Diff, UI
+layer, Detail panel, Main process);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control
