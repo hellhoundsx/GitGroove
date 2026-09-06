@@ -244,6 +244,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | done |
 | GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | done |
 | GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | done |
+| GC-099 | Opening a repository with hidden refs loads the graph twice and flashes the hidden branches | graph | S | P1 | todo |
 | GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
@@ -268,6 +269,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
+| GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
@@ -283,6 +285,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | todo |
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
+| GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -4899,6 +4902,174 @@ decision is missing.
 
 
 
+### GC-099 Opening a repository with hidden refs loads the graph twice and flashes the hidden branches
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** GC-073's hidden set is applied from an effect that runs *after* the first snapshot has
+  landed. `load()` reads `hiddenRef.current`, which is still empty when a repository is opened, so
+  the first `getLog` runs with no `--exclude` at all; only once that snapshot is in state does the
+  prune effect read `gitclient.hidden.<repoPath>`, see it differ from what was applied, and call
+  `run('Updating graph', …)` for a second full load. Measured on the review's scratch fixture
+  against `d34d732`: a cold open with nothing hidden settles at `data-gen` **1**, a cold open with
+  `refs/heads/wip-branch` and `refs/remotes/origin/wip-branch` hidden settles at **2**, and the
+  intermediate snapshot is committed to the DOM, so the hidden branches are drawn and then removed.
+  On the fixture that is eight rows and invisible; on a real repository it is two `git log` runs at
+  `MAX_COMMITS` 2000 and a visible flash on every open, on every repository switch through the
+  recents dropdown, and on every `openPath`. The ticket's own log calls this "converges in one extra
+  load" — converging is not the problem, paying for it on every open is.
+- **Scope:**
+  - Read the stored hidden set for the path being opened *before* the first `loadRepo` for it, so
+    `openPath(path)` and the initial `lastRepo` restore both pass the right `exclude` to their first
+    call. `readHidden(path)` already exists and is pure; the missing piece is calling it keyed on the
+    path about to be loaded rather than on the snapshot that came back.
+  - Keep the prune step: a hidden name whose ref has since been deleted must still be dropped from
+    `localStorage`. It should stop triggering a reload when the set that was *applied* already
+    matches, which after this change is the normal case — a second load then happens only when a
+    hidden ref genuinely disappeared.
+  - `hiddenRef.current` must be reset when the path changes, so one repository's hidden set can
+    never reach another's first load.
+- **Out of scope:** the shape of the `gitclient.hidden.<repoPath>` key, the eye toggles, the menu
+  items, `getLog`'s `--exclude` placement, and the watcher's own reload path (GC-068 owns that);
+  changing what a *toggle* costs — one reload per toggle is correct and stays.
+- **Acceptance:**
+  - [ ] Scratch repository with both `wip-branch` refs hidden: a cold open (reload the renderer)
+        settles at the same `data-gen` as a cold open with nothing hidden, and the row count is the
+        hidden-set count from the first painted frame — assert with a `MutationObserver` on
+        `.graph-body` that no frame ever contains a `wip-branch` chip.
+  - [ ] `git branch -D` a hidden branch, then reload: the name is pruned out of `localStorage`,
+        Viewing is right, and the one extra load in that case is expected and acceptable.
+  - [ ] Switching repositories through the recents dropdown to one with a different hidden set
+        applies that set on its first load, and the previous repository's set is not applied to it.
+  - [ ] `npm test` and `npm run e2e` pass; the GC-073 step is unchanged.
+- **Files:** `src/renderer/src/App.tsx`.
+- **Verify:** typecheck, build, the CDP checks above on the built app, and a read-only open of
+  `catena-feed` with one branch hidden to confirm the flash is gone on a large graph (read-only:
+  hiding writes only `localStorage`).
+- **Log:**
+  - 2026-09-06 04:20 proposed by GR-010: the code-review pass over GC-073, confirmed empirically on
+    the built app (`data-gen` 1 with nothing hidden, 2 with two refs hidden, the intermediate
+    snapshot rendered). Not GC-068, which is about a *late* watcher reload overwriting a fresher
+    snapshot and explicitly puts "coalescing two loads into one" out of scope; this is the cold-open
+    path never having the set in the first place.
+
+### GC-100 A branch can only be brought up to its upstream by checking it out first
+
+- **Status:** todo
+- **Area:** actions | **Size:** M | **Priority:** P3
+- **Depends on:** none
+- **Why:** `06-feature-inventory.md`'s Branch row lists "Fast-forward X to Y" and "Set upstream" as
+  their own actions, and the left panel already renders the ahead/behind pair that says when one is
+  needed (`abText` in `LeftPanel.tsx`). We have neither. To move a stale `main` up to `origin/main`
+  while working on `feature`, the only route through the app today is checkout `main` (with the
+  dirty-tree prompt GC-004 puts in the way), Pull, checkout `feature` again — three operations and a
+  stash for something git does with one ref update. And a branch with no upstream can only get one
+  as a side effect of `Push <name> and set upstream`: there is no way to point an existing local
+  branch at a remote branch that already exists, which is what you need after cloning a fork or
+  renaming a remote. GR-009's what's-next pass named both as unticketed; GC-049 put "Fast-forward as
+  a distinct action" explicitly out of its own scope, so nothing has picked them up.
+- **Scope:**
+  - `fastForward(cwd, branch, upstream)` in `git.ts`. For a branch that is **not** checked out, this
+    is `git fetch . <upstream>:<branch>` — a local fetch refuses anything that is not a
+    fast-forward, which is exactly the guarantee wanted, and it touches neither the index nor the
+    working tree. For the checked-out branch it is `git merge --ff-only <upstream>`. A refusal
+    surfaces as the `GitError` it already is; nothing is forced.
+  - `setUpstream(cwd, branch, upstream)` = `git branch --set-upstream-to=<upstream> <branch>`, and
+    the ability to clear it with `--unset-upstream`.
+  - Handlers in `ipc.ts` (`ref:fastForward`, `ref:setUpstream`) with the usual `str` validation,
+    preload entries, and the two signatures on `GitApi` in `shared/types.ts`.
+  - Branch menu, local branches only (`refMenuItems`, in the group that already holds Merge and
+    Rebase): `Fast-forward <name> to <upstream>`, present only when the branch has an upstream and
+    is behind it, with the count in the hint (`behind` is already on `GitRef`); and
+    `Set upstream…` / `Unset upstream`, the former prompting with the remote branches that exist.
+  - Both go through `run()` like every other action, so the snapshot reloads and a refusal reaches
+    the status bar.
+- **Out of scope:** a toolbar button for either, fast-forwarding several branches at once,
+  "Fast-forward all", pulling as part of the action (the user fetches first, as in GitKraken),
+  anything for remote-tracking branches or tags, and the ahead/behind arrows becoming clickable
+  (that is left-panel work, not this).
+- **Acceptance:**
+  - [ ] Scratch repository: with `feature` checked out and `main` one commit behind `origin/main`,
+        `Fast-forward main to origin/main` from the left row's menu moves `refs/heads/main` to
+        `origin/main`'s sha (`git rev-parse main origin/main` equal), leaves HEAD on `feature`,
+        and leaves `git status --porcelain` byte-for-byte as it was.
+  - [ ] The item is absent on a branch with no upstream and on one that is not behind, and a
+        divergent branch (ahead *and* behind) gets git's refusal in the status bar with the branch
+        unmoved.
+  - [ ] `Set upstream…` on a branch with none points it at a chosen remote branch (checked with
+        `git rev-parse --abbrev-ref <name>` and its upstream suffix), the left panel's ahead/behind
+        appears, and `Unset upstream` removes it again.
+  - [ ] An e2e step covering the fast-forward: assert the two shas equal and HEAD unmoved, then put
+        the fixture back with `git update-ref` (never `--hard`), and the final fixture check passes.
+  - [ ] Screenshot of the branch menu carrying both, looked at next to
+        `docs/reference/gitkraken/screenshots/20-context-menu-leftpanel-branch.png`.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
+  `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`, probably `tools/e2e/setup-testrepo.mjs` (the
+  fixture needs a local branch genuinely behind its upstream — see GC-055/GC-056, which want the
+  same thing for the ahead/behind arrows), `CLAUDE.md` if the menu conventions change.
+- **Verify:** typecheck, build, `npm test`, `npm run e2e`, and the git assertions above run by hand
+  against the scratch repository — never against a real one.
+- **Log:**
+  - 2026-09-06 04:20 proposed by GR-010: the what's-next pass over `06-feature-inventory.md`'s
+    Branch row against the board. Both actions were named as gaps by GR-009 and neither had a
+    ticket; GC-049 deferred Fast-forward by name. They are bundled because they are one menu group,
+    one file each side, and one fixture change — splitting them would pay the fixture cost twice.
+
+### GC-101 Checkboxes and the Preferences dropdown are unstyled OS controls
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `tokens.css` defines every colour, size and the Open Sans stack, and `app.css` puts them
+  on everything the app draws — except its form controls, which are the one place Chromium's
+  defaults show through. Measured on the built app at `d34d732`: every `input[type=checkbox]`
+  (Preferences' five, the detail panel's "Amend previous commit") computes `appearance: auto`,
+  `accent-color: auto` and **13x13px**, so it is painted at the OS accent rather than
+  `--accent #4d88ff` and at a size that matches nothing else on its row — neither the 12px icons
+  beside it nor the 14px/20px type. `accent-color` appears nowhere in either stylesheet. Worse,
+  `.pref-select` computes `font-family: Arial`: it is the **only** control in the whole app that is
+  not Open Sans (a sweep of every `input`, `select`, `textarea` and `button` in the rendered tree
+  returns exactly that one element), and the mismatch is plainly visible in
+  `%TEMP%/gitclient-review/GR-010/03-preferences.png`, where "Merge (fast-forward if possible)" is
+  set in a different typeface from the "Default pull action" label directly above it. A native
+  `select` also opens an OS popup list that no token reaches, in the middle of a modal that is
+  otherwise entirely ours.
+- **Scope:**
+  - A `.check` rule set in `app.css`: `appearance: none`, a 14px box on `--bg-raised` with the app's
+    border, `--accent` when checked, a drawn tick, a visible focus ring, and the disabled state.
+    Applied to every `input[type=checkbox]` in the app, so Preferences and the commit form's Amend
+    box are one control with one look.
+  - `.pref-select`: `font: inherit` at minimum, plus `appearance: none` with the app's own chevron
+    (`ChevronDown` through `Icon`, as every other dropdown affordance in the app already does) and
+    the menu colours from `tokens.css`. If dropping `appearance: auto` means losing the native popup
+    list, say so in the log and keep `font: inherit` — a native popup in the app's own font is still
+    better than the current mismatch.
+  - A token for the control size if two rules want it, rather than a magic number in both.
+- **Out of scope:** replacing checkboxes with toggle switches (GitKraken's shape, and copying it is
+  not the point — this ticket is about our own tokens reaching our own controls), radio buttons and
+  text inputs (already inheriting the font), the light theme (GC-013 will re-check these rules when
+  it lands), and any change to what the settings do.
+- **Acceptance:**
+  - [ ] On the built app, every `input[type=checkbox]` computes `appearance: none` and the box size
+        the rule sets, and no control anywhere in the rendered tree computes a `font-family` without
+        Open Sans in it — the same sweep this ticket was found with.
+  - [ ] Screenshot of Preferences with two boxes checked and two clear, and of the commit form's
+        Amend row, looked at next to `docs/reference/gitkraken/screenshots/12-preferences.png` and
+        `18-preferences-ui.png`: the checked colour is `--accent`, not the OS blue.
+  - [ ] Keyboard still works: Space toggles a focused checkbox, the focus ring is visible on both
+        controls, and `Preferences.test.tsx` still passes unchanged.
+  - [ ] `npm test`, `npm run typecheck` and `npm run build` pass.
+- **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/styles/tokens.css`,
+  `src/renderer/src/components/Preferences.tsx` (only if the select needs a wrapper for the chevron).
+- **Verify:** typecheck, build, launch through `tools/launch-app.mjs`, run the computed-style sweep
+  over the rendered tree by CDP and take the two screenshots above.
+- **Log:**
+  - 2026-09-06 04:20 proposed by GR-010: the screenshot pass, rotating onto Preferences, which no
+    review had captured before. Found by comparing computed styles rather than by eye — the Arial
+    select is obvious once seen, the 13px OS-accent checkbox is the kind of thing that reads as
+    "slightly off" without ever naming itself.
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -5489,3 +5660,87 @@ appends its own section here.
     e2e assertion count (104) both match this window, so nothing is stale today — but GC-089, claimed
     in cee2b53, is about to rewrite the whole file, and GC-092 will need the GC-082 paragraph's
     "applies nothing when it refuses" corrected wherever that text ends up.
+
+### GR-010 Backlog review 2026-09-06 04:20
+
+- **Status:** done
+- **Window:** cee2b53..d34d732
+- **Log:**
+  - 2026-09-06 04:20 shipped: 59f649f (the close-out of GC-086, GC-050, GC-073 and GC-089),
+    d8d8677 (GR-009 itself), 85b85e4 (the claim of GC-092, GC-088, GC-090, GC-095 and GC-093) and
+    **d34d732, that batch's close-out, which the worker pushed at 04:19 while this review was
+    running** — the window was extended to it and health re-run against it, but the reading below is
+    deep on 59f649f and a skim on d34d732; GR-011 should read d34d732's five tickets properly.
+    On 59f649f: GC-086's two-part key is right — the identity decides what renders and `version`
+    only decides `stale`, so no hunk can sit under a flipped header and `actionsDisabled` still
+    covers the pending reload; both are derived during render as the ticket insists. GC-050's
+    `useDragWidth` genuinely replaces three copies and computes the released width from the release
+    position, and the handles measure 4px at x=217 and x=999 with `--left-panel-w` 220 and
+    `--detail-panel-w` 400. GC-073's `--exclude` is ahead of `--all`, the ipc argument is validated
+    with `strs` and an omitted one means none, and the decision recorded in the log (one action
+    hides exactly one ref) is the one the code implements. One defect found and filed as GC-099:
+    the hidden set is applied from an effect that runs *after* the first snapshot, so a cold open
+    with anything hidden costs two full `git log` runs and paints the hidden branches first.
+    On d34d732 (skim): GC-092 answers GR-009's finding properly — `restoreStashWith` reads the
+    status either side of `stash --index` and retries only when nothing moved, deciding from
+    repository state rather than from git's wording, and it arrives with `src/main/git.test.ts`
+    (the test count went 77 → 92). GC-095 replaced `--all` with per-namespace `--glob`s plus HEAD,
+    with the excludes repeated before each glob.
+  - health: typecheck ok, tests **92 passed (14 files)**, build ok — re-run on d34d732 in the
+    detached worktree at `%TEMP%/gitclient-review/wt` with `node_modules` junctioned from the main
+    checkout. (On 85b85e4 earlier in the run: typecheck ok, 77 passed, build ok.) `MAIN/out` was
+    left untouched throughout — last written 04:08 by the worker, verified by mtime. No e2e run:
+    the budget went to the app pass and to reproducing GC-099, and the window's e2e changes are the
+    tickets' own, evidenced in their logs (117 assertions at 21.1s for 59f649f).
+  - app: the 59f649f build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, fixture
+    recreated first, every `gitclient.*` key except `lastRepo`/`recentRepos` cleared over CDP so
+    each capture is the default. Screenshots in `%TEMP%/gitclient-review/GR-010/`, all looked at:
+    `01-graph.png` (nine rows with WIP, Viewing 7, lanes continuous, `main ☁` absorbing its
+    upstream, `wip-branch +1` and `feature +1` at full width, the `v0.1.0` tag chip on the merge —
+    no regression from GR-009's reading), `02-hidden.png` (GC-073 end to end: both `wip-branch`
+    rows dimmed with eye-off icons, the `Work on wip branch` row gone, Viewing 5, the status bar at
+    7 commits, and a "Show all" eye appearing on both the LOCAL and REMOTE heads — exactly what the
+    ticket promised, and the eye is absent on the checked-out `main` row as specified),
+    `03-preferences.png` (**the rotation surface: no review had captured Preferences before**; it
+    is well laid out — APPEARANCE / GRAPH / BEHAVIOUR, each row a label plus a caption, a real
+    backdrop at rgba(0,0,0,0.5) — but its controls are where GC-101 came from) and
+    `04-shortcuts.png` (the overlay, twelve bindings across five groups; every one of them is a
+    navigation or dialog key, and not one names a git action, which is the case GC-033 already
+    makes — noted as evidence for that ticket rather than filed again). The scratch repository was
+    left on `main` matching its fixture. Stopped by PID: the 9334 tree was 39532 with children
+    26504, 17628 and 41484, all gone on the recheck; four other `electron.exe` were alive and
+    deliberately left, none carrying 9334.
+  - what's next: read `06-feature-inventory.md`'s Branch row and the Files row against the board.
+    Fast-forward and a plain Set upstream are the two Branch actions with no ticket and no route
+    through the UI at all — GR-009 flagged both and GC-049 deferred Fast-forward by name — so they
+    became GC-100. Still unticketed and worth a later look: "Restore file from this commit",
+    "Compare against working directory", "Export changes to patch" and Blame/History on a file row
+    (GC-093 has just given that menu its first non-trivial action, so it is the natural place to
+    grow), and "Delete branch local / remote / both" as one action. The left panel's ahead/behind
+    arrows still cannot be screenshotted because no fixture branch has an upstream that differs —
+    GC-100 needs the same fixture change GC-055/GC-056 want, and its ticket says so.
+  - tickets: added GC-099 (graph, S, P1: the double load on open, from the code-review pass,
+    reproduced on the built app), GC-100 (actions, M, P3: fast-forward and set upstream, from the
+    what's-next pass) and GC-101 (ui, S, P3: native checkboxes and the Arial Preferences select,
+    from the screenshot pass). Board: GC-099 goes to the head of the `todo` block, ahead of GC-098,
+    as the only P1; GC-100 after GC-057 in the remote/upstream cluster; GC-101 after GC-097 with
+    the other recent P3 ui rows. Nothing else moved. Deduplication: GC-099 is not GC-068 (that one
+    is a late watcher reload overwriting a fresher snapshot, and puts coalescing explicitly out of
+    scope); GC-100 is what GC-049 deferred, not a re-file of GC-031's push-to-a-chosen-remote;
+    GC-101 touches no setting's behaviour, so it does not overlap GC-013's light theme. Blocked
+    GC-017 and GC-018 still wait on Ricardo's decisions and nothing in this window unblocks either.
+    No `todo` ticket has gone vague.
+  - hygiene: 59f649f's batch left every acceptance checklist untouched — GC-050, GC-073, GC-086 and
+    GC-089 are `done` with 0 boxes ticked and 18 unticked between them, against 195 `[x]` in the
+    rest of the file. Their narrative logs are excellent and carry the evidence, so nothing is
+    unverified in substance, but step 6 of the routine says to tick the boxes actually checked, and
+    a reader scanning statuses sees four shipped tickets that read as unverified. d34d732's batch
+    ticked all of its own, so this looks like one run's lapse rather than a drift — recorded here so
+    it does not become one. Not filed as a ticket: it is process, not product. Otherwise the board
+    is in good order; the one structural wart is that the P3 block has grown past twenty rows and
+    its ordering is now more historical than deliberate, which deserves a considered pass by GR-011
+    or by Ricardo rather than a reorder made in passing here.
+  - notes: `CLAUDE.md` is current, and deliberately so twice over — GC-089 rewrote it to 466 lines
+    in 59f649f and d34d732 updated it again; it now reads "92 tests today", which matches this
+    review's own run exactly, and its Commands and Architecture sections match what was observed on
+    the running app. Nothing stale to report.
