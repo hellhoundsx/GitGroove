@@ -273,6 +273,9 @@ const state = async () =>
     ),
   );
 const menuList = () => ev(`[...document.querySelectorAll('.ctx-menu .ctx-item, .ctx-menu .ctx-sep')].map(i => i.classList.contains('ctx-sep') ? '---' : (i.disabled ? '(x) ' : '') + i.querySelector('.ctx-label')?.textContent.trim()).join(' | ')`);
+/** The menu's caption rows, which `menuList` deliberately leaves out: a caption is a
+ *  `div.ctx-caption` and no menu selector picks it up, so it is read on its own (GC-074). */
+const menuCaptions = () => ev(`[...document.querySelectorAll('.ctx-menu .ctx-caption')].map(c => c.textContent.trim()).join(' | ')`);
 const menuClick = (label) =>
   liveClick(`the menu item ${label}`, `(() => { const items = [...document.querySelectorAll('.ctx-menu .ctx-item')]; const it = items.find(i => (i.querySelector('.ctx-label')?.textContent.trim() ?? '').startsWith(${q(label)})); if (!it) return 'MISS menu item not found: ' + ${q(label)}; if (it.disabled) return 'DISABLED: ' + ${q(label)}; it.click(); return 'clicked: ' + ${q(label)}; })()`);
 const modal = (value, checked) =>
@@ -1711,13 +1714,18 @@ const currentBefore = git(['branch', '--show-current']);
 log(await contextMenuOn('.left-panel .ref-row', RESET_BRANCH));
 const branchMenu = await menuList();
 log(branchMenu);
+// The reset target is said once now, in a caption over Soft / Mixed / Hard (GC-074), and a caption
+// is not a menu item — so it is read separately, which is also what proves it is not clickable.
+const branchCaptions = await menuCaptions();
 check(
   'the branch menu carries the tip-commit group',
-  ['Cherry pick commit', 'Revert commit', 'Create tag here', 'Copy commit sha'].every((l) => branchMenu.includes(l)) &&
-    // The target is said once, in the caption over the three modes (GC-074).
-    branchMenu.includes(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}`) &&
-    ['Soft', 'Mixed', 'Hard'].every((m) => branchMenu.includes(m)),
+  ['Cherry pick commit', 'Revert commit', 'Create tag here', 'Copy commit sha'].every((l) => branchMenu.includes(l)) && ['Soft', 'Mixed', 'Hard'].every((m) => branchMenu.includes(m)),
   branchMenu,
+);
+check(
+  'and names the reset target once, in a caption rather than on every row',
+  branchCaptions.includes(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}`) && !branchMenu.includes('Reset '),
+  `captions: ${branchCaptions || '(none)'}`,
 );
 log(await act(() => menuClick('Mixed')));
 check(
@@ -1916,7 +1924,7 @@ step(26, 'the branch crumb is a dropdown: local and remote branches, the owner t
 // it opens the branch list now. Both crumbs are `.crumb`, so the branch one is the second.
 const branchCrumb = () =>
   liveClick('the branch crumb', `(() => { const c = [...document.querySelectorAll('.breadcrumb .crumb')][1]; if (!c) return 'MISS no branch crumb'; if (c.tagName !== 'BUTTON') return 'MISS the branch crumb is not a button'; c.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); c.click(); return 'clicked the branch crumb'; })()`);
-const menuCaptions = () => ev(`[...document.querySelectorAll('.ctx-menu .ctx-caption')].map(c => c.textContent.trim()).join(' | ')`);
+/* `menuCaptions` moved up to the other menu helpers when step 23 needed it too (GC-074). */
 await waitNoMenu();
 log(await branchCrumb());
 await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the branch menu');
