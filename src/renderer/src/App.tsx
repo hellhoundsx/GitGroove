@@ -17,7 +17,9 @@ import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
 import type { MenuAnchor } from './ui/UiContext';
 import { canDropRef, type RefDragHandlers } from './ui/refDrag';
+import { cycle, makeTabs, neighbourOf, readTabs, TABS_KEY, type Tab } from './tabs';
 
+/** Which tab was showing when the app was last closed, so a restart comes back to it. */
 const LAST_REPO_KEY = 'gitclient.lastRepo';
 /** Remembered state like `gitclient.lastRepo`, not a preference: the list of paths, newest first (GC-044). */
 const RECENT_REPOS_KEY = 'gitclient.recentRepos';
@@ -71,6 +73,38 @@ const readRecents = (): string[] => {
   }
 };
 
+/**
+ * What a tab that is not showing keeps (GC-016). Everything here is about one repository, so it is
+ * parked when the tab is left and put back when it returns — which is what makes a switch instant
+ * and what preserves the selection and the scroll position the tab was left at.
+ *
+ * `workdirVersion` is deliberately not in it: it is a monotonic counter the diff reads as "the
+ * content you loaded is older than this", and handing it back a smaller number than it has already
+ * seen would be a lie about which way time ran.
+ */
+interface TabState {
+  snapshot: RepoSnapshot | null;
+  selected: string | null;
+  fileView: FileViewSource | null;
+  hidden: string[];
+  paged: { path: string; loaded: number };
+  hasMore: boolean;
+  search: { open: boolean; tick: number; query: string };
+  graphTop: number;
+}
+
+/** The tabs to start with: the stored list, or the one remembered repository for a profile that predates them. */
+const initialTabs = (): Tab[] => {
+  try {
+    const stored = readTabs(localStorage.getItem(TABS_KEY));
+    if (stored.length > 0) return makeTabs(stored);
+    const last = localStorage.getItem(LAST_REPO_KEY);
+    return last ? makeTabs([last]) : [];
+  } catch {
+    return [];
+  }
+};
+
 const isEditable = (t: EventTarget | null): boolean => t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 /**
  * Whether a staging row's file is gone from the working tree (GC-072). The unstaged side is the
@@ -93,13 +127,26 @@ const msg = (e: unknown): string =>
 export function App(): JSX.Element {
   const ui = useUi();
   const prefs = usePrefs();
-  const [repoPath, setRepoPath] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(LAST_REPO_KEY);
-    } catch {
-      return null;
-    }
+  // The open repositories, and which one is showing (GC-016). The tab is the identity: `repoPath`
+  // below is what that tab has actually loaded, which is null while it is loading and stays null
+  // if it fails, so the two cannot be collapsed into one.
+  const [tabs, setTabs] = useState<Tab[]>(initialTabs);
+  const [activeId, setActiveId] = useState<number | null>(() => {
+    const last = ((): string | null => {
+      try {
+        return localStorage.getItem(LAST_REPO_KEY);
+      } catch {
+        return null;
+      }
+    })();
+    const showing = last === null ? undefined : tabs.find((t) => normRepoPath(t.path) === normRepoPath(last));
+    return (showing ?? tabs[0])?.id ?? null;
   });
+  /** Ids are never reused within a session, so a tab closed while its load is in flight cannot be hit by it. */
+  const nextTabId = useRef(tabs.length + 1);
+  /** What each tab that is not showing was left with, keyed by tab id (GC-016). */
+  const parked = useRef(new Map<number, TabState>());
+  const [repoPath, setRepoPath] = useState<string | null>(() => tabs.find((t) => t.id === activeId)?.path ?? null);
   const [recents, setRecents] = useState<string[]>(readRecents);
   const [snapshot, setSnapshot] = useState<RepoSnapshot | null>(null);
   const [selected, setSelected] = useState<string | null>(WIP);
@@ -185,6 +232,12 @@ export function App(): JSX.Element {
   // (GC-012). The depth is a ref because every load reads it as it stands at the moment it spawns
   // `git log`, the way the hidden set above does.
   const paged = useRef<{ path: string; loaded: number }>({ path: '', loaded: 0 });
+  /**
+   * Where the graph is scrolled to, reported by `CommitGraph` on every scroll (GC-016). A ref
+   * rather than state: nothing on screen is derived from it, so a wheel event has no business
+   * re-rendering the app, and the graph reads it back only when it mounts.
+   */
+  const graphTop = useRef(0);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   // The search bar over the graph. `searchTick` changes on every request to open it so that
@@ -196,6 +249,12 @@ export function App(): JSX.Element {
   const closeSearch = useCallback(() => setSearch((s) => ({ ...s, open: false, query: '' })), []);
   const setSearchQuery = useCallback((query: string) => setSearch((s) => ({ ...s, query })), []);
 
+  // What the showing tab would be parked with, mirrored into a ref on every render — the shape
+  // `panelW` above already uses. Keeping it here rather than in the switch callback's closure is
+  // what stops that callback from being rebuilt on every keystroke in the find bar (GC-016).
+  const live = useRef<TabState>({ snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current });
+  live.current = { snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current };
+
   // The recents list is state here and one JSON blob in localStorage; writing it from an effect
   // keeps the updaters below pure (GC-044).
   useEffect(() => {
@@ -205,6 +264,43 @@ export function App(): JSX.Element {
       /* ignore */
     }
   }, [recents]);
+
+  // The tab list is remembered state on its own key, the way every other remembered value is, and
+  // it holds paths only: the ids are handed out afresh on each start (GC-016).
+  useEffect(() => {
+    try {
+      localStorage.setItem(TABS_KEY, JSON.stringify(tabs.map((t) => t.path)));
+    } catch {
+      /* ignore */
+    }
+  }, [tabs]);
+
+  /** The repository the showing tab stands for, which is not `repoPath` until its load has landed. */
+  const activePath = tabs.find((t) => t.id === activeId)?.path ?? null;
+
+  // What a restart reopens is the tab that was showing, so it follows the tab rather than the load
+  // (GC-016): a tab whose load failed keeps its place, which is what GC-025 wanted the remembered
+  // path for. With no tab left there is nothing to come back to.
+  useEffect(() => {
+    try {
+      if (activePath === null) localStorage.removeItem(LAST_REPO_KEY);
+      else localStorage.setItem(LAST_REPO_KEY, activePath);
+    } catch {
+      /* ignore */
+    }
+  }, [activePath]);
+
+  // git hands back the canonical path — a dialog answers `c:\repo` and `rev-parse` calls it
+  // `C:/repo` — so the tab adopts the form the load came back with. Only that: the two must be the
+  // same repository, or a tab shown before its first load has landed would take the *previous*
+  // tab's path, and keep it if that load then failed. A tab that is genuinely being pointed at
+  // another repository is retargeted by `openPath` itself (GC-016).
+  useEffect(() => {
+    if (repoPath === null) return;
+    setTabs((prev) =>
+      prev.map((t) => (t.id === activeId && t.path !== repoPath && normRepoPath(t.path) === normRepoPath(repoPath) ? { ...t, path: repoPath } : t)),
+    );
+  }, [repoPath, activeId]);
 
   // Nothing tied a git result to the moment it was asked for, so a slow background load could
   // resolve after a user action had already reloaded and replace the fresh snapshot with the one
@@ -272,11 +368,9 @@ export function App(): JSX.Element {
         setRepoPath(snap.info.path);
         // git hands back the canonical path, so dedupe against that rather than the one asked for.
         setRecents((prev) => [snap.info.path, ...prev.filter((p) => normRepoPath(p) !== normRepoPath(snap.info.path))].slice(0, MAX_RECENT));
-        try {
-          localStorage.setItem(LAST_REPO_KEY, snap.info.path);
-        } catch {
-          /* ignore */
-        }
+        // `gitclient.lastRepo` and the showing tab's own path follow `repoPath` from one effect
+        // below, so that a tab switch that restores a parked snapshot without calling `load()`
+        // remembers itself too (GC-016).
       } catch (e) {
         // A stale failure must not clear a repository a newer load has since opened, so the error
         // path is generation-checked too (GC-068).
@@ -355,14 +449,42 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Switch to a repository: the folder dialog and the recents list both land here. */
-  const openPath = useCallback(
+  /**
+   * Replace the snapshot for `path`, keeping what is on screen if it fails. The two callers are
+   * refreshes nobody asked for — the watcher's, and the one a tab takes when it comes back to the
+   * front (GC-016) — and `load()`'s failure path clears the open repository (GC-025), which is not
+   * what either of them means.
+   */
+  const reloadSnapshot = useCallback(
+    async (path: string) => {
+      const gen = generation.current;
+      // As deep as what is on screen, or a refresh nobody asked for would drop the pages the
+      // user scrolled to load (GC-012).
+      const want = pageDepth(paged.current, path);
+      try {
+        const snap = await window.api.loadRepo(path, want, hiddenRef.current);
+        if (gen !== generation.current) return; // (GC-068) a user action has reloaded since
+        setSnapshot(snap);
+        paged.current = { path: snap.info.path, loaded: snap.commits.length };
+        setHasMore(snap.commits.length >= want);
+        setWorkdirVersion((v) => v + 1);
+        bumpGen();
+      } catch {
+        /* a background refresh must not raise a banner over the user's work */
+      }
+    },
+    [bumpGen],
+  );
+
+  /** Load `path` into the showing tab: the folder dialog, the recents list and a tab's first look all land here. */
+  const openIn = useCallback(
     async (path: string) => {
       // Switching repositories is a user action like any other, so it too invalidates a background
       // load already running against the one being left (GC-068).
       generation.current += 1;
       setFileView(null);
       setSelected(WIP);
+      graphTop.current = 0; // a repository being opened starts at the top of its history
       const owns = takeBusy('Loading repository');
       setError(null);
       await load(path).finally(() => {
@@ -372,10 +494,135 @@ export function App(): JSX.Element {
     [load, takeBusy],
   );
 
+  /**
+   * Put `t` on screen: what it was parked with if it has been here before, a fresh load if not
+   * (GC-016). A parked tab comes back in one commit — no frame is painted between the two
+   * repositories — and is then refreshed underneath, because the watcher only ever followed the
+   * tab that was showing and what this one kept may be minutes old.
+   */
+  const showTab = useCallback(
+    (t: Tab) => {
+      generation.current += 1;
+      setActiveId(t.id);
+      const back = parked.current.get(t.id);
+      if (!back?.snapshot) {
+        void openIn(t.path);
+        return;
+      }
+      setSnapshot(back.snapshot);
+      setSelected(back.selected);
+      setFileView(back.fileView);
+      setHidden(back.hidden);
+      hiddenRef.current = back.hidden;
+      paged.current = back.paged;
+      setHasMore(back.hasMore);
+      setSearch(back.search);
+      graphTop.current = back.graphTop;
+      setRepoPath(back.snapshot.info.path);
+      setError(null);
+      // A tab switch changes everything the panels show, so it is a generation like any other
+      // reload: without it nothing waiting on `data-gen` could tell the switch had happened.
+      bumpGen();
+      void reloadSnapshot(back.snapshot.info.path);
+    },
+    [bumpGen, openIn, reloadSnapshot],
+  );
+
+  /** The tab already holding `path`, if any: a repository is opened once and revisited, not duplicated. */
+  const tabFor = useCallback((path: string): Tab | undefined => tabs.find((t) => normRepoPath(t.path) === normRepoPath(path)), [tabs]);
+
+  const selectTab = useCallback(
+    (id: number) => {
+      if (id === activeId) return;
+      const t = tabs.find((x) => x.id === id);
+      if (!t) return;
+      if (activeId !== null) parked.current.set(activeId, live.current);
+      showTab(t);
+    },
+    [activeId, showTab, tabs],
+  );
+
+  /** Switch the showing tab to a repository; with nothing open at all, the first tab is made for it. */
+  const openPath = useCallback(
+    async (path: string) => {
+      const already = tabFor(path);
+      // Opening a repository that is already in the bar takes the user to it rather than making a
+      // second copy of it, which is what every other tabbed application does.
+      if (already && already.id !== activeId) {
+        selectTab(already.id);
+        return;
+      }
+      if (activeId === null) {
+        const id = nextTabId.current++;
+        setTabs((prev) => [...prev, { id, path }]);
+        setActiveId(id);
+      } else {
+        setTabs((prev) => prev.map((t) => (t.id === activeId ? { ...t, path } : t)));
+      }
+      await openIn(path);
+    },
+    [activeId, openIn, selectTab, tabFor],
+  );
+
+  /** Open a repository in a tab of its own, beside the showing one (GC-016). */
+  const openNewTab = useCallback(
+    async (path: string) => {
+      const already = tabFor(path);
+      if (already) {
+        selectTab(already.id);
+        return;
+      }
+      if (activeId !== null) parked.current.set(activeId, live.current);
+      const id = nextTabId.current++;
+      setTabs((prev) => [...prev, { id, path }]);
+      setActiveId(id);
+      await openIn(path);
+    },
+    [activeId, openIn, selectTab, tabFor],
+  );
+
+  /**
+   * Close a tab, and with it everything it had parked. Closing one that is not showing changes
+   * nothing on screen; closing the last one goes back to the empty state, which is where the app
+   * starts before a repository has ever been opened.
+   */
+  const closeTab = useCallback(
+    (id: number) => {
+      parked.current.delete(id);
+      const next = id === activeId ? neighbourOf(tabs, id) : null;
+      setTabs((prev) => prev.filter((t) => t.id !== id));
+      if (id !== activeId) return;
+      if (next) {
+        showTab(next);
+        return;
+      }
+      generation.current += 1;
+      setActiveId(null);
+      setSnapshot(null);
+      setRepoPath(null);
+      setSelected(WIP);
+      setFileView(null);
+      setSearch({ open: false, tick: 0, query: '' });
+      paged.current = { path: '', loaded: 0 };
+      graphTop.current = 0;
+      setHasMore(false);
+      setError(null);
+      bumpGen();
+      // `gitclient.lastRepo` follows the showing tab, so closing the last one clears it there.
+    },
+    [activeId, bumpGen, showTab, tabs],
+  );
+
   const openRepo = useCallback(async () => {
     const path = await window.api.openRepoDialog();
     if (path) await openPath(path);
   }, [openPath]);
+
+  /** `+`: a new tab is a repository this window is not showing yet, so it asks for the folder (GC-016). */
+  const newTab = useCallback(async () => {
+    const path = await window.api.openRepoDialog();
+    if (path) await openNewTab(path);
+  }, [openNewTab]);
 
   const repo = snapshot?.info.path ?? null;
 
@@ -603,22 +850,12 @@ export function App(): JSX.Element {
         }
         // Not `load()`: its failure path clears the open repository (GC-025), which a refresh
         // nobody asked for must never do, so the snapshot is replaced only when one arrives.
-        const gen = generation.current;
-        // As deep as what is on screen, or a refresh nobody asked for would drop the pages the
-        // user scrolled to load (GC-012).
-        const want = pageDepth(paged.current, repo);
-        const snap = await window.api.loadRepo(repo, want, hiddenRef.current);
-        if (gen !== generation.current) return; // (GC-068) a user action has reloaded since
-        setSnapshot(snap);
-        paged.current = { path: snap.info.path, loaded: snap.commits.length };
-        setHasMore(snap.commits.length >= want);
-        setWorkdirVersion((v) => v + 1);
-        bumpGen();
+        await reloadSnapshot(repo);
       } catch {
         /* a background refresh must not raise a banner over the user's work */
       }
     },
-    [bumpGen, refreshStatus, repo],
+    [refreshStatus, reloadSnapshot, repo],
   );
 
   const flushChange = useCallback(() => {
@@ -1466,6 +1703,15 @@ export function App(): JSX.Element {
         setDetailCollapsed((v) => !v);
         return;
       }
+      // Cycling the tabs costs nothing and needs no repository open (GC-016). It is deliberately
+      // above the bindings that do, so a window with one tab still swallows Ctrl+Tab rather than
+      // letting the focus ring walk the toolbar.
+      if (hit('nextTab') || hit('prevTab')) {
+        e.preventDefault();
+        const id = cycle(tabs, activeId, matches('nextTab', e) ? 1 : -1);
+        if (id !== null) selectTab(id);
+        return;
+      }
       if (hit('focusFilter')) {
         if (!snapshot) return;
         e.preventDefault();
@@ -1520,14 +1766,22 @@ export function App(): JSX.Element {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch]);
+  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch, tabs, activeId, selectTab]);
 
   return (
     <div
       className={`app ${leftW.resizing || detailW.resizing ? 'resizing' : ''}`}
       style={{ '--left-panel-w': `${applied.left}px`, '--detail-panel-w': `${applied.detail}px` } as CSSProperties}
     >
-      <TitleBar repoName={snapshot?.info.name ?? null} onOpenRepo={openRepo} onRepoMenu={openRepoMenu} />
+      <TitleBar
+        tabs={tabs}
+        activeId={activeId}
+        onSelectTab={selectTab}
+        onCloseTab={closeTab}
+        onNewTab={() => void newTab()}
+        onOpenRepo={openRepo}
+        onRepoMenu={openRepoMenu}
+      />
       <Toolbar
         info={snapshot?.info ?? null}
         busy={busy !== null}
@@ -1608,6 +1862,13 @@ export function App(): JSX.Element {
               />
             ) : (
               <CommitGraph
+                // Keyed by repository, so the state the graph keeps for itself — the author chip
+                // on the find bar, the lane-layout cache, the hovered fold — belongs to the tab it
+                // was made in and never arrives over another repository's rows (GC-016). The key
+                // is prefixed because the detail panel below is a sibling keyed on the same
+                // repository, and two siblings sharing one key is not a swap: React matched the
+                // new graph against the old panel, and both graphs stayed on screen at once.
+                key={`graph-${repo}`}
                 commits={commits}
                 refs={visibleRefs}
                 status={snapshot.status}
@@ -1630,10 +1891,17 @@ export function App(): JSX.Element {
                 hasMore={hasMore}
                 loadingMore={loadingMore}
                 onLoadMore={askForMore}
+                scrollTop={graphTop.current}
+                onScrollTop={(top) => (graphTop.current = top)}
               />
             )}
             {!detailCollapsed && (
               <DetailPanel
+                // Keyed by repository for the same reason the graph is, and prefixed for the same
+                // reason too: the commit message being written belongs to the repository it is
+                // about, and carrying it into another tab's staging view would put it on the wrong
+                // commit (GC-016).
+                key={`detail-${repo}`}
                 repo={repo}
                 commit={selectedCommit}
                 headCommit={headCommit}

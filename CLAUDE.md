@@ -104,7 +104,7 @@ useless, a frameless window reports an empty title even on screen.
 
 `src/main/` is `index.ts` (the window), `git.ts`, `ipc.ts` and `watch.ts`; `src/preload/` is the
 contextBridge; `src/shared/` holds `types.ts` and `remotes.ts`; `src/renderer/src/` holds
-`App.tsx`, `components/`, `graph/`, `diff/`, `ui/`, `prefs.ts`, `shortcuts.ts`, `time.ts` and
+`App.tsx`, `components/`, `graph/`, `diff/`, `ui/`, `prefs.ts`, `shortcuts.ts`, `tabs.ts`, `time.ts` and
 `styles/` (`tokens.css` plus `app.css`, one file for every component). Outside `src/`: `docs/screenshots/`
 for screenshots of our app, `docs/reference/gitkraken/` for the study, and `tools/`
 (`launch-app.mjs`, `gk-recon/`, `e2e/`). Each is described below or under Testing.
@@ -200,6 +200,37 @@ unsubscribe.
 `selected` (a sha or the `WIP` sentinel), `fileView`, `leftCollapsed`, the panel widths, `hidden`,
 `workdirVersion`, `busy`, `error`, `gitError`, `pinned`.
 
+**And one repository at a time out of several: the tabs** (GC-016). `tabs.ts` is what a tab *is* —
+an `id` and a `path` — plus the three pure answers the bar needs: the stored list read back, which
+tab is left showing when one is closed, and which one Ctrl+Tab moves to. `App` holds `tabs` and
+`activeId`, and a `parked` Map keyed by **tab id** holding the `TabState` each tab that is not
+showing was left with: snapshot, selection, file view, hidden set, `paged`, `hasMore`, the find
+bar and the graph's scroll offset. It is keyed by id rather than by path because the path changes
+under it the moment git answers with its canonical form.
+
+- **A switch is one commit, then a refresh.** `showTab` puts the parked state back in a single
+  render — no frame is painted between the two repositories, which is what preserves the scroll
+  position — bumps `dataGen` like any other reload, and then calls `reloadSnapshot(path)`
+  underneath, because the watcher only ever followed the tab that was showing and what this one
+  kept may be minutes old. `reloadSnapshot` is the extracted body of `applyChange`'s `refs`
+  branch and is shared with it: both are refreshes nobody asked for, so neither may take
+  `load()`'s failure path, which clears the open repository (GC-025).
+- **`repoPath` is not the tab's path.** The tab is showing the moment it is clicked; `repoPath` is
+  still the previous repository until git answers, and stays null if the load fails. So
+  `gitclient.lastRepo` follows the **active tab's** path, while the effect that adopts git's
+  canonical spelling only fires when the two are the same repository under `normRepoPath` — without
+  that guard a tab shown before its first load took the previous tab's path and kept it when its
+  own load failed.
+- **The graph and the detail panel are keyed by repository**, so the state they keep for themselves
+  — the find bar's author chip, the lane-layout cache, the commit message being written — belongs
+  to the tab it was made in. The two keys are **prefixed** (`graph-`, `detail-`) because they are
+  siblings: two siblings under one key is not a swap, and React left both graphs on screen at once.
+- `+` opens the folder dialog and puts the repository in a tab of its own; "Open repository" and the
+  recents list still land in the showing tab. Either way a repository already in the bar takes the
+  user to its tab rather than opening a second copy of it. Closing a tab falls to its right
+  neighbour, then its left, then the empty state. The graph's scroll offset reaches `App` as a ref
+  (`graphTop`) reported by `CommitGraph`, so a wheel event re-renders nothing.
+
 - **`run(label, fn, opts)` is the only way git actions execute.** It sets busy, runs, reloads the
   snapshot (or only the status for staging actions), and **re-applies the error after the reload**,
   because git often exits non-zero while leaving a state the panels must show.
@@ -266,8 +297,8 @@ handler's `hit(id)` is `matches(id, e) && (firesWhileTyping(id) || !isEditable(e
 one `isEditable` check placed halfway down the ladder. Ctrl+F and Ctrl+Shift+M are the two that
 carry it: both are how a field is *reached*. The body-scope bindings are Ctrl+B (branch at HEAD),
 Ctrl+L (fetch), Ctrl+J / Ctrl+K (the two panels), Ctrl+Alt+F (the ref filter), Ctrl+Shift+S /
-Ctrl+Shift+U (stage and unstage all) and Ctrl+Shift+M; the four that run git follow the toolbar's
-own disabled states. Ctrl+K's `detailCollapsed` hides the detail panel outright and `select()`
+Ctrl+Shift+U (stage and unstage all), Ctrl+Shift+M and Ctrl+Tab / Ctrl+Shift+Tab (the repository
+tabs, GC-016); the four that run git follow the toolbar's own disabled states. Ctrl+K's `detailCollapsed` hides the detail panel outright and `select()`
 brings it back, and the two focus bindings reach their field through a **tick** prop
 (`focusFilter`, `focusSummary`) rather than a boolean, the shape `searchTick` already used, so
 asking twice focuses twice. A hidden detail panel goes into `fitPanels` as a zero-width panel with
@@ -576,7 +607,8 @@ Remembered **state** deliberately stays on its own keys, never in the blob:
 
 | Key | Holds |
 | --- | --- |
-| `gitclient.lastRepo` | the repository to reopen |
+| `gitclient.tabs` | the open repositories as a JSON array of paths, in bar order (GC-016) |
+| `gitclient.lastRepo` | which of those tabs was showing, so a restart comes back to it |
 | `gitclient.recentRepos` | ten absolute paths, newest first, deduplicated on the normalised path |
 | `gitclient.refColW` | ref column width in px (100–400, default 150) |
 | `gitclient.leftPanelW` | left panel width in px (160–420, default 220) |
@@ -656,7 +688,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-210 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+229 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -812,7 +844,10 @@ reaches for `toLocaleString` (Styling, Preferences); a failing e2e git call thro
 stopped on every exit path, a wait before a click proving the control is live rather than only
 the content right, and every click going through `liveClick` so a missing or dead control fails
 where it happened (Testing); one rule for which shortcuts fire while typing, read off the table's
-own `whileTyping` (App state);
+own `whileTyping` (App state); a tab switch restoring in one commit and refreshing underneath, the
+tab keyed by id rather than by its path, `gitclient.lastRepo` following the active tab while git's
+canonical spelling is adopted only within one repository, and two keyed siblings never sharing a
+key (App state);
 stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).
 

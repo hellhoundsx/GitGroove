@@ -42,6 +42,14 @@ interface Props {
   /** A page is in flight: the row at the bottom says so, and no second request is made (GC-012). */
   loadingMore: boolean;
   onLoadMore(): void;
+  /**
+   * Where this repository's graph was left scrolled to, restored on mount (GC-016). Read once,
+   * which is all that is needed: the component is remounted per repository and again whenever a
+   * file view closes over it, and those are exactly the moments the offset has to come back.
+   */
+  scrollTop: number;
+  /** Where it is scrolled to now, so the tab it belongs to can be parked with it (GC-016). */
+  onScrollTop(top: number): void;
 }
 
 export const WIP = 'WIP';
@@ -160,7 +168,7 @@ function useLaneLayout(commits: Commit[], pinnedSha: string | null | undefined):
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, refDrag, detached, hasMore, loadingMore, onLoadMore }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop }: Props): JSX.Element {
   // The optional columns after the message; all off by default (GC-032). What the preference asks
   // for is not always what fits: `fitOptCols` below drops them once the panel is too narrow to
   // draw them and a commit message both (GC-116).
@@ -211,9 +219,23 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   const bodyRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ top: 0, height: 800 });
   const [bodyW, setBodyW] = useState(0);
+  // The offset to come back to, taken once. A ref rather than the prop itself so this effect can
+  // stay a mount effect: the number changes under it as the graph is scrolled, and re-running on
+  // that would put the graph back where it started every time (GC-016).
+  const initialTop = useRef(scrollTop);
+  // Set by the restore below and read by the "keep the selected row visible" effect further down,
+  // which runs in the same commit and would otherwise pull a restored position back to the
+  // selected row — a tab left scrolled away from its selection came back at the selection.
+  const restored = useRef(false);
   useLayoutEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
+    // Before the first measurement, so the rows are virtualised at the restored position rather
+    // than at the top of the history and no frame is painted at the wrong one (GC-016).
+    if (initialTop.current > 0) {
+      el.scrollTop = initialTop.current;
+      restored.current = true;
+    }
     const update = (): void => {
       setViewport({ top: el.scrollTop, height: el.clientHeight });
       setBodyW(el.clientWidth);
@@ -343,6 +365,12 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   useEffect(() => {
     const el = bodyRef.current;
     if (!el || selected === null) return;
+    // A restored position is the one being asked for, so it survives this pass: the selection was
+    // made before the tab was left and is not what moved (GC-016).
+    if (restored.current) {
+      restored.current = false;
+      return;
+    }
     const index = selected === WIP ? 0 : commits.findIndex((c) => c.sha === selected) + (hasWip ? 1 : 0);
     if (index < 0) return;
     const top = index * ROW_H;
@@ -601,7 +629,17 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
         {cols.date && <div className="col-date">Date / Time</div>}
         {cols.sha && <div className="col-sha">SHA</div>}
       </div>
-      <div className="graph-body" ref={bodyRef} onScroll={(e) => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
+      <div
+        className="graph-body"
+        ref={bodyRef}
+        onScroll={(e) => {
+          const top = e.currentTarget.scrollTop;
+          setViewport({ top, height: e.currentTarget.clientHeight });
+          // Programmatic scrolling raises this event too, so the keyboard's own "keep the selected
+          // row visible" moves are reported as well as the wheel (GC-016).
+          onScrollTop(top);
+        }}
+      >
         <div className="graph-rows" style={{ height: scrollRows * ROW_H }}>
           {rows}
           {loadingMore && (

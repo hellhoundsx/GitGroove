@@ -21,6 +21,8 @@ export type ShortcutId =
   | 'toggleLeft'
   | 'toggleDetail'
   | 'focusFilter'
+  | 'nextTab'
+  | 'prevTab'
   | 'stageAll'
   | 'unstageAll'
   | 'focusSummary'
@@ -100,6 +102,20 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         keys: ['Ctrl+Alt+F'],
         description: 'Filter the branches in the left panel',
         match: (e) => mod(e) && e.altKey === true && letter(e, 'f'),
+      },
+      {
+        id: 'nextTab',
+        keys: ['Ctrl+Tab'],
+        description: 'Show the next repository tab',
+        // Not `whileTyping`: the commit message belongs to the repository it was typed in and is
+        // gone with the tab, so switching out of a half-written one must be deliberate (GC-016).
+        match: (e) => mod(e) && !e.shiftKey && !e.altKey && e.key === 'Tab',
+      },
+      {
+        id: 'prevTab',
+        keys: ['Ctrl+Shift+Tab'],
+        description: 'Show the previous repository tab',
+        match: (e) => mod(e) && e.shiftKey && !e.altKey && e.key === 'Tab',
       },
       {
         id: 'help',

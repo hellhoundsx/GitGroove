@@ -102,6 +102,8 @@ function flipsUp(body: Rect, chipRect: Rect, listHeight: number): boolean {
       hasMore={false}
       loadingMore={false}
       onLoadMore={() => {}}
+      scrollTop={0}
+      onScrollTop={() => {}}
     />,
   );
 
@@ -207,6 +209,8 @@ function renderDrag(dragging: GitRef | null, dropped: { src: GitRef | null; dst:
       hasMore={false}
       loadingMore={false}
       onLoadMore={() => {}}
+      scrollTop={0}
+      onScrollTop={() => {}}
     />,
   );
   return container as HTMLElement;

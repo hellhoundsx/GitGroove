@@ -206,15 +206,48 @@ input[type='radio']:disabled {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 0 var(--sp-4);
+  /* Less on the right than the left: the close glyph sits in it and carries its own box (GC-016). */
+  padding: 0 var(--sp-2) 0 var(--sp-4);
   color: var(--text-muted);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
   -webkit-app-region: no-drag;
   white-space: nowrap;
+  cursor: pointer;
+  max-width: 240px;
+}
+/* A repository with a long folder name gives way rather than pushing `+` off the bar. The name is
+   the only part that may shrink: an icon at half width says less than no icon at all. */
+.titlebar .tab > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.titlebar .tab > .tab-icon {
+  flex: none;
 }
 .titlebar .tab.selected {
   color: var(--text-bright);
   background: var(--bg-toolbar);
+}
+/* The close glyph keeps its space at every moment, so the tab does not change width under the
+   pointer as it appears; it is only shown on the tab being closed from or the one showing (GC-016). */
+.titlebar .tab-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  visibility: hidden;
+}
+.titlebar .tab:hover .tab-close,
+.titlebar .tab.selected .tab-close {
+  visibility: visible;
+}
+.titlebar .tab-close:hover {
+  background: var(--hover-overlay);
+  color: var(--text-bright);
 }
 .titlebar .tab-icon-btn {
   width: 40px;

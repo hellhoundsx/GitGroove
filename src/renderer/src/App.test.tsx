@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { GitApi, RepoChange, RepoSnapshot, RepoStatus, StatusEntry } from '@shared/types';
+import type { Commit, GitApi, RepoChange, RepoSnapshot, RepoStatus, StatusEntry } from '@shared/types';
 import { App } from './App';
 import { UiProvider } from './ui/UiContext';
 import { DEFAULT_PREFS, setPrefs } from './prefs';
@@ -90,6 +90,9 @@ beforeEach(() => {
       return d.promise;
     },
     stageAll: async () => undefined,
+    // The commit view lists a commit's files; every case here is about which commit is selected,
+    // not about what it touched (GC-016).
+    getCommitFiles: async () => [],
     watchRepo: async () => undefined,
     onRepoChanged: (listener: (change: RepoChange) => void) => {
       repoChanged = listener;
@@ -297,5 +300,150 @@ describe('App keeps the status bar with the action that still owns it (GC-084)',
     await settle(() => statuses[0]?.resolve(status(STAGED)));
     expect(busyLabel()).toBeNull();
     expect(document.querySelector('.statusbar .err')).toBeNull();
+  });
+});
+
+// GC-016: two repositories are open at once and each tab keeps its own snapshot, selection and
+// file view. What the acceptance asks for is that switching preserves them, so these cases assert
+// against a second repository's tab rather than against the tab bar's markup alone. The scroll
+// position, the other half of that acceptance, is not testable here — jsdom has no layout, so
+// `scrollTop` reads back 0 whatever is assigned to it — and is verified in the running app.
+const REPO2 = '/other-repo';
+
+const commit = (sha: string, summary: string): Commit => ({
+  sha,
+  parents: [],
+  authorName: 'Ricardo',
+  authorEmail: 'r@example.com',
+  authorDate: '2026-09-06T10:00:00+00:00',
+  committerName: 'Ricardo',
+  committerDate: '2026-09-06T10:00:00+00:00',
+  summary,
+  body: '',
+  refs: [],
+});
+
+const withCommits = (path: string, summaries: string[]): RepoSnapshot => ({
+  ...snapshot(UNSTAGED),
+  info: { path, name: path.replace('/', ''), headSha: null, branch: 'main' },
+  commits: summaries.map((s, i) => commit(`${path}-${i}`, s)),
+});
+
+/** The tab labels the title bar is drawing, in bar order. */
+const tabLabels = (): string[] => [...document.querySelectorAll('.titlebar .tab')].map((t) => t.querySelector('span')?.textContent ?? '');
+/** The label on the tab currently showing. */
+const activeLabel = (): string | null => document.querySelector('.titlebar .tab.selected span')?.textContent ?? null;
+
+describe('App keeps a tab per repository (GC-016)', () => {
+  /** Opens REPO with two commits, selects the second of them, then opens REPO2 in a new tab. */
+  async function twoTabs(): Promise<void> {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withCommits(REPO, ['first commit', 'second commit'])));
+    // Down from the working directory row selects the first commit; the detail panel is then the
+    // commit view, which is what proves the selection came back after a switch.
+    await settle(() => fireEvent.keyDown(window, { key: 'ArrowDown' }));
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('first commit');
+
+    (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = async () => REPO2;
+    await settle(() => fireEvent.click(screen.getByTitle('New tab')));
+    await settle(() => loads[1]?.resolve(withCommits(REPO2, ['other repository'])));
+  }
+
+  it('opens a second repository beside the first rather than replacing it', async () => {
+    await twoTabs();
+    expect(tabLabels()).toEqual(['repo', 'other-repo']);
+    expect(activeLabel()).toBe('other-repo');
+    // The new tab starts on the working directory, not on the other repository's selection.
+    expect(screen.queryByText('first commit')).toBeNull();
+  });
+
+  it('gives the tab back its own selection, with no reload needed to show it', async () => {
+    await twoTabs();
+    const before = loads.length;
+
+    await settle(() => fireEvent.click(screen.getAllByTitle(REPO)[0]!));
+    expect(activeLabel()).toBe('repo');
+    // Restored in the same commit as the switch: the heading is already the first repository's
+    // selected commit, and the reload below is only the refresh that follows it.
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('first commit');
+
+    // That refresh is asked for because the watcher only ever followed the tab that was showing,
+    // so what this one kept may be minutes old.
+    expect(loads).toHaveLength(before + 1);
+    expect(loadArgs[before]?.path).toBe(REPO);
+    await settle(() => loads[before]?.resolve(withCommits(REPO, ['first commit', 'second commit'])));
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('first commit');
+  });
+
+  it('cycles the tabs with Ctrl+Tab', async () => {
+    await twoTabs();
+    await settle(() => fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true }));
+    expect(activeLabel()).toBe('repo');
+    await settle(() => fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true }));
+    expect(activeLabel()).toBe('other-repo');
+    await settle(() => fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true, shiftKey: true }));
+    expect(activeLabel()).toBe('repo');
+  });
+
+  it('closes a tab onto its neighbour, and the last one onto the empty state', async () => {
+    await twoTabs();
+    // The showing tab is the second one, so closing it falls back to the tab on its left.
+    await settle(() => fireEvent.click(document.querySelectorAll('.titlebar .tab.selected .tab-close')[0]!));
+    expect(tabLabels()).toEqual(['repo']);
+    expect(activeLabel()).toBe('repo');
+
+    await settle(() => fireEvent.click(document.querySelector('.titlebar .tab-close')!));
+    expect(tabLabels()).toEqual(['New Tab']);
+    expect(document.querySelector('.graph-empty')).not.toBeNull();
+  });
+
+  it('takes the user to the tab a repository is already open in rather than duplicating it', async () => {
+    await twoTabs();
+    (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = async () => REPO;
+    const before = loads.length;
+    await settle(() => fireEvent.click(screen.getByTitle('New tab')));
+    expect(tabLabels()).toEqual(['repo', 'other-repo']);
+    expect(activeLabel()).toBe('repo');
+    // The switch restored what that tab was parked with, so the only load is its background refresh.
+    expect(loads).toHaveLength(before + 1);
+  });
+
+  it('remembers the open tabs and which one was showing', async () => {
+    await twoTabs();
+    expect(JSON.parse(localStorage.getItem('gitclient.tabs') ?? '[]')).toEqual([REPO, REPO2]);
+    expect(localStorage.getItem('gitclient.lastRepo')).toBe(REPO2);
+    await settle(() => fireEvent.click(screen.getAllByTitle(REPO)[0]!));
+    expect(localStorage.getItem('gitclient.lastRepo')).toBe(REPO);
+  });
+});
+
+describe('App keeps a tab pointing at its own repository while it loads (GC-016)', () => {
+  it('does not let a tab shown before its first load take the previous tab\'s path', async () => {
+    // The tab bar and `repoPath` move at different moments: the tab is showing as soon as it is
+    // clicked, while `repoPath` is still the repository that was showing until git answers. The
+    // effect that adopts git's canonical path has to tell those two apart, or the new tab is
+    // relabelled with the old repository — and keeps that label if its own load then fails.
+    localStorage.setItem('gitclient.tabs', JSON.stringify([REPO, REPO2]));
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withCommits(REPO, ['first commit'])));
+    expect(tabLabels()).toEqual(['repo', 'other-repo']);
+
+    await settle(() => fireEvent.click(screen.getAllByTitle(REPO2)[0]!));
+    // Its load is still in flight, and the bar already says which repository it is for.
+    expect(activeLabel()).toBe('other-repo');
+    expect(tabLabels()).toEqual(['repo', 'other-repo']);
+
+    // Even when that load never succeeds, the tab keeps naming the repository it stands for.
+    await settle(() => loads[1]?.reject(new Error('fatal: not a git repository')));
+    expect(tabLabels()).toEqual(['repo', 'other-repo']);
+    expect(JSON.parse(localStorage.getItem('gitclient.tabs') ?? '[]')).toEqual([REPO, REPO2]);
   });
 });

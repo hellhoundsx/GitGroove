@@ -287,13 +287,14 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | todo |
 | GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | todo |
 | GC-144 | The WIP-to-HEAD line is dashed for its first 14px and solid for the rest | graph | S | P2 | todo |
+| GC-148 | A half-written commit message is lost when its tab is switched away from | ui | S | P2 | todo |
 | GC-133 | The graph and the commit panel format the same timestamp two different ways | ui | S | P2 | done |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
 | GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
 | GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | done |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
-| GC-016 | Multi-tab repositories | ui | L | P3 | in-progress |
+| GC-016 | Multi-tab repositories | ui | L | P3 | done |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | done |
 | GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | done |
 | GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | done |
@@ -350,6 +351,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-143 | The detail panel’s file-kind icons are hairlines, and the commit view draws them as text instead | ui | S | P3 | todo |
 | GC-146 | A local branch’s chip carries no icon, and an absorbed chip shows only the remote’s | graph | S | P3 | todo |
 | GC-147 | Nothing joins a ref chip to its node across the 30px between them | graph | S | P3 | todo |
+| GC-149 | The tab bar has no answer for more tabs than fit across it | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1049,7 +1051,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-016 Multi-tab repositories
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** L | **Priority:** P3
 - **Depends on:** GC-011
 - **Why:** The tabs bar draws a single tab. Switching repos means reopening.
@@ -1059,11 +1061,57 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - The watcher (GC-011) follows the active tab only.
 - **Out of scope:** drag to reorder tabs, detaching tabs to windows.
 - **Acceptance:**
-  - [ ] Two repos open, switching preserves each one's selection and scroll position.
+  - [x] Two repos open, switching preserves each one's selection and scroll position.
 - **Files:** `TitleBar.tsx`, `App.tsx` (state becomes per-tab), `app.css`.
 - **Verify:** build, screenshot with two tabs.
 - **Log:**
   - 2026-09-06 10:17 claimed
+  - 2026-09-06 11:05 done. `tabs.ts` is the new pure module — `Tab` (`id` + `path`), `readTabs`,
+    `makeTabs`, `neighbourOf` and `cycle` — and `App` holds `tabs`, `activeId` and a `parked` Map
+    keyed by **tab id** of the `TabState` each tab that is not showing was left with: snapshot,
+    selection, file view, hidden set, `paged`, `hasMore`, the find bar and the graph's scroll
+    offset. Keyed by id, not path, because the path changes under it the moment git answers with
+    its canonical form. `showTab` puts a parked tab back in one commit — no frame between the two
+    repositories, which is what preserves the scroll position — bumps `dataGen` like any other
+    reload, and then refreshes underneath through `reloadSnapshot(path)`, which is `applyChange`'s
+    `refs` branch extracted and now shared with it: neither may take `load()`'s failure path, which
+    clears the open repository (GC-025). `CommitGraph` gained `scrollTop` / `onScrollTop` and
+    restores the offset in a layout effect before its first measurement, with a `restored` flag the
+    "keep the selected row visible" effect consumes so a tab left scrolled away from its selection
+    does not come back at the selection. `+` opens the folder dialog into a tab of its own; "Open
+    repository" and the recents list still land in the showing tab; a repository already in the bar
+    takes the user to it rather than opening a second copy; close is the glyph or middle-click and
+    falls to the right neighbour, then the left, then the empty state; Ctrl+Tab and Ctrl+Shift+Tab
+    are entries in `shortcuts.ts`, so the `?` overlay documents them without being told.
+  - 2026-09-06 11:05 the acceptance box is ticked on measurement, not on inspection. Driven in the
+    built app over CDP against two repositories — the e2e fixture and a second disposable one given
+    60 commits so it can be scrolled at all, the fixture being eight rows tall — 19 checks passed:
+    the second tab scrolled to `scrollTop` 280 with "second repo commit 49" selected came back at
+    280 with the same commit selected, and still had both 1.2s later once the refresh behind the
+    switch had landed. A separate 4-check run proved the other half of that refresh: a commit made
+    in the second repository while the first tab was showing did not disturb the showing tab (the
+    watcher follows one tab) and *was* on screen after switching back. Screenshots in
+    `docs/screenshots/gc-016-*.png` — two tabs, the scrolled tab, both restored, one closed, and
+    the empty state after the last one. `npm test` 229 passed (210 before: 12 in a new
+    `tabs.test.ts`, 7 in `App.test.tsx`), `npm run typecheck` clean, `npm run e2e` 37 steps in
+    34.7s with the fixture back at its baseline.
+  - 2026-09-06 11:05 four decisions worth knowing about. (1) The tab list is remembered **state**,
+    so it is `gitclient.tabs` on its own key rather than in the `gitclient.prefs` blob as the scope
+    said: it is not a setting, has no Preferences row, and CLAUDE.md's rule is that remembered state
+    never goes in the blob. `gitclient.lastRepo` now means "which tab was showing". (2) The graph
+    and the detail panel are keyed by repository so the state they keep for themselves cannot arrive
+    over another repository's rows — and the keys are **prefixed**, because they are siblings and
+    two siblings under one key is not a swap: React matched the new graph against the old panel and
+    left both graphs on screen at once, which is how that was found. (3) A bug of my own, found by
+    reading the diff back rather than by a failing test and then covered by one: the effect that
+    adopts git's canonical spelling fired on `activeId` changing as well, so a tab shown before its
+    first load had landed took the *previous* tab's path — and kept it if its own load then failed.
+    It is now guarded on the two being the same repository under `normRepoPath`, and the test in
+    `App.test.tsx` fails without that guard (verified by removing it). (4) Keying `DetailPanel`
+    stops a half-written commit message appearing over another repository's staged files, which it
+    did before this ticket, but it discards the draft on a switch; parking it is GC-148. The author
+    chip is dropped by a switch for the same reason, which is the same shape GC-137 already
+    describes for a diff opening — evidence for that ticket, not a new one.
 
 ### GC-017 Interactive rebase editor
 
@@ -8003,6 +8051,88 @@ decision is missing.
     ends, which is why the row reads as having nothing between the two.
 
 ---
+
+### GC-148 A half-written commit message is lost when its tab is switched away from
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** GC-016
+- **Why:** `StagingView` holds `summary`, `body` and `amend` in its own state, and nothing has ever
+  reset them when the repository changed — so before GC-016 a message typed in one repository
+  followed the user into the next one they opened and sat over the wrong staged files. GC-016 shut
+  that door by keying `DetailPanel` on the repository, which is correct but blunt: the message now
+  belongs to the repository it was written for and is **discarded** the moment the tab is left.
+  Every other thing a tab keeps is parked and put back — snapshot, selection, file view, scroll —
+  and the commit message is the one piece of the user's own typing among them, so it is the worst
+  one to drop silently. The cost is highest exactly where tabs are useful: writing a message,
+  looking something up in the other repository, coming back.
+- **Scope:**
+  - Lift the staging form's draft — summary, body and the amend flag — out of `StagingView` into
+    `App`, the way GC-030 lifted the find bar's query out of `CommitGraph` for the same reason:
+    the component unmounts and the state has to outlive it.
+  - Add it to `TabState` so it is parked and restored with everything else a tab keeps.
+  - Keep the two behaviours GC-016 bought: a draft never appears over another repository's staged
+    files, and it is still cleared when the commit it was written for succeeds.
+  - `DetailPanel`'s key can then stay as it is; the draft no longer depends on the panel's identity.
+- **Out of scope:** persisting a draft across a restart (git's own `.git/COMMIT_EDITMSG` is the
+  natural home for that and the watcher deliberately ignores it), and the amend pre-fill rule,
+  which stays exactly as it is.
+- **Acceptance:**
+  - [ ] A summary and description typed in one tab are still there after switching away and back.
+  - [ ] They never appear in another tab's staging view.
+  - [ ] Committing still clears the form, and Ctrl+Shift+M still focuses it.
+  - [ ] A component test covers the round trip, next to the GC-016 cases in `App.test.tsx`.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
+  `src/renderer/src/App.test.tsx`.
+- **Verify:** `npm test`, then in the built app type a summary in one tab, switch, switch back and
+  read the field over CDP; and confirm the other tab's field is empty at the same moment.
+- **Log:**
+  - 2026-09-06 proposed by GC-016 (this ticket): keying `DetailPanel` on the repository was the
+    smallest correct fix for a draft leaking across repositories, and it trades a wrong message for
+    a lost one. Parking the draft is what makes it right, but it is a change to `DetailPanel`'s
+    shape rather than to the tabs, so it is its own ticket.
+
+---
+
+### GC-149 The tab bar has no answer for more tabs than fit across it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-016
+- **Why:** `.titlebar .tabs` is a plain flex row with `min-width: 0` and no scrolling. A tab is
+  capped at 240px and its name ellipsises, but nothing stops the row itself from running out of
+  space: past roughly a dozen repositories the tabs squash toward nothing and then push `+` and the
+  recents chevron under the 140px reserved for the OS window controls, where they cannot be clicked
+  at all. The list is persisted now, so a bar that has grown too long comes back every start and
+  there is no way to shrink it except from a tab that can still be reached. The study records
+  GitKraken's answer in the same strip: "Right cluster (each 28x28): tabs list chevron, ..." — a
+  dropdown listing every open tab, which stays reachable however many there are.
+- **Scope:**
+  - Decide the overflow behaviour and implement one: the bar scrolls horizontally with the showing
+    tab kept in view, or tabs shrink to a floor and the rest fold behind a count.
+  - Whatever it is, `+` and the recents chevron keep their place and stay clickable at every tab
+    count, and no tab is ever narrower than its icon plus one character.
+  - The existing chevron button already opens the recents menu; if the answer is a tabs list, it is
+    a second control rather than a second meaning for that one.
+- **Out of scope:** drag to reorder and detaching a tab to its own window, both deliberately out of
+  GC-016; and any cap on how many repositories may be open.
+- **Acceptance:**
+  - [ ] With twenty tabs open, `+` and the chevron are inside the window and hit-testable, measured
+        over CDP against the 140px window-control reserve.
+  - [ ] Every tab is at least readable enough to be told apart, or is reachable through whatever
+        folds it.
+  - [ ] The showing tab is visible without the user having to look for it after a restart.
+- **Files:** `src/renderer/src/components/TitleBar.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** seed `gitclient.tabs` with twenty paths, launch, and measure the rects of `+`, the
+  chevron and the showing tab over CDP; screenshot and look at it.
+- **Log:**
+  - 2026-09-06 proposed by GC-016 (this ticket): the bar was built for one tab and now holds as
+    many as the user opens. Two repositories is where the ticket's acceptance stops and where the
+    verification stopped too, so this is the untested end of the same control.
+
+---
+
+
 
 
 ## Reviews
