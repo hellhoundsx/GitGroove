@@ -261,8 +261,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | done |
 | GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
-| GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | todo |
-| GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | todo |
+| GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | in-progress |
+| GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -288,8 +288,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | done |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | done |
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | done |
-| GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | todo |
-| GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | todo |
+| GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | in-progress |
+| GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | in-progress |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
@@ -5856,7 +5856,7 @@ decision is missing.
 
 ### GC-107 A commit's file row cannot restore that file, only open the working-tree copy
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** M | **Priority:** P3
 - **Depends on:** GC-043
 - **Why:** `fileMenuItems` in `App.tsx` branches on `t.source`, and everything it adds for a commit's
@@ -5906,6 +5906,7 @@ decision is missing.
     `06-feature-inventory.md`'s Files row against `fileMenuItems`. GC-093 has just given that menu its
     first non-trivial action, so it is the natural place to grow, and this is the entry with the
     smallest gap between what the panel already knows and what the action needs.
+  - 2026-09-06 09:12 claimed
 
 ### GC-108 The repository-open path clears the status bar without owning it
 
@@ -6064,7 +6065,7 @@ decision is missing.
 
 ### GC-112 A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** M | **Priority:** P3
 - **Depends on:** —
 - **Why:** `06-feature-inventory.md` lists "Delete (local, remote, or both)" as one Branch action and
@@ -6116,6 +6117,7 @@ decision is missing.
   - 2026-09-06 07:05 proposed by GR-012: the what's-next pass over the study's Branch and Tag rows. The
     tag half is the sharper defect — the menu can push a tag to a remote and then has no way to take it
     back — and the branch half is the entry GR-010 and GR-011 both left on the table.
+  - 2026-09-06 09:12 claimed
 
 ---
 
@@ -6715,7 +6717,7 @@ decision is missing.
 
 ### GC-125 Radio buttons are the last unstyled OS control, now that the checkboxes are ours
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-101 (`done`)
 - **Why:** GC-101 put the app's own tokens on every `input[type=checkbox]` and on `.pref-select`,
@@ -6747,12 +6749,13 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-101 (this ticket): the checkboxes and the select are now ours, which
     leaves the Pull popover's radios as the only OS-painted control in the app.
+  - 2026-09-06 09:12 claimed
 
 ---
 
 ### GC-126 Nothing guards the toolbar popovers or the context menu height in the e2e suite
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-119, GC-120 (both `done`)
 - **Why:** Both fixes are DOM and CSS behaviour that no unit test can reach — `popover` is state in
@@ -6784,6 +6787,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-119, GC-120 (this batch): both were verified with a script that does
     not live in the repository, so nothing in the suite would notice either coming back.
+  - 2026-09-06 09:12 claimed
 
 ---
 
