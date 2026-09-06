@@ -259,14 +259,14 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-026 | One dialog with several fields instead of chained prompts | ui | S | P2 | todo |
+| GC-026 | One dialog with several fields instead of chained prompts | ui | S | P2 | in-progress |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
-| GC-176 | A remote branch or tag delete is a push that still cannot ask for a credential | actions | S | P2 | todo |
+| GC-176 | A remote branch or tag delete is a push that still cannot ask for a credential | actions | S | P2 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-167 | stashRename's index shift is the one piece of stash arithmetic with no unit test | tests | S | P3 | todo |
-| GC-168 | The fixture's graph fits at every height, so nothing guards the drag auto-scroll | tests | S | P3 | todo |
-| GC-162 | A launcher stop loses whatever the page wrote to localStorage last | infra | S | P3 | todo |
-| GC-139 | A folder closed in the left panel opens again on every reload | ui | S | P3 | todo |
+| GC-167 | stashRename's index shift is the one piece of stash arithmetic with no unit test | tests | S | P3 | in-progress |
+| GC-168 | The fixture's graph fits at every height, so nothing guards the drag auto-scroll | tests | S | P3 | in-progress |
+| GC-162 | A launcher stop loses whatever the page wrote to localStorage last | infra | S | P3 | in-progress |
+| GC-139 | A folder closed in the left panel opens again on every reload | ui | S | P3 | in-progress |
 | GC-143 | The detail panel’s file-kind icons are hairlines, and the commit view draws them as text instead | ui | S | P3 | todo |
 | GC-146 | A local branch’s chip carries no icon, and an absorbed chip shows only the remote’s | graph | S | P3 | todo |
 | GC-147 | Nothing joins a ref chip to its node across the 30px between them | graph | S | P3 | todo |
@@ -338,7 +338,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-026 One dialog with several fields instead of chained prompts
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `ui.prompt` takes exactly one text field, so "Add remote" (GC-008) asks for the name,
@@ -366,6 +366,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 GR-021: raised P3 -> P2 and moved above GC-128 on the board, which has been the
     first unclaimed row for four reviews and never once eligible because this ticket gates it; a
     ticket's priority should not be lower than that of the ticket it blocks.
+  - 2026-09-06 15:37 claimed
 
 ---
 
@@ -497,7 +498,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-162 A launcher stop loses whatever the page wrote to localStorage last
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P3
 - **Depends on:** GC-154
 - **Why:** `stopApp` in `tools/launch-app.mjs` is `killTree`, which is `taskkill /F /T`. Chromium
@@ -544,12 +545,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-160 (this ticket): three keys seeded into the 9333 profile and read
     back from the page were absent from the next launch, because `stop()` kills the process before
     Chromium commits.
+  - 2026-09-06 15:37 claimed
 
 ---
 
 ### GC-139 A folder closed in the left panel opens again on every reload
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-051
 - **Why:** GC-051 put the closed set in component state and said so in its Out of scope, which was
@@ -579,6 +581,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-051 (this ticket): the ticket deferred persistence deliberately, and
     with the folders shipped the deferral is now the one thing that makes them feel temporary.
+  - 2026-09-06 15:37 claimed
 
 ---
 
@@ -1151,7 +1154,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-167 stashRename's index shift is the one piece of stash arithmetic with no unit test
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-129
 - **Why:** `stashRename` (`src/main/git.ts`) drops `stash@{index + 1}`, not `stash@{index}`, because
@@ -1179,12 +1182,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 14:05 proposed by GC-129 (this ticket): the arithmetic is load-bearing and destroys a
     stash when wrong, and the runner seam that would test it already exists one function above.
+  - 2026-09-06 15:37 claimed
 
 ---
 
 ### GC-168 The fixture's graph fits at every height, so nothing guards the drag auto-scroll
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-122
 - **Why:** GC-122 made `.graph-body` scroll while a branch is dragged over its edges, and the e2e
@@ -1216,6 +1220,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 14:05 proposed by GC-122 (this ticket): the feature shipped with a pure-function test
     and a hand-driven check, and the suite has no way to reach it.
+  - 2026-09-06 15:37 claimed
 
 ---
 
@@ -1371,7 +1376,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-176 A remote branch or tag delete is a push that still cannot ask for a credential
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** GC-169
 - **Why:** GC-169 gave `fetch`, `pull` and `push` a credential path and a dialog, and its acceptance
@@ -1406,6 +1411,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-169 (this ticket): its scope named three functions, and two more push
     to a remote; the gap was found while wiring `runRemote` and is a one-line change with a test.
+  - 2026-09-06 15:37 claimed
 
 ---
 
