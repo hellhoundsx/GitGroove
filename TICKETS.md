@@ -352,13 +352,13 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | done |
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | done |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | done |
-| GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | todo |
+| GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | in-progress |
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
 | GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
-| GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | todo |
-| GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | todo |
-| GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | todo |
-| GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | todo |
+| GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | in-progress |
+| GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | in-progress |
+| GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | in-progress |
+| GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | in-progress |
 | GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | todo |
 | GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | todo |
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
@@ -504,7 +504,7 @@ decision is missing.
 
 ### GC-071 The primary ref chip is unreadable at the minimum column width
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-023, GC-055, GC-078
 - **Why:** GC-023's first acceptance criterion ("at 100px with four refs on one commit, the first
@@ -543,12 +543,13 @@ decision is missing.
   - 2026-09-06 01:05 GR-007: now depends on GC-078 as well. That ticket makes one chip plus `+N` the shape
     at every width, so the 100px case here stops being the extreme end of a range and becomes the
     everyday row with less room; the furniture question (the cloud icon, the `+N` chip) is the same.
+  - 2026-09-06 11:27 claimed
 
 ---
 
 ### GC-074 The commit menu's Reset rows do not fit the menu, whichever side gives way
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-067
 - **Why:** At the 420px cap the middle Reset row of the commit menu is 7px too wide. On the build at
@@ -586,6 +587,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 23:14 proposed by GR-006: the screenshot pass over the commit menu caught "mi…", and injecting
     GC-067's rule into the live page showed the row still 7px too wide with the cut moved to the hint.
+  - 2026-09-06 11:27 claimed
 
 ---
 
@@ -704,7 +706,7 @@ decision is missing.
 
 ### GC-087 The commit view's ref line is git's decorate string, truncated to "origin/m…"
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-078
 - **Why:** `src/renderer/src/components/DetailPanel.tsx:330` renders `commit.refs.join(', ')` — the
@@ -749,12 +751,13 @@ decision is missing.
     line truncated, and the study's panel does not have it at all.
   - 2026-09-06 extended by GR-015: the clickable `commit:` sha, from the same header bar and the
     same paragraph of the study, added here rather than as a ticket of its own.
+  - 2026-09-06 11:27 claimed
 
 ---
 
 ### GC-091 The status bar can only report a failure, so a partial success reads as one
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-082
 - **Why:** `App` has one channel for anything an action has to say: `error`, rendered by
@@ -785,6 +788,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-082 (this ticket): the fallback message had nowhere to go but the
     error line, so an operation that did most of what was asked is reported as a failure.
+  - 2026-09-06 11:27 claimed
 
 ---
 
@@ -936,7 +940,7 @@ decision is missing.
 
 ### GC-121 Stage and discard selected lines, not only whole hunks
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** M | **Priority:** P3
 - **Depends on:** —
 - **Why:** the staging workflow stops at the hunk. `buildHunkPatch(file, hunk)` rebuilds a patch
@@ -985,6 +989,7 @@ decision is missing.
     `alignHunks`, the per-`DiffLine` keying from GC-104) is already in place. Not a duplicate of
     GC-052, which is navigation and rendering options inside the diff, or of GC-107, which restores
     a whole file from a commit.
+  - 2026-09-06 11:27 claimed
 
 ---
 
