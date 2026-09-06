@@ -105,8 +105,15 @@ function FileRow({ path, origPath, kind, active, onClick, onContextMenu, childre
   return (
     <div className={`file-row ${active ? 'active' : ''}`} title={origPath ? `${origPath} → ${path}` : path} onClick={onClick} onContextMenu={onContextMenu}>
       <FileKindIcon kind={kind} />
-      <span className="dir">{dir}</span>
-      <span className="name">{name}</span>
+      {/* One path, so one flex item: the row's own 8px gap fell between the folder and the file
+          name and printed them as two columns (GC-192). The inner span is what keeps the folder's
+          trailing `/` at its trailing end while the box around it is RTL — see `app.css`. */}
+      <span className="path">
+        <span className="dir">
+          <span>{dir}</span>
+        </span>
+        <span className="name">{name}</span>
+      </span>
       {children && (
         <span className="actions" onClick={(e) => e.stopPropagation()}>
           {children}

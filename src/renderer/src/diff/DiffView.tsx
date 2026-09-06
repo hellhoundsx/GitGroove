@@ -398,7 +398,9 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
       <div className="file-view-head">
         <FileKindIcon kind={view.kind} size={14} />
         <span className="path">
-          <span className="dir">{dir}</span>
+          <span className="dir">
+            <span>{dir}</span>
+          </span>
           <span className="name">{name}</span>
         </span>
         {file && !file.binary && (

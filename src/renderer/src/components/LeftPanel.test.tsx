@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { useState, type ComponentProps, type JSX } from 'react';
 import type { GitRef, Stash } from '@shared/types';
-import { LeftPanel, buildRefTree, folderKeys, readFolded, readSectionHeights } from './LeftPanel';
+import { LeftPanel, buildRefTree, defaultSectionOpen, folderKeys, readFolded, readSectionHeights, readSectionOpen } from './LeftPanel';
 import type { RefDragHandlers } from '../ui/refDrag';
 
 // Explicit imports rather than vitest globals is the house style, so RTL's own auto-cleanup and
@@ -315,6 +315,35 @@ describe('the sections share the column (GC-153)', () => {
     expect(readSectionHeights()).toEqual({});
     localStorage.removeItem('gitclient.sectionHeights');
     expect(readSectionHeights()).toEqual({});
+  });
+});
+
+describe('which sections are open is remembered (GC-177)', () => {
+  const open = (c: HTMLElement): string[] => [...c.querySelectorAll('.panel-section.open .section-toggle')].map((b) => b.textContent ?? '');
+
+  it('comes back open after a remount, with only the toggled section stored', () => {
+    const c = panel([head('main', true)]);
+    expect(open(c).some((t) => t.includes('Tags'))).toBe(false);
+    fireEvent.click([...c.querySelectorAll('.section-toggle')].find((b) => b.textContent?.includes('Tags'))!);
+    expect(open(c).some((t) => t.includes('Tags'))).toBe(true);
+    // Only what was toggled is written: the other three are still whatever the default says.
+    expect(readSectionOpen()).toEqual({ tags: true });
+    cleanup();
+    // The reload: a second mount reading the same key back.
+    expect(open(panel([head('main', true)])).some((t) => t.includes('Tags'))).toBe(true);
+  });
+
+  it('falls back to the defaults for an absent, hand-edited or empty value', () => {
+    expect(readSectionOpen()).toEqual({});
+    localStorage.setItem('gitclient.sectionOpen', 'not json at all');
+    expect(readSectionOpen()).toEqual({});
+    // A stored object naming no section is absent, not "everything closed".
+    localStorage.setItem('gitclient.sectionOpen', JSON.stringify({ nonsense: true, remote: 'yes' }));
+    expect(readSectionOpen()).toEqual({});
+    const c = panel([head('main', true)]);
+    expect(open(c)).toHaveLength(2);
+    expect(defaultSectionOpen(false)).toEqual({ local: true, remote: true, tags: false, stashes: false });
+    expect(defaultSectionOpen(true).stashes).toBe(true);
   });
 });
 

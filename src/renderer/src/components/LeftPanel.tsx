@@ -85,6 +85,49 @@ export function readSectionHeights(): Partial<Record<SectionId, number>> {
   }
 }
 
+/**
+ * Where the open set lives (GC-177). Global rather than per repository, like the heights beside
+ * it and unlike the closed folders: these are the same four sections in every repository, and the
+ * two halves of one arrangement should not survive a reload differently.
+ */
+const SECTION_OPEN_KEY = 'gitclient.sectionOpen';
+
+/**
+ * Which sections are open when nothing has been stored for them — GC-153's own defaults, and this
+ * ticket does not change them. STASHES follows whether there are any, read once at mount the way
+ * it always was.
+ */
+export const defaultSectionOpen = (hasStashes: boolean): Record<SectionId, boolean> => ({ local: true, remote: true, tags: false, stashes: hasStashes });
+
+/**
+ * The stored open set, as read back: only sections the user has actually toggled, so one they have
+ * never touched keeps its default — which is what lets STASHES stay dynamic. Anything but a
+ * boolean, and a stored object naming no section at all, reads as absent rather than as closed.
+ */
+export function readSectionOpen(): Partial<Record<SectionId, boolean>> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(SECTION_OPEN_KEY) ?? 'null');
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Partial<Record<SectionId, boolean>> = {};
+    for (const id of SECTION_IDS) {
+      const v = (raw as Record<string, unknown>)[id];
+      if (typeof v === 'boolean') out[id] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeSectionOpen(next: Partial<Record<SectionId, boolean>>): void {
+  try {
+    if (Object.keys(next).length === 0) localStorage.removeItem(SECTION_OPEN_KEY);
+    else localStorage.setItem(SECTION_OPEN_KEY, JSON.stringify(next));
+  } catch {
+    /* private mode: the open set just does not survive the reload */
+  }
+}
+
 /** Where a repository's closed folders live (GC-139): remembered state, so its own key per path. */
 const foldedKey = (repoPath: string): string => `gitclient.folded.${repoPath}`;
 
@@ -295,7 +338,14 @@ export function LeftPanel(p: Props): JSX.Element {
   // ---- the four sections share the column (GC-153) -------------------------------------------
   // Which are open is the panel's business now rather than each section's own state, because the
   // height is shared: closing one has to give its space to the others, and opening it take it back.
-  const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(() => ({ local: true, remote: true, tags: false, stashes: p.stashes.length > 0 }));
+  // And it is remembered (GC-177), because with the height shared it is the arrangement and not a
+  // disclosure triangle: opening TAGS on a repository with 283 of them used to last until the next
+  // reload, while the heights the same user dragged came back. Two pieces of state rather than
+  // one: `openStored` is only what the user has actually toggled, so a section they have never
+  // touched still takes its default — which is how STASHES keeps following whether there are any.
+  const [defaultOpen] = useState<Record<SectionId, boolean>>(() => defaultSectionOpen(p.stashes.length > 0));
+  const [openStored, setOpenStored] = useState<Partial<Record<SectionId, boolean>>>(readSectionOpen);
+  const openSections = useMemo<Record<SectionId, boolean>>(() => ({ ...defaultOpen, ...openStored }), [defaultOpen, openStored]);
   const [heights, setHeights] = useState<Partial<Record<SectionId, number>>>(readSectionHeights);
   // What each open section's rows measure, reported by the sections themselves (GC-153). Written
   // through a ref and mirrored into state only when a number actually changes, so a section
@@ -383,7 +433,12 @@ export function LeftPanel(p: Props): JSX.Element {
       },
     );
   };
-  const toggleSection = (id: SectionId): void => setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleSection = (id: SectionId): void =>
+    setOpenStored((prev) => {
+      const next = { ...prev, [id]: !openSections[id] };
+      writeSectionOpen(next);
+      return next;
+    });
   const toggleFolder = (key: string): void => {
     const next = new Set(closedFolders);
     if (!next.delete(key)) next.add(key);

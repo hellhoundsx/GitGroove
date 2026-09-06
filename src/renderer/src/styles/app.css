@@ -281,9 +281,20 @@ input[type='radio']:disabled {
   color: var(--text-muted);
   -webkit-app-region: no-drag;
 }
+/* The pointer gets an answer with a shape in it, not a 25% lift in the text's alpha (GC-193). A
+   tab and the three buttons beside it were the two busiest controls in the window and the only
+   ones with no hover background at all, while `.tab-close` a few lines up already used
+   `--hover-overlay` and every row in both panels uses `--accent-hover`.
+   The overlay is a `background-image` rather than a `background`, which is what lets **one** rule
+   answer for both the selected tab and an unselected one: a single-colour gradient composites
+   over whatever `background-color` the element already has, so an unselected tab tints the
+   title bar showing through it and the selected tab lands one step above its `--bg-toolbar` —
+   which idle and hovered used to render byte for byte identically, `.tab.selected` having already
+   claimed the brightest text there is. */
 .titlebar .tab-icon-btn:hover,
 .titlebar .tab:hover {
   color: var(--text-bright);
+  background-image: linear-gradient(var(--hover-overlay), var(--hover-overlay));
 }
 
 /* ---- Toolbar -------------------------------------------------------------- */
@@ -320,12 +331,33 @@ input[type='radio']:disabled {
   font-weight: 400;
 }
 /* The repository crumb is a real button now (GC-044), so undo the UA's centring and give it the
-   same hover the other toolbar controls have. */
+   same hover the other toolbar controls have.
+   It is a row since GC-194: the caption/value stack, then the chevron that says a menu hangs off
+   this. Both crumbs open a real dropdown and were the only controls in the window that opened one
+   silently, while the same window drew `ChevronDown` on the recents button, on `.pref-select` and
+   on the split buttons' caret. */
 .crumb.as-button {
-  align-items: flex-start;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-2);
   text-align: left;
 }
-.crumb.as-button:hover .value {
+.crumb .stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+}
+/* Part of the button, never a target of its own: it takes the crumb's colour, including the one
+   the hover sets. */
+.crumb.as-button svg {
+  flex: none;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.crumb.as-button:hover .value,
+.crumb.as-button:hover svg {
   color: var(--accent);
 }
 .toolbar .actions {
@@ -354,6 +386,12 @@ input[type='radio']:disabled {
   font-size: var(--fs-xs);
   line-height: 1;
   white-space: nowrap;
+  /* The box the hover tint is drawn in (GC-193). The toolbar stretches its children, so without
+     this inset the tint would run from the title bar's border to the status bar's; 4px is the
+     `.tool-sep` treatment's own idea of how far a toolbar control sits from the edge. Nothing is
+     drawn here at rest, so this changes no layout the eye can see. */
+  margin: 4px 0;
+  border-radius: var(--radius-md);
 }
 .tool-btn svg {
   width: 18px;
@@ -361,6 +399,15 @@ input[type='radio']:disabled {
 }
 .tool-btn:hover {
   color: var(--text-bright);
+}
+/* The same overlay the tab row takes (GC-193), inside the button's own box rather than as a
+   full-height slab: the 4px margin on `.tool-btn` above is what makes that box, and it is
+   `:not(:disabled)` because a disabled button must keep answering with nothing — its 0.45 opacity
+   would otherwise dim a tint into being rather than remove it. The colour stays in the rule above,
+   at a specificity `.tool-btn.active` still beats, so an active button keeps its accent under the
+   pointer instead of being lifted to `--text-bright` with every other. */
+.tool-btn:hover:not(:disabled) {
+  background: var(--hover-overlay);
 }
 .tool-btn:disabled {
   opacity: 0.45;
@@ -1358,13 +1405,21 @@ input[type='radio']:disabled {
   border-top: none;
   padding-top: 0;
 }
+/* `flex: none`, and the cap moved off this box onto the description alone (GC-191). A flex item
+   whose `overflow` is anything but `visible` has an automatic minimum size of **zero**, so a
+   `max-height: 160px; overflow: auto` box was the one block in this column that could be crushed —
+   and it was, to 12px of the 160 it wanted, by a 29-file list beside it that has no overflow of
+   its own and therefore cannot shrink at all. The thing a reader opens a commit for was what gave
+   way. The summary is the identity of the commit, so it is what this box's height is now made of:
+   the `h2` at its natural height, whatever that is, and the description capped under it. Nothing
+   is reserved — a one-line message is still one line high, because a `max-height` on a short
+   block is not a floor. */
 .message-box {
+  flex: none;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--sp-3);
-  max-height: 160px;
-  overflow: auto;
 }
 .message-box h2 {
   margin: 0 0 var(--sp-2);
@@ -1378,6 +1433,9 @@ input[type='radio']:disabled {
   font-size: var(--fs-sm);
   white-space: pre-wrap;
   user-select: text;
+  /* The half that may still be long. It scrolls inside itself rather than taking the panel. */
+  max-height: 120px;
+  overflow: auto;
 }
 /* avatar | who and when | parents. A grid rather than `margin-left: auto` inside a flex row
    (GC-142): the parents list gets a column of its own, so it can neither overlap the authored
@@ -1450,14 +1508,32 @@ input[type='radio']:disabled {
   color: var(--text);
   cursor: pointer;
 }
+/* The block that gives way, in all three views (GC-191). It is the only child of `.detail-body`
+   that grows without bound — a commit or a working tree has as many files as it has — so it is the
+   one that scrolls, and the blocks above and below it keep their place: the message box at the top
+   of the commit view, the commit form at the bottom of the staging view, which used to sit 328px
+   below the fold at 29 unstaged files. `min-height: 0` is what lets it shrink at all, since a flex
+   item's automatic minimum is its content; with several lists in the staging view they shrink in
+   proportion to what each is asking for, which is the study's "two lists sharing the vertical
+   space" (`04-panels.md` line 66). `.detail-body` keeps its own `overflow: auto` as the fallback
+   for a panel too short even for the blocks that cannot shrink. */
 .file-list {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 /* The list's own header, and the strongest of the boundaries: a band rather than another
    hairline, so Unstaged and Staged read as two groups rather than one run of rows (GC-142). Its
-   8px inset matches a file row's, so the label sits over the names it heads. */
+   8px inset matches a file row's, so the label sits over the names it heads. It is `sticky` now
+   that the list is what scrolls (GC-191): the head is the group's count and its Stage-all button,
+   and a list that scrolls away from both says neither which group you are in nor offers the
+   action — the left panel's own rule (GC-153), one panel over. */
 .file-list .group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1483,8 +1559,45 @@ input[type='radio']:disabled {
 .file-row:hover {
   background: var(--accent-hover);
 }
-.file-row .dir {
+/* A path is one thing, and the file name is its identity (GC-192). Both surfaces that print a
+   path as a dim folder plus a bright name are here — the detail panel's file rows and the file
+   view's header — because they are the same path drawn twice and had opposite halves of the same
+   defect: the row put `.file-row`'s own 8px gap between the two spans, so one path read as two
+   columns, and both ellipsised the **name** while the folder kept its full width. That is
+   backwards by the rule the ref chip (GC-071) and the stash row (GC-135) already follow. The
+   spans sit in one `.path` item now, so the row's gap falls after the kind icon and before the
+   hover actions and nowhere else.
+   The folder is what gives way: a shrink factor large enough that it absorbs the whole shortfall
+   and the name is only reached once the folder has nothing left. It loses its **head**, through
+   the `direction: rtl` box GC-067 and GC-165 already share — and the inner span is load-bearing
+   with it: an RTL box moves a trailing `/` to the other end (GC-093), so the text is re-isolated
+   as LTR inside a box that is RTL only to decide where the ellipsis goes. */
+.file-row .path,
+.file-view-head .path {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.file-row .dir,
+.file-view-head .dir {
   color: var(--text-dim);
+  flex: 0 999 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-row .dir > span,
+.file-view-head .dir > span {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.file-row .name,
+.file-view-head .name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .file-row .kind {
   width: 12px;
@@ -1512,8 +1625,12 @@ input[type='radio']:disabled {
 }
 /* The rule and the 12px above it come from the shared section rule now (GC-142), which is what
    makes this boundary the same one the file lists get rather than a second look for the same job. */
+/* `flex: none` said out loud (GC-191): this is the app's primary action and it keeps its place at
+   every file count. It has no `overflow`, so nothing would shrink it anyway — but the block it
+   sits under does now, and which of the two gives way is the whole of that ticket. */
 .commit-form {
   margin-top: auto;
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
@@ -1677,10 +1794,6 @@ input[type='radio']:disabled {
 .file-row.active {
   background: var(--accent-soft);
 }
-.file-row .name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .file-row .actions {
   margin-left: auto;
   display: none;
@@ -1784,14 +1897,6 @@ input[type='radio']:disabled {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-md);
-}
-.file-view-head .path {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.file-view-head .dir {
-  color: var(--text-dim);
 }
 .file-view-head .name {
   color: var(--text-bright);
@@ -2178,8 +2283,15 @@ input[type='radio']:disabled {
    was throwing away, on the one screen where a user has nothing else on screen to go by. Which
    end gives way is one declaration; where a path that *fits* sits is each surface's own business,
    and stays in its own block (the menu's hint is right-aligned, a recents row's path is not). */
+   The two halves of a file path join them (GC-192): a changed file's folder in the detail panel
+   and in the file view's header gives way at its head for the same reason, so which end an
+   ellipsised path loses is one declaration for every surface that draws one. Those two wrap their
+   text in an LTR span, because their folder ends in the `/` GC-093 records as being reordered to
+   the other end; a recents path and a menu hint are bare and need no such wrapper. */
 .ctx-item .ctx-hint.path,
-.recent-row .recent-path {
+.recent-row .recent-path,
+.file-row .dir,
+.file-view-head .dir {
   direction: rtl;
 }
 .ctx-sep {
@@ -2229,7 +2341,16 @@ input[type='radio']:disabled {
   /* Bounded by the viewport, or a dialog taller than a short window overflows off both ends
      with nothing to scroll (GC-103). What gives way is `.modal-body`, below. */
   max-height: calc(100vh - 40px);
-  padding: var(--sp-4);
+  /* Vertical only: the horizontal padding sits on the children instead (GC-195). Of the two
+     shapes a padded modal can take, this is the one that puts the scrollbar where a scrollbar
+     belongs — at the dialog's own edge. With the padding here, `.modal-body` was inset 16px and
+     the 8px bar was drawn 17px in from the border, so it floated in a gutter with dead space on
+     one side of it and the checkbox column flush against the other. A classic scrollbar is laid
+     out between the border and the padding box, so a scroll box that spans the modal and carries
+     the padding itself gets both halves right: the bar at the edge, the content stopping 16px
+     short of it. A body that does not scroll is unchanged — its content lands on the same pixel
+     it always did, and nothing reserves a gutter. */
+  padding: var(--sp-4) 0;
   background: var(--bg-panel-raised);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -2238,6 +2359,14 @@ input[type='radio']:disabled {
   flex-direction: column;
   --modal-gap: var(--sp-3);
   gap: var(--modal-gap);
+}
+/* Every child of a modal takes the horizontal padding the modal gave up (GC-195). `> *` rather
+   than the three names, because a modal is `h3` + `.modal-body` + `.modal-buttons` and nothing
+   else (GC-103): a fourth block joining that shape has to be inset like the other three, and this
+   is one place to say so rather than a list to keep up to date. */
+.modal > * {
+  padding-left: var(--sp-4);
+  padding-right: var(--sp-4);
 }
 /* The scrolling part: the title above it and the button row below it keep their place. Its
    gap is the modal's own, so a body that fits is spaced exactly as its children used to be. */

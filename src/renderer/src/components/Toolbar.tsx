@@ -112,8 +112,15 @@ export function Toolbar(p: Props): JSX.Element {
             p.onRepoMenu({ clientX: r.left, clientY: r.bottom, owner: e.currentTarget });
           }}
         >
-          <span className="caption">repository</span>
-          <span className="value">{p.info?.name ?? '—'}</span>
+          {/* The caption/value stack and, beside it, the one thing that said this opens something
+              (GC-194). The chevron is inside the button, so it takes the crumb's own hover and is
+              never a second click target, and it sits outside the stack so the anchor the menu
+              hangs off — the crumb's bottom-left corner — is unmoved. */}
+          <span className="stack">
+            <span className="caption">repository</span>
+            <span className="value">{p.info?.name ?? '—'}</span>
+          </span>
+          <Icon of={ChevronDown} size={14} />
         </button>
         {p.info && (
           // Drawn like the repository crumb since GC-044 and inert until GC-088: the same anchor,
@@ -126,15 +133,20 @@ export function Toolbar(p: Props): JSX.Element {
               p.onBranchMenu({ clientX: r.left, clientY: r.bottom, owner: e.currentTarget });
             }}
           >
-            <span className="caption">branch</span>
-            <span className="value plain">
-              {p.info.branch ?? 'detached HEAD'}
-              {(p.ahead > 0 || p.behind > 0) && (
-                <span className="ab-badge" title={`${p.ahead} ahead, ${p.behind} behind the upstream`}>
-                  {p.ahead > 0 && `↑${p.ahead}`} {p.behind > 0 && `↓${p.behind}`}
-                </span>
-              )}
+            {/* The ahead/behind badge stays inside the value, so the row ends with the badge and
+                then the chevron rather than with two marks competing for the same place (GC-194). */}
+            <span className="stack">
+              <span className="caption">branch</span>
+              <span className="value plain">
+                {p.info.branch ?? 'detached HEAD'}
+                {(p.ahead > 0 || p.behind > 0) && (
+                  <span className="ab-badge" title={`${p.ahead} ahead, ${p.behind} behind the upstream`}>
+                    {p.ahead > 0 && `↑${p.ahead}`} {p.behind > 0 && `↓${p.behind}`}
+                  </span>
+                )}
+              </span>
             </span>
+            <Icon of={ChevronDown} size={14} />
           </button>
         )}
       </div>
