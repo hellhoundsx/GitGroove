@@ -253,14 +253,16 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | done |
 | GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | done |
 | GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | done |
-| GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | in-progress |
+| GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | done |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
 | GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
 | GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | done |
-| GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | in-progress |
-| GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | in-progress |
-| GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | in-progress |
+| GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | done |
+| GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
+| GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
+| GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | todo |
+| GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -5413,7 +5415,7 @@ decision is missing.
 
 ### GC-101 Checkboxes and the Preferences dropdown are unstyled OS controls
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `tokens.css` defines every colour, size and the Open Sans stack, and `app.css` puts them
@@ -5446,15 +5448,15 @@ decision is missing.
   text inputs (already inheriting the font), the light theme (GC-013 will re-check these rules when
   it lands), and any change to what the settings do.
 - **Acceptance:**
-  - [ ] On the built app, every `input[type=checkbox]` computes `appearance: none` and the box size
+  - [x] On the built app, every `input[type=checkbox]` computes `appearance: none` and the box size
         the rule sets, and no control anywhere in the rendered tree computes a `font-family` without
         Open Sans in it — the same sweep this ticket was found with.
-  - [ ] Screenshot of Preferences with two boxes checked and two clear, and of the commit form's
+  - [x] Screenshot of Preferences with two boxes checked and two clear, and of the commit form's
         Amend row, looked at next to `docs/reference/gitkraken/screenshots/12-preferences.png` and
         `18-preferences-ui.png`: the checked colour is `--accent`, not the OS blue.
-  - [ ] Keyboard still works: Space toggles a focused checkbox, the focus ring is visible on both
+  - [x] Keyboard still works: Space toggles a focused checkbox, the focus ring is visible on both
         controls, and `Preferences.test.tsx` still passes unchanged.
-  - [ ] `npm test`, `npm run typecheck` and `npm run build` pass.
+  - [x] `npm test`, `npm run typecheck` and `npm run build` pass.
 - **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/styles/tokens.css`,
   `src/renderer/src/components/Preferences.tsx` (only if the select needs a wrapper for the chevron).
 - **Verify:** typecheck, build, launch through `tools/launch-app.mjs`, run the computed-style sweep
@@ -5465,6 +5467,34 @@ decision is missing.
     select is obvious once seen, the 13px OS-accent checkbox is the kind of thing that reads as
     "slightly off" without ever naming itself.
   - 2026-09-06 07:35 claimed
+  - 2026-09-06 08:05 done. `input[type='checkbox']` is styled once in `app.css` by **type** rather
+    than through a `.check` class as the scope suggested: there is no second look for a checkbox to
+    have, and a class is one a new checkbox can be written without. `appearance: none`, a
+    `--control-box` (14px, new token) square on `--bg-panel-raised` with the app’s border,
+    `--accent` when checked with a tick drawn as a rotated two-sided border, a 2px `--accent` focus
+    ring (the global `input` rule’s `outline: none` would otherwise leave a focused box
+    indistinguishable) and the disabled state. `--on-accent` is the tick’s own colour; it does not
+    flip, the accent being a mid-blue in both themes.
+  - One thing the ticket had not found: `.commit-form input` was the app’s only component rule
+    written against a bare `input`, and its 8px padding reached the Amend checkbox — under
+    `box-sizing: border-box` that floors the box at 18px, so the one checkbox outside Preferences
+    was drawn larger than every other. It is now `.commit-form input:not([type='checkbox'])`,
+    which is what that rule always meant.
+  - `.pref-select` is `appearance: none` with `font: inherit` and the app’s own `ChevronDown`
+    through `Icon`, which needed a two-line `Select` wrapper in `Preferences.tsx` around the three
+    call sites. The native popup list survives `appearance: none` and is unchanged — still the one
+    OS surface inside the dialog, as the scope allowed.
+  - Verified on the built app over CDP: all seven checkboxes in the rendered tree compute
+    `appearance: none` and 14x14, the three checked ones `rgb(77, 136, 255)` = `--accent #4d88ff`
+    (not the OS accent), and a sweep of all 59 `input` / `select` / `textarea` / `button` elements
+    finds none whose `font-family` lacks Open Sans — the sweep this ticket was found with, which
+    used to return the `.pref-select` in Arial. Space toggles a focused checkbox and its ring is
+    `2px solid rgb(77, 136, 255)`. `Preferences.test.tsx` passes unchanged.
+    `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing. Screenshots
+    `docs/screenshots/gc-101-preferences.png` (two boxes checked, four clear, all three selects)
+    and `gc-101-amend-row.png`, looked at beside
+    `docs/reference/gitkraken/screenshots/18-preferences-ui.png`: GitKraken’s boxes are the OS
+    accent with the OS tick and its selects are native, ours are our own on both counts.
 
 ### GC-103 The Preferences dialog outgrows a short window and its last rows cannot be reached
 
@@ -6360,7 +6390,7 @@ decision is missing.
 
 ### GC-118 A drag released past the limit throws away the width the pointer did reach
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-111, GC-115 (both `done`)
 - **Why:** GC-111 and GC-115 made a drag stop at the wall the window imposes and, crucially, stop
@@ -6386,16 +6416,16 @@ decision is missing.
 - **Out of scope:** the limits themselves (GC-105, GC-110), the fit applied on resize, the
   double-click reset, and the ref column's own `fitRefCol` (GC-110).
 - **Acceptance:**
-  - [ ] At 1000x900 with `leftPanelW` 170 and `detailPanelW` 300, dragging the left handle 200px
+  - [x] At 1000x900 with `leftPanelW` 170 and `detailPanelW` 300, dragging the left handle 200px
         right and releasing leaves the drawn width **and** `gitclient.leftPanelW` at 260, and a
         reload keeps 260.
-  - [ ] The GC-111 case is unchanged: at 1000x900 with 220 / 720 stored, a one-pixel rightward drag
+  - [x] The GC-111 case is unchanged: at 1000x900 with 220 / 720 stored, a one-pixel rightward drag
         of the left handle leaves `gitclient.leftPanelW` at 220 — nothing reached, nothing written.
-  - [ ] The GC-115 case is unchanged: at 900 with `gitclient.refColW` 400, a rightward drag on the
+  - [x] The GC-115 case is unchanged: at 900 with `gitclient.refColW` 400, a rightward drag on the
         ref column leaves the stored 400 alone.
-  - [ ] `useDragWidth.test.ts` gains a case for a drag whose travel reaches an allowed width and
+  - [x] `useDragWidth.test.ts` gains a case for a drag whose travel reaches an allowed width and
         whose release does not, asserting which width is persisted.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+  - [x] `npm run typecheck`, `npm test` and `npm run build` pass.
 - **Files:** `src/renderer/src/ui/useDragWidth.ts`, `src/renderer/src/ui/useDragWidth.test.ts`.
 - **Verify:** build, launch through `node tools/launch-app.mjs`, set the two width keys and the
   window size over CDP, drive a real pointer drag with `Input.dispatchMouseEvent`
@@ -6406,12 +6436,31 @@ decision is missing.
     Not a duplicate of GC-111 or GC-115: both are `done` and both are about a width the pointer
     never reached being written; this is the mirror case, a width it did reach not being written.
   - 2026-09-06 07:35 claimed
+  - 2026-09-06 08:05 done. The rule is stated over the drag rather than folded through it:
+    `reachedWidth(start, delta, min, max, limit)` is a new pure function beside `dragWidth`, which
+    is untouched and keeps its cases. The travel is the whole interval between the start width and
+    the release, so the release position and `start` answer the question on their own — released
+    inside the wall, that width; released past it from a start inside it, **the wall**; released
+    past it from a start already on it, `null`, drawn nowhere and stored nowhere. The ticket
+    suggested a `last` field in the drag ref; that was implemented first and then dropped, because
+    a ref only records the positions the `pointermove`s happened to sample, and the edge then
+    stopped up to one move short of the wall — 258 rather than 260 on a 4px sample, and further on
+    a fast drag. A rule over the interval has no such dependence on the drag’s speed, and needs no
+    state at all.
+  - Verified on the built app over CDP with real `Input.dispatchMouseEvent` drags (press, twelve
+    moves, release) at 1000x900: with 170 / 300 stored, a 200px rightward drag of the left handle
+    leaves the drawn width and `gitclient.leftPanelW` both at 260, and a reload keeps 260. GC-111
+    unchanged: 220 / 720 stored, a one-pixel drag leaves the key at 220. GC-115 unchanged: at 900
+    wide with `gitclient.refColW` 400 drawn at 164, a 120px rightward drag leaves the stored 400.
+    `useDragWidth.test.ts` gains a `reachedWidth` describe of five cases, including the overshoot
+    answered at every delta from 90 to 400 so the drag’s speed cannot change where the edge stops.
+    184 unit tests pass (was 179), `npm run typecheck` and `npm run build` clean, e2e 30 steps.
 
 ---
 
 ### GC-119 Both toolbar popovers can be open at once, and Escape then needs two presses
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-057 (`done`)
 - **Why:** GC-057 made Push a split button beside Pull's. The two are kept mutually exclusive by a
@@ -6434,11 +6483,11 @@ decision is missing.
 - **Out of scope:** the contents of either popover, focus management or a roving tabindex inside
   them, and the `layerOpen` ladder's order, which is correct for the states it can legally see.
 - **Acceptance:**
-  - [ ] With the Push popover open, focusing the Pull caret and pressing Enter leaves only the Pull
+  - [x] With the Push popover open, focusing the Pull caret and pressing Enter leaves only the Pull
         popover open; the mirror case leaves only the Push popover open.
-  - [ ] A `mousedown` anywhere outside both still closes both.
-  - [ ] From either popover, one Escape returns to no layer open.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+  - [x] A `mousedown` anywhere outside both still closes both.
+  - [x] From either popover, one Escape returns to no layer open.
+  - [x] `npm run typecheck`, `npm test` and `npm run build` pass.
 - **Files:** `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/App.tsx`.
 - **Verify:** build, launch through `node tools/launch-app.mjs` on a repository with two remotes,
   open one popover with a real `Input.dispatchMouseEvent` click, then `focus()` the other caret and
@@ -6449,12 +6498,26 @@ decision is missing.
     popovers, then confirmed with real key events rather than the synthetic `click()` that first
     showed it.
   - 2026-09-06 07:35 claimed
+  - 2026-09-06 08:05 done. The two flags in `App` became one value, `popover: 'pull' | 'push' |
+    null`, so both open is not a state the app can represent; `pullOpen` / `pushOpen` are derived
+    from it and the two setters are kept, each closing only the popover it names, so `Toolbar`’s
+    outside-click listener — which asks each popover separately whether the click missed it — can
+    no longer close the one that was clicked in. The Escape ladder’s last two branches collapse to
+    one `setPopover(null)`. No new keydown listener: the flags and Escape stay in `App` (GC-038).
+  - Verified on the built app over CDP on a repository with two remotes (`remote2` added to the
+    scratch repo for the run and removed after). A real click opens Push alone; `focus()` on the
+    Pull caret plus a real `Input.dispatchKeyEvent` Enter leaves `{pull: true, push: false}` where
+    it used to leave both true; the mirror case leaves `{pull: true, push: false}`; one Escape
+    returns to no layer; an outside `mousedown` still closes both. Screenshot
+    `docs/screenshots/gc-119-one-popover-at-a-time.png`. Note for a future driver: Enter activates
+    a button on keydown, so a `keyDown` carrying `text` **and** a separate `char` event activate it
+    twice and the popover opened and closed again — the first run read as a failure of the fix.
 
 ---
 
 ### GC-120 A context menu taller than the window loses its last rows, with nothing to scroll
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** —
 - **Why:** `.ctx-menu` is `position: fixed` with a `max-width` and no `max-height`, and its
@@ -6479,12 +6542,12 @@ decision is missing.
   row-width truncation, which is the other axis; the folded-refs block in the graph, which is not a
   `.ctx-menu`.
 - **Acceptance:**
-  - [ ] At 1400x600, the branch menu on a branch with two remotes shows its last row, reachable by
+  - [x] At 1400x600, the branch menu on a branch with two remotes shows its last row, reachable by
         scrolling, and its first row is on screen.
-  - [ ] At 1400x900 the same menu is unscrolled and its rect is unchanged from today's.
-  - [ ] The scrollbar is the app's 8px flat thumb, with no new rule in `app.css` for it, and
+  - [x] At 1400x900 the same menu is unscrolled and its rect is unchanged from today's.
+  - [x] The scrollbar is the app's 8px flat thumb, with no new rule in `app.css` for it, and
         `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+  - [x] `npm run typecheck`, `npm test` and `npm run build` pass.
 - **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/ui/ContextMenu.tsx`.
 - **Verify:** build, launch through `node tools/launch-app.mjs`, resize to 1400x600 over CDP,
   right-click `main` in the left panel, and read the menu's `getBoundingClientRect()` and the last
@@ -6494,6 +6557,20 @@ decision is missing.
     window height. Named as its own ticket rather than folded into GC-074, which is about a row
     being too wide for the menu, not the menu being too tall for the window.
   - 2026-09-06 07:35 claimed
+  - 2026-09-06 08:05 done. `.ctx-menu` gets `max-height: calc(100vh - 8px)` and `overflow-y: auto`
+    — 8px being the 4px the position clamp keeps at each edge — so a capped menu lands at `top: 4`
+    and ends 4px off the bottom. No per-component scrollbar rule: the global `::-webkit-scrollbar`
+    set covers it. One code change was needed with it: `ContextMenu`’s wheel listener closed the
+    menu on any wheel, so a capped menu could not be scrolled; it now ignores a wheel whose target
+    is inside the menu and closes on every other one, which is the case it exists for.
+  - Verified on the built app over CDP. At 1400x600 the branch menu on `main` with two remotes:
+    top 4, bottom 596 against a 600px window, 621px of content in a 590px box, an 8px scrollbar
+    (measured as `offsetWidth - clientWidth` less the 1px borders), and scrolled to the end its
+    last row "Copy branch name" ends at 591 — reachable, where it used to end at 622. A wheel
+    inside the menu leaves it open; one outside still closes it. At 1400x900 the same 19 rows are
+    unscrolled with no scrollbar and the menu is 623px tall, which is the height the ticket
+    measured before this change. Screenshots `docs/screenshots/gc-120-branch-menu-600.png` and
+    `-900.png`. The flip path needed no work: `ContextMenu` clamps to the viewport, it never flips.
 
 ---
 
@@ -6634,6 +6711,81 @@ decision is missing.
   - 2026-09-06 proposed by GC-015 (this ticket): found while composing the checkout and the
     sequencer guard into one gesture.
 
+---
+
+### GC-125 Radio buttons are the last unstyled OS control, now that the checkboxes are ours
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-101 (`done`)
+- **Why:** GC-101 put the app's own tokens on every `input[type=checkbox]` and on `.pref-select`,
+  and explicitly left radio buttons out. There is exactly one radio group in the app — the Pull
+  popover's three mode rows — and it is now the only control drawing itself at the OS accent, next
+  to a checkbox two toolbar buttons away that draws itself at `--accent`. Visible in
+  `docs/screenshots/gc-119-one-popover-at-a-time.png`, taken while verifying GC-119: the selected
+  mode's dot is the OS blue, not ours. One control out of step is more conspicuous than all of them
+  being, which is why this only becomes worth doing now.
+- **Scope:**
+  - An `input[type='radio']` rule set beside the checkbox one and in the same shape: `appearance:
+    none`, a `--control-box` circle on `--bg-panel-raised` with the app's border, `--accent` when
+    checked with a drawn dot, the same focus ring and disabled state.
+  - Check the same trap GC-101 hit: a component rule written against a bare `input` that would
+    reach a radio and take its size back.
+- **Out of scope:** the popover's layout or its rows, toggle switches, and any change to what the
+  pull modes do.
+- **Acceptance:**
+  - [ ] Every `input[type=radio]` in the rendered tree computes `appearance: none` and the size the
+        rule sets, and a checked one is painted at `--accent`, not the OS accent.
+  - [ ] Space still selects a focused radio and the arrow keys still move within the group.
+  - [ ] Screenshot of the Pull popover with a mode selected, beside the checkbox in the same window.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass, and
+        `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing.
+- **Files:** `src/renderer/src/styles/app.css`.
+- **Verify:** build, launch through `node tools/launch-app.mjs` on a repository with two remotes,
+  open the Pull popover over CDP and read the computed `appearance` and `background-color` of each
+  radio, then screenshot it.
+- **Log:**
+  - 2026-09-06 proposed by GC-101 (this ticket): the checkboxes and the select are now ours, which
+    leaves the Pull popover's radios as the only OS-painted control in the app.
+
+---
+
+### GC-126 Nothing guards the toolbar popovers or the context menu height in the e2e suite
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-119, GC-120 (both `done`)
+- **Why:** Both fixes are DOM and CSS behaviour that no unit test can reach — `popover` is state in
+  `App` and the menu's cap is a `max-height` — and both were verified by a throwaway CDP script
+  that is not in the repository. A regression in either is silent: the popovers would go back to
+  overlapping only when a button is activated from the keyboard, and the menu would go back to
+  losing its last rows only on a short window, neither of which any existing step visits. The suite
+  already owns the shape this needs: step 39's Escape step drives layers, and `contextMenuOn` opens
+  menus everywhere.
+- **Scope:**
+  - A step that opens one toolbar popover with a click, activates the other caret from the keyboard
+    with a real `Input.dispatchKeyEvent` Enter, and asserts exactly one popover is in the DOM and
+    that one Escape closes it. It needs the second remote, so it belongs after the step that adds
+    `remote2` or must add and remove it itself.
+  - A step that resizes to the app's own minimum height over CDP, opens the branch menu on `main`,
+    and asserts the menu's rect is inside the window at both ends and its last row is reachable
+    after scrolling — then restores the window size.
+  - The suite's own note that Enter must be sent as a `keyDown` **without** a following `char`
+    event, or the button is activated twice and the assertion reads as a bug in the app.
+- **Out of scope:** a component test for either (the popover needs the whole toolbar, the cap needs
+  layout), and any change to the fixture's remotes beyond what the popover step needs.
+- **Acceptance:**
+  - [ ] Both steps pass on a clean run, and fail when the GC-119 or GC-120 change is reverted.
+  - [ ] The window size is back where it was by the end, so no later step sees a short window.
+  - [ ] `npm run e2e` still ends with the fixture matching its baseline.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e:setup && npm run e2e`, then revert each fix in turn and confirm the
+  matching step fails.
+- **Log:**
+  - 2026-09-06 proposed by GC-119, GC-120 (this batch): both were verified with a script that does
+    not live in the repository, so nothing in the suite would notice either coming back.
+
+---
 
 ## Reviews
 

@@ -234,8 +234,11 @@ unsubscribe.
   commit actions the branch and commit menus both carry, so their wording cannot drift.
 
 **Escape closes exactly one layer**, decided in one place: `App.tsx` computes `layerOpen` from
-every open layer — including **both** toolbar popovers, Pull's and Push's (GC-057) — and while
-one is up its window handler closes the topmost and swallows every
+every open layer — including the toolbar popover, Pull's or Push's (GC-057), which is **one**
+piece of state (`'pull' | 'push' | null`) rather than two flags, so both open is not a state the
+app can reach however the button was activated (GC-119). `Toolbar`'s `mousedown` listener keeps
+only the outside click, which is the job no keyboard activation produces. While a layer is up the
+window handler closes the topmost and swallows every
 other window-level shortcut. With no layer, Escape closes the file view first, then the search bar.
 That handler runs in the **capture phase** and calls `stopPropagation()` on the key it consumes, so
 no React handler underneath sees it. No layer handles Escape itself, and **no `window` keydown
@@ -267,6 +270,12 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
   The gap between the children is `--modal-gap`, which `.modal.prefs` and `.modal.shortcuts` raise;
   a body that fits is spaced exactly as it was. A new modal joins this shape — no `max-height` of
   its own, or it is a scrollbar inside a scrollbar.
+- **A context menu is capped against the window and scrolls inside itself** (GC-120), the same
+  answer `.modal` has: `.ctx-menu` is `calc(100vh - 8px)` — the 4px the position clamp keeps at
+  each edge — so the branch menu, whose height grows with the number of remotes, keeps its first
+  and last rows reachable on a short window. It clamps rather than flips, so a cap costs it
+  nothing. `ContextMenu`'s wheel listener ignores a wheel **inside** the menu, or a capped menu
+  could not be scrolled: that wheel is the user reaching its last row, not the page moving.
 - `MenuItem` supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`, `hintPath` (a
   hint ellipsised at its *start*, so the folder naming an entry survives) and `caption` (a
   non-interactive heading rendered as `div.ctx-caption`, so no menu selector picks it up). In a row
@@ -275,15 +284,19 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
   clamp, persist, double-click reset — used by the ref column and both side panels. It computes the
   released width from the release position rather than from state: the pointerup arrives before
   React has committed the last pointermove, so the closure's width is one step behind.
-- **A drag starts from the width being drawn and only ever reaches widths the pointer reaches**
-  (GC-111, GC-115). `dragWidth(start, delta, min, max, limit)` is that rule, pure and tested:
-  `start` is `clampDrag(width)` — what the element is on screen at — not the stored number, so
-  travel is one-for-one with the edge even while a fit is reducing it; and a request past `limit`
-  answers `reached: false`, on which the hook changes neither the width nor the key. That is what
-  keeps the "stored widths are never touched" promise true on the **drag** path as well as the
-  resize one: against the wall the edge simply stops, rather than the wall's own value being
-  written over the width the user chose on a wider window. A `limit` must therefore be derived from
-  what the *other* elements are **drawn** at, never from what is stored for them — the two differ
+- **A drag starts from the width being drawn and ends at the last width the pointer reached**
+  (GC-111, GC-115, GC-118). `start` is `clampDrag(width)` — what the element is on screen at — not
+  the stored number, so travel is one-for-one with the edge even while a fit is reducing it.
+  `dragWidth(start, delta, min, max, limit)` answers one position and stays pure;
+  `reachedWidth(start, delta, min, max, limit)` is the rule the hook uses, and it answers the
+  drag: the release width inside the wall, **the wall** when the release ran past it from a start
+  inside it, and `null` — neither drawn nor stored — when the drag started on the wall or past it.
+  The middle case is what keeps the edge from stopping one `pointermove` short of the wall on a
+  fast drag, and it needs no record of the travel: the pointer covers the whole interval between
+  `start` and the release. The third is what keeps the "stored widths are never touched" promise
+  true on the **drag** path as well as the resize one — the wall's own value is never written over
+  the wider width the user chose on a wider window. A `limit` must therefore be derived from what
+  the *other* elements are **drawn** at, never from what is stored for them — the two differ
   exactly when the fit is doing something, and a limit taken from a stored width comes out below
   `min`, at which point a drag could reach nothing at all.
 - **The centre is the last thing to give way, not the first** (GC-105). Each panel's own range
@@ -524,6 +537,15 @@ or it does not flip with the theme. The nine `rgba()` literals `app.css` used to
 `--success-strong` and `--diff-gutter`; `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` must keep
 printing nothing.
 
+- **The form controls are the app's own too** (GC-101). `input[type='checkbox']` is styled once,
+  globally, by type rather than by a class — there is no second look for a checkbox to have:
+  `appearance: none`, a `--control-box` (14px) square on `--bg-raised`, `--accent` when checked
+  with a drawn tick, and a focus ring, since the global `input` rule's `outline: none` would
+  otherwise leave a focused one indistinguishable. `.pref-select` is `appearance: none` with
+  `font: inherit` and the app's own `ChevronDown`; the popup list it opens is still the OS's.
+  A component rule written against a bare `input` therefore has to exclude checkboxes —
+  `.commit-form input:not([type='checkbox'])` is the only one, and its 8px padding had floored the
+  Amend box at 18px under `box-sizing: border-box`.
 - **One global `::-webkit-scrollbar` rule set** near the top: 8px, a flat thumb at a 4px radius,
   transparent track and corner, no buttons. Every scroll container gets it with no per-component
   rule. Do **not** also set the standard `scrollbar-width` or `scrollbar-color`: either makes
@@ -559,7 +581,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-179 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+184 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -669,10 +691,11 @@ table, every confirmation on the modal, the busy token every writer of `busy` ta
 UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
 message column keeping `MIN_MSG_W` while the ref column gives way, the optional columns giving way
 after it, and only the applied widths ever clamped — on the drag path as well as the resize one, a
-drag starting from the drawn width and persisting only what the pointer reached (UI layer); a page continuing the previous range's `LaneState`,
+drag starting from the drawn width and ending on the last width the pointer reached (UI layer); a page continuing the previous range's `LaneState`,
 and only a strict extension counted as one (Graph); every modal `h3` + `.modal-body` +
-`.modal-buttons`, with only the body scrolling
-(UI layer); `--index` on
+`.modal-buttons`, with only the body scrolling, and a context menu capped and scrolling the same way
+(UI layer); one toolbar popover open at a time because there is one value for which,
+every checkbox styled once by type (UI layer); `--index` on
 stash apply and pop, `defaultRemote` shared both ways (Main process); the diff keyed to its view
 identity, the split layout a render of what is already loaded, a hunk patch built from
 `hunk.raw` whichever layout is showing, and both layouts marking intra-line changes from one map

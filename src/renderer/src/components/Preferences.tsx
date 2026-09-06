@@ -1,7 +1,9 @@
-import { type JSX, type ReactNode } from 'react';
+import { type ChangeEvent, type JSX, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { PullMode, Theme } from '@shared/types';
 import { setPrefs, usePrefs, type DiffViewMode, type GraphColumns, type Prefs } from '../prefs';
 import { matches } from '../shortcuts';
+import { Icon } from '../ui/icons';
 
 const THEMES: { theme: Theme; label: string }[] = [
   { theme: 'dark', label: 'Dark' },
@@ -29,6 +31,22 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
       </div>
       {children}
     </div>
+  );
+}
+
+/**
+ * A `select` in the app's own chrome (GC-101). `appearance: none` is what stops Chromium setting
+ * it in Arial — the only control in the app that was not Open Sans — and it takes the OS chevron
+ * with it, so the app draws the one every other dropdown affordance uses.
+ */
+function Select({ value, onChange, children }: { value: string; onChange(e: ChangeEvent<HTMLSelectElement>): void; children: ReactNode }): JSX.Element {
+  return (
+    <span className="pref-select-wrap">
+      <select className="pref-select" value={value} onChange={onChange}>
+        {children}
+      </select>
+      <Icon of={ChevronDown} size={12} className="pref-select-chevron" />
+    </span>
   );
 }
 
@@ -77,13 +95,13 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
           <div className="pref-group">
             <div className="pref-group-title">Appearance</div>
             <Row label="Theme" hint="Applies immediately, window controls included.">
-              <select className="pref-select" value={prefs.theme} onChange={(e) => setPrefs({ theme: e.target.value as Theme })}>
+              <Select value={prefs.theme} onChange={(e) => setPrefs({ theme: e.target.value as Theme })}>
                 {THEMES.map((t) => (
                   <option key={t.theme} value={t.theme}>
                     {t.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Row>
             <Toggle of="avatars" label="Author avatars" hint="Fetches Gravatar images. Off means initials only, and no network requests." />
             <Toggle of="commitColumnGuide" label="72-character commit summary counter" hint="Counts down the characters left on the summary line." />
@@ -97,25 +115,25 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
           <div className="pref-group">
             <div className="pref-group-title">Diff</div>
             <Row label="Diff layout" hint="The file view's own toggle writes back here, so the last layout used is the one it opens with.">
-              <select className="pref-select" value={prefs.diffView} onChange={(e) => setPrefs({ diffView: e.target.value as DiffViewMode })}>
+              <Select value={prefs.diffView} onChange={(e) => setPrefs({ diffView: e.target.value as DiffViewMode })}>
                 {DIFF_VIEWS.map((v) => (
                   <option key={v.mode} value={v.mode}>
                     {v.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Row>
           </div>
           <div className="pref-group">
             <div className="pref-group-title">Behaviour</div>
             <Row label="Default pull action" hint="What the Pull button does when clicked.">
-              <select className="pref-select" value={prefs.pullMode} onChange={(e) => setPrefs({ pullMode: e.target.value as PullMode })}>
+              <Select value={prefs.pullMode} onChange={(e) => setPrefs({ pullMode: e.target.value as PullMode })}>
                 {PULL_MODES.map((m) => (
                   <option key={m.mode} value={m.mode}>
                     {m.label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Row>
             <Toggle of="confirmDirtyCheckout" label="Confirm checkout with uncommitted changes" hint="Asks before checking out, and offers to stash the changes." />
           </div>

@@ -1,7 +1,7 @@
 // The pair-wise clamp behind both side panels (GC-105). `fitPanels` is pure, so it is tested in
 // the node project: the hook around it is covered where the panels are rendered.
 import { describe, expect, it } from 'vitest';
-import { dragWidth, fitOptCols, fitPanels, fitRefCol, MIN_GRAPH_W, MIN_MSG_W } from './useDragWidth';
+import { dragWidth, fitOptCols, fitPanels, fitRefCol, MIN_GRAPH_W, MIN_MSG_W, reachedWidth } from './useDragWidth';
 
 const MIN = { left: 160, detail: 300 };
 const graph = (w: number, fit: { left: number; detail: number }): number => w - fit.left - fit.detail;
@@ -244,5 +244,52 @@ describe('fitOptCols', () => {
 
   it('draws what the preference asked for before the panel has been measured', () => {
     expect(fit(0)).toEqual(all);
+  });
+});
+
+// What a drag actually leaves behind, which is what `useDragWidth` draws and persists (GC-118).
+// `null` is "the pointer reached nothing": neither drawn nor stored.
+describe('reachedWidth', () => {
+  it('persists the wall when the release ran past it from a start inside it', () => {
+    // GC-118's measured case: 1000x900 with 170 / 300 stored, so the left handle's limit is
+    // 1000 - 300 - MIN_GRAPH_W = 260. The drag travels 200px right, through 90px of widths the
+    // wall does allow, and stops against it. The edge was watched moving to 260, so 260 is what
+    // the release leaves — where the release position alone said nothing had been reached.
+    expect(fitPanels(170, 300, 1000, MIN)).toEqual({ left: 170, detail: 300 });
+    expect(dragWidth(170, 200, 160, 420, 260).reached).toBe(false);
+    expect(reachedWidth(170, 200, 160, 420, 260)).toBe(260);
+  });
+
+  it('answers the wall at every overshoot, so the drag’s speed cannot change where the edge stops', () => {
+    for (let delta = 90; delta <= 400; delta += 7) {
+      expect(reachedWidth(170, delta, 160, 420, 260)).toBe(260);
+    }
+  });
+
+  it('answers the release position itself while the drag is inside the wall', () => {
+    expect(reachedWidth(170, 50, 160, 420, 260)).toBe(220);
+    expect(reachedWidth(170, 90, 160, 420, 260)).toBe(260);
+    expect(reachedWidth(170, -50, 160, 420, 260)).toBe(160); // `min` still wins
+  });
+
+  it('reaches nothing when the drag starts on the wall or past it', () => {
+    // GC-115, unchanged: the ref column drawn at 164 with 400 stored, dragged right.
+    expect(reachedWidth(164, 1, 100, 400, 164)).toBe(null);
+    expect(reachedWidth(164, 200, 100, 400, 164)).toBe(null);
+    // GC-111, unchanged: the limit came out below `min`, so the panel is drawn past its own wall.
+    for (const delta of [-100, -1, 0, 1, 100]) expect(reachedWidth(160, delta, 160, 420, -160)).toBe(null);
+    // and its second measured case: stored 220 / 720 applies 220 / 340 at 1000, limit exactly 220.
+    expect(reachedWidth(220, 1, 160, 420, 220)).toBe(null);
+  });
+
+  it('never answers a width outside the range a drag may reach', () => {
+    for (const limit of [-160, 100, 164, 220, 329, 420]) {
+      for (let delta = -300; delta <= 300; delta += 7) {
+        const w = reachedWidth(220, delta, 160, 420, limit);
+        if (w === null) continue;
+        expect(w).toBeGreaterThanOrEqual(160);
+        expect(w).toBeLessThanOrEqual(Math.max(160, Math.min(420, limit)));
+      }
+    }
   });
 });

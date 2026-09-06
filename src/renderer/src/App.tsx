@@ -150,8 +150,19 @@ export function App(): JSX.Element {
   const [gitError, setGitError] = useState<string | null>(null); // git itself is missing (GC-025)
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [pullOpen, setPullOpen] = useState(false);
-  const [pushOpen, setPushOpen] = useState(false); // the second toolbar popover (GC-057)
+  // The two toolbar popovers are one piece of state, not two flags (GC-119). They were kept
+  // mutually exclusive only by the outside-click listener in `Toolbar`, and a `<button>` activated
+  // from the keyboard fires `click` with no `mousedown` at all, so opening one with Enter while the
+  // other was up left both open and overlapping — and then took two Escapes, because the ladder
+  // below closes one layer per press. Which one is open is a single answer, so it is a single
+  // value, and both open is not a state that can be reached however the button was activated.
+  const [popover, setPopover] = useState<'pull' | 'push' | null>(null); // the second one is GC-057
+  const pullOpen = popover === 'pull';
+  const pushOpen = popover === 'push';
+  // A close only closes the popover it names, so `Toolbar`'s outside-click listener — which asks
+  // each popover separately whether the click missed it — cannot close the one that was clicked in.
+  const setPullOpen = useCallback((open: boolean): void => setPopover((cur) => (open ? 'pull' : cur === 'pull' ? null : cur)), []);
+  const setPushOpen = useCallback((open: boolean): void => setPopover((cur) => (open ? 'push' : cur === 'push' ? null : cur)), []);
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
   // The branch being dragged, and where it came from is irrelevant: a chip and a left-panel row
   // stand for the same ref, so the state that both surfaces read lives here (GC-015).
@@ -1304,8 +1315,7 @@ export function App(): JSX.Element {
           else if (prefsOpen) setPrefsOpen(false);
           else if (ui.dialogOpen) ui.closeDialog();
           else if (ui.menuOpen) ui.closeMenu();
-          else if (pullOpen) setPullOpen(false);
-          else setPushOpen(false);
+          else setPopover(null);
         }
         return;
       }

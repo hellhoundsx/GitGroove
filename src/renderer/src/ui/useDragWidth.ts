@@ -29,8 +29,9 @@ export interface DragWidthOptions {
    *
    * It must be derived from the width the *other* elements are being **drawn** at, not from what
    * is stored for them (GC-111): a limit taken from a stored width that the fit is currently
-   * reducing comes out too small, and on a narrow enough window smaller than `min`. A request past
-   * it is not a width the pointer reached, so it is neither shown nor stored (GC-115).
+   * reducing comes out too small, and on a narrow enough window smaller than `min`. A drag that
+   * runs past it stops on it, and stores it only if it started inside — see `reachedWidth`
+   * (GC-115, GC-118).
    */
   limit?: number;
 }
@@ -132,6 +133,32 @@ export function dragWidth(start: number, delta: number, min: number, max: number
   // `min` last, as in `clampDrag`: a limit narrower than the minimum leaves the element at its
   // minimum, and `reached` is false there, so nothing about that window is ever persisted.
   return { width: Math.max(min, Math.min(cap, want)), reached: want <= cap };
+}
+
+/**
+ * The width a drag released here leaves the element at, or `null` when the pointer reached no
+ * width at all (GC-118). `dragWidth`'s `reached` answers one position, and taking the release
+ * position as the answer for the whole drag threw away every allowed width the pointer had
+ * already travelled through: a drag from 170 with the wall at 260, released at 370, moved the edge
+ * to 260, was watched doing it, and then persisted nothing — the same silent discard GC-115 was
+ * filed for, from the other side.
+ *
+ * One rule said once rather than a second special case beside GC-115's: the element ends at the
+ * last width the pointer reached, and never at one it did not. The travel is the whole interval
+ * between `start` and the release, so no record of the drag is needed to say what that is —
+ *
+ * - released inside the wall: that width, as before;
+ * - released past it, from a start inside it: the wall, because the pointer crossed it on the way
+ *   out. Where the edge stops therefore does not depend on how fast the drag was, and so on how
+ *   coarsely its `pointermove`s sampled the travel;
+ * - released past it from a start already on or past it: nothing, so nothing is drawn and nothing
+ *   is stored. That is GC-111's case (the wall came out below `min`) and GC-115's (the element is
+ *   drawn at the wall because the fit is reducing a wider stored width), both unchanged.
+ */
+export function reachedWidth(start: number, delta: number, min: number, max: number, limit?: number): number | null {
+  const { width, reached } = dragWidth(start, delta, min, max, limit);
+  if (reached) return width;
+  return start < width ? width : null; // `width` is the wall here: reached only if it is outward
 }
 
 /** The widths `fitPanels` may reduce, and the floor each one has. */
@@ -253,8 +280,8 @@ export function useDragWidth({ key, def, min, max, dir = 1, limit }: DragWidthOp
   const onPointerMove = (e: ReactPointerEvent<HTMLElement>): void => {
     const d = drag.current;
     if (!d) return;
-    const { width: w, reached } = dragWidth(d.w, (e.clientX - d.x) * dir, min, max, limit);
-    if (reached) setWidth(w); // past the wall the edge cannot move, so neither does the width
+    const w = reachedWidth(d.w, (e.clientX - d.x) * dir, min, max, limit);
+    if (w !== null) setWidth(w); // a drag that has reached nothing moves the edge nowhere
   };
   // The released width is computed from the release position rather than read out of `width`: the
   // pointerup arrives in the same task as the last pointermove, before React has committed the
@@ -266,8 +293,8 @@ export function useDragWidth({ key, def, min, max, dir = 1, limit }: DragWidthOp
     drag.current = null;
     e.currentTarget.releasePointerCapture(e.pointerId);
     setResizing(false);
-    const { width: w, reached } = dragWidth(d.w, (e.clientX - d.x) * dir, min, max, limit);
-    if (!reached) return; // a width the pointer never reached is neither shown nor stored
+    const w = reachedWidth(d.w, (e.clientX - d.x) * dir, min, max, limit);
+    if (w === null) return; // a width the pointer never reached is neither shown nor stored
     setWidth(w);
     persist(w);
   };

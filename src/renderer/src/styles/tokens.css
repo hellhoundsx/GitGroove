@@ -21,6 +21,9 @@
   --radius-sm: 3px;
   --radius-md: 4px;
   --handle: 6px;
+  /* The form controls' own box: the checkbox square and the select's chevron well (GC-101).
+     14px matches the type's 14px/20px rather than Chromium's 13px, which matched nothing. */
+  --control-box: 14px;
 
   /* Layout metrics */
   --titlebar-h: 34px;
@@ -57,6 +60,7 @@
   --text-muted: rgba(255, 255, 255, 0.6);
   --text-dim: rgba(255, 255, 255, 0.4);
   --text-inverse: #1c1e23;
+  --on-accent: #ffffff; /* the tick drawn inside a checked checkbox (GC-101) */
 
   /* Semantic */
   --accent: #4d88ff;

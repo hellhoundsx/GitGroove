@@ -73,8 +73,9 @@ export function Toolbar(p: Props): JSX.Element {
     if (!pullOpen && !pushOpen) return;
     const onDown = (e: MouseEvent): void => {
       const outside = (r: typeof pullRef): boolean => !(r.current && e.target instanceof Node && r.current.contains(e.target));
-      // Clicking one split button closes the other, which is what keeps the two mutually
-      // exclusive without either having to know about it.
+      // Only the outside click, which no keyboard activation produces: which of the two is open is
+      // one piece of state in `App`, so opening either already closes the other however the button
+      // was activated, and closing one that is not open does nothing (GC-119).
       if (outside(pullRef)) setPullOpen(false);
       if (outside(pushRef)) setPushOpen(false);
     };

@@ -24,8 +24,13 @@ interface Props {
 
 /**
  * A DOM context menu positioned at the pointer and kept inside the viewport. It closes itself on
- * a click outside, a scroll, a resize or a blur, but never on Escape: like the dialogs, the menu
- * is a layer `App` closes (GC-034, GC-037), so one Escape can only ever close one of them.
+ * a click outside, a scroll of anything else, a resize or a blur, but never on Escape: like the
+ * dialogs, the menu is a layer `App` closes (GC-034, GC-037), so one Escape can only ever close
+ * one of them.
+ *
+ * Taller than the window, it is capped by `.ctx-menu`'s `max-height` and scrolls inside
+ * itself (GC-120), at which point the clamp below lands it at `top: 4` — it never flips above
+ * the pointer, so a cap costs it nothing.
  *
  * The outside click below is also what dismisses the menu when its own dropdown control is
  * clicked a second time; making that click leave the menu shut instead of reopening it needs the
@@ -48,15 +53,22 @@ export function ContextMenu({ menu, onClose }: Props): JSX.Element {
       onClose();
     };
     const close = (): void => onClose();
+    // A wheel closes the menu because the surface under it scrolled away from the anchor — but a
+    // menu tall enough to be capped scrolls itself, and that wheel is the user reaching its last
+    // row, not the page moving (GC-120).
+    const onWheel = (e: WheelEvent): void => {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
+      onClose();
+    };
     window.addEventListener('mousedown', onDown, true);
     window.addEventListener('blur', close);
     window.addEventListener('resize', close);
-    window.addEventListener('wheel', close, { passive: true });
+    window.addEventListener('wheel', onWheel, { passive: true });
     return () => {
       window.removeEventListener('mousedown', onDown, true);
       window.removeEventListener('blur', close);
       window.removeEventListener('resize', close);
-      window.removeEventListener('wheel', close);
+      window.removeEventListener('wheel', onWheel);
     };
   }, [onClose]);
 
