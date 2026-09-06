@@ -239,8 +239,10 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | done |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | in-progress |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | in-progress |
+| GC-092 | A conflicting stash pop reports "could not write index" instead of the conflict | actions | S | P1 | todo |
 | GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | todo |
 | GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | todo |
+| GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -276,6 +278,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | todo |
 | GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | todo |
 | GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | todo |
+| GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -4476,6 +4479,141 @@ decision is missing.
     error line, so an operation that did most of what was asked is reported as a failure.
 
 
+### GC-092 A conflicting stash pop reports "could not write index" instead of the conflict
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** GC-082 wrapped `stash apply` and `stash pop` in `restoreStash`, which tries
+  `--index` first and falls back to the plain form on any failure. Its premise, stated in the
+  function's own comment and repeated in `CLAUDE.md`, is that "`--index` refuses when the stashed
+  index cannot be reinstated and **applies nothing when it refuses**". That is true only when git
+  aborts before merging. It is false for the case a user hits most often — popping onto a tree
+  that has moved on — where `--index` merges, writes conflict markers, leaves `UU` entries in the
+  index, keeps the stash and exits 1 with the useful "Index was not unstashed. The stash entry is
+  kept in case you need it again." The `catch` throws that message away and retries the plain
+  form against the tree it has just conflicted, which fails with `error: could not write index` /
+  `<file>: needs merge`, and *that* is the `GitError` the user sees. Measured on git 2.x in a
+  scratch repository (base `f.txt` = a/b/c; stash a staged `g.txt` plus an unstaged `A/b/c`;
+  commit a conflicting `X/b/c`; pop): step one leaves `UU f.txt`, `M  g.txt` and the stash intact,
+  step two adds nothing and reports the index error. Before GC-082 the same pop surfaced git's own
+  conflict output and the files appeared in the Conflicted group. Nothing is lost — the conflict
+  is on disk and the stash is still there — but the message names an index write the user never
+  asked for, and nothing on screen says there is a conflict to resolve.
+- **Scope:**
+  - `restoreStash` retries **only when the first attempt changed nothing**. Git's own signal is
+    the difference between an abort ("Aborting", no working-tree change) and a conflicting apply
+    ("Index was not unstashed", `UU` entries present); test the state rather than the wording,
+    which is not stable across git versions or locales — `--index` having produced any unmerged
+    entry, or any working-tree change, means it applied.
+  - When it applied, the first error is what propagates, unchanged, so the conflict reaches the
+    status bar and the Conflicted group as it did before GC-082.
+  - The GC-082 fallback path — `--index` genuinely refused, the plain form succeeded, the staging
+    is gone — keeps the message it has today.
+- **Out of scope:** re-classifying that message as a notice rather than an error (GC-091 owns
+  that), conflict resolution UI, `stash branch`.
+- **Acceptance:**
+  - [ ] The scratch-repository sequence in Why pops with git's conflict message, not
+        "could not write index"; the conflicted file shows in the Conflicted group.
+  - [ ] The GC-082 case still reports that the staging could not be reinstated.
+  - [ ] A clean pop still restores the index (`git status --short` keeps its first column).
+  - [ ] A unit test over the decision, feeding `restoreStash` a fake runner: applied-with-conflict
+        does not retry, refused-without-applying does.
+- **Files:** `src/main/git.ts`, a new or extended test beside it, `tools/e2e/run.mjs` if the
+  conflicting pop is worth a step, `CLAUDE.md` (the GC-082 paragraph states the false premise).
+- **Verify:** the three git sequences by hand in `%TEMP%` (never in a real repository),
+  `npm test`, `npm run typecheck`.
+- **Log:**
+  - 2026-09-06 proposed by GR-009: measured in a scratch repository against e5b3b33; the retry
+    destroys git's real error and reports one caused by the retry itself.
+
+### GC-093 No way to ignore a file: the row menu cannot write .gitignore
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P2
+- **Depends on:** GC-043
+- **Why:** GC-043 gave every file row a context menu and explicitly left "Ignore file /
+  extension / folder (writes `.gitignore`; its own ticket if wanted)" out of scope. This is that
+  ticket. The study lists it among the file actions worth supporting
+  (`06-feature-inventory.md`, Files row), and it is the one thing a user reaches for the moment a
+  build directory or an editor swap file appears in Unstaged: today the only options on an
+  untracked row are Stage, Delete file and the three shell actions, so the alternative is leaving
+  the app and editing `.gitignore` by hand. It is also the last common untracked-file action
+  missing — everything else on that row already exists.
+- **Scope:**
+  - Three entries in a separated group on an **untracked** row only (a tracked file is already in
+    the index and ignoring it does nothing, which is exactly the confusion to avoid): "Ignore
+    file", "Ignore all *.<ext> files" (absent when the name has no extension) and "Ignore this
+    folder" (absent at the repository root).
+  - A new `workdir:ignore` channel: `git.ts` appends the pattern to the repository's root
+    `.gitignore`, creating it if absent, with a trailing newline and no duplicate line if the
+    exact pattern is already there. Paths are written git-style with `/` separators, rooted with
+    a leading `/` so `build` at the root does not also ignore `src/build`.
+  - It goes through the same argument validation as every other channel, and the same
+    repository-containment check `repoFile()` already applies, so a pattern cannot be built from
+    a path outside the repository.
+  - `run()` wraps it like any other action, so the status refreshes and the row disappears.
+- **Out of scope:** a `.gitignore` editor, per-directory `.gitignore` files, `.git/info/exclude`,
+  global excludes, un-ignoring, templates, ignoring from the commit file list (a committed file
+  is tracked).
+- **Acceptance:**
+  - [ ] Right-clicking an untracked `new.txt` offers the three entries; right-clicking a tracked
+        modified file offers none of them.
+  - [ ] "Ignore file" appends `/new.txt`, the row leaves Unstaged, and `.gitignore` itself appears
+        as the untracked change.
+  - [ ] "Ignore all *.txt files" appends `*.txt`; a second invocation adds no duplicate line.
+  - [ ] A file with no extension shows no extension entry; a root-level file shows no folder entry.
+  - [ ] An existing `.gitignore` without a trailing newline gains one before the new pattern
+        rather than joining the last line.
+  - [ ] e2e step: ignore a scratch untracked file, assert `git check-ignore` agrees, then restore
+        `.gitignore` so the fixture is unchanged (step 25 must still pass).
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
+  `src/shared/types.ts`, `src/renderer/src/App.tsx` (`fileMenuItems`), `tools/e2e/run.mjs`.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, the e2e step, and the menu
+  screenshotted on an untracked and a tracked row.
+- **Log:**
+  - 2026-09-06 proposed by GR-009 (what's-next pass): the follow-up GC-043 invited, and the last
+    common untracked-file action the row menu is missing.
+
+### GC-094 The left panel header counts refs and never says which branch is checked out
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-061
+- **Why:** The left panel's header is `Viewing <N>`, where N is `local + remotes + tags` — 7 on
+  the scratch repository. It sits directly above sections reading LOCAL 3, REMOTE 3, TAGS 1,
+  STASHES 0, which are the same numbers again, and directly above a status bar reading
+  "8 commits", so the one number that is not a repeat of something adjacent reads as a commit
+  count and disagrees with it. Nothing is served by it. The slot it occupies is where the
+  panel should say where HEAD is, which matters most in the case GC-061 shipped for: with a
+  detached HEAD no row in LOCAL carries the check mark and the panel goes silent about it
+  (`GR-009/05b-detached-head-refs.png` — three unmarked branches, the only "detached HEAD" on
+  screen being the toolbar breadcrumb). GC-061 reasoned it could leave the panel alone because
+  "the header already says so"; the header it meant is the toolbar's, not this one.
+- **Scope:**
+  - The header names the checked-out branch, and reads `detached HEAD` with the short sha when
+    `info.branch` is null, using the wording the breadcrumb and the staging header already use so
+    the three agree.
+  - The ref count goes; the per-section counts already carry it.
+  - The collapsed icon rail is unchanged.
+- **Out of scope:** a left-panel row for HEAD (GC-061 ruled that out and this does not reopen it),
+  ahead/behind in the header, the filter box, the Hide/Solo controls (GC-073).
+- **Acceptance:**
+  - [ ] On a normal checkout the header names the branch and matches the breadcrumb.
+  - [ ] After `git checkout --detach HEAD` + Refresh the header says `detached HEAD` with the
+        short sha, and matches the breadcrumb and the staging header.
+  - [ ] No number in the header; LOCAL / REMOTE / TAGS / STASHES counts unchanged.
+  - [ ] Collapsing and reopening the panel is unaffected.
+- **Files:** `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/App.tsx` (the props
+  it needs), `src/renderer/src/styles/app.css`.
+- **Verify:** `npm run typecheck`, `npm run build`, both states screenshotted over CDP against
+  `docs/reference/gitkraken/08-left-panel-expanded.md`/`.png`.
+- **Log:**
+  - 2026-09-06 proposed by GR-009 (screenshot pass): the header's number repeats its own sections
+    and contradicts the status bar, and the panel is the one place that stays silent when HEAD
+    detaches.
+
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -4994,3 +5132,75 @@ appends its own section here.
     GC-076) and its 74 tests and 91 assertions matched this window; 9206ba6 rewrote it again for six
     more tickets, not checked here. GC-086 will change the Diff section's "only
     `loaded.key === viewKey` is rendered" sentence when it ships, and GC-089 will change all of it.
+
+### GR-009 Backlog review 2026-09-06 03:15
+
+- **Status:** done
+- **Window:** bf02975..cee2b53
+- **Log:**
+  - 2026-09-06 03:15 shipped: 9206ba6 (the close-out of GC-077, GC-078, GC-079, GC-049, GC-061 and
+    GC-069, left unreviewed by GR-008 because it landed while that review was polling), 5db4e55 and
+    48d149b (GR-008's own claim and review), e5b3b33 (the close-out of GC-072, GC-064, GC-082 and
+    GC-080) and cee2b53, the claim of GC-086, GC-050, GC-073 and GC-089, `in-progress` throughout
+    and not touched. Read as a reviewer: GC-077's join is exactly lane, arc, centre line — the live
+    DOM on the fixture gives `M 38 0 V 6 A 8 8 0 0 1 30 14 H 18` in and `M 18 14 H 30 A 8 8 0 0 1 38
+    22 V 28` out, with `JOIN_R` clamped to the lane distance as the ticket says; GC-078's `MAX_CHIPS`
+    is honestly one at every width and `chipBudget` is gone; GC-061's synthetic chip never reaches
+    `getRefs` or `GitRef` and is ranked at -1 so it cannot fold; GC-072's `deletedFromTree` correctly
+    lets the unstaged side decide when both are set; GC-080's `dataGen` is bumped on all four paths
+    that land state, the failed-load path included, which is what stops a wait hanging on an error.
+    One defect found, filed as GC-092 — GC-082's `restoreStash` retries the plain form after an
+    `--index` attempt that had already applied with conflicts, so git's real message is discarded
+    and replaced by one the retry itself caused.
+  - health: typecheck ok, tests 77 passed (13 files, node + dom), build ok — all three in the
+    detached worktree at `%TEMP%/gitclient-review/wt` with `node_modules` junctioned from the main
+    checkout, whose `out/` was left untouched (last written 03:00 by the worker). No e2e run: the
+    window's e2e changes are GC-080's own, verified in its log at 19.5s over five runs, and the
+    budget went to the app and to reproducing GC-092 instead.
+  - app: the worktree build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e` (fixture
+    recreated first; `gitclient.prefs` and `gitclient.refColW` cleared over CDP so every capture is
+    the default). Screenshots in `%TEMP%/gitclient-review/GR-009/`, all looked at: `01-graph.png`
+    (eight rows plus WIP, lanes continuous, `main` absorbing `origin/main` with the cloud mark,
+    `wip-branch +1` and `feature +1` — GC-078's one chip, now landing at full width instead of
+    GR-008's `wip-bran…` / `orig…`, a clear improvement), `02-graph-zoom3.png` (a 3x body zoom, which
+    squeezed the graph column to nothing while both side panels kept their fixed widths — noted as a
+    reflow observation, not ticketed: the window is 1400 wide and Ricardo's screen is 3440),
+    `03-refs-folded-hover.png` (GC-078's grow-in-place block, never captured by a review before: the
+    `+1` hides and `wip-branch` / `origin/wip-branch` stack in the lane colour with the first line on
+    the chip's own pixel, exactly as specified — it does overlay the next row's `main` chip, which is
+    inherent to the design and not filed), `04-branch-menu.png` (GC-049's tip-commit group on the
+    `feature` chip: Cherry pick, Revert, the three Resets, Create tag here…, Copy commit sha, in
+    their own separated groups between Create branch and Pin to Left — and GC-074 confirmed visible,
+    "keep changes in the working dire…" truncated at the menu's cap), `05-detached-head.png` (the
+    click landed on the repository crumb rather than Refresh and caught GC-044/GC-067 instead: the
+    recents dropdown with "RECENTLY OPENED", `testrepo` ellipsised at the start and `catena-feed`
+    shown in full — both correct), `05b-detached-head-refs.png` (GC-061 after `git checkout --detach`:
+    the `✓ HEAD` chip on `Remove obsolete file` with `main ☁` below it in the expanded block, crumb
+    and staging header both reading "detached HEAD", Push disabled with "Cannot push from a detached
+    HEAD" — all as the ticket promised, and the gap it left became GC-094) and `06-diff.png` (`a.txt`
+    unstaged, Stage file / Discard changes, one hunk with its two buttons, the icon rail at 3/3/1/0).
+    The scratch repository was returned to `main` afterwards and `git status --short --branch` matches
+    the fixture. Stopped by PID: the 9334 tree was 39276 with children 39408, 39332 and 38880, all
+    gone on the recheck; four other `electron.exe` remained alive and were deliberately left, none
+    of them carrying 9334.
+  - what's next: read `06-feature-inventory.md`'s Files row and Core table against the board. The
+    strongest unticketed candidate is ignoring a file, which GC-043 explicitly deferred to "its own
+    ticket if wanted" — filed as GC-093. Also unticketed and worth a later look: "Restore file from
+    this commit", "Compare against working directory", a plain "Set upstream" on a branch (only
+    "Push and set upstream" exists) and "Fast-forward X to Y". The left panel's ahead/behind arrows
+    still cannot be screenshotted because no fixture branch has an upstream that differs, which is
+    GR-008's observation and remains folded into GC-055/GC-056 rather than a ticket of its own.
+  - tickets: added GC-092 (actions, S, P1: the conflicting-pop fallback, from the code-review pass,
+    reproduced in a scratch repository), GC-093 (ui, M, P2: Ignore file / extension / folder, from
+    the what's-next pass) and GC-094 (ui, S, P3: the left panel header, from the screenshot pass).
+    Board: GC-092 goes to the head of the `todo` block, ahead of GC-088, as a P1 regression in
+    shipped work; GC-093 after GC-090 as the last P2 row; GC-094 after GC-091 in the P3 ui cluster.
+    Nothing else moved — the P3 block is already ordered sensibly and no `todo` ticket has gone
+    vague. Blocked GC-017 and GC-018 still wait on Ricardo's decisions and neither is unblockable
+    from anything in this window. Deduplication: GC-092 is not GC-091 — GC-091 is about the severity
+    the message is rendered at, GC-092 about the message being the wrong one; GC-094 does not reopen
+    the left-panel row GC-061 ruled out, only the header above it.
+  - notes: `CLAUDE.md`'s "Done" paragraph is current through e5b3b33 and its test count (77) and the
+    e2e assertion count (104) both match this window, so nothing is stale today — but GC-089, claimed
+    in cee2b53, is about to rewrite the whole file, and GC-092 will need the GC-082 paragraph's
+    "applies nothing when it refuses" corrected wherever that text ends up.
