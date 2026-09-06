@@ -803,6 +803,30 @@ export function App(): JSX.Element {
     [repo, run, ui],
   );
 
+  /**
+   * Where a local branch also lives on a remote, so deleting it can offer to take that copy with
+   * it (GC-112). The upstream comes first, since that is the branch git itself considers the same
+   * one; a remote-tracking ref of the same name answers for a branch pushed without `-u`. Either
+   * way the answer is a ref the snapshot actually lists, so a branch whose upstream has already
+   * been pruned offers nothing and the checkbox is absent rather than disabled. The remote is
+   * matched by name and the longest match wins, because `origin` and `origin/fork` are both legal
+   * remote names and splitting on the first slash would hand the wrong one the delete.
+   */
+  const remoteCopyOf = useCallback(
+    (r: GitRef): { remote: string; branch: string } | null => {
+      const remotes = [...(snapshot?.remotes ?? [])].sort((a, b) => b.name.length - a.name.length);
+      const split = (full: string): { remote: string; branch: string } | null => {
+        const rem = remotes.find((m) => full.startsWith(`${m.name}/`));
+        return rem ? { remote: rem.name, branch: full.slice(rem.name.length + 1) } : null;
+      };
+      const tracking = (snapshot?.refs ?? []).filter((x) => x.kind === 'remote').map((x) => x.name);
+      if (r.upstream && tracking.includes(r.upstream)) return split(r.upstream);
+      const same = tracking.find((n) => split(n)?.branch === r.name);
+      return same ? split(same) : null;
+    },
+    [snapshot],
+  );
+
   const deleteBranch = useCallback(
     async (r: GitRef) => {
       if (r.kind === 'remote') {
@@ -812,7 +836,20 @@ export function App(): JSX.Element {
         await run(`Deleting ${r.name}`, () => window.api.deleteRemoteBranch(repo!, remote!, branch));
         return;
       }
-      if (!(await ui.confirm({ title: `Delete branch ${r.name}?`, okLabel: 'Delete', danger: true }))) return;
+      // Deleting a branch that has been pushed used to take two actions in two menus, and the
+      // second was only reachable if that remote's row happened to be on screen — a branch hidden
+      // from the graph has no row at all (GC-112). `confirm` has no checkbox, so this is the same
+      // modal one level down: `prompt` with no input is exactly a confirmation, and it carries one.
+      const copy = remoteCopyOf(r);
+      const res = await ui.prompt({
+        title: `Delete branch ${r.name}?`,
+        input: false,
+        checkbox: copy ? { label: `Also delete ${copy.branch} on ${copy.remote}` } : undefined,
+        okLabel: 'Delete',
+        danger: true,
+      });
+      if (!res || res.choice !== 'ok') return;
+      const alsoRemote = copy !== null && res.checked;
       const wasPinned = r.name === pinned;
       let deleted = false;
       try {
@@ -830,11 +867,16 @@ export function App(): JSX.Element {
           }
         }
       }
+      // Order, and it is deliberate (GC-112): the local delete runs first and the remote one is
+      // not attempted if it failed — a branch git refused to delete is not one to start deleting
+      // copies of. The remote half goes through a plain `run()`, so a failure there reports on the
+      // status bar and leaves the local delete standing rather than pretending both were undone.
+      if (deleted && alsoRemote && copy) await run(`Deleting ${copy.remote}/${copy.branch}`, () => window.api.deleteRemoteBranch(repo!, copy.remote, copy.branch));
       // The pin is stored by name, so one left behind by a deleted branch never resolves again
       // and its key outlives the repository's history (GC-021).
       if (deleted && wasPinned) pinBranch(null);
     },
-    [pinBranch, pinned, repo, run, ui],
+    [pinBranch, pinned, remoteCopyOf, repo, run, ui],
   );
 
   /**
@@ -884,7 +926,46 @@ export function App(): JSX.Element {
         } else {
           items.push({ label: `Push tag ${r.name} to ${fallback ?? 'remote'}`, disabled: !fallback, onClick: () => run(`Pushing tag ${r.name} to ${fallback}`, () => window.api.push(repo!, { remote: fallback, branch: r.name })) });
         }
-        items.push({ label: `Delete tag ${r.name}`, danger: true, onClick: async () => (await ui.confirm({ title: `Delete tag ${r.name}?`, okLabel: 'Delete', danger: true })) && run('Deleting tag', () => window.api.deleteTag(repo!, r.name)) });
+        // A tag pushed with the row above could not be taken back at all: `deleteTag` is local-only
+        // and there was no remote-tag call in `git.ts` (GC-112). The remote rows mirror the push
+        // rows exactly — one per remote when there is more than one — and the local delete carries
+        // the same "also on the remote" checkbox a branch's does, but only when there is a single
+        // remote to name. With several, which of them holds this tag is not something a tag ref can
+        // answer, and the explicit rows below are the honest way to say it.
+        items.push({
+          label: `Delete tag ${r.name}`,
+          danger: true,
+          onClick: async () => {
+            const withRemote = remotes.length === 1 && fallback ? fallback : null;
+            const res = await ui.prompt({
+              title: `Delete tag ${r.name}?`,
+              input: false,
+              checkbox: withRemote ? { label: `Also delete it on ${withRemote}` } : undefined,
+              okLabel: 'Delete',
+              danger: true,
+            });
+            if (!res || res.choice !== 'ok') return;
+            let deleted = false;
+            try {
+              await run('Deleting tag', () => window.api.deleteTag(repo!, r.name), { rethrow: true });
+              deleted = true;
+            } catch {
+              /* the message is already on the status bar */
+            }
+            if (deleted && res.checked && withRemote) await run(`Deleting tag ${r.name} on ${withRemote}`, () => window.api.deleteRemoteTag(repo!, withRemote, r.name));
+          },
+        });
+        if (remotes.length > 1) {
+          for (const rem of remotes) {
+            items.push({
+              label: `Delete tag ${r.name} from ${rem.name}`,
+              danger: true,
+              onClick: async () =>
+                (await ui.confirm({ title: `Delete tag ${r.name} from ${rem.name}?`, message: 'The local tag is not touched.', okLabel: 'Delete from remote', danger: true })) &&
+                run(`Deleting tag ${r.name} on ${rem.name}`, () => window.api.deleteRemoteTag(repo!, rem.name, r.name)),
+            });
+          }
+        }
         items.push({ separator: true });
         items.push({ label: 'Copy tag name', onClick: () => void navigator.clipboard.writeText(r.name) });
         return items;
@@ -1173,6 +1254,29 @@ export function App(): JSX.Element {
         }
         items.push({ separator: true });
       }
+      // A commit's file row is the only place an older version of a file can be reached: the three
+      // rows below all act on the working tree, so on a row belonging to last week's commit "Open
+      // file" opens today's content (GC-107). It is destructive and it stages what it writes, so it
+      // asks first and the confirmation says so. Absent, not disabled, on a file the commit deleted
+      // — there is nothing at that sha to restore, and GC-072 settled that an action which cannot
+      // work is left out rather than shown greyed. The sha is `selectedCommit`'s, because a commit
+      // file row is only ever drawn for the commit the detail panel is showing.
+      if (t.source === 'commit' && t.file.kind !== 'deleted' && selectedCommit) {
+        const sha = selectedCommit.sha;
+        items.push({
+          label: 'Restore file from this commit',
+          hint: sha.slice(0, 7),
+          danger: true,
+          onClick: async () =>
+            (await ui.confirm({
+              title: `Restore ${path} from ${sha.slice(0, 7)}?`,
+              message: 'The working-tree copy is overwritten and the result is staged.',
+              okLabel: 'Restore',
+              danger: true,
+            })) && void run(`Restoring ${path}`, () => window.api.restoreFile(repo!, sha, path)),
+        });
+        items.push({ separator: true });
+      }
       // Both shell actions go through `repoFile()`, which refuses a path that is not in the
       // working tree, so on a row whose file is gone neither of them can do anything but put an
       // error in the status bar. They are disabled together rather than one of them being left
@@ -1188,7 +1292,7 @@ export function App(): JSX.Element {
       items.push({ label: 'Copy file path', hint: 'relative to the repository', onClick: () => void navigator.clipboard.writeText(path) });
       return items;
     },
-    [actions, ignoreFile, inShell, repo, ui],
+    [actions, ignoreFile, inShell, repo, run, selectedCommit, ui],
   );
 
   const addRemote = useCallback(async () => {

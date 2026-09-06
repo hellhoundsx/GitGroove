@@ -159,6 +159,7 @@ export function registerIpc(): void {
     // from what comes back rather than from what the renderer sent (GC-093).
     return git.ignore(repoOf(repo), { path: repoRel(repo, r.path), kind: oneOf(r.kind, IGNORE_KINDS, 'An ignore kind') });
   });
+  ipcMain.handle('workdir:restoreFile', (_e, repo: unknown, sha: unknown, path: unknown) => git.restoreFile(repoOf(repo), str(sha, 'A commit sha'), str(path, 'A file path')));
   ipcMain.handle('workdir:applyPatch', (_e, repo: unknown, patch: unknown, opts: unknown) => {
     const o = (opts ?? {}) as ApplyPatchOptions;
     return git.applyPatch(repoOf(repo), str(patch, 'A patch'), { cached: !!o.cached, reverse: !!o.reverse });
@@ -197,6 +198,7 @@ export function registerIpc(): void {
     return git.createTag(repoOf(repo), { name: str(r.name, 'A tag name'), sha: typeof r.sha === 'string' ? r.sha : undefined, message: typeof r.message === 'string' ? r.message : undefined });
   });
   ipcMain.handle('ref:deleteTag', (_e, repo: unknown, name: unknown) => git.deleteTag(repoOf(repo), str(name, 'A tag name')).then(() => undefined));
+  ipcMain.handle('ref:deleteRemoteTag', (_e, repo: unknown, remote: unknown, name: unknown) => git.deleteRemoteTag(repoOf(repo), str(remote, 'A remote name'), str(name, 'A tag name')));
 
   ipcMain.handle('ref:fastForward', (_e, repo: unknown, branch: unknown, upstream: unknown) =>
     git.fastForward(repoOf(repo), str(branch, 'A branch name'), str(upstream, 'An upstream ref')),

@@ -123,6 +123,52 @@ input[type='checkbox']:disabled {
   cursor: default;
 }
 
+/*
+ * Radios, the last control still drawing itself at the OS accent (GC-125). There is one group in
+ * the app — the Pull popover's three modes — which is exactly why it was worth doing: one control
+ * out of step reads as a mistake next to a checkbox two buttons away that is painted at ours.
+ * Same shape as the checkbox above, round rather than square, and the dot is an `::after` circle
+ * for the same reason the tick is a rotated border: no icon, and no colour outside tokens.css.
+ */
+input[type='radio'] {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: var(--control-box);
+  height: var(--control-box);
+  margin: 0;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  cursor: pointer;
+}
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+input[type='radio']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type='radio']:checked::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--on-accent);
+}
+input[type='radio']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* ---- App frame ---------------------------------------------------------- */
 
 .app {
@@ -1105,8 +1151,9 @@ input[type='checkbox']:disabled {
 /* The text fields, which is what this rule always meant: it is the one component rule written
    against a bare `input`, and its 8px padding reached the Amend checkbox too — under
    `box-sizing: border-box` that floors the box at 18px, so the one checkbox outside Preferences
-   was drawn larger than every other (GC-101). */
-.commit-form input:not([type='checkbox']),
+   was drawn larger than every other (GC-101). The radios are excluded for the same reason,
+   before one is ever written here (GC-125). */
+.commit-form input:not([type='checkbox']):not([type='radio']),
 .commit-form textarea {
   padding: var(--sp-2);
   font-size: var(--fs-md);

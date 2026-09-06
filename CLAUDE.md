@@ -157,6 +157,15 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   `src/shared/` is the only place code is shared both ways, so a menu label cannot promise a
   different remote from the one the push uses.
 
+- **A local branch's delete can take its remote copy with it** (GC-112). `remoteCopyOf` in
+  `App.tsx` answers where else the branch lives — its upstream first, then a remote-tracking ref of
+  the same name, and only ever one the snapshot lists — and the confirmation carries a checkbox for
+  it. The local delete runs first and the remote one only if it succeeded; the remote half goes
+  through a plain `run()`, so its failure reports on the status bar and leaves the local delete
+  standing. `deleteRemoteTag` is the tag equivalent and is `git push <remote> --delete
+  refs/tags/<name>`, **fully qualified**: a bare name is ambiguous when a branch and a tag share it,
+  and git refuses rather than guessing.
+
 **`watch.ts`** — one `fs.watch(repo, { recursive: true })` per window, keyed by `webContents` id,
 **not** chokidar: on Windows that is ReadDirectoryChangesW, so one watcher on the working-tree root
 covers `.git/` too. Events are filtered, scoped, debounced 300ms with the strongest scope winning,
@@ -476,7 +485,11 @@ list). Every file row's context menu comes from `fileMenuItems`, whose Discard u
 `discardFileConfirm` — the same wording the row's `✕` button uses. An action that does not apply is
 **absent rather than disabled**; Discard is offered only in the unstaged group; and **both shell
 actions are disabled together on a row whose file is not in the working tree**, because
-`repoFile()` refuses a path that is not on disk and neither could do anything but fail. The three
+`repoFile()` refuses a path that is not on disk and neither could do anything but fail. **A
+commit's file row also offers "Restore file from this commit"** (GC-107), the one action in that
+menu that reaches a version of the file other than the working tree's: it is
+`git checkout <sha> -- <path>`, which overwrites the working-tree copy **and stages it**, so it
+asks first and the confirmation says so, and it is absent on a file the commit deleted. The three
 "Ignore …" rows are offered on an **untracked** row only (GC-093) — a tracked file is in the index,
 where `.gitignore` has no say — and their hints are bare paths, because `.ctx-hint.path` ellipsises
 by turning the box RTL and a `/` at either end is reordered to the other one.
@@ -537,15 +550,17 @@ or it does not flip with the theme. The nine `rgba()` literals `app.css` used to
 `--success-strong` and `--diff-gutter`; `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` must keep
 printing nothing.
 
-- **The form controls are the app's own too** (GC-101). `input[type='checkbox']` is styled once,
-  globally, by type rather than by a class — there is no second look for a checkbox to have:
-  `appearance: none`, a `--control-box` (14px) square on `--bg-raised`, `--accent` when checked
-  with a drawn tick, and a focus ring, since the global `input` rule's `outline: none` would
-  otherwise leave a focused one indistinguishable. `.pref-select` is `appearance: none` with
-  `font: inherit` and the app's own `ChevronDown`; the popup list it opens is still the OS's.
-  A component rule written against a bare `input` therefore has to exclude checkboxes —
-  `.commit-form input:not([type='checkbox'])` is the only one, and its 8px padding had floored the
-  Amend box at 18px under `box-sizing: border-box`.
+- **The form controls are the app's own too** (GC-101, GC-125). `input[type='checkbox']` and
+  `input[type='radio']` are each styled once, globally, by type rather than by a class — there is
+  no second look for either to have: `appearance: none`, a `--control-box` (14px) box on
+  `--bg-raised` (square with a drawn tick, round with a drawn dot), `--accent` when checked, and a
+  focus ring, since the global `input` rule's `outline: none` would otherwise leave a focused one
+  indistinguishable. Neither mark is an icon or a background image: an `::after` cannot hold a
+  component and an SVG would put a colour back in `app.css`. `.pref-select` is `appearance: none`
+  with `font: inherit` and the app's own `ChevronDown`; the popup list it opens is still the OS's.
+  A component rule written against a bare `input` therefore has to exclude both —
+  `.commit-form input:not([type='checkbox']):not([type='radio'])` is the only one, and its 8px
+  padding had floored the Amend box at 18px under `box-sizing: border-box`.
 - **One global `::-webkit-scrollbar` rule set** near the top: 8px, a flat thumb at a 4px radius,
   transparent track and corner, no buttons. Every scroll container gets it with no per-component
   rule. Do **not** also set the standard `scrollbar-width` or `scrollbar-color`: either makes
@@ -590,8 +605,8 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 30 steps, 178 assertions, ~27s. It ends with
-`total: 27.4s | git: 267 calls, 6.8s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 34 steps, 206 assertions, ~32s. It ends with
+`total: 32.5s | git: 319 calls, 8.4s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -625,7 +640,17 @@ here. Rules a new step must respect:
   than crash on it. `.git/index.lock` is retried five times at 200ms first, because the collision is
   with the app's own watcher refresh. A throw is caught by `bail`, which stops the run's Electron.
 - **Wait on the DOM, never on a fixed sleep.** `waitFor(expression, what, max)` polls the renderer
-  every 50ms. Three `sleep` calls are left, each commented with what is unobservable there.
+  every 50ms. Four `sleep` calls are left, each commented with what is unobservable there — the
+  newest being the frame after a viewport override, because `ContextMenu` closes on `resize` and
+  the override's own resize event arrives after `window.innerHeight` has already changed (GC-126).
+- **`act()` covers one `run()`, not two.** A menu action that runs a second one after the first —
+  a branch delete that also deletes the copy on its remote (GC-112) — satisfies `act` on the first
+  reload while the second is still going. `waitGitFor` polls the git side, which is where that
+  second call is the only thing observable.
+- **A key that must activate a control carries its `text`** (GC-126). `Input.dispatchKeyEvent` with
+  no `text` is a raw key event: React handlers read it (`ctrlEnter` wants exactly that) but the
+  focused button's own default action never runs. `enterKey` sends `text: '\r'` on the keyDown and
+  **no** following `char` event, which would activate the button a second time.
 - **Every git action goes through `act(fn)`**, which reads `data-gen` off the status bar, performs
   the action and waits for that counter to have moved **and** the spinner to be gone. Both, because
   either alone is satisfiable by the wrong moment.
@@ -695,8 +720,8 @@ drag starting from the drawn width and ending on the last width the pointer reac
 and only a strict extension counted as one (Graph); every modal `h3` + `.modal-body` +
 `.modal-buttons`, with only the body scrolling, and a context menu capped and scrolling the same way
 (UI layer); one toolbar popover open at a time because there is one value for which,
-every checkbox styled once by type (UI layer); `--index` on
-stash apply and pop, `defaultRemote` shared both ways (Main process); the diff keyed to its view
+every checkbox and every radio styled once by type (UI layer); `--index` on
+stash apply and pop, `defaultRemote` shared both ways, a remote tag delete fully qualified (Main process); the diff keyed to its view
 identity, the split layout a render of what is already loaded, a hunk patch built from
 `hunk.raw` whichever layout is showing, and both layouts marking intra-line changes from one map
 (Diff); the hidden set applied to a path's first load

@@ -254,6 +254,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | done |
 | GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | done |
 | GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | done |
+| GC-130 | Step 21's hunk staging loses a race and fails on a fixture nothing changed | tests | S | P1 | todo |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
 | GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
@@ -262,8 +263,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
-| GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | in-progress |
-| GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | in-progress |
+| GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
+| GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
+| GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -289,8 +291,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | done |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | done |
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | done |
-| GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | in-progress |
-| GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | in-progress |
+| GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | done |
+| GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | done |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
@@ -5859,7 +5861,7 @@ decision is missing.
 
 ### GC-107 A commit's file row cannot restore that file, only open the working-tree copy
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** M | **Priority:** P3
 - **Depends on:** GC-043
 - **Why:** `fileMenuItems` in `App.tsx` branches on `t.source`, and everything it adds for a commit's
@@ -5891,15 +5893,15 @@ decision is missing.
   tree is correct, only unlabelled - a hint on those two rows would be a fine addition here but is not
   required).
 - **Acceptance:**
-  - [ ] The row is offered on a commit's file row and on no other file row, and is absent on a file
+  - [x] The row is offered on a commit's file row and on no other file row, and is absent on a file
         the commit deleted.
-  - [ ] Confirming it restores the file: on the scratch repo, `git show <sha>:<path>` and the file on
+  - [x] Confirming it restores the file: on the scratch repo, `git show <sha>:<path>` and the file on
         disk are byte-identical afterwards, and the path is staged.
-  - [ ] Cancelling the confirmation changes nothing - `git status --porcelain` is identical either
+  - [x] Cancelling the confirmation changes nothing - `git status --porcelain` is identical either
         side.
-  - [ ] The new e2e step passes and leaves the fixture as it found it, so the final drift-scan step
+  - [x] The new e2e step passes and leaves the fixture as it found it, so the final drift-scan step
         stays green.
-  - [ ] `npm test`, `npm run typecheck`, `npm run build`, `npm run e2e` pass.
+  - [x] `npm test`, `npm run typecheck`, `npm run build`, `npm run e2e` pass.
 - **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
   `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
 - **Verify:** `npm test`, `npm run e2e`, and by hand on the scratch repo: restore `a.txt` from the
@@ -5910,6 +5912,22 @@ decision is missing.
     first non-trivial action, so it is the natural place to grow, and this is the entry with the
     smallest gap between what the panel already knows and what the action needs.
   - 2026-09-06 09:12 claimed
+  - 2026-09-06 10:05 done. `restoreFile(repo, sha, path)` is `git checkout <sha> -- <path>` in
+    `git.ts`, its handler under `workdir:` with `str` validation on all three arguments, its
+    preload entry and its signature in `shared/types.ts`. The row is built in `fileMenuItems` for
+    `t.source === 'commit'` only, takes its sha from `selectedCommit` (a commit file row is only
+    ever drawn for the commit the detail panel is showing, so no new field on `FileMenuTarget`),
+    goes through `ui.confirm` — "The working-tree copy is overwritten and the result is staged." —
+    and through `run()` like every other action.
+    New e2e step 32, on the scratch repo: restoring `a.txt` from `Initial commit` leaves the file
+    byte-identical to `git show <sha>:a.txt` and `a.txt` in `git diff --cached --name-only`;
+    cancelling the confirmation leaves `git status --short` character-for-character what it was;
+    the row is absent on `obsolete.txt` under `Remove obsolete file` (the menu is Open file /
+    Show in folder / Copy file path, both shell rows disabled by GC-072) and absent on a WIP file
+    row. The step puts `a.txt` back with `reset -q --` and `checkout -q --`, and step 34's drift
+    scan is green. Screenshot `shots/restore-file-menu.png` in the scratch root.
+    `npm test` (184), `npm run typecheck`, `npm run build` and `npm run e2e` (206 assertions,
+    ALL PASSED) all pass.
 
 ### GC-108 The repository-open path clears the status bar without owning it
 
@@ -6068,7 +6086,7 @@ decision is missing.
 
 ### GC-112 A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** M | **Priority:** P3
 - **Depends on:** —
 - **Why:** `06-feature-inventory.md` lists "Delete (local, remote, or both)" as one Branch action and
@@ -6099,16 +6117,16 @@ decision is missing.
 - **Out of scope:** "from all remotes"; deleting a branch on a remote it does not track; pruning beyond
   the reload `run()` already does; the branch breadcrumb menu (GC-096); anything about pull requests.
 - **Acceptance:**
-  - [ ] Deleting a local branch that has an upstream offers to delete the remote copy and names the
+  - [x] Deleting a local branch that has an upstream offers to delete the remote copy and names the
         remote; a branch with no remote copy is offered the plain delete only.
-  - [ ] Confirming both leaves `git branch --list <name>` and `git ls-remote <remote> <name>` empty.
-  - [ ] Declining the remote half deletes the local branch only, and `origin/<name>` is still in the left
+  - [x] Confirming both leaves `git branch --list <name>` and `git ls-remote <remote> <name>` empty.
+  - [x] Declining the remote half deletes the local branch only, and `origin/<name>` is still in the left
         panel after the reload.
-  - [ ] A tag pushed through "Push tag to remote" can be deleted from that remote from the tag menu, and
+  - [x] A tag pushed through "Push tag to remote" can be deleted from that remote from the tag menu, and
         `git ls-remote --tags <remote>` no longer lists it.
-  - [ ] With two remotes configured the tag menu lists one delete row per remote, the way the push rows
+  - [x] With two remotes configured the tag menu lists one delete row per remote, the way the push rows
         already do.
-  - [ ] `npm run typecheck`, `npm test`, `npm run build` and `npm run e2e` pass.
+  - [x] `npm run typecheck`, `npm test`, `npm run build` and `npm run e2e` pass.
 - **Files:** `src/renderer/src/App.tsx`, `src/main/git.ts`, `src/main/ipc.ts`, `src/shared/types.ts`,
   `src/preload/index.ts` (adding an API always means those four), and `tools/e2e/run.mjs` if a step is
   added.
@@ -6121,6 +6139,33 @@ decision is missing.
     tag half is the sharper defect — the menu can push a tag to a remote and then has no way to take it
     back — and the branch half is the entry GR-010 and GR-011 both left on the table.
   - 2026-09-06 09:12 claimed
+  - 2026-09-06 10:05 done. `deleteRemoteTag` is `git push <remote> --delete refs/tags/<name>`,
+    fully qualified for the reason the scope gives, with its handler, preload entry and type. On the
+    branch side, `remoteCopyOf(r)` answers where a local branch also lives — the upstream first,
+    then a remote-tracking ref of the same name, and only ever one the snapshot lists — and the
+    delete confirmation carries "Also delete <branch> on <remote>" when there is one. `confirm()`
+    has no checkbox, so this is the same modal one level down: `ui.prompt({ input: false, checkbox })`
+    is exactly a confirmation that carries one, which is what `confirm` itself is built on. Order is
+    as specified: the local delete runs first, the remote half only if it succeeded, and it goes
+    through a plain `run()` so a failure there reports on the status bar and leaves the local delete
+    standing. The tag menu gains one `Delete tag <name> from <remote>` row per remote when there is
+    more than one, mirroring the push rows; with a single remote the local delete carries the same
+    checkbox a branch's does, since which remote holds a tag is not something a tag ref can answer.
+    New e2e step 33, against both real remotes (GC-056). Declining the remote half:
+    `remote-keep` is gone locally, `git ls-remote origin remote-keep` still resolves and
+    `origin/remote-keep` is still a row. Taking it: `remote-del` gone locally and
+    `git ls-remote upstream remote-del` empty, with `origin` never touched. The tag menu reads
+    `Push tag … to origin | Push tag … to upstream | Delete tag t-remote-del | Delete tag … from
+    origin | Delete tag … from upstream`, and after the upstream row
+    `git ls-remote --tags upstream t-remote-del` is empty while the local tag is still in
+    `git tag`. The step puts both sides back and step 34's drift scan is green. Screenshot
+    `shots/tag-menu-remote-delete.png` in the scratch root.
+    One thing the step needed that is worth knowing: a menu action that runs two `run()` calls back
+    to back is not covered by `act()`, which is satisfied by the first reload while the second is
+    still going. `waitGitFor` polls the git side, which is the only place the second call is
+    observable.
+    `npm test` (184), `npm run typecheck`, `npm run build` and `npm run e2e` (206 assertions,
+    ALL PASSED, 32.5s) all pass.
 
 ---
 
@@ -6853,7 +6898,7 @@ decision is missing.
 
 ### GC-125 Radio buttons are the last unstyled OS control, now that the checkboxes are ours
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-101 (`done`)
 - **Why:** GC-101 put the app's own tokens on every `input[type=checkbox]` and on `.pref-select`,
@@ -6872,11 +6917,11 @@ decision is missing.
 - **Out of scope:** the popover's layout or its rows, toggle switches, and any change to what the
   pull modes do.
 - **Acceptance:**
-  - [ ] Every `input[type=radio]` in the rendered tree computes `appearance: none` and the size the
+  - [x] Every `input[type=radio]` in the rendered tree computes `appearance: none` and the size the
         rule sets, and a checked one is painted at `--accent`, not the OS accent.
-  - [ ] Space still selects a focused radio and the arrow keys still move within the group.
-  - [ ] Screenshot of the Pull popover with a mode selected, beside the checkbox in the same window.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass, and
+  - [x] Space still selects a focused radio and the arrow keys still move within the group.
+  - [x] Screenshot of the Pull popover with a mode selected, beside the checkbox in the same window.
+  - [x] `npm run typecheck`, `npm test` and `npm run build` pass, and
         `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing.
 - **Files:** `src/renderer/src/styles/app.css`.
 - **Verify:** build, launch through `node tools/launch-app.mjs` on a repository with two remotes,
@@ -6886,12 +6931,27 @@ decision is missing.
   - 2026-09-06 proposed by GC-101 (this ticket): the checkboxes and the select are now ours, which
     leaves the Pull popover's radios as the only OS-painted control in the app.
   - 2026-09-06 09:12 claimed
+  - 2026-09-06 10:05 done. `input[type='radio']` styled beside the checkbox rule in `app.css`, same
+    shape and the same tokens: `appearance: none`, a 14px `--control-box` circle on
+    `--bg-panel-raised` with `--border-strong`, `--accent` when checked with a 6px `--on-accent`
+    dot, the same focus ring and the same disabled state. Measured on the running app over CDP:
+    every radio computes `appearance: none`, 14x14 and `border-radius: 50%`; the checked one is
+    `rgb(77, 136, 255)` — `--accent` (#4d88ff) — with a white 6px dot, and the two unchecked are
+    `rgb(50, 54, 63)` on `rgba(255, 255, 255, 0.2)`, which is what the Amend checkbox two panels
+    away computes to the byte. Light theme flips the checked one to `rgb(47, 111, 224)`.
+    The keyboard is untouched, driven with real `Input.dispatchKeyEvent`: ArrowDown moved the group
+    `ff` -> `ff-only` and Space on the focused third radio selected it (`pullMode: rebase`), both
+    through the app's own `onChange`. The GC-101 trap was real and is closed:
+    `.commit-form input:not([type='checkbox'])` would have reached a radio and taken its size back,
+    and now excludes those too. Screenshots `docs/screenshots/gc-125-radios-in-our-own-tokens.png`
+    and `gc-125-radios-light.png`; `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints
+    nothing, and typecheck, 184 unit tests and the build all pass.
 
 ---
 
 ### GC-126 Nothing guards the toolbar popovers or the context menu height in the e2e suite
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-119, GC-120 (both `done`)
 - **Why:** Both fixes are DOM and CSS behaviour that no unit test can reach — `popover` is state in
@@ -6914,9 +6974,9 @@ decision is missing.
 - **Out of scope:** a component test for either (the popover needs the whole toolbar, the cap needs
   layout), and any change to the fixture's remotes beyond what the popover step needs.
 - **Acceptance:**
-  - [ ] Both steps pass on a clean run, and fail when the GC-119 or GC-120 change is reverted.
-  - [ ] The window size is back where it was by the end, so no later step sees a short window.
-  - [ ] `npm run e2e` still ends with the fixture matching its baseline.
+  - [x] Both steps pass on a clean run, and fail when the GC-119 or GC-120 change is reverted.
+  - [x] The window size is back where it was by the end, so no later step sees a short window.
+  - [x] `npm run e2e` still ends with the fixture matching its baseline.
 - **Files:** `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e:setup && npm run e2e`, then revert each fix in turn and confirm the
   matching step fails.
@@ -6924,8 +6984,101 @@ decision is missing.
   - 2026-09-06 proposed by GC-119, GC-120 (this batch): both were verified with a script that does
     not live in the repository, so nothing in the suite would notice either coming back.
   - 2026-09-06 09:12 claimed
+  - 2026-09-06 10:05 done. Two steps, 30 and 31, and the old closing step is 34. Step 30 adds the
+    second remote itself (the Push caret only exists with more than one, GC-057), opens the Pull
+    popover with a click, focuses the Push caret and activates it with a real Enter, and asserts
+    exactly one popover is in the DOM and that one Escape closes it; then the same pair in the other
+    order with the mouse. Step 31 emulates the app's own minimum height (900x600 is `minWidth` /
+    `minHeight`) with `Emulation.setDeviceMetricsOverride` — this run has no OS window to resize —
+    opens the branch menu on `main` and reads its rect: `scrollH 621 > clientH 590`, `top 4`,
+    `bottom 596` against `vh 600`, and after scrolling the menu itself the last row
+    (`Copy branch name`) sits at 563–591. The override is cleared and the restored height asserted
+    before the run goes on.
+    Both were checked the way the ticket asks, by reverting the fix. With GC-119 reverted to two
+    independent flags, step 30 fails on exactly its own assertion (`pull,push` open at once) and 73
+    assertions fail in total, because the stuck popover swallows every later layer — which is how
+    bad that bug actually was. With GC-120's `max-height` removed, all three of step 31's
+    assertions fail (`bottom 627` against `vh 600`, last row at 594–622).
+    Two things learned in the writing, both recorded in the file. Enter must carry `text: '\r'` or
+    the focused button's default action never runs — a bare keyDown is what `ctrlEnter` wants and
+    the opposite of what a button activation does — and it must not be followed by a `char` event,
+    which is the double activation the ticket warned about. And `ContextMenu` closes on `resize`,
+    correctly, so the settle after the viewport override belongs **before** the menu is opened: the
+    override's own resize event arrives after `window.innerHeight` has already changed, and a menu
+    opened before it is dismissed by it. That is the file's fourth `sleep`, commented like the
+    other three with what is unobservable.
+    `npm run e2e`: 34 steps, 206 assertions, ALL PASSED in 32.5s (git: 319 calls, 8.4s). Screenshots
+    `docs/screenshots/gc-126-context-menu-short-window.png` (a menu that just fits, first and last
+    rows on screen) and `gc-126-context-menu-capped-scrolled.png` (the capped one, scrolled to its
+    last row).
 
 ---
+
+### GC-130 Step 21's hunk staging loses a race and fails on a fixture nothing changed
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P1
+- **Depends on:** —
+- **Why:** Six `npm run e2e` runs during the GC-125/126/107/112 batch, five green and one not: step
+  21 failed six assertions in a row, starting at `waited for the unstaged diff to show 1 hunk adding
+  row 3 edited`, and the run took 53.4s against the 32s the other five took — the extra twenty
+  seconds being that step's own five-second waits timing out. The next run on the same fixture, with
+  no change to anything, was green. The state the assertions read (`{"chip":"Unstaged","hunks":2,
+  "actions":"Stage hunk,Discard hunk,Stage hunk,Discard hunk"}`) is the diff **before** the Stage
+  hunk click landed, so the click either did not reach the button or its reload had not been applied
+  when the wait started. A step that fails for the fixture's own reasons is worse than no step: the
+  next batch reads it as a regression in whatever it was holding.
+- **Scope:**
+  - Reproduce it — a loop of `npm run e2e` under load is what surfaced it here — and find which of
+    the step's waits is satisfiable by the moment before the action rather than after it.
+  - Fix the wait, not the timeout. `waitDiff` already keys on the chip, the hunk count **and** the
+    added lines for exactly this class of bug (GC-062's own note says so); whatever is left is a
+    click that happens before the button it names is the one on screen.
+- **Out of scope:** raising any `waitFor` maximum, and every other step.
+- **Acceptance:**
+  - [ ] The cause is named in the log, not just made less likely.
+  - [ ] Twenty consecutive `npm run e2e` runs pass, at least some of them under a second run's load.
+  - [ ] The run's total stays within a second of 32s.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e` in a loop, counting failures.
+- **Log:**
+  - 2026-09-06 proposed by GC-126 (this batch): one flaky failure in six runs of the suite, with the
+    full output in this ticket's Why. Nothing in the batch touched step 21 or the diff.
+
+---
+
+### GC-131 A confirmation that carries an option has to be written as a prompt with no input
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** —
+- **Why:** `ConfirmOptions` is title, message, okLabel and danger. GC-112 needed a confirmation with
+  a checkbox on it — "Also delete <branch> on <remote>" — and the only way to get one was to reach
+  past `confirm` for `ui.prompt({ input: false, checkbox })`, which is what `confirm` is itself
+  built on. It works and it looks right, but there are two callers of it now (the branch delete and
+  the tag delete) whose code says "prompt" while what is on screen is a confirmation, and
+  `CLAUDE.md` says every confirmation goes through `useUi().confirm`. The next one to want an
+  option will copy whichever of the three shapes it happens to read first.
+- **Scope:**
+  - `checkbox` on `ConfirmOptions`, passed straight through to the modal, and a return that can
+    carry the answer — `confirm` returns `boolean` today, so either an overload or a second
+    function whose name says it asks a question with a rider.
+  - Move GC-112's two call sites onto it and leave `prompt({ input: false })` to mean what it says.
+- **Out of scope:** any other `ConfirmOptions` field, the modal's own layout, and the stash prompt,
+  which is a real prompt with a real input.
+- **Acceptance:**
+  - [ ] The branch delete and the tag delete read as confirmations in the code as well as on screen.
+  - [ ] The rendered modal is unchanged: same title, same checkbox row, same buttons.
+  - [ ] e2e step 33 passes untouched, since nothing about the DOM should move.
+- **Files:** `src/renderer/src/ui/UiContext.tsx`, `src/renderer/src/App.tsx`.
+- **Verify:** `npm test`, `npm run e2e` (step 33 reads both modals), and the modal side by side
+  with the screenshot in GC-112's log.
+- **Log:**
+  - 2026-09-06 proposed by GC-112 (this batch): the checkbox that ticket needed had no home on
+    `confirm`, so both of its confirmations are prompts with the input switched off.
+
+---
+
 
 ## Reviews
 

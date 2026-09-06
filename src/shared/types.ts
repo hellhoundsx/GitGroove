@@ -192,6 +192,8 @@ export interface GitApi {
   unstageAll(repo: string): Promise<void>;
   discard(repo: string, req: DiscardRequest): Promise<void>;
   ignore(repo: string, req: IgnoreRequest): Promise<void>;
+  /** Write one file back to the way a commit had it, staged as git leaves it (GC-107). */
+  restoreFile(repo: string, sha: string, path: string): Promise<void>;
   applyPatch(repo: string, patch: string, opts: ApplyPatchOptions): Promise<void>;
   commit(repo: string, req: CommitRequest): Promise<string>;
   // refs and history
@@ -208,6 +210,8 @@ export interface GitApi {
   abortOperation(repo: string): Promise<void>;
   createTag(repo: string, req: CreateTagRequest): Promise<void>;
   deleteTag(repo: string, name: string): Promise<void>;
+  /** Delete a tag on a remote, by its fully qualified refs/tags name (GC-112). */
+  deleteRemoteTag(repo: string, remote: string, name: string): Promise<void>;
   /** Move a branch up to its upstream without checking it out; never anything but a fast-forward (GC-100). */
   fastForward(repo: string, branch: string, upstream: string): Promise<void>;
   /** Point a branch at an upstream, or clear it with `null` (GC-100). */

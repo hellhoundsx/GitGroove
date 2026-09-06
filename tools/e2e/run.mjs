@@ -416,6 +416,31 @@ const ctrlEnter = () =>
     send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, modifiers: 2 }),
   );
 
+/** A real Enter to whatever has focus (GC-126). The `text` is what makes it activate a focused
+ *  button at all: a keyDown without one is a raw key event, which React handlers read but the
+ *  button's own default action never runs on — `ctrlEnter` above needs none for exactly that
+ *  reason. It must not be followed by a separate `char` event either, or the button is activated
+ *  twice: the second activation closes the popover the first one opened, and the assertion then
+ *  reads as a bug in the app rather than in the key. */
+const enterKey = () =>
+  send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', text: '\r', unmodifiedText: '\r', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }).then(() =>
+    send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }),
+  );
+
+/** Poll a git-side condition. `act` is the rule everywhere else, but one menu action can run two
+ *  `run()` calls back to back — a branch delete that also deletes the copy on its remote (GC-112) —
+ *  and `act` is satisfied by the first one's reload while the second is still going. The git side
+ *  is the only place that second call is observable. */
+const waitGitFor = async (predicate, what, max = 10000) => {
+  const start = Date.now();
+  while (Date.now() - start < max) {
+    if (predicate()) return true;
+    await sleep(100); // one git spawn per poll: slower than a DOM read, so a longer interval
+  }
+  check(`waited for ${what}`, false, `still false after ${max}ms`);
+  return false;
+};
+
 // ---- helpers for the commit form and the diff's hunk actions (GC-062) -----------------------------
 /** Type into a controlled input or textarea the way a user does (React needs the native setter). */
 const setField = (selector, text) =>
@@ -530,6 +555,16 @@ gitMay(['branch', '-D', 'test-branch']);
 gitMay(['tag', '-d', 't-test']);
 gitMay(['remote', 'remove', 'upstream']);
 gitMay(['remote', 'remove', 'mirror']);
+// step 33 pushes a scratch branch to each remote and a scratch tag to the second one, and deletes
+// every one of them through the UI; a run that died in the middle leaves whichever half it reached
+// (GC-112). The remote-tracking refs go separately, as step 23's do: a --delete that finds the
+// branch already gone leaves the tracking ref behind.
+gitMay(['branch', '-D', 'remote-del']);
+gitMay(['branch', '-D', 'remote-keep']);
+gitMay(['tag', '-d', 't-remote-del']);
+gitMay(['push', '-q', 'origin', '--delete', 'remote-keep']);
+gitMay(['branch', '-rd', 'origin/remote-keep']);
+gitMay(['branch', '-rd', 'upstream/remote-del']);
 // step 17 pushes this scratch branch to the second remote and deletes it again (GC-031)
 gitMay(['branch', '-D', 'push-target']);
 gitMay(['push', '-q', 'origin', '--delete', 'push-target']);
@@ -1912,7 +1947,216 @@ git(['branch', '-D', DROP_SRC]);
 log(await act(() => tool('Refresh')));
 check('the step leaves main where it found it', git(['rev-parse', 'main']) === mainAtDrop && Number(git(['rev-list', '--count', '--merges', 'HEAD'])) === mergesBefore);
 
-step(30, 'the run leaves the fixture exactly as it found it');
+step(30, 'the toolbar popovers: one at a time, whether the second caret is clicked or activated from the keyboard');
+// GC-126, guarding GC-119. Both popovers used to be a flag each, so opening one closed the other
+// only through the outside-click listener — which a keyboard activation never fires. Which of the
+// two is open is one value now, and this is where that stays true. The Push caret only exists with
+// more than one remote (GC-057), so the step adds the second one itself rather than depending on
+// step 17, which removes what it adds.
+git(['remote', 'add', 'upstream', REMOTE2]);
+log(await act(() => tool('Refresh')));
+check('the toolbar has a Push caret to activate', (await ev(`!!document.querySelector('.split-btn.push .caret-btn')`)) === true, git(['remote']).replace(/\n/g, ' '));
+log(await ev(`(() => { const b = document.querySelector('.split-btn.pull .caret-btn'); if (!b) return 'no Pull caret'; b.click(); return 'clicked the Pull caret'; })()`));
+await waitFor(`!!document.querySelector('.split-btn.pull .popover')`, 'the Pull popover to open');
+// Enter as a keyDown and nothing else: a following `char` event activates the button a second
+// time, which closes the popover the first one opened and reads exactly like the bug this guards.
+log(await ev(`(() => { const b = document.querySelector('.split-btn.push .caret-btn'); if (!b) return 'no Push caret'; b.focus(); return 'focused the Push caret'; })()`));
+await enterKey();
+await waitFor(`!!document.querySelector('.split-btn.push .popover')`, 'the Push popover to open from the keyboard');
+const popovers = await ev(`[...document.querySelectorAll('.toolbar .popover')].map(p => p.closest('.split-btn').classList.contains('pull') ? 'pull' : 'push').join(',')`);
+check('activating the second caret from the keyboard leaves exactly one popover open', popovers === 'push', popovers || 'none');
+await escape();
+await waitFor(`!document.querySelector('.toolbar .popover')`, 'the popover to close');
+check('one Escape closes it, with no second popover left underneath', (await ev(`document.querySelectorAll('.toolbar .popover').length`)) === 0);
+// and the same in the other order, with the mouse this time, so neither flag is the one that wins
+log(await ev(`(() => { document.querySelector('.split-btn.push .caret-btn')?.click(); return 'clicked the Push caret'; })()`));
+await waitFor(`!!document.querySelector('.split-btn.push .popover')`, 'the Push popover to open');
+log(await ev(`(() => { document.querySelector('.split-btn.pull .caret-btn')?.click(); return 'clicked the Pull caret'; })()`));
+await waitFor(`!!document.querySelector('.split-btn.pull .popover')`, 'the Pull popover to open');
+const popovers2 = await ev(`document.querySelectorAll('.toolbar .popover').length`);
+check('opening the other one with the mouse also leaves exactly one', popovers2 === 1, String(popovers2));
+await shot('one-popover-at-a-time.png');
+await escape();
+await waitFor(`!document.querySelector('.toolbar .popover')`, 'the popover to close');
+
+step(31, 'a context menu taller than the window keeps its first and last rows on screen');
+// GC-126, guarding GC-120. The cap is a `max-height` and the clamp is arithmetic on a rect, so no
+// unit test reaches either: the menu lost its last rows only on a window short enough for the
+// branch menu to outgrow it, which no other step visits. The viewport is emulated rather than the
+// window resized — this run has no OS window at all (stealth), and `100vh` follows the override.
+const viewportW = await ev(`window.innerWidth`);
+await send('Emulation.setDeviceMetricsOverride', { width: viewportW, height: 600, deviceScaleFactor: 1, mobile: false });
+await waitFor(`window.innerHeight === 600`, "the viewport to be the app's own minimum height");
+// The fourth sleep in this file, and the same kind as the other three: what is being waited for is
+// not observable from the DOM. `window.innerHeight` is already 600 above, but the `resize` event
+// the override fires arrives after it — and `ContextMenu` closes on a resize, correctly, since the
+// surface the menu is anchored to has moved. A menu opened before that event is dismissed by it,
+// which cost this step its screenshot before the assertions had even finished.
+await sleep(400);
+log(await contextMenuOn('.left-panel .ref-row', 'main'));
+const capped = JSON.parse(
+  await ev(
+    `(() => { const m = document.querySelector('.ctx-menu'); const r = m.getBoundingClientRect(); return JSON.stringify({ top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height), scrollH: m.scrollHeight, clientH: m.clientHeight, items: m.querySelectorAll('.ctx-item').length, vh: window.innerHeight }); })()`,
+  ),
+);
+check('the branch menu is taller than the window it opens on', capped.scrollH > capped.clientH, JSON.stringify(capped));
+check('and is capped inside the window at both ends', capped.top >= 0 && capped.bottom <= capped.vh, JSON.stringify(capped));
+// The rows it could not fit are reachable by scrolling the menu itself, which is the whole of what
+// the cap buys: `Copy branch name` is the last item the branch menu builds.
+const lastRow = JSON.parse(
+  await ev(
+    `(() => { const m = document.querySelector('.ctx-menu'); m.scrollTop = m.scrollHeight; const items = [...m.querySelectorAll('.ctx-item')]; const last = items[items.length - 1]; const r = last.getBoundingClientRect(); return JSON.stringify({ label: last.querySelector('.ctx-label')?.textContent.trim() ?? null, top: Math.round(r.top), bottom: Math.round(r.bottom), vh: window.innerHeight }); })()`,
+  ),
+);
+check('its last row can be scrolled to and is on screen when it is', lastRow.label === 'Copy branch name' && lastRow.top >= 0 && lastRow.bottom <= lastRow.vh, JSON.stringify(lastRow));
+// The fourth sleep in the file, and the same kind as the other three: a frame is not observable
+// from the DOM. The window is offscreen and paints at 10fps (stealth), and a capture taken the
+// instant after these assertions returns the frame from before the viewport override — the menu
+// they just measured is missing from the picture. Nothing is asserted on it, so this costs the run
+// a third of a second and buys a screenshot that shows what the step is about.
+await shot('context-menu-short-window.png');
+await escape();
+await waitNoMenu();
+// Back to the window every later step assumes, and asserted rather than assumed: a step running on
+// a 600px viewport would fail on row counts nothing in it changed.
+await send('Emulation.clearDeviceMetricsOverride');
+await waitFor(`window.innerHeight > 600`, 'the viewport to be restored');
+check('the window is back where the rest of the run expects it', (await ev(`window.innerHeight`)) > 600);
+gitMay(['remote', 'remove', 'upstream']);
+log(await act(() => tool('Refresh')));
+
+step(32, "restore a file from a commit's file row");
+// GC-107. Everything the commit half of that menu offered acted on the working tree, so on a row
+// belonging to an old commit "Open file" opened today's content and there was no way to get the old
+// version back at all. `git checkout <sha> -- <path>` writes it **and stages it**, which is what the
+// confirmation says and what this asserts.
+const RESTORE_COMMIT = 'Initial commit';
+const RESTORE_FILE = 'a.txt';
+await waitFor(
+  `(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return [...document.querySelectorAll('.graph-row')].some(r => r.innerText.includes(${q(RESTORE_COMMIT)})); })()`,
+  `the ${RESTORE_COMMIT} row to be rendered`,
+);
+log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row')].find(x => x.innerText.includes(${q(RESTORE_COMMIT)})); if (!r) return 'no row ' + ${q(RESTORE_COMMIT)}; r.click(); return 'selected ' + ${q(RESTORE_COMMIT)}; })()`));
+await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(RESTORE_FILE)})`, `the commit's file list to show ${RESTORE_FILE}`);
+const restoreSha = await ev(`document.querySelector('.detail-panel .sha')?.textContent?.trim() ?? null`);
+const restoreFull = git(['rev-parse', `${restoreSha}^{commit}`]);
+const wantBytes = git(['show', `${restoreFull}:${RESTORE_FILE}`]);
+check('the selected commit has a different version of the file from the working tree', wantBytes !== readFileSync(join(R, RESTORE_FILE), 'utf8').trim(), `${restoreSha}: ${JSON.stringify(wantBytes)}`);
+
+// cancelled first: the confirmation is the whole guard on an action that overwrites a file
+const beforeRestore = status();
+log(await contextMenuOn('.detail-panel .file-row', RESTORE_FILE));
+const restoreMenu = await menuList();
+check('the row offers Restore file from this commit', /Restore file from this commit/.test(restoreMenu), restoreMenu);
+log(await menuClick('Restore file from this commit'));
+await waitModal();
+log(await modalMessage());
+log(await modalClick('Cancel'));
+await waitNoModal();
+check('cancelling the confirmation changes nothing', status() === beforeRestore, `${status()} | before ${beforeRestore}`);
+
+log(await contextMenuOn('.detail-panel .file-row', RESTORE_FILE));
+log(await menuClick('Restore file from this commit'));
+await waitModal();
+log(await act(() => modalOk(), 'the restore'));
+check('the working-tree copy is byte-for-byte the version in that commit', readFileSync(join(R, RESTORE_FILE), 'utf8').trim() === wantBytes, JSON.stringify(readFileSync(join(R, RESTORE_FILE), 'utf8')));
+check('and git has it staged, the way `git checkout <sha> -- <path>` leaves it', git(['diff', '--cached', '--name-only']).split('\n').includes(RESTORE_FILE), status());
+
+// the row is absent, not disabled, on a file the commit deleted: there is nothing at that sha
+log(await ev(`(() => { const r = [...document.querySelectorAll('.graph-row')].find(x => x.innerText.includes(${q(DELETED_COMMIT)})); if (!r) return 'no row ' + ${q(DELETED_COMMIT)}; r.click(); return 'selected ' + ${q(DELETED_COMMIT)}; })()`));
+await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(DELETED_FILE)})`, `the commit's file list to show ${DELETED_FILE}`);
+log(await contextMenuOn('.detail-panel .file-row', DELETED_FILE));
+const deletedRestoreMenu = await menuList();
+check('a file the commit deleted is offered no restore at all', !/Restore file/.test(deletedRestoreMenu), deletedRestoreMenu);
+await shot('restore-file-menu.png');
+await escape();
+await waitNoMenu();
+
+// and on no other file row: a WIP row already stands for the working tree's own copy, which is
+// what the three rows under it act on
+log(await selectWip());
+await waitFor(`[...document.querySelectorAll('.detail-panel .file-row')].some(r => r.title === ${q(HUNK_FILE)})`, `the staging list to show ${HUNK_FILE}`);
+log(await contextMenuOn('.detail-panel .file-row', HUNK_FILE));
+const wipRestoreMenu = await menuList();
+check('a WIP file row is offered no restore either', !/Restore file/.test(wipRestoreMenu), wipRestoreMenu);
+await escape();
+await waitNoMenu();
+
+// and put a.txt back exactly as this step found it, which is clean: the unstaged edit the fixture
+// leaves behind is inside step 6's `main change` commit until the closing step drops it again, and
+// step 19 checked the file out. Unstage what the restore staged, then take HEAD's version back.
+git(['reset', '-q', '--', RESTORE_FILE]);
+git(['checkout', '-q', '--', RESTORE_FILE]);
+log(await act(() => tool('Refresh')));
+check('the step leaves a.txt as it found it', status() === beforeRestore, `${status()} | before ${beforeRestore}`);
+
+step(33, 'deleting a branch takes its remote copy with it, and a tag can be deleted from a remote');
+// GC-112. Deleting a pushed branch used to take two actions in two menus, and the second was only
+// reachable if that remote's row happened to be on screen; a tag pushed with the menu's own "Push
+// tag to remote" could not be removed from that remote at all — `deleteTag` is local-only and there
+// was no remote-tag call in git.ts. Both remotes are real repositories (GC-056), so which one a
+// delete reached is a question `ls-remote` can answer.
+git(['remote', 'add', 'upstream', REMOTE2]);
+git(['branch', 'remote-del', 'main']);
+git(['push', '-q', '-u', 'upstream', 'remote-del']);
+git(['branch', 'remote-keep', 'main']);
+git(['push', '-q', '-u', 'origin', 'remote-keep']);
+git(['tag', 't-remote-del', 'main']);
+git(['push', '-q', 'upstream', 'refs/tags/t-remote-del']);
+log(await act(() => tool('Refresh')));
+
+// declining the remote half: the local branch goes, the copy on origin stays
+log(await contextMenuOn('.left-panel .ref-row', 'remote-keep'));
+log(await menuClick('Delete remote-keep'));
+await waitModal();
+const keepModal = JSON.parse(await modal(null, false));
+const keepCheck = await ev(`document.querySelector('.modal .modal-check')?.textContent ?? ''`);
+check('the confirmation offers to delete the copy on the remote, and names it', /origin/.test(keepCheck), `${keepCheck} | ${JSON.stringify(keepModal)}`);
+log(await act(() => modalOk(), 'the local-only delete'));
+check('the local branch is gone', !git(['branch', '--format=%(refname:short)']).split('\n').includes('remote-keep'), git(['branch', '--format=%(refname:short)']).replace(/\n/g, ' '));
+check('and its copy on origin is untouched', git(['ls-remote', 'origin', 'remote-keep']) !== '', git(['ls-remote', 'origin', 'remote-keep']) || 'gone');
+check('so origin/remote-keep is still a row in the left panel', (await ev(`[...document.querySelectorAll('.left-panel .ref-row')].some(r => r.innerText.includes('remote-keep'))`)) === true);
+
+// taking it: one action, both copies
+log(await contextMenuOn('.left-panel .ref-row', 'remote-del'));
+log(await menuClick('Delete remote-del'));
+await waitModal();
+log(await modal(null, true));
+log(await act(() => modalOk(), 'the delete with its remote half'));
+await waitIdle();
+await waitGitFor(() => git(['ls-remote', 'upstream', 'remote-del']) === '', 'upstream to have dropped remote-del');
+check('the local branch is gone', !git(['branch', '--format=%(refname:short)']).split('\n').includes('remote-del'), git(['branch', '--format=%(refname:short)']).replace(/\n/g, ' '));
+check('and so is the copy on the remote it named', git(['ls-remote', 'upstream', 'remote-del']) === '', git(['ls-remote', 'upstream', 'remote-del']) || 'gone');
+check('the other remote was never given one', git(['ls-remote', 'origin', 'remote-del']) === '', git(['ls-remote', 'origin', 'remote-del']) || 'never there');
+
+// the tag half: one delete row per remote, the way the push rows already are
+log(await openSection('Tags'));
+await waitFor(`[...document.querySelectorAll('.left-panel .ref-row')].some(r => r.innerText.includes('t-remote-del'))`, 'the Tags section to list t-remote-del');
+log(await contextMenuOn('.left-panel .ref-row', 't-remote-del'));
+const tagMenu = await menuList();
+check(
+  'the tag menu lists one remote delete per remote, beside the push rows',
+  /Delete tag t-remote-del from origin/.test(tagMenu) && /Delete tag t-remote-del from upstream/.test(tagMenu) && /Push tag t-remote-del to upstream/.test(tagMenu),
+  tagMenu,
+);
+await shot('tag-menu-remote-delete.png');
+check('the tag really is on that remote to start with', git(['ls-remote', '--tags', 'upstream', 't-remote-del']) !== '', git(['ls-remote', '--tags', 'upstream']).replace(/\n/g, ' ') || 'nothing');
+log(await menuClick('Delete tag t-remote-del from upstream'));
+await waitModal();
+log(await modalMessage());
+log(await act(() => modalOk(), 'the remote tag delete'));
+check('the tag is gone from that remote', git(['ls-remote', '--tags', 'upstream', 't-remote-del']) === '', git(['ls-remote', '--tags', 'upstream']).replace(/\n/g, ' ') || 'nothing');
+check('and the local tag is untouched, as the confirmation said', git(['tag']).split('\n').includes('t-remote-del'), git(['tag']).replace(/\n/g, ' '));
+
+// put the fixture back: everything this step made, on both sides
+git(['tag', '-d', 't-remote-del']);
+gitMay(['push', '-q', 'origin', '--delete', 'remote-keep']);
+gitMay(['branch', '-rd', 'origin/remote-keep']);
+gitMay(['remote', 'remove', 'upstream']);
+log(await act(() => tool('Refresh')));
+check('the step leaves the fixture with one remote and no scratch refs', git(['remote']) === 'origin' && !git(['tag']).split('\n').includes('t-remote-del'), `${git(['remote']).replace(/\n/g, ' ')} | tags: ${git(['tag']).replace(/\n/g, ' ')}`);
+
+step(34, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

@@ -497,6 +497,15 @@ export async function ignore(cwd: string, req: IgnoreRequest): Promise<void> {
   await appendFile(file, `${text.length && !text.endsWith('\n') ? '\n' : ''}${pattern}\n`, 'utf8');
 }
 
+/**
+ * Put one file back to the way `sha` had it (GC-107). `git checkout <sha> -- <path>` writes the
+ * working-tree copy **and stages it** — that is one command, not a flag that can be dropped — so
+ * the confirmation in the renderer says the change will be staged rather than pretending
+ * otherwise. Nothing here checks the path exists at that sha: git's own refusal is the `GitError`
+ * it should be, and the row is left out on a file the commit deleted.
+ */
+export const restoreFile = (cwd: string, sha: string, path: string): Promise<string> => runGit(cwd, ['checkout', sha, '--', path]);
+
 /** Apply a unified diff to the index (cached) or the working tree, optionally in reverse. */
 export async function applyPatch(cwd: string, patch: string, opts: ApplyPatchOptions): Promise<void> {
   const args = ['apply', '--whitespace=nowarn', '--recount'];
@@ -642,6 +651,14 @@ export async function createTag(cwd: string, req: CreateTagRequest): Promise<voi
 }
 
 export const deleteTag = (cwd: string, name: string): Promise<string> => runGit(cwd, ['tag', '-d', name]);
+
+/**
+ * Delete a tag on a remote (GC-112). The refspec is fully qualified — `refs/tags/<name>`, never a
+ * bare name — because a remote holding both a branch and a tag called `v1` would otherwise leave
+ * git to guess which of the two this meant, and it refuses rather than guessing. Until now the
+ * menu could push a tag to a remote and had no call at all to take it back.
+ */
+export const deleteRemoteTag = (cwd: string, remote: string, name: string): Promise<string> => runGit(cwd, ['push', remote, '--delete', `refs/tags/${name}`]);
 
 // ---------------------------------------------------------------------------
 // Remote operations
