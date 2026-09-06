@@ -306,6 +306,12 @@ query and the dimming away (GC-030). Only `closeSearch` clears it, so a diff can
 graph and the search comes back untouched; the toolbar's Search button with a diff open closes the
 diff and refocuses the bar instead of closing a search the user cannot see. **No handler compares a key name of its
 own** (GC-010): every one asks `matches(id, event)` from `src/renderer/src/shortcuts.ts`.
+The branch menu carries the **tip commit's** actions too (GC-049): `tipCommitActions(sha)` hands
+back cherry pick, revert, the three resets, "Create tag here…" and "Copy commit sha" as separate
+`MenuItem`s, and `commitMenuItems` and `refMenuItems` each compose them in their own order — one
+source for the wording, the guards and the hard-reset confirmation, and no reordering of the
+commit menu. Before it, resetting onto a branch tip meant finding that exact commit row in the
+graph, which is impossible once it has scrolled out.
 With several remotes configured, `refMenuItems` offers one "Push <branch> to <remote>" entry per
 remote in its own separated group, and the tag menu one "Push tag <name> to <remote>" per remote
 (`MenuItem` has no submenu, so a separated group is the whole mechanism); with a single remote
@@ -399,26 +405,55 @@ graph's `NodeAvatar` go through, so switching them off makes no gravatar.com req
   at 1.86.1 on catena-feed). Do not reintroduce it.
 - Colour = lane index (`--lane-0..9`), stable as lanes recycle.
 
-`GraphCell` renders one 28px row as an inline SVG: pass-through lines, curves in and out,
-a 1px connector from the ref chips into the node, the dashed WIP link (`wipDash` `'through'` on
+`GraphCell` renders one 28px row as an inline SVG: pass-through lines, the joins into and out of
+the node, a 1px connector from the ref chips into the node, the dashed WIP link (`wipDash` `'through'` on
 rows between WIP and HEAD when the head lane is free, `'toNode'` on the HEAD row), and the node:
 20px circle, Gravatar image clipped by the shared `#gc-node-clip` clipPath, initials fallback.
+A join is **three segments, never a diagonal** (GC-077): `curveIn` runs down its own lane to
+`mid - JOIN_R`, turns through one quarter arc and finishes horizontally at the node's centre
+line; `curveOut` is its mirror below the node. `JOIN_R` is 8px, next to `LANE_W` and `NODE` —
+under `mid` (14) so a vertical piece stays visible in a 28px row, under `LANE_W` (20) so a
+horizontal piece stays visible between adjacent lanes, and clamped to the lane distance so a
+join between two lanes closer than that still turns inside the gap. A join spanning several
+lanes runs along the centre line across the ones between; joins are drawn after the
+through-lines, so that horizontal reads on top. `GraphCell.test.tsx` (`dom`) asserts the shape
+of both paths and fails if either goes back to the single cubic Bezier it used to be.
 
 `CommitGraph` renders the optional AUTHOR / DATE / TIME / SHA columns after the message when
 `prefs.graphColumns` enables them (GC-032), all off by default, at a fixed 140/150/80px with
 `flex: none` so the message column absorbs the remainder and keeps truncating — the window never
-widens and the graph SVG is untouched; the WIP row leaves the cells empty. It virtualises rows
+widens and the graph SVG is untouched; the WIP row leaves the cells empty. Inside that column the
+**summary wins** (GC-069): the body preview sits in a `.body-wrap` with `flex: 1 1 0` and
+`container-type: inline-size`, so it only ever gets space the summary did not need — zero the
+moment the row overflows — and a `@container (max-width: 40px)` rule drops it rather than leaving
+a lone ellipsis. Both being plain `flex: 0 1 auto` items, they used to shrink in proportion to
+their content, so a long body kept most of its text while the summary lost its own. It virtualises rows
 (28px, overscan 12, absolute positioning inside a spacer), keeps the selected row visible, and renders chips: a local branch **absorbs its upstream** when both
-point at the same commit (cloud icon appended), at most `chipBudget(refColW)` chips (one per
-75px of ref column, 1 to 6, so the default 150px still shows two) then a `+N` chip
-whose hover shows the rest in a dropdown — flipped above the chip (`.more-list.flip-up`) when
-hanging below would cross `.graph-body`'s bottom edge and be clipped by it, decided on every
-`mouseenter` against the live rects because the rows are virtualised (GC-022); hovering a chip
-expands it to its full name over the
-graph (per-chip hover, not per-cell, otherwise the `+N` chip moves away from the pointer).
+point at the same commit (cloud icon appended), then **exactly one chip** (`MAX_CHIPS = 1`,
+GC-078) and a `+N` for the rest. One is the rule at every width: a second chip took its space
+from the first, so `master` rendered as `mast…` beside a `t.`, and the column's width now
+decides how much of the one name shows, never how many chips do. `chipBudget` is gone.
+The folded refs are **not a popover: the chip grows**. `.more-list` is a sibling of the `+N`
+chip, positioned against `.col-ref` at `top: -4px` so its first line lands on the exact pixel
+the row chip occupied, painted inline with that chip's own lane colour, and it lists every ref
+of the commit as one more line — each line a `.ref-chip` with `plain` set, so it has no pill of
+its own and the block behind it is the chip. Hovering anywhere in `.col-ref` opens it and hides
+the `+N` with `visibility: hidden`, which keeps the box `onMoreEnter` measures. Two rules are
+load-bearing and were each a visible defect first: the lines keep a chip's own `0 6px` padding,
+or the name shifts 3px as the block opens; and the grow-to-full-name hover is
+`.col-ref > .ref-chip:hover`, a **direct child** — matching the block's own lines resized it
+under the pointer and read as a flicker. The block flips above the row (`.more-list.flip-up`,
+`bottom: -4px`) when hanging below would cross `.graph-body`'s bottom edge and be clipped by it,
+decided on every `mouseenter` against the live rects because the rows are virtualised (GC-022).
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold into `+N`, where it would explain the leftmost lane only on
-hover (GC-020).
+hover (GC-020). With **no branch checked out** the graph adds a synthetic `HEAD` chip on HEAD's
+own row, ranked before every real ref (GC-061): `for-each-ref` marks `isHead` only on a branch, so
+detaching used to leave no row saying which commit was checked out. It is built in the renderer
+from `headSha` behind a `detached` prop — `getRefs` and `GitRef` never see it — and because it is
+no ref, it opens `commitMenuItems` rather than the ref menu ("Create branch here…" being what a
+detached user usually wants) and ignores double-click. The Toolbar's Push title says "Cannot push
+from a detached HEAD" while the button is disabled, instead of promising the click it refuses.
 
 Commit search (GC-009) is a find bar `CommitGraph` draws above its header when `searchOpen`:
 matching is client-side over the loaded commits on summary, body, author name, author email and
@@ -477,7 +512,12 @@ get the last three only, with Open file disabled on a `deleted` file.
 (`--bg-app #1c1e23`, titlebar `#2a2d34`, toolbar `#33373f`, panel `#272a31`, raised `#32363f`,
 menu `#3d424d`), text as white alphas (.75/.6/.4), accent `#4d88ff`, semantic colours, ten lane
 colours, layout metrics (`--row-h 28px`, `--ref-col-w 150px`, `--left-panel-w 220px`,
-`--detail-panel-w 400px`). `app.css` is one file with a section per component. Layout gotcha
+`--detail-panel-w 400px`). `app.css` is one file with a section per component, plus **one global `::-webkit-scrollbar` rule
+set** near the top (GC-079): 8px from `--scrollbar-w`, a flat `--scrollbar-thumb` at a 4px radius,
+transparent track and corner, `::-webkit-scrollbar-button { display: none }`. Every scroll
+container gets it with no per-component rule. Do **not** also set the standard `scrollbar-width`
+or `scrollbar-color`: either one makes Chromium ignore the `::-webkit-` rules, and neither can
+remove the arrow buttons. Chromium's default cost 15px; ours costs 8. Layout gotcha
 that cost time: the app grid uses `grid-template-columns: minmax(0, 1fr)` and `.main` has
 `min-width: 0; overflow: hidden` because nowrap commit messages otherwise grow the frame past
 the window. Section headers are uppercase via CSS, so tests must compare `textContent` lowercased.
@@ -525,8 +565,13 @@ menu on an unstaged `a.txt` lists Stage, Discard and the three shell actions and
 moves it into the Staged group and into `git status --short` as `M  a.txt`, the staged row's menu
 offers Unstage and neither Stage nor Discard, and Unstage puts it back. Step 19 makes its own edit
 to `a.txt` and checks it back out; the prologue undoes it only when the file is *staged*, the one
-state that step can leave behind, an unstaged edit there being the fixture's own. All 91
-assertions passed on the last several runs. Steps 20 and 21 cover the commit form and hunk staging,
+state that step can leave behind, an unstaged edit there being the fixture's own. Step 22 opens the
+branch menu on a branch that is not checked out, asserts the tip-commit group GC-049 added to it,
+and drives its mixed Reset onto that branch's tip before putting the ref and the index back; step 23
+detaches HEAD (at `HEAD`, not `HEAD~1` — the fixture's tracked edits make moving to another commit
+unsafe) and asserts the synthetic `HEAD` chip, its row against `git log -1`, the Push button's
+detached title, and that checking `main` back out removes the chip and restores its check mark. All
+97 assertions passed on the last several runs. Steps 20 and 21 cover the commit form and hunk staging,
 the two actions a client is judged on first and the two most fragile git invocations behind them
 (GC-062). Step 20 stages a scratch file from its row's Stage button, types a summary and a
 description into the form, reads the 72-character counter, commits with a real Ctrl+Enter aimed at
@@ -551,17 +596,17 @@ clone` — so the fixture used to grow by three commits a run (6 on `main` at se
 44 after a batch's), until step 16 asserted on a virtualised row that history that long had pushed
 out of the rendered window and the flake looked like a regression in whatever ticket was in flight.
 `restoreFixture()` in `run.mjs` undoes all three, and is called twice: at the end of the prologue,
-recovering a run that died mid-scenario, and again as **step 22**, the healthy path. It matches
+recovering a run that died mid-scenario, and again as **step 24**, the healthy path. It matches
 commits by **subject**, the way the GC-062 block matches its own mark, rather than resetting to a
 baseline sha — a commit added to the fixture by hand is not the run's to remove, and leaving it is
-what makes step 22 fail loudly and name itself (`7 commits, the fixture has 6 | run: npm run
+what makes step 24 fail loudly and name itself (`7 commits, the fixture has 6 | run: npm run
 e2e:setup | drifted: <sha> <subject>`) instead of silently healing drift it exists to report. It
 resets `--soft`, unstages only what the dropped commits contributed, writes `a.txt`'s unstaged edit
 back (`main change` absorbs it into a commit), rewinds `wip-branch` and the bare origin by ref,
 deletes branches the fixture does not have, and removes `clone2`. `setup-testrepo.mjs` records every
 branch tip under **`refs/e2e/baseline/*`** — a namespace `getRefs()` never reads (heads, remotes and
 tags only) whose commits the branches already reach, so the graph gains no row — and `run.mjs` exits
-2 with the `e2e:setup` message on a fixture that predates it. Step 22 deliberately does not assert
+2 with the `e2e:setup` message on a fixture that predates it. Step 24 deliberately does not assert
 the fixture's *staged* half: step 8 pops the stash through the toolbar, which does not pass
 `--index`, so the staged `README.md` edit and `main.txt` deletion come back unstaged on every run
 (GC-082). Screenshots land in `<root>/shots/`. The run is re-entrant (prologue
@@ -598,7 +643,7 @@ register its own auto-cleanup or act-environment hooks, so a component test wire
 devDependencies reaches `out/`: the renderer builds from `index.html` and nothing in that graph
 imports a test file.
 
-Covered today (74 tests, 64 in the node project and 10 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
+Covered today (77 tests, 64 in the node project and 13 in the dom project): `parseDiff.test.ts` (file headers, hunk line numbering, omitted `@@`
 counts, `\ No newline` meta lines, new/deleted/binary files, renames with and without hunks,
 multi-file diffs, and `buildHunkPatch` round-tripping back through the parser including the
 synthesised header an untracked file needs) and `lanes.test.ts` (empty and linear history, a
@@ -669,6 +714,15 @@ a non-bubbling `mouseenter` never reaches the handler. `beforeAll` installs a no
 gravatar.com request through the gate already in `useGravatar`. The assertion is on the `flip-up`
 class rather than a computed `top`/`bottom`, because jsdom applies no stylesheet.
 Mutation-checked: forcing `setMoreUp(null)` unconditionally in `onMoreEnter` fails two of the three.
+GC-078 moved the block out of the `+N` chip, so the case now stubs and hovers `.col-ref` instead:
+the chip is hidden while the block is open, and the hover that opens it is on the cell.
+
+`GraphCell.test.tsx` is the fifth, and guards GC-077's join shape. It renders one row with an
+`incoming` lane and an `outgoing` one and asserts each path's `d` is lane, one arc, centre line —
+`M <fx> 0 V …`, one ` A `, `H <x>` for the join in; `M <x> 14 H …`, one ` A `, `V 28` for the join
+out — plus that the vertical piece is under `mid` and each corner lands short of its lane. It
+needs no `ResizeObserver` stub: `GraphCell` observes nothing. Mutation-checked: restoring the
+single cubic Bezier fails all three cases.
 
 `UiContext.test.tsx` is the third, and it guards GC-066's dropdown toggle, which the e2e suite
 cannot reach: every menu there is opened by a synthetic `contextmenu`, never by a click on a
@@ -774,7 +828,16 @@ behind it (GC-068); the diff keyed to the view it was loaded for, so a hunk from
 file can never be on screen — let alone clickable — under a header that has already flipped
 (GC-075); and the e2e run putting the fixture back and asserting that it did, so the suite stops
 growing by three commits a run and a drifted fixture names itself instead of surfacing as step 16's
-flake (GC-076). Write control characters into a source file as an
+flake (GC-076); branch lines that come down their own lane and turn through a corner into the node
+instead of arriving on a diagonal, with the first component test for `GraphCell` behind them
+(GC-077); the ref column pinned at one chip so the name that identifies the commit stays legible,
+the folded refs reworked into the chip itself growing downward rather than a popover beside it
+(GC-078); 8px flat scrollbars with no track and no arrow buttons, from one global rule (GC-079);
+the branch menu carrying its tip commit's actions, Reset among them, out of one helper both menus
+compose (GC-049); a synthetic `HEAD` chip so a detached checkout says which commit it is on, and a
+Push button that names why it is disabled (GC-061); and the message column giving the summary
+priority over the body preview, which now disappears rather than outliving it (GC-069).
+Write control characters into a source file as an
 escape, never as the byte itself: a literal one makes git treat the whole file as binary, and
 `git diff`, `git blame`, review and the `.gitattributes` LF rule all silently skip it while
 vitest, `tsc` and the build keep passing. The trap catches generators too: a Node script that

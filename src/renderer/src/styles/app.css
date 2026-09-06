@@ -12,6 +12,35 @@ body,
   overflow: hidden;
 }
 
+/*
+ * Scrollbars, everywhere at once (GC-079). Chromium's default is 15px with arrow buttons and a
+ * visibly lighter track; ours is an 8px flat thumb on nothing. The `::-webkit-scrollbar` family
+ * is deliberate: setting the standard `scrollbar-width` / `scrollbar-color` instead makes
+ * Chromium ignore these rules, and neither standard property can remove the arrow buttons.
+ */
+::-webkit-scrollbar {
+  width: var(--scrollbar-w);
+  height: var(--scrollbar-w);
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
 body {
   font-family: var(--font-ui);
   font-size: var(--fs-md);
@@ -491,6 +520,8 @@ textarea:focus {
 .graph-row.selected {
   background: var(--accent-soft);
 }
+/* positioned, because the folded refs open under the chip that stayed put — they hang off this
+   cell, not off the +N chip they are reached through */
 .graph-row .col-ref {
   width: var(--ref-col-w);
   flex: none;
@@ -525,14 +556,32 @@ textarea:focus {
   margin-right: var(--sp-2);
 }
 .graph-row .col-msg .summary {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* GC-069: the summary is what identifies the commit, so it wins. The preview only ever gets the
+   space the summary did not need — `flex-basis: 0` plus grow, so it is zero the moment the row
+   overflows — and inline-size containment keeps its own text out of that calculation. */
+.graph-row .col-msg .body-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  container-type: inline-size;
+}
 .graph-row .col-msg .body {
+  display: block;
   margin-left: var(--sp-2);
   opacity: 0.55;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* below this there is no room for a word, only for the ellipsis itself: drop it instead */
+@container (max-width: 40px) {
+  .graph-row .col-msg .body {
+    display: none;
+  }
 }
 .graph-row .col-msg .wip-input {
   height: 22px;
@@ -630,43 +679,61 @@ textarea:focus {
   overflow: visible;
   z-index: 3;
 }
-.graph-row .col-ref .ref-chip:hover {
+/* `>`: only a chip sitting in the row itself grows to its full name. Matching the lines inside
+   the expanded block too resized the block under the pointer, which read as a flicker. */
+.graph-row .col-ref > .ref-chip:hover {
   flex: none;
   box-shadow: 0 0 0 1px var(--bg-app);
 }
-.graph-row .col-ref .ref-chip:hover > .chip-name {
+.graph-row .col-ref > .ref-chip:hover > .chip-name {
   overflow: visible;
 }
-.ref-chip.more {
-  position: relative;
-}
-.ref-chip.more .more-list {
+.graph-row .col-ref .more-list {
   display: none;
   position: absolute;
-  top: 100%;
+  /* -4px undoes this block's own top padding, so its first line lands exactly on the chip it
+     replaces and nothing appears to move when it opens */
+  top: -4px;
   left: 0;
   z-index: 10;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 6px;
-  background: var(--bg-menu);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  gap: 2px;
+  /* the row's own chip position, so the first line does not move when the block opens over it */
+  padding: 4px 3px;
+  /* the chip's colour, set inline from the lane; no border, the chip has none either */
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
 /* opened upwards when hanging below would cross `.graph-body`'s bottom edge, which clips it;
    `CommitGraph` measures the rects on every hover and adds the class (GC-022) */
-.ref-chip.more .more-list.flip-up {
+/* opening upward the list ends on the row instead of starting on it (GC-022) */
+.graph-row .col-ref .more-list.flip-up {
   top: auto;
-  bottom: 100%;
+  bottom: -4px;
 }
-.ref-chip.more:hover .more-list {
+.graph-row .col-ref:hover .more-list {
   display: flex;
 }
-.ref-chip.more .more-list .ref-chip {
+.graph-row .col-ref:hover .ref-chip.more {
+  visibility: hidden;
+}
+/* Each ref is one more line of the same block, not a pill sitting on a panel: no background of
+   its own, the block behind it is the chip. */
+.graph-row .col-ref .more-list .ref-chip {
   flex: none;
+  align-self: stretch;
   max-width: 320px;
+  height: 20px;
+  /* a chip's own 0 6px is kept: with the block's 3px it puts the first line's text exactly
+     where the row chip's text was, so nothing shifts when the block opens */
+  background: none;
+}
+.graph-row .col-ref .more-list .ref-chip.head {
+  color: var(--text-bright);
+}
+.graph-row .col-ref .more-list .ref-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 .ref-chip.tag {
   background: var(--bg-panel-raised);

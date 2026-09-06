@@ -34,6 +34,11 @@
   /* default only: the graph panel overrides --ref-col-w on its own root while it is resized */
   --ref-col-w: 150px;
 
+  /* Scrollbars: thin, flat, no track, no arrow buttons (GC-079) */
+  --scrollbar-w: 8px;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+
   /* Surfaces: a short grey ramp, warm-neutral, stepping ~10 per level */
   --bg-app: #1c1e23;
   --bg-titlebar: #2a2d34;

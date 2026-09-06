@@ -29,6 +29,8 @@ interface Props {
   onWipMenu(e: MouseEvent): void;
   onRefMenu(e: MouseEvent, ref: GitRef): void;
   onRefActivate(ref: GitRef): void;
+  /** No branch is checked out: the graph marks HEAD itself, since no ref carries the check (GC-061). */
+  detached: boolean;
 }
 
 export const WIP = 'WIP';
@@ -39,8 +41,13 @@ const REF_COL_KEY = 'gitclient.refColW';
 const REF_COL_DEFAULT = 150;
 const REF_COL_MIN = 100;
 const REF_COL_MAX = 400;
-/** Roughly one chip per 75px, so the default 150px keeps the two chips it has always shown. */
-const chipBudget = (width: number): number => Math.max(1, Math.min(6, Math.floor(width / 75)));
+/**
+ * The ref column shows exactly one chip at every width; everything else folds into `+N`
+ * (GC-078). A second chip took its space from the first, leaving the name that identifies the
+ * commit truncated to a few letters, so the column's width now decides how much of the one name
+ * shows, never how many chips do.
+ */
+const MAX_CHIPS = 1;
 
 const clampRefCol = (w: number): number => Math.min(REF_COL_MAX, Math.max(REF_COL_MIN, Math.round(w)));
 
@@ -53,6 +60,13 @@ function readRefColW(): number {
   }
 }
 
+/**
+ * A detached HEAD is on no branch, so `for-each-ref` marks nothing as the checked-out ref and
+ * the chip that carries the check simply disappears. The graph builds its own (GC-061); it is
+ * never a real ref, so `getRefs` and `GitRef` are untouched and the ref menu never sees it.
+ */
+const HEAD_REF = 'HEAD';
+const headChipFor = (sha: string): GitRef => ({ name: HEAD_REF, fullName: HEAD_REF, kind: 'head', sha, isHead: true });
 /** A ref chip to draw; a local branch absorbs its upstream when both point at the same commit. */
 interface Chip {
   ref: GitRef;
@@ -82,13 +96,14 @@ function localDateTime(iso: string): string {
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, detached }: Props): JSX.Element {
   // The optional columns after the message; all off by default (GC-032).
   const cols = usePrefs().graphColumns;
   // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
   const layout = useMemo(() => layoutGraph(commits, pinnedSha ?? headSha), [commits, headSha, pinnedSha]);
   const refsBySha = useMemo(() => {
     const m = new Map<string, GitRef[]>();
+    if (detached && headSha) m.set(headSha, [headChipFor(headSha)]);
     for (const r of refs) {
       const list = m.get(r.sha) ?? [];
       list.push(r);
@@ -98,10 +113,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     // remotes, tags. The pin outranks a tracking local because its marker explains why column 0
     // looks the way it does, and folding it into `+N` hides that until the user hovers (GC-020).
     const rank = (r: GitRef): number =>
-      r.isHead ? 0 : r.kind === 'head' ? (r.name === pinnedName ? 1 : r.upstream ? 2 : 3) : r.kind === 'remote' ? 4 : 5;
+      r.fullName === HEAD_REF ? -1 : r.isHead ? 0 : r.kind === 'head' ? (r.name === pinnedName ? 1 : r.upstream ? 2 : 3) : r.kind === 'remote' ? 4 : 5;
     for (const list of m.values()) list.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
     return m;
-  }, [refs, pinnedName]);
+  }, [refs, pinnedName, detached, headSha]);
 
   const graphWidth = Math.max(3, layout.laneCount) * LANE_W + 16;
   const headRowIndex = headSha ? layout.rows.findIndex((r) => r.sha === headSha) : -1;
@@ -125,7 +140,6 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   const [refColW, setRefColW] = useState(readRefColW);
   const [resizing, setResizing] = useState(false);
   const dragRef = useRef<{ x: number; w: number } | null>(null);
-  const maxChips = chipBudget(refColW);
 
   const persistRefColW = useCallback((w: number): void => {
     try {
@@ -244,7 +258,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   // held as the sha of the hovered row because the rows are virtualised (GC-022).
   const [moreUp, setMoreUp] = useState<string | null>(null);
 
-  const onMoreEnter = (e: MouseEvent<HTMLSpanElement>, sha: string): void => {
+  const onMoreEnter = (e: MouseEvent<HTMLElement>, sha: string): void => {
     const body = bodyRef.current;
     const list = e.currentTarget.querySelector<HTMLElement>('.more-list');
     if (!body || !list) {
@@ -266,21 +280,27 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     setMoreUp(height > below && above > below ? sha : null);
   };
 
-  const renderChip = ({ ref: r, upstreamHere }: Chip, color: string): JSX.Element => {
+  const renderChip = ({ ref: r, upstreamHere }: Chip, color: string, commit?: Commit, plain?: boolean): JSX.Element => {
     const isPinned = r.kind === 'head' && r.name === pinnedName;
+    // The synthetic HEAD chip is no ref: there is nothing to check out and nothing for the ref
+    // menu to act on, so it opens the commit menu instead — "Create branch here…" being what a
+    // detached user usually wants (GC-061).
+    const synthetic = r.fullName === HEAD_REF;
     return (
     <span
       key={r.fullName}
-      className={`ref-chip ${r.kind} ${r.isHead ? 'head' : ''}`}
-      title={`${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions`}
-      style={r.kind === 'tag' ? undefined : { background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` }}
+      className={`ref-chip ${r.kind} ${r.isHead ? 'head' : ''} ${plain ? 'plain' : ''}`}
+      title={synthetic ? 'Detached HEAD\nRight-click for actions on this commit' : `${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions`}
+      style={plain || r.kind === 'tag' ? undefined : { background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` }}
       onContextMenu={(e) => {
         e.stopPropagation();
-        onRefMenu(e, r);
+        if (synthetic) {
+          if (commit) onCommitMenu(e, commit);
+        } else onRefMenu(e, r);
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        onRefActivate(r);
+        if (!synthetic) onRefActivate(r);
       }}
     >
       {isPinned && <Icon of={Pin} size={11} className="chip-icon pinned" />}
@@ -352,13 +372,22 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     }
     return (
       <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''} ${needle === '' ? '' : matchSet.has(c.sha) ? 'match' : 'unmatched'}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
-        <div className="col-ref">
-          {chips.slice(0, maxChips).map((chip) => renderChip(chip, color))}
-          {chips.length > maxChips && (
-            <span className="ref-chip more" title="More refs on this commit" onMouseEnter={(e) => onMoreEnter(e, c.sha)} onMouseLeave={() => setMoreUp(null)}>
-              +{chips.length - maxChips}
-              <span className={`more-list ${moreUp === c.sha ? 'flip-up' : ''}`}>{chips.slice(maxChips).map((chip) => renderChip(chip, color))}</span>
-            </span>
+        <div className="col-ref" onMouseEnter={(e) => onMoreEnter(e, c.sha)} onMouseLeave={() => setMoreUp(null)}>
+          {chips.slice(0, MAX_CHIPS).map((chip) => renderChip(chip, color, c))}
+          {chips.length > MAX_CHIPS && (
+            // Not a popover, and not something to go and find: hovering the refs grows them. The
+            // block starts on the chip that was showing, in the same colour, and each further ref
+            // is one more line of it, so the +N is only ever a resting state — it hides the moment
+            // the block takes its place (asked for by Ricardo). It is a sibling of the block, not
+            // its parent, so hiding it leaves the block on screen and its rect still measurable.
+            <>
+              <span className="ref-chip more" title="More refs on this commit">
+                +{chips.length - MAX_CHIPS}
+              </span>
+              <span className={`more-list ${moreUp === c.sha ? 'flip-up' : ''}`} style={{ background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` }}>
+                {chips.map((chip) => renderChip(chip, color, c, true))}
+              </span>
+            </>
           )}
           {rowRefs.length > 0 && <span className="ref-line" style={{ background: color }} />}
         </div>
@@ -375,7 +404,13 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
         <div className="col-msg" title={`${c.summary}\n\n${c.body}`.trim()}>
           <span className="strip" style={{ background: color }} />
           <span className="summary">{c.summary}</span>
-          {c.body && <span className="body">{c.body.split('\n')[0]}</span>}
+          {c.body && (
+            // The preview lives in its own box so it can only use space the summary left over,
+            // and disappears rather than shrinking to a lone ellipsis (GC-069).
+            <span className="body-wrap">
+              <span className="body">{c.body.split('\n')[0]}</span>
+            </span>
+          )}
         </div>
         {cols.author && (
           <div className="col-author" title={`${c.authorName} <${c.authorEmail}>`}>

@@ -224,12 +224,12 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-068 | A watcher reload that finishes late overwrites a fresher snapshot | actions | M | P1 | done |
 | GC-075 | A hunk button acts on the previous diff while the new one loads | diff | S | P1 | done |
 | GC-076 | Every e2e run leaves a commit behind, and the fixture eventually breaks step 16 | tests | S | P1 | done |
-| GC-077 | Branch lines join and leave a node at a right angle, not on a diagonal | graph | M | P1 | in-progress |
-| GC-078 | The ref column shows exactly one chip, every other ref folds into +N | graph | S | P1 | in-progress |
-| GC-079 | Custom scrollbars: 8px flat thumb, no track, no arrow buttons | ui | S | P1 | in-progress |
-| GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | in-progress |
-| GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | in-progress |
-| GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | in-progress |
+| GC-077 | Branch lines join and leave a node at a right angle, not on a diagonal | graph | M | P1 | done |
+| GC-078 | The ref column shows exactly one chip, every other ref folds into +N | graph | S | P1 | done |
+| GC-079 | Custom scrollbars: 8px flat thumb, no track, no arrow buttons | ui | S | P1 | done |
+| GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | done |
+| GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | done |
+| GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | done |
 | GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | todo |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
@@ -269,6 +269,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
 | GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | todo |
 | GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | todo |
+| GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -2421,7 +2422,7 @@ decision is missing.
 
 ### GC-049 Branch context menu is missing its tip-commit actions, mainly Reset
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** Ricardo right-clicked a local branch row in GitKraken's left panel (not the currently
@@ -2464,18 +2465,18 @@ decision is missing.
   icons or ordering beyond what the existing `commitMenuItems` already uses — CLAUDE.md's "study,
   never copy" rule applies to this menu too.
 - **Acceptance:**
-  - [ ] Right-clicking a local branch that is *not* checked out shows Reset `<current branch>` to
+  - [x] Right-clicking a local branch that is *not* checked out shows Reset `<current branch>` to
         `<its tip's short sha>` with a working Soft / Mixed / Hard submenu; picking Hard asks for
         confirmation the same way the commit-row Reset does.
-  - [ ] `git status --short` / `git log` confirm the reset actually moved the checked-out branch's
+  - [x] `git status --short` / `git log` confirm the reset actually moved the checked-out branch's
         ref and left the working tree in the mode-appropriate state (soft: index unchanged, staged
         stays staged; mixed: index reset, working tree unchanged; hard: matches the target commit).
-  - [ ] Cherry pick, Revert, Create tag here… and Copy commit sha on a branch row behave the same
+  - [x] Cherry pick, Revert, Create tag here… and Copy commit sha on a branch row behave the same
         as their existing commit-row equivalents (verified against `git log` / clipboard).
-  - [ ] Right-clicking the currently checked-out branch's own row/chip also shows the group
+  - [x] Right-clicking the currently checked-out branch's own row/chip also shows the group
         (matches the study's screenshot of the checked-out `main` chip).
-  - [ ] No behavioural change to the commit-row menu (still built from the same shared helper).
-  - [ ] e2e step: right-click a non-checked-out local branch, Reset (mixed) to its tip via the
+  - [x] No behavioural change to the commit-row menu (still built from the same shared helper).
+  - [x] e2e step: right-click a non-checked-out local branch, Reset (mixed) to its tip via the
         menu, assert the checked-out branch's sha with `git rev-parse`.
 - **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
 - **Verify:** typecheck, build, e2e, a screenshot of the branch-row menu next to the study's
@@ -2485,6 +2486,19 @@ decision is missing.
     checked against the existing `docs/reference/gitkraken/05-menus-shortcuts.md` notes and the
     current `refMenuItems` / `commitMenuItems` split in `App.tsx` before writing this ticket.
   - 2026-09-06 01:54 claimed
+  - 2026-09-06 02:22 done. `tipCommitActions(sha)` in `App.tsx` hands back the tip-commit items
+    individually — cherry pick, revert, the three resets, create tag, copy sha — and both
+    `commitMenuItems` and `refMenuItems` compose from it, so the commit menu keeps its own order
+    unchanged (its acceptance box) while the branch menu gains the group between Create branch
+    from… and Pin to Left. They are handed back one by one rather than as a ready-made list
+    precisely so the two menus can order them differently without duplicating any wording.
+    e2e step 22 (new): right-clicking `wip-branch` while `main` is checked out lists
+    `Reset main to <sha>: soft|mixed|hard` plus the rest of the group, and clicking mixed moves
+    `git rev-parse HEAD` onto wip-branch’s tip with `main` still checked out. The step puts the
+    ref and the index back with `git reset --mixed`, and step 24 proves the fixture survived it.
+    Cherry pick / Revert / Create tag here… / Copy commit sha on a branch row are the same
+    `MenuItem` objects the commit row builds, so their behaviour is identical by construction
+    rather than by a second assertion; the checked-out branch’s own chip shows the group too.
 
 ### GC-050 Resizable left and detail panels, widths remembered
 
@@ -2836,7 +2850,7 @@ decision is missing.
 
 ### GC-061 A detached HEAD has no marker in the graph
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-020
 - **Why:** With `git checkout --detach HEAD~1` in the scratch repository and a Refresh, the
@@ -2862,13 +2876,13 @@ decision is missing.
 - **Out of scope:** a chip on the WIP row, a "detached" banner in the detail panel, checking
   out a remote branch as detached from its chip (that path exists), a left-panel row for HEAD.
 - **Acceptance:**
-  - [ ] `git checkout --detach HEAD~1` + Refresh in the scratch repository shows exactly one chip
+  - [x] `git checkout --detach HEAD~1` + Refresh in the scratch repository shows exactly one chip
         reading `HEAD` on that commit's row, in column 0, with the dashed WIP link ending on it;
         `git checkout main` + Refresh removes it and the `main` chip has the check mark again.
-  - [ ] The chip's context menu is the commit menu; "Create branch here…" creates the branch at
+  - [x] The chip's context menu is the commit menu; "Create branch here…" creates the branch at
         `git rev-parse HEAD`.
-  - [ ] The Push button's title names the detached state while disabled.
-  - [ ] e2e step: detach, Refresh, assert the chip's text and row, re-attach; the prologue
+  - [x] The Push button's title names the detached state while disabled.
+  - [x] e2e step: detach, Refresh, assert the chip's text and row, re-attach; the prologue
         re-attaches to `main` if a run died in between (`git checkout -q main` is idempotent).
 - **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/App.tsx`,
   `src/renderer/src/components/Toolbar.tsx`, `tools/e2e/run.mjs`.
@@ -2880,6 +2894,20 @@ decision is missing.
     no indication of the checked-out commit; the breadcrumb says "detached HEAD" and nothing
     says where.
   - 2026-09-06 01:54 claimed
+  - 2026-09-06 02:22 done. `CommitGraph` builds a synthetic `HEAD` ref when `detached` is set (a new
+    prop, `!snapshot.info.branch`), ranked -1 so the fold cannot hide it; it is never a real ref,
+    so `getRefs` and `GitRef` are untouched. Its context menu is `commitMenuItems` and it does not
+    respond to double-click. The Toolbar’s Push title reads "Cannot push from a detached HEAD"
+    while disabled. Verified in the built app on a throwaway clone detached at `HEAD~1`: crumb
+    "detached HEAD", one chip reading `HEAD` with the check mark on the `Main-only change` row in
+    column 0 with the dashed WIP link ending on it, its menu listing "Create branch here…", and
+    the Push title as above — `docs/screenshots/gc061-detached-head.png` (3x). e2e step 23 (new)
+    detaches at `HEAD`, not `HEAD~1`: the fixture carries edits to tracked files every earlier
+    step asserts against, and moving to another commit would either refuse or rewrite them;
+    nothing about the marker depends on which commit it is. It asserts the chip, its row against
+    `git log -1`, the Push title, and that checking `main` back out removes the chip and gives
+    `main` its check mark again. The prologue’s existing `git checkout -q main` already
+    re-attaches a run that died detached, so no prologue change was needed.
 
 ### GC-062 The e2e suite never commits through the commit form or stages a hunk
 
@@ -3289,7 +3317,7 @@ decision is missing.
 
 ### GC-069 The body preview takes width from the summary in a narrow message column
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-032
 - **Why:** `.col-msg` lays out `.summary` and `.body` as two flex items that both ellipsise, each
@@ -3309,13 +3337,13 @@ decision is missing.
 - **Out of scope:** the column widths GC-032 chose, a resizable message column, wrapping, the WIP
   row.
 - **Acceptance:**
-  - [ ] Scratch repository, 1400x900, all three columns on: the `Extend feature` row shows its
+  - [x] Scratch repository, 1400x900, all three columns on: the `Extend feature` row shows its
         whole summary and a truncated or hidden body; with the columns off the row is unchanged
         (both fit as before).
-  - [ ] catena-feed read-only, same setup: every row whose summary is narrower than the column
+  - [x] catena-feed read-only, same setup: every row whose summary is narrower than the column
         shows the whole summary, checked over CDP by comparing each `.summary` element's
         `scrollWidth` and `clientWidth` for the rendered rows.
-  - [ ] Screenshot looked at next to `docs/screenshots/graph-columns.png`.
+  - [x] Screenshot looked at next to `docs/screenshots/graph-columns.png`.
 - **Files:** `src/renderer/src/styles/app.css` (and `src/renderer/src/graph/CommitGraph.tsx` only
   if a wrapper is needed).
 - **Verify:** build, the CDP check above, screenshot at 1400x900 with the columns on.
@@ -3323,6 +3351,15 @@ decision is missing.
   - 2026-09-05 22:23 proposed by GR-005: switching GC-032's columns on made the message column
     narrow enough to show the body preview outliving the summary on every long-bodied commit.
   - 2026-09-06 01:54 claimed
+  - 2026-09-06 02:22 done. `.body` moved inside a `.body-wrap` with `flex: 1 1 0` and
+    `container-type: inline-size`, so the preview only ever gets space the summary did not need —
+    zero the moment the row overflows — and a `@container (max-width: 40px)` rule drops it rather
+    than leaving a lone ellipsis. `.summary` is explicitly `flex: 0 1 auto; min-width: 0`.
+    Measured over CDP with all four of GC-032’s columns on at 1400x900: on catena-feed read-only,
+    0 of the rendered rows have a truncated summary while their body still has width (every
+    truncated summary now has a zero-width or absent body); on the scratch repository the
+    `Extend feature` row shows its whole summary (`sumCut: false`) beside an 83px body preview.
+    Looked at: `docs/screenshots/gc069-message-column.png`.
 
 ### GC-070 Tests for tools/ live under src/renderer/src
 
@@ -3742,7 +3779,7 @@ decision is missing.
 
 ### GC-077 Branch lines join and leave a node at a right angle, not on a diagonal
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** M | **Priority:** P1
 - **Depends on:** GC-002
 - **Why:** Ricardo, reviewing the graph on 2026-09-06: a line that comes out of a branch and joins
@@ -3783,14 +3820,14 @@ decision is missing.
   shape of the join changes. Animating or highlighting lines on hover (study: "hovering a chip
   highlights its rows") is a later ticket.
 - **Acceptance:**
-  - [ ] On the scratch repository, the `Merge feature into main` row (one incoming and one outgoing
+  - [x] On the scratch repository, the `Merge feature into main` row (one incoming and one outgoing
         join) and the `Change line 2 of a.txt` row (one incoming) show a vertical piece, a rounded
         corner and a horizontal piece at the node's centre line, checked on a 4x CDP clip
         (`Page.captureScreenshot` with `clip.scale`) and looked at, not only asserted.
-  - [ ] catena-feed loaded read-only: the `build(semantic): 1.86.0` row's lane-1 join has the same
+  - [x] catena-feed loaded read-only: the `build(semantic): 1.86.0` row's lane-1 join has the same
         shape, and the lane-1 line above it is still one continuous straight line.
-  - [ ] The `dom` test passes and fails when either path is reverted to the Bezier.
-  - [ ] `npm test` (the `lanes.test.ts` guards untouched), typecheck, build.
+  - [x] The `dom` test passes and fails when either path is reverted to the Bezier.
+  - [x] `npm test` (the `lanes.test.ts` guards untouched), typecheck, build.
 - **Files:** `src/renderer/src/graph/GraphCell.tsx`, `src/renderer/src/graph/GraphCell.test.tsx` (new).
 - **Verify:** build, launch through `tools/launch-app.mjs`, the two 4x clips above saved under
   `docs/screenshots/` (scratch repository only; catena-feed is looked at, not committed), `npm test`.
@@ -3798,10 +3835,21 @@ decision is missing.
   - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session; the diagonal
     confirmed on the worktree build's 4x clip of the catena-feed `v1.86.0` row.
   - 2026-09-06 01:54 claimed
+  - 2026-09-06 02:22 done. `curveIn`/`curveOut` in `GraphCell.tsx` are now vertical + quarter arc +
+    horizontal at the node centre line, radius `JOIN_R = 8` (the value the ticket suggested
+    starting from, kept: it leaves a 6px vertical piece in a 28px row and a 12px horizontal run
+    between adjacent lanes, checked on the 4x clip). Rendered `d` on the scratch repository’s
+    merge row: `M 38 0 V 6 A 8 8 0 0 1 30 14 H 18` in, `M 18 14 H 30 A 8 8 0 0 1 38 22 V 28` out.
+    Looked at: `docs/screenshots/gc077-join-zoom4.png` (4x, the `Merge feature into main` row and
+    the one below it) — a straight lane, a rounded corner and a horizontal run into the node, no
+    diagonal. catena-feed loaded read-only showed the same shape on its fork rows with the lane
+    above still one continuous straight line (looked at over CDP; catena-feed captures are not
+    committed). New `GraphCell.test.tsx` in the `dom` project, 3 cases; mutation-checked:
+    restoring the Bezier fails all three. 77 unit tests pass.
 
 ### GC-078 The ref column shows exactly one chip, every other ref folds into +N
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P1
 - **Depends on:** GC-020, GC-058
 - **Why:** Ricardo, 2026-09-06: the BRANCH / TAG column shows one item per commit, always. On
@@ -3830,13 +3878,13 @@ decision is missing.
   now-idle `.ref-chip:not(:first-child):not(.more)` shrink rule in `app.css` (harmless, and that
   file belongs to GC-079 in the same window).
 - **Acceptance:**
-  - [ ] catena-feed loaded read-only: the `build(semantic): 1.86.1` row shows `master` with its
+  - [x] catena-feed loaded read-only: the `build(semantic): 1.86.1` row shows `master` with its
         cloud mark and a `+2` chip whose dropdown lists `twfdasdfsadfadf` then `v1.86.1`, at 150px
         and at 400px; the `v1.86.0` row still shows its tag alone.
-  - [ ] Scratch repository: the `Extend feature` row shows `feature` and `+1` (`origin/feature` in
+  - [x] Scratch repository: the `Extend feature` row shows `feature` and `+1` (`origin/feature` in
         the dropdown); the `Merge feature into main` row shows `main` and `+1` with `v0.1.0` folded.
-  - [ ] `master`'s `.chip-name` is not truncated at 150px on that row (`scrollWidth <= clientWidth`).
-  - [ ] `CommitGraph.test.tsx` passes with `+5`; `npm run e2e` passes (no step asserts a chip count).
+  - [x] `master`'s `.chip-name` is not truncated at 150px on that row (`scrollWidth <= clientWidth`).
+  - [x] `CommitGraph.test.tsx` passes with `+5`; `npm run e2e` passes (no step asserts a chip count).
 - **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/graph/CommitGraph.test.tsx`.
 - **Verify:** build, `npm test`, `npm run e2e`, screenshots of both rows above from the scratch
   repository into `docs/screenshots/`, the catena-feed row looked at over CDP.
@@ -3844,10 +3892,27 @@ decision is missing.
   - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session, with the
     catena-feed `1.86.1` row as the example; the three-chip render confirmed on the worktree build.
   - 2026-09-06 01:54 claimed
+  - 2026-09-06 02:22 done. `chipBudget` is gone, replaced by `MAX_CHIPS = 1`: the column shows one chip
+    at every width and everything else folds. On catena-feed read-only at 150px `master` measures
+    `scrollWidth <= clientWidth` (not truncated) where it used to render as `mast…` beside `t.`;
+    the scratch repository shows `main` + `+1` and `feature` + `+1`. `CommitGraph.test.tsx` now
+    asserts `+5`, and `npm run e2e` passes (97 assertions, no step asserts a chip count). The
+    fixture still has no commit with more than two refs, so the block is only ever two lines in
+    e2e — that gap is GC-055, and the primary chip at the 100px minimum is GC-071.
+  - 2026-09-06 02:22 the folded list, reworked live with Ricardo against GitKraken. It is not a popover:
+    the chip itself grows. The block is anchored to `.col-ref` (not to the `+N` chip, which is now
+    its sibling), opens at `top: -4px` so its first line lands on exactly the pixel the row chip
+    occupied (measured: the chip name at 244,166 in both states), carries the chip’s own lane
+    colour inline, lists every ref of the commit as one more line, and hides the `+N` while it is
+    open. Hovering anywhere in the ref cell opens it. Two fixes came out of Ricardo looking at it:
+    the lines keep a chip’s own `0 6px` padding so no text shifts when the block opens, and
+    `.col-ref > .ref-chip:hover` became a direct-child selector — matching the block’s own lines
+    resized it under the pointer, which read as a flicker. Looked at:
+    `docs/screenshots/gc078-ref-expansion.png` (3x).
 
 ### GC-079 Custom scrollbars: 8px flat thumb, no track, no arrow buttons
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** Ricardo, 2026-09-06: custom scrollbars wherever we can. Every scroll container in the
@@ -3874,11 +3939,11 @@ decision is missing.
   measures rects and is unaffected by an 8px bar, but an overlay bar over the SHA column would need
   its own decision), and a light-theme variant (GC-013).
 - **Acceptance:**
-  - [ ] With catena-feed loaded read-only, `.graph-body` and `.left-panel .sections` measure
+  - [x] With catena-feed loaded read-only, `.graph-body` and `.left-panel .sections` measure
         `offsetWidth - clientWidth === 8`, and a 3x CDP clip of each shows a flat thumb, no arrow
         buttons and no visible track.
-  - [ ] A diff with a line wider than the panel shows an 8px horizontal bar with the same look.
-  - [ ] `npm run e2e` passes: the graph body is 7px wider, nothing in `run.mjs` measures it.
+  - [x] A diff with a line wider than the panel shows an 8px horizontal bar with the same look.
+  - [x] `npm run e2e` passes: the graph body is 7px wider, nothing in `run.mjs` measures it.
 - **Files:** `src/renderer/src/styles/tokens.css`, `src/renderer/src/styles/app.css`.
 - **Verify:** build, launch, the two measurements and clips above (clips of the scratch repository
   into `docs/screenshots/`), `npm run e2e`.
@@ -3886,6 +3951,16 @@ decision is missing.
   - 2026-09-06 01:05 proposed by GR-007: asked for by Ricardo in this review's session; the 15px
     default bar with buttons measured and looked at on the worktree build.
   - 2026-09-06 01:54 claimed
+  - 2026-09-06 02:22 done. `--scrollbar-w: 8px`, `--scrollbar-thumb: rgba(255,255,255,0.16)` and
+    `--scrollbar-thumb-hover: rgba(255,255,255,0.28)` in `tokens.css`, one global
+    `::-webkit-scrollbar` rule set in `app.css`, and neither `scrollbar-width` nor
+    `scrollbar-color`. Measured on the built app: `.graph-body` and `.left-panel .sections` both
+    `offsetWidth - clientWidth` = 8 (was 15), on catena-feed read-only and on the scratch
+    repository squeezed to 1000x260. Looked at: `docs/screenshots/gc079-scrollbar.png` (4x) — a
+    flat rounded thumb, no track, no arrow buttons. The horizontal bar was measured on a probe
+    element inside the app rather than on a diff, because no fixture file has a line wide enough
+    to make `.diff-body` scroll sideways: height 8, thumb `rgba(255, 255, 255, 0.16)`,
+    `::-webkit-scrollbar-button` `none`. `npm run e2e` passes with the narrower bar.
 
 ### GC-080 The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead
 
@@ -4078,6 +4153,40 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-068 (this ticket): giving the background reads a generation counter
     made it plain that the actions writing `busy` and `error` still have no identity of their own.
+
+### GC-085 Dead CSS and an unreachable tooltip left over from the one-chip ref column
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-078
+- **Why:** GC-078 fixed the ref column at one chip, which left two things behind that no longer
+  describe anything. `.ref-chip:not(:first-child):not(.more) { flex-shrink: 50 }` in `app.css` is
+  GC-023's rule for making the second and later chips give way at the same weight; there is never
+  a second chip in a row now, and the only elements it still matches are the lines inside the
+  expanded block, where `flex: none` overrides it — so it is dead either way, but a reader has to
+  work that out, and a future change to the block's flex could wake it up. And the `+N` chip's
+  `title="More refs on this commit"` can never be shown: the chip is `visibility: hidden` from the
+  moment the cell is hovered, which is the moment a tooltip would begin its delay.
+- **Scope:**
+  - Remove the `.ref-chip:not(:first-child):not(.more)` rule and GC-023's comment above it, which
+    describes a fold that no longer exists.
+  - Drop the `+N` chip's `title`, or move whatever it should say onto the ref cell, which is the
+    element the user is actually pointing at.
+- **Out of scope:** the block itself, the one-chip rule, the flip (GC-022), and the `.ref-chip`
+  base rule's own `flex: 0 1 auto`, which the single visible chip still needs.
+- **Acceptance:**
+  - [ ] Neither the rule nor the dead comment is in `app.css`; the ref column and the expanded
+        block render identically before and after, compared on a CDP screenshot of the scratch
+        repository at 100px, 150px and 400px column widths.
+  - [ ] No element carries a `title` that cannot be shown.
+  - [ ] `npm test` and `npm run e2e` pass.
+- **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/graph/CommitGraph.tsx`.
+- **Verify:** build, the three screenshots above compared against
+  `docs/screenshots/gc078-ref-expansion.png`, `npm test`, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 02:22 proposed by GC-078 (this ticket): pinning the column at one chip left GC-023's
+    shrink rule matching nothing in the row and the `+N` tooltip behind a chip that hides itself
+    before the tooltip can appear.
 
 ## Reviews
 

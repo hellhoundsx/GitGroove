@@ -6,6 +6,12 @@ export const ROW_H = 28;
 export const LANE_W = 20;
 export const NODE = 20;
 const LEFT_PAD = 8;
+/**
+ * Corner radius where a join turns between its own lane and the node's centre line (GC-077).
+ * Under `mid` (14) so a vertical piece stays visible above the corner, and under `LANE_W` (20)
+ * so a horizontal piece stays visible between adjacent lanes.
+ */
+const JOIN_R = 8;
 
 export const laneX = (lane: number): number => LEFT_PAD + lane * LANE_W + LANE_W / 2;
 
@@ -83,13 +89,22 @@ export function GraphCell({ row, width, wip, wipDash = null, wipDashLane, connec
 
   const x = laneX(row.lane);
   const color = laneColor(row.color);
+  // A join runs down its own lane, turns through a quarter arc and finishes along the node's
+  // centre line, rather than cutting across the row on a diagonal (GC-077).
   const curveIn = (fromLane: number): string => {
     const fx = laneX(fromLane);
-    return `M ${fx} 0 C ${fx} ${mid * 0.9}, ${x} ${mid * 0.1}, ${x} ${mid}`;
+    if (fx === x) return `M ${fx} 0 V ${mid}`;
+    const r = Math.min(JOIN_R, Math.abs(x - fx));
+    const right = x > fx;
+    return `M ${fx} 0 V ${mid - r} A ${r} ${r} 0 0 ${right ? 0 : 1} ${right ? fx + r : fx - r} ${mid} H ${x}`;
   };
   const curveOut = (toLane: number): string => {
     const tx = laneX(toLane);
-    return `M ${x} ${mid} C ${x} ${mid + mid * 0.9}, ${tx} ${mid + mid * 0.1}, ${tx} ${ROW_H}`;
+    if (tx === x) return `M ${x} ${mid} V ${ROW_H}`;
+    const r = Math.min(JOIN_R, Math.abs(tx - x));
+    const right = tx > x;
+    // The mirror image below the node: centre line out, corner down, then the lane.
+    return `M ${x} ${mid} H ${right ? tx - r : tx + r} A ${r} ${r} 0 0 ${right ? 1 : 0} ${tx} ${mid + r} V ${ROW_H}`;
   };
   const dashX = wipDashLane !== undefined ? laneX(wipDashLane) : x;
   const dashColor = wipDashLane !== undefined ? laneColor(wipDashLane % 10) : color;

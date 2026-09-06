@@ -1048,7 +1048,67 @@ await settle();
 
 await shot('final.png');
 
-step(22, 'the run leaves the fixture exactly as it found it');
+step(22, 'branch menu: the tip-commit group, and a mixed Reset onto another branch tip');
+// GC-049. The reset actions used to exist only on the commit row, so resetting onto a branch tip
+// meant finding that exact row in the graph — impossible once it has scrolled out. The branch
+// menu now composes the same items, and this step drives the one that changes a ref.
+const RESET_BRANCH = 'wip-branch';
+const resetTarget = git(['rev-parse', RESET_BRANCH]);
+const mainBefore = git(['rev-parse', 'HEAD']);
+const currentBefore = git(['branch', '--show-current']);
+log(await contextMenuOn('.left-panel .ref-row', RESET_BRANCH));
+const branchMenu = await menuList();
+log(branchMenu);
+check(
+  'the branch menu carries the tip-commit group',
+  ['Cherry pick commit', 'Revert commit', 'Create tag here', 'Copy commit sha'].every((l) => branchMenu.includes(l)) &&
+    ['soft', 'mixed', 'hard'].every((m) => branchMenu.includes(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}: ${m}`)),
+  branchMenu,
+);
+log(await menuClick(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}: mixed`));
+await settle();
+check(
+  'the mixed reset moved the checked-out branch onto the other branch tip',
+  git(['rev-parse', 'HEAD']) === resetTarget && git(['branch', '--show-current']) === currentBefore,
+  `${git(['rev-parse', 'HEAD']).slice(0, 7)} | expected ${resetTarget.slice(0, 7)} on ${currentBefore}`,
+);
+// put the ref and the index back; the working tree was never touched by a mixed reset, and the
+// fixture assertions in the next step are what prove it
+git(['reset', '--mixed', '-q', mainBefore]);
+log(await tool('Refresh'));
+await settle();
+
+step(23, 'a detached HEAD is marked in the graph, and Push says why it is disabled');
+// GC-061. `for-each-ref` marks `isHead` only on a branch, so detaching used to leave no row
+// saying which commit is checked out. The detach is at HEAD, not HEAD~1: the fixture carries
+// edits to tracked files every earlier step asserts against, and moving to another commit would
+// either refuse or rewrite them. Nothing about the marker depends on which commit it is.
+git(['checkout', '-q', '--detach', 'HEAD']);
+log(await tool('Refresh'));
+await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '') === 'detached HEAD'`, 'the detached state to reach the crumb');
+await waitIdle();
+const detachedRow = await ev(
+  `(() => { const r = [...document.querySelectorAll('.graph-row')].find(x => [...x.querySelectorAll('.col-ref > .ref-chip')].some(c => c.textContent.trim() === 'HEAD'));
+     if (!r) return JSON.stringify({ found: false });
+     return JSON.stringify({ found: true, first: r.querySelector('.col-ref > .ref-chip').textContent.trim(), msg: r.querySelector('.summary')?.textContent ?? null }); })()`,
+);
+check('the checked-out commit carries a HEAD chip, first in its row', JSON.parse(detachedRow).found === true && JSON.parse(detachedRow).first === 'HEAD', detachedRow);
+check(
+  'the row it marks is the commit git says HEAD is on',
+  JSON.parse(detachedRow).msg === git(['log', '-1', '--format=%s']),
+  `${JSON.parse(detachedRow).msg} | git: ${git(['log', '-1', '--format=%s'])}`,
+);
+const pushBtn = await ev(`(() => { const b = [...document.querySelectorAll('.toolbar .tool-btn')].find(x => x.innerText.trim() === 'Push'); return JSON.stringify({ title: b?.title ?? null, disabled: !!b?.disabled }); })()`);
+check('the Push button names the detached state instead of promising an upstream', JSON.parse(pushBtn).disabled === true && JSON.parse(pushBtn).title === 'Cannot push from a detached HEAD', pushBtn);
+// re-attach; the prologue runs the same command, so a run that dies here recovers by itself
+git(['checkout', '-q', 'main']);
+log(await tool('Refresh'));
+await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '').startsWith('main')`, 'the branch to come back to the crumb');
+await waitIdle();
+const reattached = await ev(`(() => JSON.stringify({ head: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].filter(c => c.textContent.trim() === 'HEAD').length, mainChecked: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].some(c => c.textContent.trim() === 'main' && c.classList.contains('head')) }))()`);
+check('checking the branch back out removes the HEAD chip and gives main the check mark', JSON.parse(reattached).head === 0 && JSON.parse(reattached).mainChecked === true, reattached);
+
+step(24, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

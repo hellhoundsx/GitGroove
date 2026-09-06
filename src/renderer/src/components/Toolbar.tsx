@@ -74,7 +74,10 @@ export function Toolbar(p: Props): JSX.Element {
   const remoteHint = !p.hasRemotes ? 'No remotes configured' : !p.hasUpstream ? 'Current branch has no upstream' : undefined;
   const pushTitle = !p.hasRemotes
     ? 'No remotes configured'
-    : p.hasUpstream
+    : // the button is disabled here either way, so the title must not promise the click it refuses (GC-061)
+      !p.info?.branch
+      ? 'Cannot push from a detached HEAD'
+      : p.hasUpstream
       ? 'Push'
       : `Push to ${p.pushRemote ?? 'the default remote'} and set upstream`;
 

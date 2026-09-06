@@ -34,8 +34,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   setPrefs({ ...DEFAULT_PREFS });
-  // Clears `gitclient.prefs` and `gitclient.refColW`: the ref column's width decides `chipBudget`,
-  // so a leaked width would change how many chips fold.
+  // Clears `gitclient.prefs` and `gitclient.refColW`. The width no longer decides how many chips
+  // fold (GC-078 pinned that at one), but it still decides the column's layout.
   localStorage.clear();
 });
 
@@ -52,7 +52,7 @@ const commit: Commit = {
   refs: [],
 };
 
-/** Six refs on the one commit: the default 150px column budgets two chips, so four fold into `+4`. */
+/** Six refs on the one commit: exactly one chip shows at any width (GC-078), so five fold into `+5`. */
 const refs: GitRef[] = [
   { name: 'main', fullName: 'refs/heads/main', kind: 'head', sha: commit.sha, isHead: true },
   ...['v1', 'v2', 'v3', 'v4', 'v5'].map((name): GitRef => ({ name, fullName: `refs/tags/${name}`, kind: 'tag', sha: commit.sha, isHead: false })),
@@ -93,20 +93,24 @@ function flipsUp(body: Rect, chipRect: Rect, listHeight: number): boolean {
       onWipMenu={() => {}}
       onRefMenu={() => {}}
       onRefActivate={() => {}}
+      detached={false}
     />,
   );
 
   const graphBody = container.querySelector('.graph-body');
+  // The block is a sibling of the `+N` chip, not its child, so hiding the chip while the block
+  // is open leaves the block on screen; the hover that opens it is on the cell around both.
+  const cell = container.querySelector('.graph-row .col-ref');
   const chip = container.querySelector('.ref-chip.more');
-  const list = chip?.querySelector('.more-list');
-  if (!graphBody || !chip || !list) throw new Error('the +N chip did not render');
-  expect(chip.textContent?.startsWith('+4')).toBe(true);
+  const list = container.querySelector('.more-list');
+  if (!graphBody || !cell || !chip || !list) throw new Error('the +N chip did not render');
+  expect(chip.textContent?.startsWith('+5')).toBe(true);
 
   stubRect(graphBody, body);
-  stubRect(chip, chipRect);
+  stubRect(cell, chipRect);
   stubRect(list, { top: chipRect.bottom, bottom: chipRect.bottom + listHeight, height: listHeight });
 
-  fireEvent.mouseOver(chip);
+  fireEvent.mouseOver(cell);
   return list.classList.contains('flip-up');
 }
 

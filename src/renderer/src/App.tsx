@@ -431,6 +431,36 @@ export function App(): JSX.Element {
     [repo, run, ui],
   );
 
+  /**
+   * The actions that apply to a commit whichever surface named it: a commit row, or a branch
+   * row naming its tip (GC-049). Both menus compose these same items rather than each writing
+   * their own, so the wording, the guards and the hard-reset confirmation cannot drift apart.
+   * They are handed back individually because the two menus order them differently.
+   */
+  const tipCommitActions = useCallback(
+    (sha: string) => {
+      const short = sha.slice(0, 7);
+      const target = currentBranch ?? 'HEAD';
+      const resetItem = (mode: 'soft' | 'mixed' | 'hard', hint: string): MenuItem => ({
+        label: `Reset ${target} to ${short}: ${mode}`,
+        hint,
+        danger: mode === 'hard',
+        onClick: async () => {
+          if (mode === 'hard' && !(await ui.confirm({ title: `Hard reset ${target} to ${short}?`, message: 'All uncommitted changes will be lost.', okLabel: 'Reset', danger: true }))) return;
+          await run(`Resetting (${mode})`, () => window.api.reset(repo!, mode, sha));
+        },
+      });
+      return {
+        cherryPick: { label: 'Cherry pick commit', disabled: !currentBranch, onClick: () => run(`Cherry-picking ${short}`, () => window.api.cherryPick(repo!, sha)) } as MenuItem,
+        revert: { label: 'Revert commit', disabled: !currentBranch, onClick: () => run(`Reverting ${short}`, () => window.api.revert(repo!, sha)) } as MenuItem,
+        resets: [resetItem('soft', 'keep all changes staged'), resetItem('mixed', 'keep changes in the working directory'), resetItem('hard', 'discard all changes')],
+        createTag: { label: 'Create tag here…', onClick: () => createTagAt(sha) } as MenuItem,
+        copySha: { label: 'Copy commit sha', onClick: () => void navigator.clipboard.writeText(sha) } as MenuItem,
+      };
+    },
+    [createTagAt, currentBranch, repo, run, ui],
+  );
+
   const refMenuItems = useCallback(
     (r: GitRef): MenuItem[] => {
       const items: MenuItem[] = [];
@@ -461,6 +491,15 @@ export function App(): JSX.Element {
       items.push({ separator: true });
       items.push({ label: `Create branch from ${r.name}…`, onClick: () => createBranchAt(r.name, r.name) });
       if (r.kind === 'head') {
+        // The branch's tip is a commit like any other, and the only way to reset onto it used to
+        // be finding that exact row in the graph — impossible once it has scrolled out (GC-049).
+        const tip = tipCommitActions(r.sha);
+        items.push({ separator: true });
+        items.push(tip.cherryPick, tip.revert);
+        items.push({ separator: true });
+        items.push(...tip.resets);
+        items.push({ separator: true });
+        items.push(tip.createTag, tip.copySha);
         const isPinned = r.name === pinned;
         items.push({ separator: true });
         items.push({
@@ -828,6 +867,7 @@ export function App(): JSX.Element {
                 onWipMenu={(e) => onMenu(e, wipMenuItems())}
                 onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
                 onRefActivate={(r) => void checkoutRef(r)}
+                detached={!snapshot.info.branch}
               />
             )}
             <DetailPanel
