@@ -145,6 +145,7 @@ export function App(): JSX.Element {
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [pullOpen, setPullOpen] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false); // the second toolbar popover (GC-057)
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
   // Refs kept out of the graph (GC-073). The ref mirrors the state because `load()` needs the set
   // as it stands at the moment it spawns `git log`, without every callback that loads a repository
@@ -1158,7 +1159,7 @@ export function App(): JSX.Element {
   // nothing else, which is why no layer handles Escape itself. The listener runs in the capture
   // phase so that when it does close a layer it can stop the event before any React handler
   // underneath sees it — the find bar's input closes itself on Escape otherwise.
-  const layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen;
+  const layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen || pushOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // The topmost layer owns the keyboard while it is up: it closes on Escape (and the overlay
@@ -1173,7 +1174,8 @@ export function App(): JSX.Element {
           else if (prefsOpen) setPrefsOpen(false);
           else if (ui.dialogOpen) ui.closeDialog();
           else if (ui.menuOpen) ui.closeMenu();
-          else setPullOpen(false);
+          else if (pullOpen) setPullOpen(false);
+          else setPushOpen(false);
         }
         return;
       }
@@ -1209,7 +1211,7 @@ export function App(): JSX.Element {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, ui]);
+  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui]);
 
   return (
     <div
@@ -1225,19 +1227,26 @@ export function App(): JSX.Element {
         hasUpstream={!!headRef?.upstream}
         hasRemotes={(snapshot?.remotes.length ?? 0) > 0}
         pushRemote={defaultRemote(snapshot?.remotes ?? []) ?? null}
+        remotes={(snapshot?.remotes ?? []).map((r) => r.name)}
         hasChanges={(snapshot?.status.entries.length ?? 0) > 0}
         stashCount={snapshot?.stashes.length ?? 0}
         pullMode={prefs.pullMode}
         pullOpen={pullOpen}
+        pushOpen={pushOpen}
         onPullModeChange={(mode) => setPrefs({ pullMode: mode })}
         onPullOpenChange={setPullOpen}
+        onPushOpenChange={setPushOpen}
         onFetch={() => void run('Fetching', () => window.api.fetch(repo!))}
-        onPull={(mode) => void run('Pulling', () => window.api.pull(repo!, mode))}
+        onPull={(mode, remote) => void run(remote ? `Pulling from ${remote}` : 'Pulling', () => window.api.pull(repo!, mode, remote))}
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenShortcuts={() => setShortcutsOpen(true)}
         onRepoMenu={openRepoMenu}
         onBranchMenu={openBranchMenu}
-        onPush={() => void run('Pushing', () => window.api.push(repo!, { setUpstream: !headRef?.upstream }))}
+        // A named remote is a deliberate choice, so it sets the upstream when the branch has none
+        // wherever it is pushed; with none named this is the button it always was (GC-057).
+        onPush={(remote) =>
+          void run(remote ? `Pushing to ${remote}` : 'Pushing', () => window.api.push(repo!, { remote, setUpstream: !headRef?.upstream }))
+        }
         onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
         onStash={() => void stashChanges()}
         onPop={() => void run('Popping stash', () => window.api.stashPop(repo!, 0))}

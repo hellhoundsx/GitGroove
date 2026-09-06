@@ -6,8 +6,10 @@ import type { MenuAnchor } from '../ui/UiContext';
 
 export interface ToolbarHandlers {
   onFetch(): void;
-  onPull(mode: PullMode): void;
-  onPush(): void;
+  /** `remote` overrides the upstream; the plain button passes none (GC-057). */
+  onPull(mode: PullMode, remote?: string): void;
+  /** The same for Push, where none means the upstream, else `pushRemote` (GC-057). */
+  onPush(remote?: string): void;
   onCreateBranch(): void;
   onStash(): void;
   onPop(): void;
@@ -26,13 +28,17 @@ interface Props extends ToolbarHandlers {
   hasRemotes: boolean;
   /** The remote a push with no upstream lands on, so the button can name it (GC-031). */
   pushRemote: string | null;
+  /** Every remote by name, in the order git lists them: what the two popovers offer (GC-057). */
+  remotes: string[];
   hasChanges: boolean;
   stashCount: number;
   pullMode: PullMode;
   searchOpen: boolean;
   pullOpen: boolean;
+  pushOpen: boolean;
   onPullModeChange(mode: PullMode): void;
   onPullOpenChange(open: boolean): void;
+  onPushOpenChange(open: boolean): void;
   /** Opens the recent-repositories menu, anchored where the caller says (GC-044). */
   onRepoMenu(at: MenuAnchor): void;
   /** Opens the branch list, anchored the same way (GC-088). */
@@ -57,22 +63,29 @@ function ToolButton({ label, icon, title, disabled, active, onClick }: { label: 
 export function Toolbar(p: Props): JSX.Element {
   const noRepo = !p.info;
   const pullRef = useRef<HTMLDivElement>(null);
-  // The popover is a layer, so its flag lives in App with the other layers' and Escape is
-  // handled there and nowhere else (GC-038). Only the outside click, which is nobody else's
-  // business, stays here.
-  const { pullOpen, onPullOpenChange: setPullOpen } = p;
+  const pushRef = useRef<HTMLDivElement>(null);
+  // Each popover is a layer, so its flag lives in App with the other layers' and Escape is
+  // handled there and nowhere else (GC-038, and GC-057 for the second one). Only the outside
+  // click, which is nobody else's business, stays here.
+  const { pullOpen, onPullOpenChange: setPullOpen, pushOpen, onPushOpenChange: setPushOpen } = p;
 
   useEffect(() => {
-    if (!pullOpen) return;
+    if (!pullOpen && !pushOpen) return;
     const onDown = (e: MouseEvent): void => {
-      if (pullRef.current && e.target instanceof Node && pullRef.current.contains(e.target)) return;
-      setPullOpen(false);
+      const outside = (r: typeof pullRef): boolean => !(r.current && e.target instanceof Node && r.current.contains(e.target));
+      // Clicking one split button closes the other, which is what keeps the two mutually
+      // exclusive without either having to know about it.
+      if (outside(pullRef)) setPullOpen(false);
+      if (outside(pushRef)) setPushOpen(false);
     };
     window.addEventListener('mousedown', onDown);
     return () => window.removeEventListener('mousedown', onDown);
-  }, [pullOpen, setPullOpen]);
+  }, [pullOpen, setPullOpen, pushOpen, setPushOpen]);
 
   const pullLabel = PULL_MODES.find((m) => m.mode === p.pullMode)?.label ?? 'Pull';
+  // One remote gains nothing from being asked which: the Push caret is simply not there, and
+  // Pull's popover keeps only the mode rows it has always had (GC-057).
+  const several = p.remotes.length > 1;
   const remoteHint = !p.hasRemotes ? 'No remotes configured' : !p.hasUpstream ? 'Current branch has no upstream' : undefined;
   const pushTitle = !p.hasRemotes
     ? 'No remotes configured'
@@ -128,7 +141,7 @@ export function Toolbar(p: Props): JSX.Element {
         <ToolButton label="Undo" icon={Undo2} disabled />
         <ToolButton label="Redo" icon={Redo2} disabled />
         <span className="tool-sep" />
-        <div className="split-btn" ref={pullRef}>
+        <div className="split-btn pull" ref={pullRef}>
           <ToolButton label="Pull" icon={Download} title={remoteHint ?? pullLabel} disabled={noRepo || p.busy || !p.hasRemotes} onClick={() => p.onPull(p.pullMode)} />
           <button className="caret-btn" title="Pull options" disabled={noRepo || p.busy} onClick={() => setPullOpen(!pullOpen)}>
             <Icon of={ChevronDown} size={11} />
@@ -150,6 +163,23 @@ export function Toolbar(p: Props): JSX.Element {
                   {m.label}
                 </label>
               ))}
+              {several && (
+                <>
+                  <div className="popover-sep" />
+                  {p.remotes.map((r) => (
+                    <button
+                      key={r}
+                      className="popover-row as-button"
+                      onClick={() => {
+                        setPullOpen(false);
+                        p.onPull(p.pullMode, r);
+                      }}
+                    >
+                      Pull from {r}
+                    </button>
+                  ))}
+                </>
+              )}
               <div className="popover-sep" />
               <button
                 className="popover-row as-button"
@@ -164,7 +194,33 @@ export function Toolbar(p: Props): JSX.Element {
             </div>
           )}
         </div>
-        <ToolButton label="Push" icon={Upload} title={pushTitle} disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} onClick={p.onPush} />
+        {/* A split button only once there is a choice to make: with one remote this is the plain
+            button it has always been (GC-057). */}
+        <div className="split-btn push" ref={pushRef}>
+          <ToolButton label="Push" icon={Upload} title={pushTitle} disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} onClick={() => p.onPush()} />
+          {several && (
+            <button className="caret-btn" title="Push options" disabled={noRepo || p.busy || !p.info?.branch} onClick={() => setPushOpen(!pushOpen)}>
+              <Icon of={ChevronDown} size={11} />
+            </button>
+          )}
+          {pushOpen && (
+            <div className="popover">
+              <div className="popover-caption">Push {p.info?.branch} to</div>
+              {p.remotes.map((r) => (
+                <button
+                  key={r}
+                  className="popover-row as-button"
+                  onClick={() => {
+                    setPushOpen(false);
+                    p.onPush(r);
+                  }}
+                >
+                  Push to {r}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <ToolButton label="Branch" icon={GitBranch} title="Create a branch at HEAD" disabled={noRepo || p.busy} onClick={p.onCreateBranch} />
         <ToolButton label="Stash" icon={Archive} title={p.hasChanges ? 'Stash working changes' : 'No changes to stash'} disabled={noRepo || p.busy || !p.hasChanges} onClick={p.onStash} />
         <ToolButton label="Pop" icon={ArchiveRestore} title={p.stashCount ? `Pop the latest of ${p.stashCount} stash${p.stashCount === 1 ? '' : 'es'}` : 'No stashes'} disabled={noRepo || p.busy || p.stashCount === 0} onClick={p.onPop} />

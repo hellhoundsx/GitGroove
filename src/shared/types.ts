@@ -214,7 +214,8 @@ export interface GitApi {
   remoteSetUrl(repo: string, name: string, url: string): Promise<void>;
   remoteRename(repo: string, oldName: string, newName: string): Promise<void>;
   fetch(repo: string, remote?: string): Promise<void>;
-  pull(repo: string, mode: PullMode): Promise<void>;
+  /** `remote` overrides the upstream, as the toolbar popover offers (GC-057). */
+  pull(repo: string, mode: PullMode, remote?: string): Promise<void>;
   push(repo: string, req: PushRequest): Promise<void>;
   // stashes
   stashSave(repo: string, req: StashSaveRequest): Promise<void>;

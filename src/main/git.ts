@@ -663,9 +663,21 @@ export const remoteSetUrl = (cwd: string, name: string, url: string): Promise<st
 
 export const remoteRename = (cwd: string, oldName: string, newName: string): Promise<string> => runGit(cwd, ['remote', 'rename', oldName, newName]);
 
-export async function pull(cwd: string, mode: PullMode): Promise<void> {
+/**
+ * `remote` names where to pull from instead of the branch's upstream (GC-057). It has to name the
+ * branch too: `git pull <remote>` with no refspec still merges whatever `branch.<name>.merge`
+ * says, which is the upstream the caller asked to bypass. The branch on the other side is taken
+ * to have the same name, which is exactly what the popover row "Pull from <remote>" promises.
+ */
+export async function pull(cwd: string, mode: PullMode, remote?: string): Promise<void> {
   const flag = mode === 'rebase' ? '--rebase' : mode === 'ff-only' ? '--ff-only' : '--no-rebase';
-  await runGit(cwd, ['pull', flag]);
+  const args = ['pull', flag];
+  if (remote) {
+    const branch = (await runGit(cwd, ['symbolic-ref', '--short', '-q', 'HEAD'], { okCodes: [0, 1] })).trim();
+    if (!branch) throw new GitError('Cannot pull into a detached HEAD', args, '', null);
+    args.push(remote, branch);
+  }
+  await runGit(cwd, args);
 }
 
 export async function push(cwd: string, req: PushRequest): Promise<void> {

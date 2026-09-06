@@ -208,7 +208,10 @@ export function registerIpc(): void {
     git.remoteRename(repoOf(repo), str(oldName, 'A remote name'), str(newName, 'A remote name')).then(() => undefined),
   );
   ipcMain.handle('remote:fetch', (_e, repo: unknown, remote: unknown) => git.fetch(repoOf(repo), typeof remote === 'string' && remote ? remote : undefined));
-  ipcMain.handle('remote:pull', (_e, repo: unknown, mode: unknown) => git.pull(repoOf(repo), oneOf<PullMode>(mode, ['ff', 'ff-only', 'rebase'], 'Pull mode')));
+  ipcMain.handle('remote:pull', (_e, repo: unknown, mode: unknown, remote: unknown) =>
+    // an optional remote, validated the way `remote:fetch`'s is: absent means the upstream (GC-057)
+    git.pull(repoOf(repo), oneOf<PullMode>(mode, ['ff', 'ff-only', 'rebase'], 'Pull mode'), typeof remote === 'string' && remote ? remote : undefined),
+  );
   ipcMain.handle('remote:push', (_e, repo: unknown, req: unknown) => {
     const r = (req ?? {}) as Partial<PushRequest>;
     return git.push(repoOf(repo), {

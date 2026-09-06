@@ -445,6 +445,24 @@ const waitSplitDiff = (chip, hunks, adds) =>
     `the split ${chip.toLowerCase()} diff to show ${hunks} hunk${hunks === 1 ? '' : 's'} adding ${adds.join(', ')}`,
   );
 
+/** Open one of the toolbar's split-button popovers. `which` is 'pull' or 'push'; the Push caret
+ *  only exists once the repository has more than one remote, which is the point of it (GC-057). */
+const openPopover = async (which) => {
+  const r = await ev(
+    `(() => { const b = document.querySelector('.toolbar .split-btn.' + ${q(which)} + ' .caret-btn'); if (!b) return 'no ' + ${q(which)} + ' caret'; if (b.disabled) return 'DISABLED ' + ${q(which)} + ' caret'; b.click(); return 'opened the ' + ${q(which)} + ' popover'; })()`,
+  );
+  await waitFor(`!!document.querySelector('.toolbar .split-btn.' + ${q(which)} + ' .popover')`, `the ${which} popover to open`);
+  return r;
+};
+/** Every row of one popover, as text. */
+const popoverRows = (which) =>
+  ev(`[...document.querySelectorAll('.toolbar .split-btn.' + ${q(which)} + ' .popover .popover-row')].map((x) => x.textContent.trim()).join(' | ')`);
+/** Click one row of one popover by its exact text. */
+const popoverClick = (which, label) =>
+  ev(
+    `(() => { const b = [...document.querySelectorAll('.toolbar .split-btn.' + ${q(which)} + ' .popover .popover-row')].find((x) => x.textContent.trim() === ${q(label)}); if (!b) return 'no ' + ${q(label)} + ' row'; if (b.disabled) return 'DISABLED ' + ${q(label)}; b.click(); return 'clicked ' + ${q(label)}; })()`,
+  );
+
 /** The intra-line marks one hunk is rendering, as `{ add, del }` lists of the `span.word` texts in
  *  order (GC-109). Both layouts go through `DiffView`'s one `code()` helper and the same span map,
  *  so the two answers have to agree; they are read from different DOM because split tints the
@@ -985,7 +1003,7 @@ await waitFor(`!document.querySelector('.graph-search')`, 'the find bar to close
 sr = JSON.parse(await searchState());
 check('Escape closes the search bar and clears the dimming', sr.open === false && sr.dimmed === 0, JSON.stringify(sr));
 
-step(17, 'remotes: add and fetch, rename, edit URL, remove');
+step(17, 'remotes: add and fetch, push to a chosen remote from the branch menu and the toolbar, rename, edit URL, remove');
 // `upstream` is the *second* bare repository, not another name for origin's (GC-056): with both
 // pointing at the same one, "the chosen remote received the branch" below would have passed just
 // as well if the push had gone to origin.
@@ -1027,6 +1045,52 @@ check(
   `upstream: ${onUpstream || '(nothing)'} | origin: ${onOrigin || '(nothing)'}`,
 );
 gitMay(['push', '-q', 'upstream', '--delete', 'push-target']);
+
+// GC-057: the same choice from the toolbar, which until now could only ever push to the upstream
+// or to `defaultRemote`. The button pushes the *checked-out* branch, so this runs on push-target,
+// checked out behind the app's back and refreshed the way the branch itself was created above.
+// `upstream` is not the default remote, so finding the branch there and nowhere else is what says
+// the popover's choice reached `git push` rather than the fallback doing what it always did.
+git(['checkout', '-q', 'push-target']);
+log(await act(() => tool('Refresh')));
+log(await openPopover('push'));
+const pushRows = await popoverRows('push');
+check('the Push popover lists one row per remote', /Push to origin/.test(pushRows) && /Push to upstream/.test(pushRows), pushRows);
+log(await act(() => popoverClick('push', 'Push to upstream')));
+const toolbarUpstream = git(['ls-remote', 'upstream', 'push-target']);
+const toolbarOrigin = git(['ls-remote', 'origin', 'push-target']);
+check(
+  'the toolbar push reached the remote its popover named, and only that one',
+  toolbarUpstream.includes(git(['rev-parse', 'push-target'])) && toolbarOrigin === '',
+  `upstream: ${toolbarUpstream || '(nothing)'} | origin: ${toolbarOrigin || '(nothing)'}`,
+);
+// The Pull popover offers the same list; pulling push-target from upstream is a no-op that has
+// to reach `git pull <flag> <remote> <branch>` and leave the branch where it is (GC-057).
+log(await openPopover('pull'));
+const pullRows = await popoverRows('pull');
+check('the Pull popover lists one row per remote below its mode rows', /Pull from origin/.test(pullRows) && /Pull from upstream/.test(pullRows), pullRows);
+const beforePull = git(['rev-parse', 'push-target']);
+log(await act(() => popoverClick('pull', 'Pull from upstream')));
+const pullErr = await ev(`document.querySelector('.statusbar .err')?.innerText ?? null`);
+check('pulling from the named remote leaves the branch where it was, with no error', git(['rev-parse', 'push-target']) === beforePull && pullErr === null, `${git(['rev-parse', 'push-target']).slice(0, 8)} was ${beforePull.slice(0, 8)} | ${pullErr ?? 'no error'}`);
+
+// The GC-039 guard, extended to the second popover: this is the only place in the run with two
+// remotes, so it is the only place the Push caret exists at all.
+log(await tool('Search'));
+await waitFor(`!!document.querySelector('.graph-search .search-input')`, 'the find bar to open');
+log(await searchType('feature'));
+log(await openPopover('push'));
+let pl = JSON.parse(await layerState());
+check('the Push popover opens over the find bar', pl.popover === true && pl.search === true, JSON.stringify(pl));
+await escape();
+await waitFor(`!document.querySelector('.toolbar .popover')`, 'the Push popover to close');
+pl = JSON.parse(await layerState());
+check('Escape closes the Push popover only, the find bar keeps its query', pl.popover === false && pl.search === true && pl.query === 'feature', JSON.stringify(pl));
+await escape();
+await waitFor(`!document.querySelector('.graph-search')`, 'the find bar to close');
+
+gitMay(['push', '-q', 'upstream', '--delete', 'push-target']);
+git(['checkout', '-q', 'main']);
 git(['branch', '-D', 'push-target']);
 log(await act(() => tool('Refresh')));
 
