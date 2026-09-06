@@ -263,11 +263,13 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
 | GC-203 | `--force-with-lease` is implemented, typed and validated, and no call site can reach it | actions | S | P2 | todo |
+| GC-209 | A sticky group head is stuck 12px below the edge that clips the rows, so a file row shows above it and behind it | ui | S | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
 | GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | todo |
 | GC-198 | `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk | infra | S | P3 | todo |
 | GC-199 | A stash row carries five things at a 220px panel and the message gets 48px of them | ui | S | P3 | todo |
 | GC-201 | The lane band is a flat wash where it should read as light coming off the lane | ui | S | P3 | todo |
+| GC-208 | An image in a commit says "Binary file." where the picture is what the reader wants | diff | M | P3 | todo |
 | GC-204 | Blame: the file view's third mode, and the last Build row of the study's file panel | diff | M | P3 | todo |
 | GC-205 | The staging view's bottom section keeps its place now, but still cannot be resized | ui | S | P3 | todo |
 | GC-207 | The staging view's two file lists take an equal share of the panel whatever each holds | ui | S | P3 | todo |
@@ -818,6 +820,139 @@ in the Why; an invariant goes in `CLAUDE.md`.
     the panel the bounded box a virtualiser needs, and the study records the list as virtualised.
 
 ---
+### GC-208 An image in a commit says "Binary file." where the picture is what the reader wants
+
+- **Status:** todo
+- **Area:** diff | **Size:** M | **Priority:** P3
+- **Depends on:** none
+- **Why:** Asked for by Ricardo and reproduced: opening `docs/screenshots/gc175-01-graph-dark.png`
+  from a commit's file list draws the four words "Binary file." and nothing else
+  (`05-binary-diff.png` in this review's folder). It is the study's own row, not a nicety —
+  `06-feature-inventory.md` line 14 lists GitKraken's `DiffImage` under "Diff, file, blame, history
+  views, image diff" and marks the row "Build (text diff first)", and the text diff has been built
+  for many tickets now. This repository commits screenshots on nearly every ticket, so it is a file
+  kind the app's own history is full of and can show nothing about.
+  Ricardo's reading of the code is correct at every point and was checked: `DiffView.tsx:550` draws
+  `.diff-empty` when `file.binary`, `parseDiff.ts:165` sets that off git's own
+  `Binary files … differ` marker, and `looksBinary` in `git.ts` synthesises the same marker for an
+  untracked file. The transport is the real constraint he names: `runGit` calls
+  `child.stdout.setEncoding('utf8')` (`git.ts:146`), so **every** git call in the app decodes as
+  text and would corrupt a PNG on the way through. The CSP is not in the way — `index.html` already
+  allows `img-src 'self' data:`, so a base64 blob renders with no change there.
+  One thing found while reproducing it that he could not have seen: on that same binary file the
+  header's `Unified | Split` control is **live** — both buttons enabled, with nothing to lay out
+  either way — while the two hunk arrows beside it are correctly disabled. That is GC-188's rule
+  ("the layout switch says what is drawn, not what is preferred") unapplied one case over, and it is
+  in this ticket because whatever an image body turns out to be, the same control has to answer for
+  it.
+- **Scope:**
+  - A binary-safe way out of `git.ts`, since the existing one cannot carry bytes. The narrow form is
+    a `RunOptions` flag that skips `setEncoding` and resolves a `Buffer`, used by one new function
+    that reads a blob at a revision (`git cat-file blob <sha>:<path>`, or `git show`), plus the
+    working-tree side, which is a file on disk that `repoFile()` already knows how to resolve and
+    refuse safely. Everything else keeps decoding as text.
+  - Decide and write down **which kinds are shown and what happens to the rest**, because "binary"
+    covers a 40MB video as well as a 12KB icon: an allow-list of image types the renderer can
+    actually draw, a size cap above which the file is described rather than fetched, and a body for
+    everything else that says more than today's four words — the kind, and the size, which
+    `git cat-file -s` answers without moving any bytes.
+  - The body itself: one image for a file the commit added or deleted, and **before and after** for
+    one it modified, which is the half Ricardo asked for by name. The two sides are the same
+    question the diff already answers, so say in the code how a reader tells them apart.
+  - `Unified | Split` disabled with its reason on it whenever the body is not a text diff, GC-188's
+    rule and GC-166's `HISTORY_OFF` shape. `prefs.diffView` is never written by this, so the next
+    text file opens in the layout the user chose.
+  - It is a **body**, not a mode: the file view keeps `Diff | History` and gains no third control
+    here (GC-204 owns Blame). The load stays keyed to the view identity the way every other body is
+    (GC-075, GC-152), so an image can never render under a header that has already flipped.
+- **Out of scope:** a diff *between* two images beyond showing both (no swipe, onion-skin or
+  pixel-difference view), image files in the graph or the left panel, thumbnails in the file rows,
+  editing or exporting an image, and non-image binaries getting any body richer than a description.
+- **Acceptance:**
+  - [ ] A committed PNG opens as the picture, asserted on the rendered element's natural dimensions
+        against the real file's, not on the absence of "Binary file.".
+  - [ ] Bytes survive the round trip: the blob the renderer receives is byte-for-byte
+        `git cat-file blob` of the same path, asserted on a hash rather than by looking at it.
+  - [ ] A modified image shows both sides; an added and a deleted one show the one side that exists.
+  - [ ] A binary that is not a shown kind, and one over the size cap, each say what they are and how
+        large rather than rendering an empty body — the guard GC-180 established.
+  - [ ] `Unified | Split` is disabled with a reason whenever the body is not a text diff, and
+        `prefs.diffView` is unchanged afterwards.
+  - [ ] No `img-src` or other CSP change was needed.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/main/git.ts`, `src/main/git.test.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
+  `src/shared/types.ts`, `src/renderer/src/diff/DiffView.tsx`,
+  `src/renderer/src/diff/DiffView.test.tsx`, `src/renderer/src/styles/app.css`, `CLAUDE.md`
+- **Verify:** `npm test`, then build and launch through `tools/launch-app.mjs` on a repository whose
+  history commits images — this checkout's own `docs/screenshots/` is the case Ricardo reported, and
+  the review worktree is a safe copy of it — open an added image and a modified one, and compare the
+  drawn bytes against `git cat-file blob` run on the same path.
+- **Log:**
+  - 2026-09-06 proposed by GR-026, from Ricardo's inbox: reproduced on a committed PNG, which draws
+    four words; it is the study's own "image diff" Build row, and the one constraint in the way is
+    that every git call in the app decodes as utf8.
+
+---
+
+### GC-209 A sticky group head is stuck 12px below the edge that clips the rows, so a file row shows above it and behind it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** Reported by Ricardo and reproduced exactly, on the same file he named. A commit with more
+  files than the list can show draws the row under the sticky head **cut in half**: its top band is
+  drawn above the head, the rest is hidden behind it, and one file reads as two pieces.
+  His own note said the capture did not add up — a row above a head stuck at `top: 0` should be
+  clipped away entirely — and that is the finding. The two edges are not the same edge. A sticky
+  inset is resolved against the scroll container's **content** box, while overflow clipping happens
+  at its **padding** box, and `.file-list` carries GC-142's `padding-top: 12px`. So the head sticks
+  12px lower than the line the rows are cut at, and the strip between them shows whatever is
+  passing through it.
+  Measured in the running app at 1400x900, a 33-file commit, the list scrolled to 100: list rect
+  top 345, `border-top` 1px so the scrollport clips at **346**, `padding-top` 12px so the head is
+  stuck at **358**; the `TICKETS.md` row spans **344 to 370**, which puts 12 of its 26 pixels in the
+  uncovered strip. `04-sticky-head.png` in this review's folder is the capture, and the top half of
+  that row's name and its kind icon are legible above the band.
+  The head's own `background: var(--bg-panel)` is the surface the rows sit on, which is why the
+  strip reads as a row torn in two rather than as something passing behind a header — but the
+  background is not the defect, the 12px is. Pinning is not in question: it is GC-191's own
+  argument, and GC-206 depends on it.
+- **Scope:**
+  - The sticky edge and the clipping edge are made the same edge. The direct route is to take the
+    padding off the scroll box's sticky side and express GC-142's 12px separation as something
+    outside the padding box — a margin, or a wrapper that is not the scrollport — since a margin and
+    a border both sit outside the clip and cause no mismatch.
+  - State the rule where the next scroll box will meet it: **a scroll container with a sticky child
+    carries no padding on that child's sticky edge.** It belongs in the `.file-list` comment beside
+    GC-191's, and in `CLAUDE.md` if it is worth an invariant there.
+  - Check the other scrolling surfaces for the same shape. The left panel's sections are the near
+    miss and look safe by construction — `.section-head` is `flex: none` **outside** `.section-rows`,
+    so nothing there is sticky at all (GC-153) — but confirm it rather than assume it.
+- **Out of scope:** whether the head pins (GC-191 decided that, and GC-206 needs it), the head's
+  4px `margin-bottom`, which sits below the band and clips nothing; the head's own colour and
+  border; collapsing the groups (GC-197); and the share the lists take (GC-207).
+- **Acceptance:**
+  - [ ] With the list scrolled, no part of any `.file-row` is drawn above the sticky head: the
+        topmost visible row pixel is at or below the head's bottom, measured over CDP at several
+        scroll offsets rather than eyeballed.
+  - [ ] GC-142's 12px separation between `.file-list` and the block above it is unchanged, measured
+        at scroll offset 0 in both the commit view and the staging view.
+  - [ ] The head still pins: scrolled to the end, its count and its action button are still on
+        screen.
+  - [ ] The left panel's sections are confirmed unaffected, with the reason in the log.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/styles/app.css`, possibly
+  `src/renderer/src/components/DetailPanel.tsx`, `CLAUDE.md`
+- **Verify:** build, launch through `tools/launch-app.mjs`, open a commit touching about thirty
+  files, set `.file-list`'s `scrollTop` over CDP and read back the head's rect against the rect of
+  every row that overlaps it — the reproduction above is the before value.
+- **Log:**
+  - 2026-09-06 proposed by GR-026, from Ricardo's inbox: reproduced on a 33-file commit, and the
+    part he could not account for is the cause — sticky insets resolve against the content box while
+    clipping happens at the padding box, so GC-142's 12px padding is a strip the head does not cover.
+
+---
+
 
 ## Reviews
 
@@ -826,130 +961,106 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
 
-### GR-025 Backlog review 2026-09-06 19:35
+### GR-026 Backlog review 2026-09-06 21:05
 
 - **Status:** done
-- **Window:** 7e75deb..c97776b
+- **Window:** c97776b..8b94374
 - **Log:**
-  - 2026-09-06 19:35 inbox: **three items in Pending**, all three investigated, all three
-    reproduced in the built app or confirmed in the source, and all three ticketed — as four
-    tickets, because the third item names two halves that stand apart. Nothing declined, nothing
-    left in Pending. Item by item:
-  - inbox 1 (the band should read as light off the lane, not a flat wash) **-> GC-201**. Confirmed
-    as written: `Band` is one rect at `BAND_TINT = 0.1`, the same opacity from the node's edge to
-    the cell's, measured on the fixture as `x 27, y 3, w 49, h 22, opacity 0.1, fill var(--lane-0)`.
-    His constraint is right and is carried into the acceptance verbatim: the paint must come from
-    the same lane variable, so an SVG `linearGradient` or a `color-mix` and never a literal, with
-    GC-186's three promises — drawn first in all three cell kinds, on every row, height and right
-    edge unchanged — asserted rather than assumed. Filed P3 and **after GC-200**, because that
-    ticket moves the band's left edge and a gradient's first stop is exactly that edge. One thing
-    added from the study he did not have: `03-graph.md` line 45 records the *place* and the 50%
-    selected-row tint and says nothing about the paint, so the gradient is our own call.
-  - inbox 2 (the band does not attach to the circle) **-> GC-200**, and his geometry is exactly
-    right. Measured in the running app: node `cx 18, r 9` — stroke width 2, so the outer edge is at
-    r = 10 — against a band starting at `x 27` with `h 22`. At x = 27 the circle spans only
-    ±sqrt(10² − 9²) = ±4.36px, so the band's square corner stands clear of the arc from y 3 to
-    y 9.6 and again from y 18.4 to y 25. Two 10x clips are the evidence and both are unmistakable:
-    `03-commit-node-zoom.png` (a filled commit node) and `02-node-zoom.png` (the dashed WIP node on
-    a selected row, where the wedges are widest). His proposed fix — run the band from the node's
-    **centre** and let the circle paint over it — is sound and is written as the straightforward
-    option rather than as the requirement: `Band` is already drawn first in all three cell kinds.
-    His ask to check the WIP and stash nodes is in the scope and in an acceptance box of its own,
-    with the reason he could not have known: both are filled as well as dashed
-    (`--bg-panel` / `--bg-app`), so the risk is a tinted ring through the gaps in the dash rather
-    than a band showing through the middle. The study is on his side too — the same line records "a
-    wider app-background **mask** hides lines behind the node", so GitKraken does not butt a
-    rectangle against a circle either.
-  - inbox 3 (an amended commit could not be pushed) **-> GC-202 and GC-203**, split at the seam he
-    drew himself. His reading of the code is exactly correct: `PushRequest.force` is typed,
-    `ipc.ts` validates it as `force: !!r.force`, `push()` turns it into `--force-with-lease`, and
-    all five call sites in `App.tsx` (2354, the popover, 1675, 1689, 1540/1543) pass only `remote`,
-    `branch` and `setUpstream` — a grep for `force` outside `deleteBranch` finds it in the type, the
-    handler and the git call and nowhere else. That half is **GC-203**, P2, behind a confirmation
-    through `useUi().confirm`, `--force-with-lease` only and never `--force`, with his amend-path
-    observation in scope: the ahead/behind is already in the snapshot, so warning at the Amend
-    checkbox is a derivation and not a git call.
-    The other half is the better ticket and is filed **P1 as GC-202**, because I reproduced it and
-    it is worse *and* smaller than it looked. Amending a pushed commit in the review's own scratch
-    repository and pressing Push in the app: git wrote seven lines and **all seven crossed IPC
-    intact** — they are sitting on the status bar button's `title` — while the bar drew
-    `error: failed to push some refs to 'C:\Users\...\remote.git'`, which is the one line naming
-    neither the cause nor the remedy, with the path taking most of the width
-    (`11-push-rejected.png`). So this is not a message that was lost, it is two wiring faults:
-    `headline()` matches `^(error|fatal):|CONFLICT|failed` and so prefers the `error:` line over the
-    `! [rejected] main -> main (non-fast-forward)` line above it, and GC-169's details dialog —
-    which already exists and already shows the whole of git's message — is wired to
-    `onErrorDetails` for credential failures alone, so every other multi-line failure dismisses on a
-    click with its hints in a tooltip. Fixing it makes every push, pull, merge and rebase failure
-    legible, whatever is decided about GC-203, which is why it goes first and why GC-203 depends
-    on it.
-  - shipped: **four commits, one of them code.** `1cfb619` and `c97776b` are claims, `eb29407` is
-    GR-024, and `aa4c569` is GC-189/190/173/166/171/175 at 33 files and +1416/-409. Read as a
-    reviewer, it holds up. `getFileLog` is the same `--date-order` traversal and the same
-    `LOG_FORMAT`, and GC-166 extracted `parseCommits` so the two cannot drift — the right move.
-    `scopeOf`'s new `config` case cannot loop, for the reason its own comment gives: a full reload
-    reads config and never writes it. `revisitTab` drops the empty tab with a `setTabs` and touches
-    neither `gitclient.tabs` nor the reopen stack, which is correct since neither holds an empty
-    tab. `DiffView`'s `nav` and `hist` are both derived during render against the identity they
-    were chosen for, which is GC-075's discipline applied without an effect. The one thing I would
-    have written differently is not worth a ticket: the history is keyed `repo|path` with no
-    `version`, so a commit made while a file view is open leaves the list one commit short until
-    the view is reopened — deliberate ("a visit to it is not a fetch"), narrow, and self-correcting.
+  - 2026-09-06 21:05 inbox: **two items in Pending**, both investigated, both reproduced in the
+    built app, both ticketed. Nothing declined, nothing left in Pending. Neither counts against the
+    reviewer's own budget.
+  - inbox 1 (we should be able to see images) **-> GC-208**. Reproduced: opening
+    `docs/screenshots/gc175-01-graph-dark.png` from a commit's file list draws "Binary file." and
+    nothing else (`05-binary-diff.png`). Every line of his reading of the code checked out —
+    `DiffView.tsx:550`, `parseDiff.ts:165`, `looksBinary`, and the constraint that matters,
+    `child.stdout.setEncoding('utf8')` at `git.ts:146`, which is why the bytes cannot come down the
+    path every other diff uses. His CSP note is right too: `index.html` already carries
+    `img-src 'self' data:`, so a base64 blob needs no change there. Both questions he said had to be
+    settled first are written into the scope as decisions the ticket must make and record — the
+    binary-safe transport, and which kinds are shown with what happens to the rest, since "binary"
+    covers a 40MB video as well as a 12KB icon. One thing added that he could not have seen: on that
+    same binary file the header's `Unified | Split` control is **live**, both buttons enabled with
+    nothing to lay out either way, while the two hunk arrows beside it are correctly disabled — so
+    GC-188's rule is unapplied one case over, and it is in this ticket because the same control has
+    to answer for whatever an image body becomes. Filed M/P3 beside GC-204, the other Build row of
+    the study's file panel.
+  - inbox 2 (the "33 files changed" head sits over the rows) **-> GC-209**, and **the part he could
+    not account for is the cause**. He wrote that the capture did not add up — a row above a head
+    stuck at `top: 0` should be clipped away entirely — and asked for it to be reproduced before
+    anything was decided. It reproduces on the same file he named. The two edges are not the same
+    edge: a sticky inset is resolved against the scroll container's **content** box while overflow
+    clipping happens at its **padding** box, and `.file-list` carries GC-142's `padding-top: 12px`.
+    Measured at 1400x900 on a 33-file commit with the list scrolled to 100 — list rect top 345,
+    `border-top` 1px so the scrollport clips at 346, `padding-top` 12px so the head is stuck at 358,
+    and the `TICKETS.md` row spans 344 to 370, putting 12 of its 26 pixels in the strip the head
+    does not cover. `04-sticky-head.png` shows the top half of that row's name and its kind icon
+    legible above the band. So it is not the head's colour and not a missing shadow: it is 12px of
+    padding on the sticky edge of a scroll box, and the fix is to make the two edges the same edge.
+    Filed P2 — it is small, and it hits any commit with more files than the list can show, which is
+    most of them. His reading that the pinning itself is deliberate is right and is in Out of scope,
+    since GC-206 depends on it.
+  - shipped: **thirteen commits, two of them claims and one a review.** `b70c473`/`c249ecc` closed
+    GC-191, GC-192, GC-193, GC-194, GC-195 and GC-177; `8b94374` and the six commits under it closed
+    GC-202, GC-200, GC-197, GC-196, GC-178 and GC-183. Read as a reviewer it holds up, and two
+    things are worth naming. GC-202's `HEADLINE_PATTERNS` is the right shape — an ordered list tried
+    one at a time, with the rejection pattern first because its parenthesis is the reason, replacing
+    a single alternation that matched in document order — and it is exported and covered by 112 new
+    lines of `StatusBar.test.tsx`; `failureParts` correctly returns `null` for a one-line failure,
+    which is what leaves that case exactly as it was, and only `auth` opens the dialog unasked.
+    GC-196's e2e follow-through is the other: the count became its own `.count` element, and the
+    step-1634 wait was rewritten to find the group by title and read the number off that element
+    rather than out of one label string — the kind of change that is silently skipped and was not.
     No new ticket came out of the code-review pass.
-  - health: at `c97776b` in the detached worktree with `node_modules` junctioned — **typecheck ok,
-    495 tests passed (26 files)** in 15.29s, **build ok** into the worktree's own `out/`, whose
-    mtime I checked against `MAIN`'s to confirm nothing was written there. `MAIN` was never built,
-    tested or launched.
-  - app: the worktree's build ran offscreen on 9334 against the review's own scratch root. Eleven
-    captures in `%TEMP%/gitclient-review/GR-025/`, all looked at. `01` is the graph with GC-186's
-    band; `02` and `03` are the 10x node clips that carry GC-200. `04` commit, `05` staging, `06` a
-    diff. `07` is **GC-166's History list**, this window's new surface, working: two rows for
-    `a.txt` with summary, author, GC-135's relative time and the short sha, and the diff-only
-    controls correctly greyed with `HISTORY_OFF` on them. `08`–`10` are this run's rotation, the
-    **light theme** (GC-175) — graph, commit view and the branch context menu, which is the surface
-    GR-024 did not take. It reads as intended: the ramp is subtle by construction, since the dark
-    ratios it reproduces are 1.16:1 between adjoining surfaces. I measured text contrast rather
-    than judging it, and it is sound — graph message 8.87:1, ref row 9.90, statusbar path 5.47,
-    graph author 5.15; the weakest is `.ctx-hint` at 3.35:1, which is a 12px hint and the same
-    role dark gives its dimmest alpha, so I am recording it here rather than filing it. `11` is
-    the rejected push behind GC-202.
-  - tickets: added **GC-200** (ui, S, P2), **GC-201** (ui, S, P3), **GC-202** (ui, S, P1),
-    **GC-203** (actions, S, P2) and **GC-204** (diff, M, P3). The first four are the inbox and do
-    not count against the reviewer's own budget; **GC-204 is this review's own**, from the
-    what's-next pass. `04-panels.md` puts Blame and History in one slot of the file view's header,
-    GC-166 shipped History into exactly that slot last night, and GC-166's own Out of scope says
-    "Blame … is its own ticket" — which nobody then wrote, though GR-018 and four reviews after it
-    all named it as "worth a later look". Every reason to defer it has gone: the surface, the
-    segmented control, the identity-keyed load and `time.ts` all exist, and it is the last Build row
-    of `06-feature-inventory.md`'s file panel still missing. Deduplicated against every open row:
-    nothing touches the band, the push path, the status bar's headline or the file view's modes;
-    GC-198 is the containment check GC-204 wants and is named as a soft dependency rather than
-    duplicated.
-  - board: **GC-202 goes above every open todo**, at P1 — a push rejected as non-fast-forward is
-    an ordinary situation with no explanation and no way through, and the fix is small because the
-    message and the dialog both already exist. Then **GC-200** and **GC-203** in the P2 block ahead
-    of GC-197 and GC-196: GC-200 is on every row of the main screen and is a few lines of geometry,
-    and GC-203 sits with the ticket it depends on. **GC-201** and **GC-204** go into the P3 block
-    after GC-199, before the two blocked L tickets. Nothing already on the board moved.
-  - hygiene: `blocked` is GC-017, GC-018 and GC-081, none unblockable from here for the reasons
-    GR-022 gave. Six tickets are `in-progress` at `c97776b` (GC-191, GC-192, GC-193, GC-194,
-    GC-195, GC-177), claimed while this review was preparing; the board was re-read immediately
-    before this write and no new id collides with any of them. No `todo` has gone vague; GC-196's
-    dependency on GC-191 and GC-192 still reads correctly now that both are being implemented.
-  - notes: `CLAUDE.md` at `c97776b` says "495 tests today", which matched this run exactly, and its
-    GC-166, GC-171, GC-173, GC-175 and GC-190 paragraphs are all current. GR-020's finding about
-    the GC-135 paragraph is settled — GC-171 shipped and `CLAUDE.md` now states the `--row-when-w`
-    rule and retracts the old "at 300px the name is back at its natural width" claim by name.
-    Nothing stale found this run. Flagged here rather than edited; the reviewer never touches
+  - health: at `8b94374` in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    521 tests passed (27 files)** in 3.57s, **build ok** into the worktree's own `out/`, whose mtime
+    (20:53) I checked against `MAIN`'s (20:08) to confirm nothing was written there. `MAIN` was never
+    built, tested or launched.
+  - app: the worktree's build ran offscreen on 9334 against the review's own scratch root. Nine
+    captures in `%TEMP%/gitclient-review/GR-026/`, all looked at. `01` graph, `02` commit, `03`
+    staging and `09` a text diff are the spread; GC-186/GC-200's band, GC-183's file-kind marks on
+    the WIP row and GC-104's intra-line marks all read correctly. `04` and `05` carry the two inbox
+    items. This run's rotation is the **Preferences dialog** and the **empty tab**, neither taken by
+    GR-024 or GR-025. Preferences confirms GC-195 shipped as described and measures right:
+    `.modal` padding `16px 0`, `.modal-body` padding `0 16px`, body 441-959 inside a modal 440-960,
+    so the scrollbar sits at the dialog's own edge with the content inset — the defect Ricardo
+    reported is gone (`06-preferences.png`). The empty tab (`08`) shows GC-163 and GC-164 working:
+    a real tab labelled "New Tab" with its own close box, the recents list under it, and GC-165's
+    start-ellipsised paths keeping the folder that names each entry.
+  - tickets: added **GC-208** (diff, M, P3) and **GC-209** (ui, S, P2), both from the inbox.
+    **No ticket of the reviewer's own this run, and that is a deliberate call rather than a quiet
+    one.** The UI pass's candidates were all already on the board and were deduplicated against it:
+    the staging lists' equal share is GC-207 (visible again in `03`, three unstaged and two staged
+    in two half-empty boxes), the stash row is GC-199, the band's paint is GC-201, the unvirtualised
+    file list is GC-206 and the unmovable form boundary is GC-205. The what's-next pass re-read
+    `06-feature-inventory.md` against the board and its strongest remaining row is line 14's image
+    diff — which is inbox item 1, so it is filed once as GC-208 rather than twice. One inconsistency
+    was found and judged not worth a ticket: GC-197 gave the staging view's three heads a chevron
+    and a toggle while the commit view's single head has neither, so GC-142's "a file list is one
+    thing in both views" has drifted — but collapsing the only group in the commit view would leave
+    an empty panel, so the divergence is the correct behaviour and only the shared selector looks
+    odd. Recorded here instead.
+  - board: **GC-209 goes directly under GC-203**, at the bottom of the P2 block — GC-203 is a
+    workflow with no way through and outranks a rendering defect, but GC-209 is small, certain and
+    on the panel a user reads on every commit. **GC-208 goes above GC-204** in the P3 block, so the
+    study's two file-view Build rows sit together and the one Ricardo asked for is the first of
+    them. Nothing already on the board moved.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081, none unblockable from here — GC-081 still waits
+    on Ricardo's call between accepting 219 calls / 5.4s and making `check()`'s detail lazy, which
+    is a trade about what the run reports and not a refactor. Nothing is `in-progress` at
+    `8b94374`: the worker closed its batch and left no claim standing, and the board was re-read
+    immediately before this write. No `todo` has gone vague, and GC-201's dependency on GC-200 is
+    now satisfied since GC-200 is `done`.
+  - notes: `CLAUDE.md` at `8b94374` says "521 tests today", which matched this run exactly, and its
+    GC-196, GC-197, GC-200 and GC-202 paragraphs are all current and accurate against the code I
+    read. Nothing stale found. Flagged here rather than edited; the reviewer never touches
     `CLAUDE.md`.
-  - isolation: `MAIN` was never built, tested or launched, and its working tree — which held
-    twenty-one of the worker's uncommitted source edits and screenshots throughout — was left
-    exactly as found; this write waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean and
-    stages only those two. The worktree was added and removed through
+  - isolation: `MAIN` was never built, tested or launched, its working tree was clean throughout and
+    was left exactly as found, and this write waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be
+    clean and stages only those two. The worktree was added and removed through
     `tools/scratch-worktree.mjs` (GC-189), which reported `node_modules: 109 entries` on the way in
-    and asserted `.bin` on the way out. The only repository written to was the review's own scratch
-    root, where a commit was amended to produce the rejected push and then reset back to
-    `772b41b` so the next run's fixture is undrifted; `catena-feed` and `kyushu-route` were **not
-    opened**. The review's Electron on 9334 was found by command line and stopped by PID tree,
-    leaving nothing listening on the port; four unrelated `electron.exe` processes belonging to
-    `MAIN`'s checkout were left alone, which is what rule 4 exists for.
+    and asserted `.bin` on the way out. The repositories opened were the review's own scratch root
+    and the review's own detached worktree — the latter read-only, to get a commit with enough files
+    to reproduce inbox item 2, since the e2e fixture's largest touches three; **no write operation
+    ran in either**, and `catena-feed` and `kyushu-route` were not opened. The review's Electron on
+    9334 was found by command line and stopped by PID tree, leaving nothing listening on the port;
+    four unrelated `electron.exe` processes were left alone, which is what rule 4 exists for.
