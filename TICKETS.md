@@ -230,6 +230,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | done |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | done |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | done |
+| GC-086 | The diff body blanks to "Loading diff…" on every hunk action, twice | diff | S | P1 | todo |
+| GC-089 | Slim CLAUDE.md back down to a handover: the history moves to the tickets | infra | M | P1 | todo |
 | GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | in-progress |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | in-progress |
@@ -237,6 +239,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | in-progress |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | todo |
+| GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
@@ -269,6 +272,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
 | GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | todo |
 | GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | todo |
+| GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | todo |
 | GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
@@ -4192,6 +4196,198 @@ decision is missing.
     shrink rule matching nothing in the row and the `+N` tooltip behind a chip that hides itself
     before the tooltip can appear.
 
+### GC-086 The diff body blanks to "Loading diff…" on every hunk action, twice
+
+- **Status:** todo
+- **Area:** diff | **Size:** S | **Priority:** P1
+- **Depends on:** GC-075
+- **Why:** GC-075 keyed the loaded diff to `viewKey`, and that key includes `version`
+  (`src/renderer/src/diff/DiffView.tsx:38`). `workdirVersion` is bumped by every `refreshStatus()`,
+  so after a Stage hunk click the key changes, `current` goes null and the body renders
+  `Loading diff…` until the reload lands — and it happens twice, because the action's own status
+  reload bumps the version once and the watcher's parked `.git/index` event, flushed when `busy`
+  clears (`App.tsx:300-303`), bumps it again. Measured over CDP on the review's scratch repository at
+  bf02975 with a MutationObserver on `.diff-body` across one Stage hunk click on `big.txt`
+  (`%TEMP%/gitclient-review/GR-008/observe.js`): `2 hunks|@@ -1,6 +1,6 @@` →
+  `0 hunks|Loading diff…` → `1 hunks|@@ -32,7 +32,7 @@` → `0 hunks|Loading diff…` →
+  `1 hunks|@@ -32,7 +32,7 @@`. Before GC-075 the previous hunks stayed on screen until the new text
+  arrived; GitKraken's diff never blanks on a hunk stage, the hunk simply leaves the list. The
+  guarantee GC-075 exists for — no hunk button acting on a diff loaded for another view — needs the
+  *identity* of the view, not its version: a reload of the same file on the same side is a refresh
+  of what is already on screen, and the buttons are gated by `actionsDisabled` while it is pending.
+- **Scope:**
+  - Split the key. The content stays rendered while the view identity
+    (`repo|source|path|sha` or `repo|source|path|staged|kind`) is unchanged, and only that identity
+    changing drops the body to the loading line. A `version` change starts a reload as today and
+    keeps `actionsDisabled` true until it lands (the pending load's key is not the loaded key), so
+    GC-075's guarantee holds: no button is live over content whose load is not the newest.
+  - While a same-view reload is pending the stale content is dimmed (a class on `.diff-body`, one
+    opacity rule), so a slow reload is visible without a blank.
+  - Repeat GC-075's render-trace check both ways: the trace across a Stage hunk click shows no
+    `Loading diff…` state, and the trace across a switch from Unstaged to Staged of the same file
+    still shows none of the other side's hunks under the new header.
+- **Out of scope:** the double reload itself (the watcher echo of the action's own index write —
+  `run()` could mark the change it caused as already applied, but that is GC-011's territory and a
+  ticket of its own if it is wanted), GC-083's error body, GC-084.
+- **Acceptance:**
+  - [ ] MutationObserver trace across Stage hunk on the fixture's `big.txt`: no state carries
+        `Loading diff…`; the hunk count goes 2 → 1 with no empty body between.
+  - [ ] Trace across Unstaged → Staged of the same file: no frame shows the previous side's added
+        lines under the new chip (GC-075 preserved), and `Unstage hunk` stays disabled until the
+        staged diff has landed.
+  - [ ] A view-identity change (another file, or the other side of the same file) shows
+        `Loading diff…` immediately, never the previous view's hunks.
+  - [ ] `npm run e2e` passes; step 21's content-keyed `waitDiff` is the regression net.
+- **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** typecheck, build, the two CDP traces above, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GR-008: measured on the shipped GC-075 — one hunk click blanks the body
+    twice, where the previous render kept the hunks in place until the new ones arrived.
+
+### GC-087 The commit view's ref line is git's decorate string, truncated to "origin/m…"
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-078
+- **Why:** `src/renderer/src/components/DetailPanel.tsx:330` renders `commit.refs.join(', ')` — the
+  `%D` decoration as git hands it back — so the top-right of the commit view reads
+  `HEAD -> main, tag: v0.1.0, origin/m…` at the default 400px panel width (GR-008's
+  `08-commit-selected.png`; GR-006 saw `origin/m…` and GR-007 `origin…` on the same line). Three
+  things are wrong with it: `HEAD -> ` and `tag: ` are git's syntax, not the app's; the list
+  ellipsises at its end, so the remote is the ref that disappears; and it is the only place refs are
+  shown as text — the graph shows the same refs as chips, and the study's commit panel
+  (`04-panels.md`, "Detail panel: commit view"; `03-commit-selected.png`) has no ref list at all,
+  only `commit:` and `parent:`. The line does what a tooltip does and takes the header for it.
+- **Scope:**
+  - Render the commit's refs as `.ref-chip`s with the graph's classes and icons (check mark on
+    HEAD's branch, cloud on a remote, tag icon on a tag), wrapping onto their own row under the
+    `commit:` line rather than sharing it; no `HEAD -> ` or `tag: ` prefixes.
+  - Reuse the graph's ordering (HEAD, locals, remotes, tags) and its absorb-the-upstream rule, so
+    `main` + `origin/main` at the same commit is one chip with the cloud mark, as in the graph.
+  - Right-click on a chip opens the same `refMenuItems` menu the graph's chips open; double-click
+    checks out through `runCheckout`.
+  - Lift the chip markup into one component both `CommitGraph.tsx` and `DetailPanel.tsx` render,
+    rather than duplicating it — after GC-078 has settled what a chip row looks like.
+- **Out of scope:** the `+N` fold (the panel wraps instead), hover expansion, the WIP view's header,
+  the `title` tooltip (it can stay as the full list).
+- **Acceptance:**
+  - [ ] On the fixture's merge commit (`main`, `origin/main`, `v0.1.0`) the header shows two chips,
+        `main` with the cloud mark and `v0.1.0`; no `HEAD -> `, no `tag: `, no ellipsis at 400px.
+  - [ ] A commit with no refs shows no ref row and leaves no empty space where one would be.
+  - [ ] Right-click on the `main` chip opens the branch menu; `npm test` and `npm run e2e` pass.
+- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/graph/CommitGraph.tsx`
+  (the chip component moves out), `src/renderer/src/styles/app.css`.
+- **Verify:** typecheck, build, a CDP screenshot of the merge commit into `docs/screenshots/`,
+  `npm test`, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GR-008: from the screenshot pass — the third review in a row to see this
+    line truncated, and the study's panel does not have it at all.
+
+### GC-088 Branch breadcrumb dropdown: switch branches from the toolbar
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P2
+- **Depends on:** GC-066, GC-067
+- **Why:** The toolbar's breadcrumb is two controls in the study — `repository / name` and
+  `branch / name`, both dropdown buttons (`01-layout.md`, "Toolbar detail"; `04-panels.md`,
+  "Dropdowns": 250px DOM menus with group headers; `05-menus-shortcuts.md`, "Toolbar dropdowns":
+  the branch breadcrumb opens a search box with local and remote branches grouped, checkout on
+  select). Ours has the repository half since GC-044, and the branch half is a plain `div.crumb`
+  (`src/renderer/src/components/Toolbar.tsx:103-113`) that shows the name and the ahead/behind badge
+  and does nothing on click, although it is drawn exactly like the control beside it that does.
+  GC-044 named it out of scope. It is the quickest way GitKraken offers to switch branches without
+  finding the row in the left panel or the chip in the graph, and everything it needs exists:
+  `openMenu` with an `owner` for the toggle (GC-066), `caption` rows for the group headers (GC-067),
+  `runCheckout` for the dirty-tree guard (GC-004, GC-019) and the tracking-branch checkout the left
+  panel's remote rows already use.
+- **Scope:**
+  - The branch crumb becomes a `button.crumb.as-button` like the repository one and opens a menu
+    anchored at its bottom-left corner: caption `Local`, one row per local branch (the checked-out
+    one marked and disabled), caption `Remote`, one row per remote branch (`origin/feature`); each
+    row's hint is the ahead/behind text when there is one, else the short sha.
+  - Selecting a row checks the branch out through `runCheckout` — a remote row through the
+    tracking-branch path — so the dirty-tree prompt and "Stash and check out" apply unchanged.
+  - On a detached HEAD the crumb still reads `detached HEAD` and the menu still opens, no row marked.
+  - A second click closes it (GC-066's owner toggle); Escape closes exactly it (it is a
+    `ContextMenu`, so `layerOpen` already covers it) — nothing new joins the Escape handler.
+- **Out of scope:** a search box inside the menu (the left panel's `Filter refs` is the filter
+  today; a `MenuItem` that hosts an input would be a new UI primitive and its own ticket once the
+  list is long on a real repository), favourites, tags in the menu, the study's fixed 250px width
+  (our menus size to content, capped at 420px).
+- **Acceptance:**
+  - [ ] Clicking the branch crumb on the fixture opens a menu with `Local` (feature, main marked,
+        wip-branch) and `Remote` (origin/feature, origin/main, origin/wip-branch); a second click
+        closes it; Escape closes it and nothing behind it.
+  - [ ] Choosing `feature` with the fixture's dirty tree raises the GC-004 prompt naming the files at
+        risk; Cancel leaves `git rev-parse --abbrev-ref HEAD` at `main`; "Stash and check out" lands
+        on `feature` with the tree re-applied (the e2e step 15 pattern).
+  - [ ] Choosing a remote branch with no local counterpart creates the tracking branch and checks it
+        out (`git branch -vv` shows `[origin/<name>]`).
+  - [ ] An e2e step covers the first two; `npm run e2e` passes.
+- **Files:** `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/App.tsx` (an
+  `openBranchMenu(at)` beside `openRepoMenu`), `src/renderer/src/styles/app.css` (the crumb's hover
+  state), `tools/e2e/run.mjs`, `CLAUDE.md` (the "openPath / openRepoMenu" paragraph).
+- **Verify:** typecheck, build, `npm test`, `npm run e2e`, a CDP screenshot of the open menu into
+  `docs/screenshots/`.
+- **Log:**
+  - 2026-09-06 proposed by GR-008: from the what's-next pass against `05-menus-shortcuts.md`
+    "Toolbar dropdowns" — the one toolbar control in the study that ours draws but does not wire.
+
+
+### GC-089 Slim CLAUDE.md back down to a handover: the history moves to the tickets
+
+- **Status:** todo
+- **Area:** infra | **Size:** M | **Priority:** P1
+- **Depends on:** none
+- **Why:** Ricardo, joining GR-008's session: the file "already starts having too much crap" and
+  needs a revision ticket. Measured at 9206ba6: **867 lines, 10,940 words, 71 KB**, touched by 31
+  commits in two days, with 147 `GC-0NN` citations to 59 tickets. The Architecture section is 356
+  lines and Testing 219, most of it ticket-by-ticket narrative — what was tried first, which
+  mutation check ran, what a flake looked like — that the ticket logs already hold word for word;
+  the "Done" paragraph alone is 1,265 words listing every shipped ticket, a list the board in
+  `TICKETS.md` already is. Both routines read the whole file before they can start, so every word
+  costs context on every run, and the rules that matter (the two hard rules, stealth launches, the
+  narrow stops, one Escape one layer, no early forking) sit inside paragraphs about how they came to
+  be. The file's own opening line says what it is for: "everything a fresh session needs to continue
+  the work without re-deriving it". History a session does not need in order to act is the opposite.
+- **Scope:**
+  - Rewrite `CLAUDE.md` so each section describes the current state of the thing — what it is, the
+    invariant to keep, one line of reason where the reason is not obvious — and move every
+    "how we got here" narrative to the ticket it belongs to: check the ticket's log already says it
+    and append a line there when it does not, then delete it from `CLAUDE.md`. A `GC-0NN` citation
+    stays only where a reader would follow it for the *why* of a rule that looks arbitrary; it goes
+    where it is a credit.
+  - Replace the "Done" paragraph with one sentence pointing at the board plus the short list of
+    design decisions that must not be undone (date order, no early forking, column 0 for HEAD, one
+    Escape one layer, stealth launches and narrow stops, the per-port profile, LF working copy, study
+    never copy, no writes against the real repositories).
+  - Testing: keep what each suite covers as a list of surfaces, the fixture's shape, the re-entrancy
+    rules a new step must respect, and the conventions for adding a test (extension picks the
+    environment, no globals, the `act` wiring); drop the per-step narratives and the per-test
+    mutation-check anecdotes.
+  - Target **under 400 lines and 5,000 words** without losing one rule or command: before the
+    rewrite, extract every imperative sentence (must / never / only / do not / always) and every
+    command from the current file into a checklist, and tick each one as present in the new file.
+- **Out of scope:** changing any convention (this ticket documents, it does not decide),
+  `README.md`, the study notes, `TICKETS.md` beyond appended log lines, splitting the file: one file
+  is what both routines read, and a second is a second thing to keep in sync — if a section truly
+  wants its own file, say so in the log for Ricardo to decide.
+- **Acceptance:**
+  - [ ] `wc -l -w CLAUDE.md` under 400 / 5,000 (from 867 / 10,940 at 9206ba6).
+  - [ ] The checklist is complete and in the ticket log (or its counts and the diff of the two
+        extractions): every rule and command in the old file has a counterpart in the new one.
+  - [ ] Cold read: the Routine protocol's steps 1–6 and the Review routine's isolation rules can be
+        followed from the new file plus `TICKETS.md` alone, and the commands it names run:
+        `npm run typecheck && npm test && npm run build`, then `npm run e2e:setup && npm run e2e`.
+  - [ ] Every removed narrative is in its ticket's log (already, or appended in the same commit);
+        `grep -c 'GC-0' CLAUDE.md` well below 147 and each remaining citation sits beside a rule.
+- **Files:** `CLAUDE.md`, `TICKETS.md` (appended log lines only).
+- **Verify:** the counts, the checklist, the cold read, `npm test` (the hygiene test still guards the
+  LF working copy and control bytes).
+- **Log:**
+  - 2026-09-06 asked for by Ricardo during GR-008's session, filed by GR-008: 867 lines, 10,940
+    words, 147 ticket citations and 31 commits to the file in two days.
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -4627,3 +4823,86 @@ appends its own section here.
     Unit tests paragraph's 72 tests and Testing paragraph's 88 assertions match. Its Graph section's
     `chipBudget(refColW)` sentence ("one per 75px of ref column, 1 to 6") and GraphCell's "curves in
     and out" wording will go stale when GC-078 and GC-077 ship — the worker updates them then.
+
+### GR-008 Backlog review 2026-09-06 02:25
+
+- **Status:** done
+- **Window:** 496aa94..bf02975
+- **Log:**
+  - 2026-09-06 02:25 shipped: 42a3fd0 (GR-007's review), 5655a34 (Ricardo dropping subagents from
+    the routine protocol, keeping multi-ticket batches), 3dca449 (filed GC-080 and GC-081 — and
+    carried the code of GC-068, GC-075 and GC-076 under that message: the `generation` ref in
+    `App.tsx`, `App.test.tsx`, `DiffView`'s `viewKey`, `restoreFixture()` and step 22 in `run.mjs`,
+    the `refs/e2e/baseline/*` snapshot in `setup-testrepo.mjs`), 67d0e7f (the real close-out of those
+    three: `CLAUDE.md`, the ticket logs, `gc075-staged-diff.png`), 019ce92 (Ricardo's note recording
+    the early landing on all three tickets) and bf02975, the claim of GC-077, GC-078, GC-079, GC-049,
+    GC-061 and GC-069, `in-progress` throughout and not touched. Read as a reviewer: the generation
+    counter is captured before every read and checked after, the failure path of `load()` included,
+    and `openPath()` bumping it is the right extension of the Scope; `restoreFixture()` matches
+    commits by subject and resets `--soft`, as the ticket argues it must, and its `EXPECTED_STATUS`
+    encodes the post-pop unstaged state that GC-082 already promises to update; `DiffView`'s key
+    includes `version`, which is what makes the body blank on every action — GC-086 below. Every
+    ticked box in the window has evidence in its log, including the three mutation checks and the
+    honest note on GC-075's third criterion (the offscreen 10fps capture could not catch the frame,
+    the render trace stands in for it).
+  - health: typecheck ok, tests 74 passed (12 files), build ok, in the detached worktree at bf02975
+    with `node_modules` junctioned from the main checkout. No e2e run this review: the window's
+    e2e changes were verified five runs deep in GC-076's own log an hour earlier, and the time went
+    to the app instead.
+  - app: the worktree build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e` (fixture
+    recreated first). The 9334 profile still carried GR-005's `graphColumns` toggles, so `01-graph.png`
+    shows AUTHOR / DATE / TIME / SHA on; the blob was then removed over CDP and every later capture is
+    the default. Screenshots in `%TEMP%/gitclient-review/GR-008/`, all looked at: `02-graph-default.png`
+    (seven rows plus WIP, lanes continuous through the merge, `main` absorbing `origin/main` with the
+    cloud mark and `v0.1.0` beside it, `wip-bran…` / `orig…` and `featu…` / `origin/f…` truncated at
+    150px — GC-078, in progress at the time), `03-preferences.png` (rotating surface: three groups,
+    six rows, the pull-mode select, Close; against `12-preferences.png` ours is a modal where the
+    study's is a two-column page, a deliberate difference at this size), `04-pull-popover.png`
+    (caption, three radios and `Fetch all` as a separated row; the study's `11-pull-dropdown.png` has
+    four radios with Fetch All among them — acceptable divergence, noted), `05-left-expanded.png`
+    (rotating: TAGS with `v0.1.0`, STASHES with a `review stash` made on `big.txt` for the capture and
+    popped `--index` afterwards, the stash row's index badge; against `08-left-panel-expanded.png` the
+    tint, check mark and indent match, hide/solo remain GC-073), `06-left-row-menu.png` (the `feature`
+    row: Checkout, Merge, Rebase | Create branch | Pin to Left | Rename, Push and set upstream |
+    Delete | Copy — "and set upstream" is correct, `git branch -vv` shows `feature` and `wip-branch`
+    have no upstream in the fixture, which also means the two chips on `Extend feature` are right and
+    that no branch is ever ahead/behind, so the left panel's ↑/↓ and the crumb's `ab-badge` have
+    never been in a screenshot — noted for the fixture tickets, not filed), `07-wip-menu.png` (Stage
+    all, Unstage all | Stash changes… | Discard all), `08-commit-selected.png` (the merge commit: sha,
+    the ref line `HEAD -> main, tag: v0.1.0, origin/m…` — GC-087, message box, initials avatar, two
+    parent links, `+1 added`, `feature.txt`), `09-commit-diff.png` (`feature.txt` against the first
+    parent, icon rail 3 / 3 / 1 / 1), `10-wip-diff.png` (`a.txt` unstaged, Stage file / Discard
+    changes, one hunk with its two buttons; against `15-wip-diff-staging.png` the header and gutter
+    shapes match, hunk navigation and view toggles remain GC-052 and GC-014), `11-big-txt-before.png`
+    (the two-hunk file before the GC-086 measurement). GC-086's trace was taken on this app: a
+    MutationObserver on `.diff-body` across one Stage hunk click recorded
+    `2 hunks → Loading diff… → 1 hunk → Loading diff… → 1 hunk`; the index was reset afterwards and
+    `git status --short` matched the fixture. Stopped afterwards by PID: the 9334 tree was
+    32412 with children 25192, 40008 and 40028 (a first pass killed only one because the PowerShell
+    list carried CRs; the second, CR-stripped, took the rest); no electron.exe with 9334 on its
+    command line remained. The worker's own app on 9333 (pid 11680 at the start of the review) was
+    gone when checked at 02:21 and was not among the PIDs this review killed; the batch presumably
+    stopped it itself.
+  - what's next: the study's toolbar has two breadcrumb dropdowns and ours wires one, so the branch
+    crumb became GC-088; the study records no stash rows in the graph, so that GitKraken behaviour
+    stays unticketed until a hands-on session documents it. The Path | Tree toggle noted by GR-006
+    still waits on a fixture with a nested path. Ricardo joined the session while the write waited
+    for the worker's close-out and asked for a ticket to revise `CLAUDE.md`, which "already starts
+    having too much crap" — GC-089, measured on the spot at 9206ba6: 867 lines, 10,940 words, 147
+    ticket citations.
+  - tickets: added GC-086 (diff, S, P1: the body blanks twice per hunk action since GC-075 keyed the
+    diff on `version` as well as the view — from the code-review pass, confirmed by measurement),
+    GC-087 (ui, S, P3: the commit view's ref line rendered as chips — from the screenshot pass,
+    depends on GC-078 so the chip markup is lifted once), GC-088 (ui, M, P2: the branch breadcrumb
+    dropdown — from the what's-next pass) and GC-089 (infra, M, P1: `CLAUDE.md` slimmed back to a
+    handover, asked for by Ricardo). The worker's close-out 9206ba6 landed at 02:33 while this review
+    polled for a clean `TICKETS.md`, and its reflect step took GC-085, so this review's tickets start
+    at GC-086; 9206ba6 itself is outside this window and unreviewed here — GR-009's. Board: GC-086
+    heads the `todo` block ahead of GC-072 because it is a visible regression in shipped work,
+    GC-089 right behind it because Ricardo asked for it; GC-088 follows GC-073 as the last P2 row;
+    GC-087 follows GC-074 in the P3 block. Nothing else moved; blocked GC-017 and GC-018 still wait
+    on Ricardo's decisions.
+  - notes: at bf02975 `CLAUDE.md`'s "Done" paragraph was current through 67d0e7f (GC-068, GC-075,
+    GC-076) and its 74 tests and 91 assertions matched this window; 9206ba6 rewrote it again for six
+    more tickets, not checked here. GC-086 will change the Diff section's "only
+    `loaded.key === viewKey` is rendered" sentence when it ships, and GC-089 will change all of it.
