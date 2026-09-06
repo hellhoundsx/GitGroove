@@ -262,10 +262,16 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
 
 ### UI layer (`ui/`)
 
-`useUi()` gives `openMenu(at, items)`, `prompt(options)`, `confirm(options)`, and the pairs
-`dialogOpen`/`closeDialog()` and `menuOpen`/`closeMenu()` that let `App` own Escape.
+`useUi()` gives `openMenu(at, items)`, `prompt(options)`, `confirm(options)`,
+`confirmWithOption(options)`, and the pairs `dialogOpen`/`closeDialog()` and
+`menuOpen`/`closeMenu()` that let `App` own Escape.
 
-- **Every confirmation goes through `useUi().confirm`**; the native `confirm()` is not used.
+- **Every confirmation goes through `useUi().confirm`**; the native `confirm()` is not used. A
+  confirmation that carries an option goes through **`confirmWithOption`**, which is the same
+  question with `ConfirmOptions.checkbox` on it and answers `{ confirmed, checked }` (GC-131);
+  `confirm` is that function's `confirmed` and nothing else. Both are `prompt({ input: false })`
+  underneath, which is what a confirmation has always been — but only `UiContext` knows that, so
+  `prompt` in a call site now means a dialog with a real input.
 - `openMenu`'s `at` is a `MenuAnchor`: a right-click passes the event and leaves `owner` unset,
   while a control owning a dropdown passes itself as `owner` and gets a menu that toggles. That is
   decided from a capture-phase mousedown registered at mount, which therefore runs before the one
@@ -643,6 +649,13 @@ here. Rules a new step must respect:
   every 50ms. Four `sleep` calls are left, each commented with what is unobservable there — the
   newest being the frame after a viewport override, because `ContextMenu` closes on `resize` and
   the override's own resize event arrives after `window.innerHeight` has already changed (GC-126).
+- **A wait that a click follows must prove the control is live, not just that the content is right**
+  (GC-130). `waitDiff` and `waitSplitDiff` carry `LIVE_DIFF`, which refuses a `.diff-body.stale` —
+  `DiffView` disables every hunk button while a reload it has not confirmed is in flight, and the
+  watcher raises that 300ms behind the previous step's index write, so the very same hunks sit on
+  screen with nothing on them clickable. `hunkAction` then polls its own atomic find-check-click
+  rather than returning `DISABLED` into a `log()` that asserts nothing: a helper that gives up in
+  silence turns into a wait failing five seconds later, somewhere unrelated.
 - **`act()` covers one `run()`, not two.** A menu action that runs a second one after the first —
   a branch delete that also deletes the copy on its remote (GC-112) — satisfies `act` on the first
   reload while the second is still going. `waitGitFor` polls the git side, which is where that
@@ -712,7 +725,8 @@ and this file only where a convention, a command or an invariant above changed.
 Design decisions that must not be quietly undone, and where each is explained above: date order in
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
 one layer, a drop that opens no empty menu and checks out the branch it acts on, one shortcut
-table, every confirmation on the modal, the busy token every writer of `busy` takes (App state,
+table, every confirmation on the modal and an option on one carried by `confirmWithOption` rather
+than by a prompt with its input switched off, the busy token every writer of `busy` takes (App state,
 UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
 message column keeping `MIN_MSG_W` while the ref column gives way, the optional columns giving way
 after it, and only the applied widths ever clamped — on the drag path as well as the resize one, a
@@ -727,7 +741,8 @@ identity, the split layout a render of what is already loaded, a hunk patch buil
 (Diff); the hidden set applied to a path's first load
 (Graph); the lane colours interleaved rather than ramped (Graph); every colour a token, the
 theme resolved in `prefs.ts` (Styling, Preferences); a failing e2e git call throwing, its Electron
-stopped on every exit path (Testing);
+stopped on every exit path, and a wait before a click proving the control is live rather than only
+the content right (Testing);
 stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).
 

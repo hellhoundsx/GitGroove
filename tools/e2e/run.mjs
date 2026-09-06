@@ -470,11 +470,35 @@ const diffState = () =>
   ev(
     `(() => { const v = document.querySelector('.file-view'); return JSON.stringify({ open: !!v, name: v?.querySelector('.path .name')?.textContent ?? null, chip: v?.querySelector('.file-view-sub .chip')?.textContent ?? null, hunks: document.querySelectorAll('.file-view .diff-body .hunk').length, actions: [...document.querySelectorAll('.file-view .diff-body .hunk-actions .btn')].map(b => b.textContent.trim()).join(',') }); })()`,
   );
-/** Click one hunk's action button ("Stage hunk" / "Discard hunk" / "Unstage hunk") by hunk index. */
-const hunkAction = (index, label) =>
-  ev(
-    `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'no hunk ' + ${index}; const b = [...h.querySelectorAll('.hunk-actions .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no ' + ${q(label)} + ' on hunk ' + ${index}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' on hunk ' + ${index}; b.click(); return 'clicked ' + ${q(label)} + ' on hunk ' + ${index}; })()`,
-  );
+/** Click one hunk's action button ("Stage hunk" / "Discard hunk" / "Unstage hunk") by hunk index.
+ *
+ *  It waits for the button to come back rather than giving up on a disabled one (GC-130).
+ *  `DiffView` disables every action while `stale` is set — content on screen that the newest load
+ *  has not confirmed (GC-086) — and the watcher raises that on its own schedule, 300ms behind the
+ *  index write of the step before, so it lands in the middle of a step that changed nothing.
+ *  `waitDiff` below refuses a stale body now, so the ordinary path arrives here with live buttons;
+ *  this loop closes what is left, the CDP round trip between that wait and this call. The enabled
+ *  test and the click are one page turn, so nothing can slip between them. Before it, a disabled
+ *  button returned "DISABLED …" into a `log()` that asserts nothing, and the miss surfaced five
+ *  seconds later as the next `waitDiff` timing out on a fixture nothing had touched. */
+const hunkAction = async (index, label, max = 5000) => {
+  const start = Date.now();
+  for (;;) {
+    const r = await ev(
+      `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'no hunk ' + ${index}; const b = [...h.querySelectorAll('.hunk-actions .btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no ' + ${q(label)} + ' on hunk ' + ${index}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' on hunk ' + ${index}; b.click(); return 'clicked ' + ${q(label)} + ' on hunk ' + ${index}; })()`,
+    );
+    const waited = Date.now() - start;
+    if (!String(r).startsWith('DISABLED')) return waited < 50 ? r : `${r} (after ${waited}ms waiting for the button to come back)`;
+    if (waited >= max) {
+      check(`waited for ${label} on hunk ${index} to be enabled`, false, `still disabled after ${max}ms`);
+      return r;
+    }
+    await sleep(50); // the poll interval itself: there is nothing to observe between two polls
+  }
+};
+/** The half of both diff waits that says the body is live: not `.stale`, so every hunk button on it
+ *  is enabled and the click a caller makes next cannot be dropped (GC-130). */
+const LIVE_DIFF = ` && !document.querySelector('.file-view .diff-body.stale')`;
 /** Wait for the diff to be showing one side of a WIP file: the chip, the number of hunks **and the
  *  exact list of added lines it renders**. The content is the load-bearing half. `DiffView` starts
  *  the new load without clearing the text it already has, so between a click and the new diff
@@ -485,12 +509,17 @@ const hunkAction = (index, label) =>
  *  one, and `Unstage hunk` then rebuilt its patch from the wrong hunk and git rejected it into
  *  `DiffView`'s own error line. The added lines differ between the two sides, so matching them
  *  closes that window. Staging or unstaging a hunk reloads the diff through `workdirVersion`, so
- *  this is a strictly later moment than the click and there is nothing to sleep on (GC-053). */
+ *  this is a strictly later moment than the click and there is nothing to sleep on (GC-053).
+ *
+ *  It also refuses a body `DiffView` has marked `.stale` (GC-130). Matching content is not enough
+ *  on its own: a watcher refresh bumps `version` without changing a line, so the very same hunks
+ *  are on screen with every action disabled, and the click the caller makes next is dropped. */
 const waitDiff = (chip, hunks, adds) =>
   waitFor(
     `(document.querySelector('.file-view .file-view-sub .chip')?.textContent ?? '') === ${q(chip)}` +
       ` && document.querySelectorAll('.file-view .diff-body .hunk').length === ${hunks}` +
-      ` && [...document.querySelectorAll('.file-view .diff-body .hunk .line.add .code')].map(c => c.textContent).join('|') === ${q(adds.join('|'))}`,
+      ` && [...document.querySelectorAll('.file-view .diff-body .hunk .line.add .code')].map(c => c.textContent).join('|') === ${q(adds.join('|'))}` +
+      LIVE_DIFF,
     `the ${chip.toLowerCase()} diff to show ${hunks} hunk${hunks === 1 ? '' : 's'} adding ${adds.join(', ')}`,
   );
 
@@ -509,12 +538,14 @@ const splitRows = (index) =>
 /** `waitDiff` for the split layout, which tints the cells rather than the row, so `.line.add` no
  *  longer matches anything: the added lines are read off `td.code.add` instead. The content half is
  *  load-bearing here for the same reason it is there — a wait keyed on the hunk count alone is
- *  satisfied by the previous side's render while the new load is still in flight (GC-014). */
+ *  satisfied by the previous side's render while the new load is still in flight (GC-014). The
+ *  `.stale` half is `waitDiff`'s and applies unchanged: the layout switch does not move it. */
 const waitSplitDiff = (chip, hunks, adds) =>
   waitFor(
     `(document.querySelector('.file-view .file-view-sub .chip')?.textContent ?? '') === ${q(chip)}` +
       ` && document.querySelectorAll('.file-view .diff-body .hunk-lines.split').length === ${hunks}` +
-      ` && [...document.querySelectorAll('.file-view .hunk-lines.split td.code.add pre')].map(p => p.textContent).join('|') === ${q(adds.join('|'))}`,
+      ` && [...document.querySelectorAll('.file-view .hunk-lines.split td.code.add pre')].map(p => p.textContent).join('|') === ${q(adds.join('|'))}` +
+      LIVE_DIFF,
     `the split ${chip.toLowerCase()} diff to show ${hunks} hunk${hunks === 1 ? '' : 's'} adding ${adds.join(', ')}`,
   );
 

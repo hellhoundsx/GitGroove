@@ -7,6 +7,18 @@ export interface ConfirmOptions {
   message?: string;
   okLabel?: string;
   danger?: boolean;
+  /**
+   * An option the confirmation carries, rendered as the modal's checkbox row (GC-131). Only
+   * `confirmWithOption` answers with the box's state; `confirm` returns a bare boolean and would
+   * drop it, so a caller that needs the answer asks the other one.
+   */
+  checkbox?: { label: string; defaultChecked?: boolean };
+}
+
+/** What a confirmation carrying an option answers. `checked` is false whenever `confirmed` is. */
+export interface ConfirmAnswer {
+  confirmed: boolean;
+  checked: boolean;
 }
 
 /**
@@ -25,6 +37,13 @@ export interface Ui {
   openMenu(at: MenuAnchor, items: MenuItem[]): void;
   prompt(options: PromptOptions): Promise<PromptResult | null>;
   confirm(options: ConfirmOptions): Promise<boolean>;
+  /**
+   * The same confirmation, asked when it carries an option: it answers whether the user confirmed
+   * **and** what the checkbox said (GC-131). Before it, the only shape that could do this was
+   * `prompt({ input: false, checkbox })` — which is what `confirm` is itself built on, so the
+   * modal was already right and only the code read as a prompt.
+   */
+  confirmWithOption(options: ConfirmOptions): Promise<ConfirmAnswer>;
   /** True while a prompt or confirm modal is up, so `App` knows a dialog owns the keyboard. */
   dialogOpen: boolean;
   /** Cancels the open modal, resolving it with `null`. A no-op when none is open. */
@@ -39,6 +58,7 @@ const noop: Ui = {
   openMenu: () => undefined,
   prompt: async () => null,
   confirm: async () => false,
+  confirmWithOption: async () => ({ confirmed: false, checked: false }),
   dialogOpen: false,
   closeDialog: () => undefined,
   menuOpen: false,
@@ -105,13 +125,26 @@ export function UiProvider({ children }: { children: ReactNode }): JSX.Element {
     [],
   );
 
-  const confirm = useCallback<Ui['confirm']>(
+  // A confirmation is a prompt with the input switched off, and it always was: this is the one
+  // place that knows it, so a caller wanting an option on the question no longer has to reach past
+  // `confirm` for the shape underneath (GC-131).
+  const confirmWithOption = useCallback<Ui['confirmWithOption']>(
     async (options) => {
-      const r = await prompt({ title: options.title, message: options.message, input: false, okLabel: options.okLabel ?? 'OK', danger: options.danger });
-      return r !== null && r.choice === 'ok'; // a `secondary` button is never a plain confirmation
+      const r = await prompt({
+        title: options.title,
+        message: options.message,
+        input: false,
+        checkbox: options.checkbox,
+        okLabel: options.okLabel ?? 'OK',
+        danger: options.danger,
+      });
+      const confirmed = r !== null && r.choice === 'ok'; // a `secondary` button is never a plain confirmation
+      return { confirmed, checked: confirmed && r.checked };
     },
     [prompt],
   );
+
+  const confirm = useCallback<Ui['confirm']>(async (options) => (await confirmWithOption(options)).confirmed, [confirmWithOption]);
 
   // Escape is handled once, in `App`, for every layer; the modal and the context menu only have
   // to say they are there and offer a way to close them.
@@ -123,8 +156,8 @@ export function UiProvider({ children }: { children: ReactNode }): JSX.Element {
     setMenu(null);
   }, []);
   const value = useMemo<Ui>(
-    () => ({ openMenu, prompt, confirm, dialogOpen: modal !== null, closeDialog, menuOpen: menu !== null, closeMenu }),
-    [openMenu, prompt, confirm, modal, closeDialog, menu, closeMenu],
+    () => ({ openMenu, prompt, confirm, confirmWithOption, dialogOpen: modal !== null, closeDialog, menuOpen: menu !== null, closeMenu }),
+    [openMenu, prompt, confirm, confirmWithOption, modal, closeDialog, menu, closeMenu],
   );
 
   return (

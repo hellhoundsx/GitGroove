@@ -254,7 +254,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | done |
 | GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | done |
 | GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | done |
-| GC-130 | Step 21's hunk staging loses a race and fails on a fixture nothing changed | tests | S | P1 | in-progress |
+| GC-130 | Step 21's hunk staging loses a race and fails on a fixture nothing changed | tests | S | P1 | done |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
 | GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
@@ -262,10 +262,11 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | done |
 | GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
+| GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | todo |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
 | GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
-| GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | in-progress |
+| GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | done |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -6858,6 +6859,41 @@ decision is missing.
   - 2026-09-06 proposed by GR-014: from the what's-next pass over `06-feature-inventory.md`. The
     RepoManagement row is the only "Build" row with nothing shipped against it at all.
 
+### GC-132 Three more e2e helpers drop a click on a disabled control and assert nothing
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** GC-130 fixed `hunkAction`, but the shape it fixed is not unique to it. `stageRow`
+  returns `'DISABLED Stage on <file>'`, `openPopover` returns `'DISABLED <which> caret'` and
+  `clickFileRow`'s neighbours return `'no row …'` — every one of them into a bare `log()`, which
+  prints the string and asserts nothing. The step then carries on and fails several waits later, at
+  a line that has nothing to do with the miss: GC-130's own Why is a transcript of exactly that,
+  read at the time as a regression in the diff. `stageRow` is the one that matters most, because
+  step 20 calls it immediately after a commit, which is the 300ms watcher echo window that made
+  `hunkAction` flake.
+- **Scope:**
+  - Give `stageRow` and `openPopover` the treatment `hunkAction` now has: poll the atomic
+    find-check-click, and `check()` loudly when the control never comes back.
+  - Make a "no such control" answer fail where it happens rather than being logged — a helper that
+    cannot find its target has already lost the step.
+- **Out of scope:** raising any `waitFor` maximum, changing what any step asserts, and the app
+  itself: nothing here is a bug in `DiffView` or the toolbar, only in how the suite reads them.
+- **Acceptance:**
+  - [ ] No helper in `run.mjs` can return a "DISABLED" or "no …" string into a `log()` that
+        asserts nothing.
+  - [ ] Twenty consecutive `npm run e2e` runs pass, some under a second run's load.
+  - [ ] The run's total stays within a second of 32.5s.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e` in a loop, counting failures; and grep the file for `DISABLED` to
+  confirm every producer of one is read by an assertion.
+- **Log:**
+  - 2026-09-06 proposed by GC-130 (this ticket): found while fixing `hunkAction`. The demonstrated
+    cause — a control disabled by a watcher echo on a fixture nothing changed — is not specific to
+    the diff's hunk buttons, and two other helpers swallow it the same way.
+
+---
+
 ### GC-129 A stash message cannot be edited once the stash is made
 
 - **Status:** todo
@@ -7016,7 +7052,7 @@ decision is missing.
 
 ### GC-130 Step 21's hunk staging loses a race and fails on a fixture nothing changed
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P1
 - **Depends on:** —
 - **Why:** Six `npm run e2e` runs during the GC-125/126/107/112 batch, five green and one not: step
@@ -7036,21 +7072,47 @@ decision is missing.
     click that happens before the button it names is the one on screen.
 - **Out of scope:** raising any `waitFor` maximum, and every other step.
 - **Acceptance:**
-  - [ ] The cause is named in the log, not just made less likely.
-  - [ ] Twenty consecutive `npm run e2e` runs pass, at least some of them under a second run's load.
-  - [ ] The run's total stays within a second of 32s.
+  - [x] The cause is named in the log, not just made less likely.
+  - [x] Twenty consecutive `npm run e2e` runs pass, at least some of them under a second run's load.
+  - [x] The run's total stays within a second of 32s.
 - **Files:** `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e` in a loop, counting failures.
 - **Log:**
   - 2026-09-06 proposed by GC-126 (this batch): one flaky failure in six runs of the suite, with the
     full output in this ticket's Why. Nothing in the batch touched step 21 or the diff.
   - 2026-09-06 08:36 claimed
+  - 2026-09-06 done. **The cause, demonstrated rather than inferred:** `DiffView` sets `stale`
+    whenever a status reload has bumped `version` and the new load has not landed (GC-086), and
+    `actionsDisabled = busy || loading || stale` disables every hunk button while it holds. The
+    watcher raises that on its own 300ms schedule, so it lands mid-step on a fixture nothing has
+    touched. Driven over CDP against the scratch repository, a bare `utimes` touch of `big.txt` —
+    no content change at all — produced exactly one frame of
+    `{stale:true, hunks:2, adds:"row 3 edited|row 35 edited", disabled:[true,true,true,true]}`
+    between two live frames carrying the identical hunks and added lines. That frame satisfied the
+    old `waitDiff` in full, and `hunkAction` then returned `"DISABLED Stage hunk on hunk 1"` into a
+    `log()` that asserts nothing — so the click was dropped in silence and the miss surfaced five
+    seconds later as the *next* `waitDiff` timing out, which is the failure the Why records.
+  - The fix is in two halves, both in `tools/e2e/run.mjs`. `waitDiff` and `waitSplitDiff` now carry
+    `LIVE_DIFF` — `!document.querySelector('.file-view .diff-body.stale')` — so neither can be
+    satisfied by a body whose newest load has not confirmed it; and `hunkAction` polls the atomic
+    find-check-click every 50ms for up to 5s instead of giving up, which closes the one CDP round
+    trip left between that wait and the click, and fails loudly with `check()` if the button never
+    comes back. No `waitFor` maximum was raised and no other step was touched.
+  - Evidence: 32 consecutive green runs — 20 on the default root/port, and 12 on a second suite
+    (`GITCLIENT_E2E_ROOT=%TEMP%/gitclient-e2e-load`, `GITCLIENT_E2E_PORT=9335`) running
+    concurrently, so runs 1–12 of the twenty were under a real second run's load. Runs 9 and 11
+    logged `clicked Stage hunk on hunk 1 (after 75ms waiting for the button to come back)`: the
+    retry firing is the old failure happening and being recovered, which is the second, independent
+    confirmation of the cause. Timings: the eight unloaded runs (13–20) came in at 32.2–33.0s,
+    mean 32.6s against the 32.5s baseline; the loaded ones at 33.2–34.6s, which is the second
+    suite, not this change. `git: 319 calls` in all 32, unchanged.
+  - Screenshot of the live diff the demonstration ran against: `docs/screenshots/gc130-diff-live.png`.
 
 ---
 
 ### GC-131 A confirmation that carries an option has to be written as a prompt with no input
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** —
 - **Why:** `ConfirmOptions` is title, message, okLabel and danger. GC-112 needed a confirmation with
@@ -7068,9 +7130,9 @@ decision is missing.
 - **Out of scope:** any other `ConfirmOptions` field, the modal's own layout, and the stash prompt,
   which is a real prompt with a real input.
 - **Acceptance:**
-  - [ ] The branch delete and the tag delete read as confirmations in the code as well as on screen.
-  - [ ] The rendered modal is unchanged: same title, same checkbox row, same buttons.
-  - [ ] e2e step 33 passes untouched, since nothing about the DOM should move.
+  - [x] The branch delete and the tag delete read as confirmations in the code as well as on screen.
+  - [x] The rendered modal is unchanged: same title, same checkbox row, same buttons.
+  - [x] e2e step 33 passes untouched, since nothing about the DOM should move.
 - **Files:** `src/renderer/src/ui/UiContext.tsx`, `src/renderer/src/App.tsx`.
 - **Verify:** `npm test`, `npm run e2e` (step 33 reads both modals), and the modal side by side
   with the screenshot in GC-112's log.
@@ -7078,6 +7140,25 @@ decision is missing.
   - 2026-09-06 proposed by GC-112 (this batch): the checkbox that ticket needed had no home on
     `confirm`, so both of its confirmations are prompts with the input switched off.
   - 2026-09-06 08:36 claimed
+  - 2026-09-06 done. `ConfirmOptions` gains `checkbox`, passed straight through to the modal, and
+    `Ui` gains `confirmWithOption(options): Promise<ConfirmAnswer>` — `{ confirmed, checked }`, with
+    `checked` false whenever `confirmed` is. A second function rather than an overload, so the
+    return type says at the call site which question is being asked. `confirm` is now literally
+    `(await confirmWithOption(options)).confirmed`, so there is one implementation of "a
+    confirmation is a prompt with its input switched off" and it lives in `UiContext` alone.
+  - Both GC-112 call sites moved: the branch delete and the tag delete in `App.tsx` now read
+    `ui.confirmWithOption({ … })` and `if (!res.confirmed) return;`. `grep -n "input: false"
+    src/renderer/src/App.tsx` is down from four hits to two, and both survivors are real prompts
+    with a `secondary` button (`runCheckout`, `runSequencer`).
+  - Verified against the built app over CDP: the branch modal reads
+    `{title:"Delete branch feature?", children:"h3 + div.modal-body + div.modal-buttons",
+    body:"modal-check:Also delete feature on origin", inputs:"checkbox", buttons:"Cancel |
+    Delete(danger)"}` and the tag modal the same shape with "Also delete it on origin" — the
+    GC-103 three-child shape, one checkbox, no text input, identical to GC-112's screenshot.
+    `docs/screenshots/gc131-branch-delete.png` and `docs/screenshots/gc131-tag-delete.png`.
+  - e2e step 33 was not touched and passed in all 32 runs of the GC-130 loop, including the run
+    made against this build (renderer bundle `index-BPGB-Sz-.js`, byte-identical before and after
+    the type-only rename that followed the loop).
 
 ---
 

@@ -838,17 +838,16 @@ export function App(): JSX.Element {
       }
       // Deleting a branch that has been pushed used to take two actions in two menus, and the
       // second was only reachable if that remote's row happened to be on screen — a branch hidden
-      // from the graph has no row at all (GC-112). `confirm` has no checkbox, so this is the same
-      // modal one level down: `prompt` with no input is exactly a confirmation, and it carries one.
+      // from the graph has no row at all (GC-112). The confirmation carries the second delete as an
+      // option on itself, which is what `confirmWithOption` is for (GC-131).
       const copy = remoteCopyOf(r);
-      const res = await ui.prompt({
+      const res = await ui.confirmWithOption({
         title: `Delete branch ${r.name}?`,
-        input: false,
         checkbox: copy ? { label: `Also delete ${copy.branch} on ${copy.remote}` } : undefined,
         okLabel: 'Delete',
         danger: true,
       });
-      if (!res || res.choice !== 'ok') return;
+      if (!res.confirmed) return;
       const alsoRemote = copy !== null && res.checked;
       const wasPinned = r.name === pinned;
       let deleted = false;
@@ -937,14 +936,13 @@ export function App(): JSX.Element {
           danger: true,
           onClick: async () => {
             const withRemote = remotes.length === 1 && fallback ? fallback : null;
-            const res = await ui.prompt({
+            const res = await ui.confirmWithOption({
               title: `Delete tag ${r.name}?`,
-              input: false,
               checkbox: withRemote ? { label: `Also delete it on ${withRemote}` } : undefined,
               okLabel: 'Delete',
               danger: true,
             });
-            if (!res || res.choice !== 'ok') return;
+            if (!res.confirmed) return;
             let deleted = false;
             try {
               await run('Deleting tag', () => window.api.deleteTag(repo!, r.name), { rethrow: true });
