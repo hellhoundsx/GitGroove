@@ -281,13 +281,13 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
 | GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
-| GC-145 | TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible | infra | M | P1 | todo |
+| GC-145 | TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible | infra | M | P1 | in-progress |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
-| GC-140 | Stashes never appear in the graph, only in the left panel’s list | graph | M | P2 | todo |
-| GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | todo |
-| GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | todo |
-| GC-144 | The WIP-to-HEAD line is dashed for its first 14px and solid for the rest | graph | S | P2 | todo |
-| GC-148 | A half-written commit message is lost when its tab is switched away from | ui | S | P2 | todo |
+| GC-140 | Stashes never appear in the graph, only in the left panel’s list | graph | M | P2 | in-progress |
+| GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | in-progress |
+| GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | in-progress |
+| GC-144 | The WIP-to-HEAD line is dashed for its first 14px and solid for the rest | graph | S | P2 | in-progress |
+| GC-148 | A half-written commit message is lost when its tab is switched away from | ui | S | P2 | in-progress |
 | GC-133 | The graph and the commit panel format the same timestamp two different ways | ui | S | P2 | done |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
 | GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
@@ -7653,7 +7653,7 @@ decision is missing.
 
 ### GC-140 Stashes never appear in the graph, only in the left panel's list
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** A stash is a real commit whose first parent is the commit it was taken from, but the
@@ -7708,10 +7708,11 @@ decision is missing.
     on `main` at `922c820` leaves the graph unchanged and shows only in the left panel. Filed as
     `todo` rather than `blocked` because the placement Ricardo asked for is decidable from git
     alone; the part the study cannot answer is fenced off in Out of scope.
+  - 2026-09-06 10:48 claimed
 
 ### GC-141 A single click on a branch in the left panel does nothing at all
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** Every row in the left panel's LOCAL, REMOTE and TAGS lists carries `onContextMenu` and
@@ -7757,10 +7758,11 @@ decision is missing.
     `onClick` on any ref row, so the gesture is not merely wrong, it is absent. The scroll effect
     it would use already exists, which is what makes this small; the `index < 0` hole was found
     while checking that it does.
+  - 2026-09-06 10:48 claimed
 
 ### GC-142 The detail panel runs its blocks together, in both the staging and the commit view
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** Measured over CDP on a selected commit: `.detail-body` lays out five children with
@@ -7811,6 +7813,7 @@ decision is missing.
     together" Ricardo describes, and the staging view repeats it. Scoped to separation and
     alignment only; the study's other panel features are named in Out of scope so this does not
     become an open-ended redesign.
+  - 2026-09-06 10:48 claimed
 
 ### GC-143 The detail panel's file-kind icons are hairlines, and the commit view draws them as text instead
 
@@ -7855,7 +7858,7 @@ decision is missing.
 
 ### GC-144 The WIP-to-HEAD line is dashed for its first 14px and solid for the rest
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** The WIP row draws its own half of the connection dashed —
@@ -7896,10 +7899,11 @@ decision is missing.
   - 2026-09-06 proposed by GR-016, from Ricardo's inbox: measured in the DOM. Worth recording that
     the dash is not missing — it exists and stops after one half-row, which is why it reads as a
     solid line in the screenshot; the fix is the extent of the run, not the dash itself.
+  - 2026-09-06 10:48 claimed
 
 ### GC-145 TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** M | **Priority:** P1
 - **Depends on:** none
 - **Why:** Measured on the current file: 681 KB, 8,796 lines, 139 `GC` sections and 15 `GR`
@@ -7949,6 +7953,7 @@ decision is missing.
     rather than P3 because it is not tidiness: two scheduled routines and CLAUDE.md all instruct a
     session to read a file that can no longer be read, and every hour makes it larger. The
     one-commit requirement is from the reviewer's own write cadence.
+  - 2026-09-06 10:48 claimed
 
 ### GC-146 A local branch's chip carries no icon, and an absorbed chip shows only the remote's
 
@@ -8054,7 +8059,7 @@ decision is missing.
 
 ### GC-148 A half-written commit message is lost when its tab is switched away from
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-016
 - **Why:** `StagingView` holds `summary`, `body` and `amend` in its own state, and nothing has ever
@@ -8091,6 +8096,7 @@ decision is missing.
     smallest correct fix for a draft leaking across repositories, and it trades a wrong message for
     a lost one. Parking the draft is what makes it right, but it is a change to `DetailPanel`'s
     shape rather than to the tabs, so it is its own ticket.
+  - 2026-09-06 10:48 claimed
 
 ---
 
