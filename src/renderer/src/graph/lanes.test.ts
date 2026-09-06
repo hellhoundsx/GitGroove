@@ -162,6 +162,73 @@ describe('layoutGraph', () => {
     expect(row(rows, 'root').incoming).toEqual([{ lane: 1, color: 1 }]);
   });
 
+  // Paging past the first MAX_COMMITS lays out each page as it arrives, so a page has to continue
+  // the lanes the one before it left open rather than starting again at column 0 (GC-012). The
+  // property that matters is that paging changes nothing: one call over the whole range and one
+  // call per page must produce the same rows, in the same lanes, in the same colours.
+  describe('paging (GC-012)', () => {
+    // A history that still has three lines open at every split point below, so a page boundary
+    // falls in the middle of lanes that are carrying colour: two side branches over a shared base.
+    const history = [
+      commit('m', 'a', 'b'),
+      commit('a', 'a2'),
+      commit('b', 'b2'),
+      commit('a2', 'base'),
+      commit('b2', 'base'),
+      commit('base', 'root'),
+      commit('root'),
+    ];
+
+    for (const at of [1, 2, 3, 4, 5, 6]) {
+      it(`lays out the same graph split after row ${at} as in one call`, () => {
+        const whole = layoutGraph(history, 'm');
+        const head = layoutGraph(history.slice(0, at), 'm');
+        const tail = layoutGraph(history.slice(at), 'm', head.state);
+        expect([...head.rows, ...tail.rows]).toEqual(whole.rows);
+        expect(tail.laneCount).toBe(whole.laneCount);
+      });
+    }
+
+    it('carries an open lane into the next page rather than reopening it', () => {
+      // Split between `b` and `a2`: both lanes are still waiting for a commit further down. The
+      // trailing free lanes are trimmed as the layout goes, so the state carries no tail of nulls.
+      const head = layoutGraph(history.slice(0, 3), 'm');
+      expect(head.state.active).toEqual(['a2', 'b2']);
+      const tail = layoutGraph(history.slice(3), 'm', head.state);
+      // `a2` continues in lane 0 and `b2` in lane 1 — neither is handed a fresh lane.
+      expect(row(tail.rows, 'a2').lane).toBe(0);
+      expect(row(tail.rows, 'b2').lane).toBe(1);
+      expect(row(tail.rows, 'a2').hasChildAbove).toBe(true);
+      expect(row(tail.rows, 'b2').hasChildAbove).toBe(true);
+    });
+
+    it('does not re-seed the pinned lane on a later page', () => {
+      // The pin reserved column 0 on the first page; a later page must take column 0 from what is
+      // actually still in it, not push a second reservation on top.
+      const head = layoutGraph(history.slice(0, 2), 'm');
+      const tail = layoutGraph(history.slice(2), 'm', head.state);
+      expect(tail.rows.every((r) => r.lane <= head.laneCount)).toBe(true);
+      expect([...head.rows, ...tail.rows]).toEqual(layoutGraph(history, 'm').rows);
+    });
+
+    it('leaves the caller free to keep paging: the state after a page continues the one after that', () => {
+      const whole = layoutGraph(history, 'm');
+      const p1 = layoutGraph(history.slice(0, 3), 'm');
+      const p2 = layoutGraph(history.slice(3, 5), 'm', p1.state);
+      const p3 = layoutGraph(history.slice(5), 'm', p2.state);
+      expect([...p1.rows, ...p2.rows, ...p3.rows]).toEqual(whole.rows);
+    });
+
+    it('does not mutate the state it was handed, so a page can be laid out twice', () => {
+      const head = layoutGraph(history.slice(0, 3), 'm');
+      const before = JSON.stringify(head.state);
+      const once = layoutGraph(history.slice(3), 'm', head.state);
+      expect(JSON.stringify(head.state)).toBe(before);
+      const twice = layoutGraph(history.slice(3), 'm', head.state);
+      expect(twice.rows).toEqual(once.rows);
+    });
+  });
+
   it('reports maxLane wide enough for every segment drawn in a row', () => {
     const { rows } = layoutGraph([commit('m', 'a', 'b'), commit('a', 'base'), commit('b', 'base'), commit('base')]);
     for (const r of rows) {

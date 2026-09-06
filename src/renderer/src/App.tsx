@@ -37,9 +37,15 @@ function readHidden(path: string): string[] {
 /** Two hidden sets holding the same names in the same order (GC-099). */
 const sameNames = (a: string[], b: string[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
 const MAX_COMMITS = 2000;
+/** Commits appended each time the graph is scrolled near the end of what is loaded (GC-012). */
+const PAGE_COMMITS = 1000;
 
 /** Windows hands the same folder back with either separator and either case, so dedupe on this (GC-044). */
 const normRepoPath = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
+/** How deep to load `path`: what is already on screen for it, or the first page for a new one (GC-012). */
+const pageDepth = (paged: { path: string; loaded: number }, path: string): number =>
+  paged.path !== '' && normRepoPath(paged.path) === normRepoPath(path) ? Math.max(MAX_COMMITS, paged.loaded) : MAX_COMMITS;
 /** The folder name is the label; the full path is the hint next to it. */
 const folderName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
 
@@ -105,6 +111,12 @@ export function App(): JSX.Element {
   // having to be rebuilt each time the set changes.
   const [hidden, setHidden] = useState<string[]>([]);
   const hiddenRef = useRef<string[]>([]);
+  // How much of which repository's log is loaded, and whether the traversal had more behind it
+  // (GC-012). The depth is a ref because every load reads it as it stands at the moment it spawns
+  // `git log`, the way the hidden set above does.
+  const paged = useRef<{ path: string; loaded: number }>({ path: '', loaded: 0 });
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   // The search bar over the graph. `searchTick` changes on every request to open it so that
   // Ctrl+F refocuses the field even when the bar is already showing. The query lives here rather
   // than in `CommitGraph` because that component unmounts whenever a file view opens (GC-030);
@@ -154,13 +166,20 @@ export function App(): JSX.Element {
       // the old behaviour, for the one case that cannot be keyed up front.
       const hide = readHidden(path);
       hiddenRef.current = hide;
+      // A reload of the repository already open asks for everything on screen, not just the first
+      // page (GC-012): the user scrolled to row 4000, and snapping back to 2000 on every watcher
+      // refresh would move the graph under them. A different path starts from one page again.
+      const want = pageDepth(paged.current, path);
       try {
-        const snap = await window.api.loadRepo(path, MAX_COMMITS, hide);
+        const snap = await window.api.loadRepo(path, want, hide);
         if (gen !== generation.current) return; // (GC-068) something newer has already landed
         setSnapshot(snap);
         // Applied in the same commit as the snapshot it was loaded with, so no frame is ever
         // painted with a chip for a ref that snapshot already excludes (GC-099).
         setHidden((prev) => (sameNames(prev, hide) ? prev : hide));
+        paged.current = { path: snap.info.path, loaded: snap.commits.length };
+        // A short answer is the end of the history; a full one may have more behind it (GC-012).
+        setHasMore(snap.commits.length >= want);
         bumpGen();
         setRepoPath(snap.info.path);
         // git hands back the canonical path, so dedupe against that rather than the one asked for.
@@ -175,6 +194,9 @@ export function App(): JSX.Element {
         // path is generation-checked too (GC-068).
         if (gen !== generation.current) return;
         setSnapshot(null);
+        // Nothing is loaded any more, so nothing can be paged onto it (GC-012).
+        paged.current = { path: '', loaded: 0 };
+        setHasMore(false);
         // The empty snapshot is a state change like any other, so it counts as a generation: a
         // failed load has to end a wait, not leave one hanging until it times out (GC-080).
         bumpGen();
@@ -189,6 +211,43 @@ export function App(): JSX.Element {
     },
     [bumpGen],
   );
+
+  /**
+   * Append the next page of the log (GC-012). The graph asks for it when it is scrolled within
+   * `NEAR_END` rows of what is loaded, so the request is made before the user reaches the bottom
+   * and the rows are usually there by the time they would have seen the end.
+   *
+   * The page continues the traversal the snapshot on screen was built from, so it is asked for
+   * with the same hidden set, and it is dropped if a reload has landed since it was asked for: the
+   * commits it holds count from a range that no longer exists (GC-068).
+   */
+  const loadMore = useCallback(async () => {
+    const { path, loaded } = paged.current;
+    if (!path || loadingMore || !hasMore) return;
+    const gen = generation.current;
+    setLoadingMore(true);
+    try {
+      const page = await window.api.getLog(path, loaded, PAGE_COMMITS, hiddenRef.current);
+      if (gen !== generation.current) return;
+      if (page.length > 0) {
+        paged.current = { path, loaded: loaded + page.length };
+        setSnapshot((s) => (s ? { ...s, commits: [...s.commits, ...page] } : s));
+        // Appending is a snapshot change like any other, so it counts as a generation (GC-080).
+        bumpGen();
+      }
+      setHasMore(page.length === PAGE_COMMITS);
+    } catch {
+      // A page that will not load is not worth a banner over a graph that is fine: keep what is on
+      // screen and stop offering more, rather than asking again on every scroll event.
+      setHasMore(false);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [bumpGen, hasMore, loadingMore]);
+
+  // The graph asks from an effect, so the callback has to keep its identity between renders or the
+  // effect would re-run on every one of them (GC-012).
+  const askForMore = useCallback(() => void loadMore(), [loadMore]);
 
   useEffect(() => {
     // One `git --version`, before anything is attempted: every action shells out, so a missing git
@@ -447,9 +506,14 @@ export function App(): JSX.Element {
         // Not `load()`: its failure path clears the open repository (GC-025), which a refresh
         // nobody asked for must never do, so the snapshot is replaced only when one arrives.
         const gen = generation.current;
-        const snap = await window.api.loadRepo(repo, MAX_COMMITS, hiddenRef.current);
+        // As deep as what is on screen, or a refresh nobody asked for would drop the pages the
+        // user scrolled to load (GC-012).
+        const want = pageDepth(paged.current, repo);
+        const snap = await window.api.loadRepo(repo, want, hiddenRef.current);
         if (gen !== generation.current) return; // (GC-068) a user action has reloaded since
         setSnapshot(snap);
+        paged.current = { path: snap.info.path, loaded: snap.commits.length };
+        setHasMore(snap.commits.length >= want);
         setWorkdirVersion((v) => v + 1);
         bumpGen();
       } catch {
@@ -1154,6 +1218,9 @@ export function App(): JSX.Element {
                 onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
                 onRefActivate={(r) => void checkoutRef(r)}
                 detached={!snapshot.info.branch}
+                hasMore={hasMore}
+                loadingMore={loadingMore}
+                onLoadMore={askForMore}
               />
             )}
             <DetailPanel

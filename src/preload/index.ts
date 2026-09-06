@@ -10,6 +10,7 @@ const api: GitApi = {
   checkGit: call('repo:checkGit'),
   openRepoDialog: call('repo:openDialog'),
   loadRepo: call('repo:load'),
+  getLog: call('repo:log'),
   getStatus: call('repo:status'),
   watchRepo: call('repo:watch'),
   // The one main -> renderer push (GC-011): it hands back an unsubscribe so a React effect can

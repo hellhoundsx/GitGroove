@@ -166,6 +166,11 @@ export interface GitApi {
   openRepoDialog(): Promise<string | null>;
   /** `exclude`: full names of refs to keep out of the graph (GC-073). */
   loadRepo(path: string, maxCommits?: number, exclude?: string[]): Promise<RepoSnapshot>;
+  /**
+   * One more page of the log, continuing the traversal `loadRepo` opened (GC-012). `exclude` must
+   * be the set the page before it was loaded with, or `skip` counts through a different traversal.
+   */
+  getLog(path: string, skip: number, maxCommits?: number, exclude?: string[]): Promise<Commit[]>;
   getStatus(repo: string): Promise<RepoStatus>;
   /** Point the file-system watcher at a repository, or pass null to stop it (GC-011). */
   watchRepo(repo: string | null): Promise<void>;

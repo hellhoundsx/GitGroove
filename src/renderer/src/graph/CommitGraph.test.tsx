@@ -94,6 +94,9 @@ function flipsUp(body: Rect, chipRect: Rect, listHeight: number): boolean {
       onRefMenu={() => {}}
       onRefActivate={() => {}}
       detached={false}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
     />,
   );
 

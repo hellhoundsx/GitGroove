@@ -28,23 +28,41 @@ export interface RowLayout {
   maxLane: number; // widest lane index touched by this row (for column width)
 }
 
+/**
+ * The lane bookkeeping as it stands at the end of a laid-out range, which is everything the next
+ * page of commits needs to continue it (GC-012): which sha each lane is still waiting for, the
+ * colour that lane carries, and how wide the graph has been so far. Passing it back into
+ * `layoutGraph` lays out a later page as if it had been part of one call, so a line that is open
+ * where a page ends keeps its lane and colour instead of restarting at column 0.
+ */
+export interface LaneState {
+  active: (string | null)[];
+  laneColor: number[];
+  laneCount: number;
+}
+
 export interface GraphLayout {
   rows: RowLayout[];
   laneCount: number;
+  /** Hand this to the next `layoutGraph` call to continue these lanes into the next page (GC-012). */
+  state: LaneState;
 }
 
 /**
  * @param pinnedSha commit whose lineage must occupy column 0 (the checked-out branch). Column 0 is
  *   reserved for it from the first row, so the WIP row and the dashed link to HEAD always sit at the left.
+ * @param prev the `state` of the layout this range continues (GC-012). When given, the lanes it
+ *   describes are carried in and `pinnedSha` is not re-seeded: column 0 was reserved by the first
+ *   page and is still held by whatever that page left in it.
  */
-export function layoutGraph(commits: Commit[], pinnedSha?: string | null): GraphLayout {
+export function layoutGraph(commits: Commit[], pinnedSha?: string | null, prev?: LaneState | null): GraphLayout {
   // active[i] = sha that lane i is waiting for (the next commit to appear in that lane)
-  const active: (string | null)[] = [];
-  const laneColor: number[] = []; // colour by column index, so colours stay stable as lanes recycle
-  let laneCount = 0;
+  const active: (string | null)[] = prev ? [...prev.active] : [];
+  const laneColor: number[] = prev ? [...prev.laneColor] : []; // colour by column index, so colours stay stable as lanes recycle
+  let laneCount = prev ? prev.laneCount : 0;
   const rows: RowLayout[] = [];
 
-  if (pinnedSha && commits.some((c) => c.sha === pinnedSha)) {
+  if (!prev && pinnedSha && commits.some((c) => c.sha === pinnedSha)) {
     active.push(pinnedSha);
     laneColor[0] = 0;
     laneCount = 1;
@@ -123,5 +141,5 @@ export function layoutGraph(commits: Commit[], pinnedSha?: string | null): Graph
     while (active.length && active[active.length - 1] === null) active.pop();
   }
 
-  return { rows, laneCount };
+  return { rows, laneCount, state: { active, laneColor, laneCount } };
 }

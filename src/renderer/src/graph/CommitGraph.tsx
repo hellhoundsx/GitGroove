@@ -32,10 +32,17 @@ interface Props {
   onRefActivate(ref: GitRef): void;
   /** No branch is checked out: the graph marks HEAD itself, since no ref carries the check (GC-061). */
   detached: boolean;
+  /** The traversal had commits behind the last one loaded, so scrolling near the end asks for more (GC-012). */
+  hasMore: boolean;
+  /** A page is in flight: the row at the bottom says so, and no second request is made (GC-012). */
+  loadingMore: boolean;
+  onLoadMore(): void;
 }
 
 export const WIP = 'WIP';
 const OVERSCAN = 12;
+/** How close to the end of the loaded range brings in the next page (GC-012). */
+const NEAR_END = 200;
 
 // Ref column width: dragged between MIN and MAX, double-click resets to DEFAULT. The drag itself
 // is `useDragWidth`, shared with both side panels (GC-050).
@@ -87,7 +94,7 @@ function localDateTime(iso: string): string {
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, detached }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, detached, hasMore, loadingMore, onLoadMore }: Props): JSX.Element {
   // The optional columns after the message; all off by default (GC-032).
   const cols = usePrefs().graphColumns;
   // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
@@ -197,6 +204,18 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   const total = layout.rows.length + (hasWip ? 1 : 0);
   const first = Math.max(0, Math.floor(viewport.top / ROW_H) - OVERSCAN);
   const last = Math.min(total, Math.ceil((viewport.top + viewport.height) / ROW_H) + OVERSCAN);
+  // The "Loading more" row sits below the last commit while a page is in flight, so the scrollable
+  // height has to make room for it or it lands under the bottom edge (GC-012).
+  const scrollRows = total + (loadingMore ? 1 : 0);
+
+  // Ask for the next page once the bottom of the viewport is within NEAR_END rows of what is
+  // loaded, which is well before the user can reach the end of it. The request is made from an
+  // effect rather than the scroll handler so it also fires when the viewport is measured for the
+  // first time, or when a page lands that is itself short of the threshold (GC-012).
+  useEffect(() => {
+    if (!hasMore || loadingMore) return;
+    if (last >= total - NEAR_END) onLoadMore();
+  }, [hasMore, loadingMore, last, total, onLoadMore]);
 
   // keep the selected row visible when the selection changes (keyboard navigation)
   useEffect(() => {
@@ -445,8 +464,13 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
         {cols.sha && <div className="col-sha">SHA</div>}
       </div>
       <div className="graph-body" ref={bodyRef} onScroll={(e) => setViewport({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
-        <div className="graph-rows" style={{ height: total * ROW_H }}>
+        <div className="graph-rows" style={{ height: scrollRows * ROW_H }}>
           {rows}
+          {loadingMore && (
+            <div className="graph-row more-row" style={{ top: total * ROW_H }}>
+              <span className="more-label">Loading more…</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

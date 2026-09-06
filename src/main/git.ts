@@ -153,7 +153,7 @@ const GRAPH_GLOBS = ['refs/heads/*', 'refs/remotes/*', 'refs/tags/*'];
  * checked-out lineage whatever is hidden; `--ignore-missing` covers the unborn branch, where HEAD
  * resolves to nothing and git would otherwise refuse the whole traversal.
  */
-export async function getLog(cwd: string, maxCount = 500, exclude: string[] = []): Promise<Commit[]> {
+export async function getLog(cwd: string, maxCount = 500, exclude: string[] = [], skip = 0): Promise<Commit[]> {
   let out: string;
   const excludes = exclude.map((r) => `--exclude=${r}`);
   try {
@@ -163,6 +163,10 @@ export async function getLog(cwd: string, maxCount = 500, exclude: string[] = []
       '--ignore-missing',
       'HEAD',
       '--date-order',
+      // `--skip` counts in the same traversal `--date-order` produces, so page N+1 begins exactly
+      // where page N ended as long as the excludes match — which is why the renderer pages with the
+      // hidden set it loaded with (GC-012).
+      ...(skip > 0 ? [`--skip=${skip}`] : []),
       `--max-count=${maxCount}`,
       `--format=${LOG_FORMAT}`,
       '--',

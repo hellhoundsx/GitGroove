@@ -1210,6 +1210,19 @@ textarea:focus {
   left: 0;
   right: 0;
 }
+/* The row below the last commit while the next page loads (GC-012). It is not a commit, so it
+   takes neither the hover nor the pointer the rows above it have. */
+.graph-rows .graph-row.more-row {
+  cursor: default;
+  justify-content: center;
+  color: var(--text-dim);
+}
+.graph-rows .graph-row.more-row:hover {
+  background: none;
+}
+.more-label {
+  font-size: 12px;
+}
 
 /* ---- File / diff view ------------------------------------------------------ */
 
