@@ -1855,7 +1855,7 @@ await waitIdle();
 const reattached = await ev(`(() => JSON.stringify({ head: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].filter(c => c.textContent.trim() === 'HEAD').length, mainChecked: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].some(c => c.textContent.trim() === 'main' && c.classList.contains('head')) }))()`);
 check('checking the branch back out removes the HEAD chip and gives main the check mark', JSON.parse(reattached).head === 0 && JSON.parse(reattached).mainChecked === true, reattached);
 
-step(25, 'hide and solo branches: the graph, the Viewing count and Show all');
+step(25, 'hide and solo branches: the graph, the panel's hidden markers and Show all');
 // GC-073. Hiding is one `--exclude=<fullName>` per ref ahead of `--all`, so a commit reachable
 // from a ref that is still shown keeps its row: hiding the local `wip-branch` alone removes
 // nothing, because `origin/wip-branch` still reaches the same commit. That is why this hides both
@@ -1864,7 +1864,10 @@ step(25, 'hide and solo branches: the graph, the Viewing count and Show all');
 // `load()` writes the canonical path git reported to both keys, so the remembered repository names
 // the hidden set's key exactly, without this step having to guess how git spells the path.
 const hiddenKeyName = `gitclient.hidden.${await ev(`localStorage.getItem('gitclient.lastRepo')`)}`;
-const viewingCount = () => ev(`Number(document.querySelector('.left-panel .viewing b')?.textContent ?? -1)`);
+// How many refs the panel marks as hidden: the eye's own label is what flips (GC-073). This is
+// what the header's "Viewing" number used to say indirectly, before it was replaced by the name of
+// the checked-out branch (GC-094) — and it says it per ref rather than as a total.
+const hiddenMarks = () => ev(`document.querySelectorAll('.left-panel .ref-row [aria-label=\"Show in graph\"]').length`);
 const graphRows = () => ev(`document.querySelectorAll('.graph-row').length`);
 // The WIP row is a .graph-row too, and it is not a commit: the git comparison needs the rest.
 const commitRows = () => ev(`document.querySelectorAll('.graph-row:not(.wip)').length`);
@@ -1872,7 +1875,7 @@ const chipNames = () => ev(`[...document.querySelectorAll('.graph-row .col-ref .
 const hasWipCommit = () => ev(`[...document.querySelectorAll('.graph-row .summary')].some(x => x.textContent.trim() === 'Work on wip branch')`);
 
 const rowsBefore = await graphRows();
-const viewingBefore = await viewingCount();
+const hiddenBefore = await hiddenMarks();
 // GC-095: the fixture carries a git note, whose own commit `git log --all` draws as a row with no
 // chip and no left-panel row to explain it — and, before this, one an exclude could never remove.
 check(
@@ -1889,7 +1892,7 @@ check('hiding the local branch alone removes no row: origin/wip-branch still rea
 log(await contextMenuOn('.left-panel .ref-row.nested', 'wip-branch'));
 log(await act(() => menuClick('Hide in graph'), 'hide origin/wip-branch'));
 const rowsHidden = await graphRows();
-const viewingHidden = await viewingCount();
+const hiddenAfter = await hiddenMarks();
 check('with both halves hidden the wip commit leaves the graph', (await hasWipCommit()) === false, `rows ${rowsBefore} -> ${rowsHidden}`);
 // How many rows go is git's answer, not a constant: earlier steps leave commits of their own on
 // the branch, so what the two excludes take is whatever is reachable only through them. The
@@ -1906,7 +1909,7 @@ check(
   `${rowsBefore} -> ${rowsHidden} | git ${git(allCount)} -> ${git(wipExcludes)}`,
 );
 check('the commit rows match what git draws with the same two excludes', drawn === Number(git(wipExcludes)), `${drawn} commit rows | git: ${git(wipExcludes)}`);
-check('Viewing counts only what the graph draws', viewingBefore - viewingHidden === 2, `${viewingBefore} -> ${viewingHidden}`);
+check('the panel marks exactly the two refs that were hidden', hiddenAfter - hiddenBefore === 2, `${hiddenBefore} -> ${hiddenAfter}`);
 const stored = JSON.parse((await ev(`localStorage.getItem(${q(hiddenKeyName)})`)) ?? 'null');
 check(
   'the hidden set is persisted per repository, by full ref name',
@@ -1918,7 +1921,7 @@ await shot('12-hidden-branches.png');
 // Show all, one section at a time: each head clears only its own kind.
 log(await act(() => sectionAction('Show all local branches in the graph'), 'show all local'));
 log(await act(() => sectionAction('Show all remote branches in the graph'), 'show all remote'));
-check('Show all restores every row and the Viewing count', (await graphRows()) === rowsBefore && (await viewingCount()) === viewingBefore, `rows ${await graphRows()}/${rowsBefore}, viewing ${await viewingCount()}/${viewingBefore}`);
+check('Show all restores every row and leaves nothing marked hidden', (await graphRows()) === rowsBefore && (await hiddenMarks()) === hiddenBefore, `rows ${await graphRows()}/${rowsBefore}, marked ${await hiddenMarks()}/${hiddenBefore}`);
 
 // Solo keeps the soloed branch and the checked-out one, and hides every other branch and remote.
 log(await contextMenuOn('.left-panel .ref-row', 'feature'));
@@ -2490,14 +2493,18 @@ check(
   (await leafDepth('main')) === '0' && (await leafDepth('alpha')) === '1',
   `main=${await leafDepth('main')} alpha=${await leafDepth('alpha')} folder=${openFolder.depth}`,
 );
-const viewingWithFolders = await viewingCount();
+// The LOCAL section's own count, which is what carries the ref total now that the panel header
+// names the checked-out branch instead (GC-094). A folder is a row and not a ref, so opening or
+// closing one must not move it.
+const localCount = () => ev(`(() => { const h = [...document.querySelectorAll('.section-head')].find(x => x.textContent.toLowerCase().startsWith('local')); return h ? h.querySelector('.count').textContent : 'no local section'; })()`);
+const localWithFolders = await localCount();
 await shot('14-branch-folders.png');
 
 log(await clickFolder());
 await waitFor(`${FEAT_FOLDER} && !${FEAT_FOLDER}.classList.contains('open')`, 'the feat folder to close');
 const closed = String(await leafNames());
 check('collapsing takes its rows with it and leaves the folder', !closed.includes('alpha') && !closed.includes('beta') && (await ev(`!!${FEAT_FOLDER}`)) === true, closed);
-check('"Viewing" still counts refs, not folders', (await viewingCount()) === viewingWithFolders, `${await viewingCount()} / ${viewingWithFolders}`);
+check('the LOCAL count still counts refs, not folders', (await localCount()) === localWithFolders, `${await localCount()} / ${localWithFolders}`);
 
 // The filter matches the full ref name and forces open every folder holding a match — including
 // the one just closed, which is the case a collapsed set left to itself would hide a match behind.

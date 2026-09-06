@@ -1871,6 +1871,7 @@ export function App(): JSX.Element {
         {snapshot && repo ? (
           <>
             <LeftPanel
+              info={snapshot.info}
               refs={snapshot.refs}
               stashes={snapshot.stashes}
               remotes={snapshot.remotes}

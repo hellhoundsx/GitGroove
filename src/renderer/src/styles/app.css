@@ -417,6 +417,14 @@ input[type='radio']:disabled {
 .left-panel .viewing b {
   color: var(--accent);
 }
+/* the checked-out branch, which is a name of any length in a panel the user can drag narrow: it
+   ellipsises rather than pushing the collapse button off its own header (GC-094) */
+.left-panel .viewing .head-ref {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .left-panel .filter {
   height: 22px;
   padding: 0 var(--sp-2);

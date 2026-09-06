@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react';
 import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, Folder, GitBranch, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
-import type { GitRef, Remote, Stash } from '@shared/types';
+import type { GitRef, RepoInfo, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
 import type { DragHandleProps } from '../ui/useDragWidth';
 import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 
 interface Props {
+  /** Where HEAD is, which is what the header says (GC-094). The same `info` the breadcrumb reads. */
+  info: RepoInfo;
   refs: GitRef[];
   stashes: Stash[];
   remotes: Remote[];
@@ -161,8 +163,6 @@ export function LeftPanel(p: Props): JSX.Element {
     return { local, tags, remoteGroups, remoteCount };
   }, [p.refs, p.remotes, f]);
 
-  // "Viewing" counts what the graph is actually drawing, so a hidden branch leaves it (GC-073).
-  const viewing = local.filter((r) => !hidden.has(r.fullName)).length + [...remoteGroups.values()].flat().filter((r) => !hidden.has(r.fullName)).length + tags.length;
   const anyLocalHidden = local.some((r) => hidden.has(r.fullName));
   const anyRemoteHidden = [...remoteGroups.values()].flat().some((r) => hidden.has(r.fullName));
 
@@ -303,8 +303,16 @@ export function LeftPanel(p: Props): JSX.Element {
           <button className="icon-btn" title="Collapse panel" onClick={p.onCollapse}>
             <Icon of={PanelLeftClose} size={14} />
           </button>
-          <span>Viewing</span>
-          <b>{viewing}</b>
+          {/* Where HEAD is, in the words the breadcrumb and the staging header already use, so the
+              three agree (GC-094). It replaces a ref count that repeated the section counts
+              directly beneath it and, sitting one line above the status bar's "N commits", read as
+              a commit count that disagreed with it. A detached HEAD names its commit as well: there
+              is no branch name to give, and no row in LOCAL carries the check mark, so this is the
+              only place in the panel that can say where HEAD is at all (GC-061). */}
+          <span className="head-ref" title={p.info.branch ? `Checked out: ${p.info.branch}` : 'HEAD is detached'}>
+            {p.info.branch ?? 'detached HEAD'}
+          </span>
+          {p.info.branch === null && p.info.headSha && <b>{p.info.headSha.slice(0, 7)}</b>}
         </div>
         <input ref={filterInput} className="filter" placeholder="Filter refs" value={filter} onChange={(e) => setFilter(e.target.value)} spellCheck={false} />
       </div>

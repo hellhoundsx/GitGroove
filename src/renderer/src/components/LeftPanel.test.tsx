@@ -79,6 +79,7 @@ const noResize = {
 function panel(refs: GitRef[], over: Partial<ComponentProps<typeof LeftPanel>> = {}): HTMLElement {
   const { container } = render(
     <LeftPanel
+      info={{ path: '/repo', name: 'repo', headSha: 'abc1234def', branch: 'main' }}
       refs={refs}
       stashes={[]}
       remotes={[]}
@@ -151,9 +152,26 @@ describe('LeftPanel folders (GC-051)', () => {
     expect(byName('a').style.getPropertyValue('--row-depth')).toBe('2');
   });
 
-  it('keeps "Viewing" counting refs rather than folders', () => {
+  it('keeps the section count counting refs rather than folders', () => {
     const c = panel([head('main', true), head('feat/a'), head('feat/b')]);
-    expect(c.querySelector('.viewing b')!.textContent).toBe('3');
+    // Three refs in two rows and a folder: the header of LOCAL says 3, not 5 and not 2.
+    expect(c.querySelector('.section-head .count')!.textContent).toBe('3');
+  });
+});
+
+describe('LeftPanel header (GC-094)', () => {
+  it('names the checked-out branch, with no count beside it', () => {
+    const c = panel([head('main', true), head('feat/a')]);
+    expect(c.querySelector('.viewing .head-ref')!.textContent).toBe('main');
+    // The count that used to sit here repeated the section counts below and read as a commit count
+    // against the status bar's; nothing numeric belongs in this header now.
+    expect(c.querySelector('.viewing b')).toBe(null);
+  });
+
+  it('says detached HEAD with the short sha when there is no branch, which is the case no row marks', () => {
+    const c = panel([head('main')], { info: { path: '/repo', name: 'repo', headSha: 'abc1234def5678', branch: null } });
+    expect(c.querySelector('.viewing .head-ref')!.textContent).toBe('detached HEAD');
+    expect(c.querySelector('.viewing b')!.textContent).toBe('abc1234');
   });
 });
 
