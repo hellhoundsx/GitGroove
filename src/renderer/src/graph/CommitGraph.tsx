@@ -8,7 +8,7 @@ import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
 import { matches as isShortcut } from '../shortcuts';
 import { usePrefs } from '../prefs';
-import { fitRefCol, useDragWidth, MIN_MSG_W } from '../ui/useDragWidth';
+import { fitOptCols, fitRefCol, useDragWidth, MIN_MSG_W } from '../ui/useDragWidth';
 
 interface Props {
   commits: Commit[];
@@ -137,8 +137,10 @@ const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
 export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, detached, hasMore, loadingMore, onLoadMore }: Props): JSX.Element {
-  // The optional columns after the message; all off by default (GC-032).
-  const cols = usePrefs().graphColumns;
+  // The optional columns after the message; all off by default (GC-032). What the preference asks
+  // for is not always what fits: `fitOptCols` below drops them once the panel is too narrow to
+  // draw them and a commit message both (GC-116).
+  const wantCols = usePrefs().graphColumns;
   // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
   const layout = useLaneLayout(commits, pinnedSha ?? headSha);
   const refsBySha = useMemo(() => {
@@ -202,6 +204,9 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   // column that is on. What is left over after `MIN_MSG_W` is as far as the column may be
   // dragged; `fitRefCol` is what a window or panel narrowing under a width already stored does,
   // and it leaves that stored width alone so widening brings it straight back.
+  // Which optional columns fit is decided first, against the ref column's floor, and the ref
+  // column is then fitted against the ones that survived (GC-116).
+  const cols = useMemo(() => fitOptCols(wantCols, bodyW, graphWidth, REF_COL_MIN, OPT_COL_W), [wantCols, bodyW, graphWidth]);
   const restW = graphWidth + (cols.author ? OPT_COL_W.author : 0) + (cols.date ? OPT_COL_W.date : 0) + (cols.sha ? OPT_COL_W.sha : 0);
   const { width: refColW, resizing, handle: refColHandle } = useDragWidth({
     key: REF_COL_KEY,

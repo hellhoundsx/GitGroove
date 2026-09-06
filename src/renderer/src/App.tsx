@@ -111,6 +111,11 @@ export function App(): JSX.Element {
   // CSS variables. The two limits refer to each other, so each reads the other's width from a cache
   // written at the end of this block rather than from a hook declared after it — only one panel is
   // ever being dragged, so the other's width is steady and a single render's lag is invisible.
+  //
+  // What that cache holds is the width the other panel is being **drawn** at — `fitPanels`' answer
+  // — and not the number stored for it (GC-111). On any window narrow enough for the fit to be
+  // reducing something, the stored number is the larger of the two, so a limit taken from it came
+  // out below the panel's own `min` and the drag had nowhere left to go at all.
   const winW = useWindowWidth();
   const leftIsRail = leftCollapsed || fileView !== null;
   const panelW = useRef<PanelFit>({ left: LEFT_DEF, detail: DETAIL_DEF });
@@ -129,7 +134,6 @@ export function App(): JSX.Element {
     dir: -1,
     limit: winW - (leftIsRail ? RAIL_W : panelW.current.left) - MIN_GRAPH_W,
   });
-  panelW.current = { left: leftW.width, detail: detailW.width };
   // A rail is a fixed 44px that ignores `--left-panel-w`, so at that point only the detail panel
   // has anything to give: it is passed in as a zero-width panel with a zero floor.
   const applied = fitPanels(
@@ -138,6 +142,7 @@ export function App(): JSX.Element {
     winW - (leftIsRail ? RAIL_W : 0),
     { left: leftIsRail ? 0 : LEFT_MIN, detail: DETAIL_MIN },
   );
+  panelW.current = applied;
   const [workdirVersion, setWorkdirVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
   const [error, setError] = useState<string | null>(null);
@@ -836,7 +841,7 @@ export function App(): JSX.Element {
             items.push({ label: `Push tag ${r.name} to ${rem.name}`, onClick: () => run(`Pushing tag ${r.name} to ${rem.name}`, () => window.api.push(repo!, { remote: rem.name, branch: r.name })) });
           }
         } else {
-          items.push({ label: `Push tag to remote`, disabled: !fallback, onClick: () => run(`Pushing tag ${r.name}`, () => window.api.push(repo!, { remote: fallback, branch: r.name })) });
+          items.push({ label: `Push tag ${r.name} to ${fallback ?? 'remote'}`, disabled: !fallback, onClick: () => run(`Pushing tag ${r.name} to ${fallback}`, () => window.api.push(repo!, { remote: fallback, branch: r.name })) });
         }
         items.push({ label: `Delete tag ${r.name}`, danger: true, onClick: async () => (await ui.confirm({ title: `Delete tag ${r.name}?`, okLabel: 'Delete', danger: true })) && run('Deleting tag', () => window.api.deleteTag(repo!, r.name)) });
         items.push({ separator: true });
@@ -934,10 +939,17 @@ export function App(): JSX.Element {
             });
           }
         } else {
+          // The row names the **remote**, never `r.upstream` (GC-114). The push writes
+          // `<remote>/<branch>`, so a label naming the upstream ref promised a different one the
+          // moment the upstream's branch name was not the local name — which GC-100's "Set
+          // upstream…" is exactly what makes reachable. Same wording as the multi-remote rows
+          // above and the toolbar button's own title, and the remote is passed explicitly so the
+          // label and the command read the same value.
           items.push({
-            label: `Push ${r.name}${r.upstream ? ` to ${r.upstream}` : ' and set upstream'}`,
+            label: `Push ${r.name} to ${fallback ?? 'remote'}`,
+            hint: r.upstream ? undefined : 'sets the upstream',
             disabled: !fallback,
-            onClick: () => run(`Pushing ${r.name}`, () => window.api.push(repo!, { branch: r.name, setUpstream: !r.upstream })),
+            onClick: () => run(`Pushing ${r.name} to ${fallback}`, () => window.api.push(repo!, { remote: fallback, branch: r.name, setUpstream: !r.upstream })),
           });
         }
       }

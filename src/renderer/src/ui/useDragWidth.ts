@@ -26,6 +26,11 @@ export interface DragWidthOptions {
    * double-click reset ignore it, so a width chosen on a wide window is still there after a spell
    * on a narrow one. `min` still wins, so a window too small for the minimum never drives one
    * below it.
+   *
+   * It must be derived from the width the *other* elements are being **drawn** at, not from what
+   * is stored for them (GC-111): a limit taken from a stored width that the fit is currently
+   * reducing comes out too small, and on a narrow enough window smaller than `min`. A request past
+   * it is not a width the pointer reached, so it is neither shown nor stored (GC-115).
    */
   limit?: number;
 }
@@ -69,6 +74,64 @@ export const MIN_MSG_W = 200;
 export function fitRefCol(stored: number, panelW: number, rest: number, min: number, minMsg = MIN_MSG_W): number {
   if (panelW <= 0) return stored;
   return Math.max(min, Math.min(stored, panelW - rest - minMsg));
+}
+
+/** The optional graph columns, and the width each one takes when it is on. */
+export interface OptCols {
+  author: boolean;
+  date: boolean;
+  sha: boolean;
+}
+
+/**
+ * Which of the optional columns are actually drawn, for a graph panel this wide (GC-116). They are
+ * `flex: none`, so all 370px of them come straight out of the commit message; `fitRefCol` counts
+ * them and makes the ref column give way first, but once that is at its own floor nothing else
+ * could give and the message column measured 0 at every window from 1100 down — the summary was
+ * not drawn at all.
+ *
+ * So the last thing to give way is the columns themselves, dropped in the order they are least
+ * identifying: DATE, then AUTHOR, then SHA. Whole columns rather than narrowed ones — half a
+ * timestamp identifies a commit no better than none, and it costs the message the same width.
+ *
+ * The set is decided against the ref column's **floor**, the width it has when it has given
+ * everything it can, and is never re-examined after `fitRefCol` has run against the survivors.
+ * That order is what keeps it stable: deciding it against a ref column that then grows back into
+ * the space a dropped column left would drop the next column, and the next.
+ */
+export function fitOptCols(want: OptCols, panelW: number, lanes: number, refMin: number, w: Record<keyof OptCols, number>, minMsg = MIN_MSG_W): OptCols {
+  if (panelW <= 0) return want; // not measured yet: draw what the preference asked for
+  const room = panelW - lanes - refMin - minMsg;
+  const out = { ...want };
+  let total = (out.author ? w.author : 0) + (out.date ? w.date : 0) + (out.sha ? w.sha : 0);
+  for (const k of ['date', 'author', 'sha'] as const) {
+    if (total <= room) break;
+    if (!out[k]) continue;
+    out[k] = false;
+    total -= w[k];
+  }
+  return out;
+}
+
+/**
+ * Where a drag puts the width, and whether that is a width the pointer actually reached
+ * (GC-111, GC-115). `start` is the width the element is being **drawn** at when the drag begins
+ * and `delta` the pixels travelled since, so travel is one-for-one with the edge whatever the
+ * stored width happens to be.
+ *
+ * `reached` is false when the request ran past `limit`: the edge is against the wall the window
+ * imposes, the pointer is asking for a width that does not exist, and the caller leaves the width
+ * alone rather than writing the wall's own value over it. That is the whole of both defects —
+ * before this, a request beyond the limit answered the limit (or `min`, when the limit had come
+ * out below it) and `onPointerUp` persisted that, so one pixel of travel on a narrow window
+ * replaced the width the user chose on a wide one.
+ */
+export function dragWidth(start: number, delta: number, min: number, max: number, limit?: number): { width: number; reached: boolean } {
+  const want = Math.min(max, Math.max(min, Math.round(start + delta)));
+  const cap = limit ?? max;
+  // `min` last, as in `clampDrag`: a limit narrower than the minimum leaves the element at its
+  // minimum, and `reached` is false there, so nothing about that window is ever persisted.
+  return { width: Math.max(min, Math.min(cap, want)), reached: want <= cap };
 }
 
 /** The widths `fitPanels` may reduce, and the floor each one has. */
@@ -176,16 +239,22 @@ export function useDragWidth({ key, def, min, max, dir = 1, limit }: DragWidthOp
     [key],
   );
 
+  // The drag starts from the width being **drawn**, which is what `clampDrag` answers, not from
+  // the stored number `width` holds (GC-115). On a window narrow enough for the fit to be
+  // reducing this element the two differ, and starting from the stored one made the first pixel of
+  // travel jump the edge by the whole difference — or, once the limit had been reached, pin it and
+  // persist the wall.
   const onPointerDown = (e: ReactPointerEvent<HTMLElement>): void => {
     e.preventDefault();
-    drag.current = { x: e.clientX, w: width };
+    drag.current = { x: e.clientX, w: clampDrag(width) };
     e.currentTarget.setPointerCapture(e.pointerId);
     setResizing(true);
   };
   const onPointerMove = (e: ReactPointerEvent<HTMLElement>): void => {
     const d = drag.current;
     if (!d) return;
-    setWidth(clampDrag(d.w + (e.clientX - d.x) * dir));
+    const { width: w, reached } = dragWidth(d.w, (e.clientX - d.x) * dir, min, max, limit);
+    if (reached) setWidth(w); // past the wall the edge cannot move, so neither does the width
   };
   // The released width is computed from the release position rather than read out of `width`: the
   // pointerup arrives in the same task as the last pointermove, before React has committed the
@@ -197,7 +266,8 @@ export function useDragWidth({ key, def, min, max, dir = 1, limit }: DragWidthOp
     drag.current = null;
     e.currentTarget.releasePointerCapture(e.pointerId);
     setResizing(false);
-    const w = clampDrag(d.w + (e.clientX - d.x) * dir);
+    const { width: w, reached } = dragWidth(d.w, (e.clientX - d.x) * dir, min, max, limit);
+    if (!reached) return; // a width the pointer never reached is neither shown nor stored
     setWidth(w);
     persist(w);
   };

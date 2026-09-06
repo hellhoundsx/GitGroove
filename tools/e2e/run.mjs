@@ -485,6 +485,12 @@ gitMay(['remote', 'remove', 'mirror']);
 // step 17 pushes this scratch branch to the second remote and deletes it again (GC-031)
 gitMay(['branch', '-D', 'push-target']);
 gitMay(['push', '-q', 'origin', '--delete', 'push-target']);
+// step 23 makes this one to fast-forward, then pushes it to origin to read the branch menu's Push
+// row against what the click writes, and deletes both copies again (GC-100, GC-114). The tracking
+// ref is dropped separately: a --delete that finds the branch already gone leaves it behind.
+gitMay(['branch', '-D', 'ff-target']);
+gitMay(['push', '-q', 'origin', '--delete', 'ff-target']);
+gitMay(['branch', '-rd', 'origin/ff-target']);
 // step 20 commits through the commit form and then amends that commit, undoing both at the end. A
 // run that died in between leaves one extra commit on main, whose subject always starts with this
 // mark, plus the scratch file the step staged (GC-062). The reset is --soft, never --hard: the index
@@ -1502,6 +1508,27 @@ await waitModal();
 log(await modal(ffUpstream, null));
 log(await act(() => modalOk()));
 check('Set upstream points the branch at the remote branch it was given', gitMay(['rev-parse', '--abbrev-ref', `${FF_BRANCH}@{upstream}`]) === ffUpstream, gitMay(['rev-parse', '--abbrev-ref', `${FF_BRANCH}@{upstream}`]));
+
+// GC-114: `ff-target` now tracks `origin/main`, so the local name and the upstream's branch name
+// differ -- the state the row used to describe as "Push ff-target to origin/main" while pushing
+// `origin/ff-target`. Only one remote is left by this step, so this is the single-remote row.
+log(await contextMenuOn('.left-panel .ref-row', FF_BRANCH));
+const pushRowMenu = await menuList();
+check(
+  'the branch menu Push row names the remote, not the upstream ref it does not write',
+  pushRowMenu.includes(`Push ${FF_BRANCH} to origin`) && !pushRowMenu.includes(`Push ${FF_BRANCH} to ${ffUpstream}`),
+  pushRowMenu,
+);
+const mainBeforePush = git(['ls-remote', 'origin', 'refs/heads/main']);
+log(await act(() => menuClick(`Push ${FF_BRANCH} to origin`)));
+const ffOnOrigin = git(['ls-remote', 'origin', `refs/heads/${FF_BRANCH}`]);
+check(
+  'the click writes the branch the row named and leaves the upstream ref alone',
+  ffOnOrigin.includes(`refs/heads/${FF_BRANCH}`) && git(['ls-remote', 'origin', 'refs/heads/main']) === mainBeforePush,
+  `origin/${FF_BRANCH}: ${ffOnOrigin || '(nothing)'} | origin/main unchanged: ${git(['ls-remote', 'origin', 'refs/heads/main']) === mainBeforePush}`,
+);
+gitMay(['push', '-q', 'origin', '--delete', FF_BRANCH]);
+
 // The scratch branch goes, and with it the config the two actions wrote.
 git(['branch', '-D', FF_BRANCH]);
 log(await act(() => tool('Refresh')));
