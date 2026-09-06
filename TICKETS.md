@@ -258,7 +258,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
 | GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | done |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
-| GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
+| GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | in-progress |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | done |
 | GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | done |
@@ -944,7 +944,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-015 Drag-and-drop merge and rebase between chips
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** L | **Priority:** P3
 - **Depends on:** GC-004
 - **Why:** GitKraken's signature interaction: drag a branch chip onto another to get a menu of
@@ -960,6 +960,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Files:** `CommitGraph.tsx`, `LeftPanel.tsx`, `App.tsx`, `app.css`, `tools/e2e/run.mjs`.
 - **Verify:** e2e, screenshot of the drop menu.
 - **Log:**
+  - 2026-09-06 07:07 claimed
 
 ### GC-016 Multi-tab repositories
 
