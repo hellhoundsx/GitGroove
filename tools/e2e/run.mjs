@@ -362,6 +362,30 @@ const waitDiff = (chip, hunks, adds) =>
     `the ${chip.toLowerCase()} diff to show ${hunks} hunk${hunks === 1 ? '' : 's'} adding ${adds.join(', ')}`,
   );
 
+/** Flip the file view's Unified / Split layout switch (GC-014). It writes `prefs.diffView`, which
+ *  step 1 clears for the next run along with the rest of the blob. */
+const setLayout = (label) =>
+  ev(
+    `(() => { const b = [...document.querySelectorAll('.file-view .seg-btn')].find(x => x.textContent.trim() === ${q(label)}); if (!b) return 'no ' + ${q(label)} + ' layout button'; b.click(); return 'layout: ' + ${q(label)}; })()`,
+  );
+/** One split hunk table as rows of [old number, old text, new number, new text]; a `null` text is a
+ *  padded side, where that file has no line at all (GC-014). */
+const splitRows = (index) =>
+  ev(
+    `(() => { const t = document.querySelectorAll('.file-view .diff-body .hunk-lines.split')[${index}]; if (!t) return 'null'; return JSON.stringify([...t.querySelectorAll('tr.line')].map(tr => { const td = [...tr.querySelectorAll('td')]; const pre = (c) => c.querySelector('pre') ? c.querySelector('pre').textContent : null; return [td[0].textContent, pre(td[2]), td[3].textContent, pre(td[5])]; })); })()`,
+  );
+/** `waitDiff` for the split layout, which tints the cells rather than the row, so `.line.add` no
+ *  longer matches anything: the added lines are read off `td.code.add` instead. The content half is
+ *  load-bearing here for the same reason it is there — a wait keyed on the hunk count alone is
+ *  satisfied by the previous side's render while the new load is still in flight (GC-014). */
+const waitSplitDiff = (chip, hunks, adds) =>
+  waitFor(
+    `(document.querySelector('.file-view .file-view-sub .chip')?.textContent ?? '') === ${q(chip)}` +
+      ` && document.querySelectorAll('.file-view .diff-body .hunk-lines.split').length === ${hunks}` +
+      ` && [...document.querySelectorAll('.file-view .hunk-lines.split td.code.add pre')].map(p => p.textContent).join('|') === ${q(adds.join('|'))}`,
+    `the split ${chip.toLowerCase()} diff to show ${hunks} hunk${hunks === 1 ? '' : 's'} adding ${adds.join(', ')}`,
+  );
+
 // ---- make the scratch repo state predictable when re-running --------------------------------------------
 gitMay(['cherry-pick', '--abort']);
 gitMay(['merge', '--abort']);
@@ -1445,7 +1469,68 @@ rmSync(GITIGNORE, { force: true });
 log(await act(() => tool('Refresh'), "drop the step's .gitignore"));
 check('the step puts the fixture back as it found it', status() === statusBeforeIgnore, `${status()} | expected ${statusBeforeIgnore}`);
 
-step(28, 'the run leaves the fixture exactly as it found it');
+step(28, 'the split diff: rows are aligned, and a hunk staged from it is the same patch as unified');
+// GC-014. The alignment itself is unit tested in parseDiff.test.ts; what only the running app shows
+// is that the header switch reaches the rendered table, and that a hunk button in the split layout
+// still builds its patch from `hunk.raw` rather than from what is on screen. The proof of the second
+// is byte equality: the same hunk staged from either layout has to leave `git diff --cached`
+// identical, because it is literally the same patch text either way.
+log(await selectWip());
+await inGroup('Unstaged Files', HUNK_FILE);
+log(await clickFileRow('Unstaged Files', HUNK_FILE));
+await waitDiff('Unstaged', 2, [HUNK_EDIT_1, HUNK_EDIT_2]);
+check('the file view opens in the unified layout, with no split table', (await ev(`document.querySelectorAll('.file-view .hunk-lines.split').length`)) === 0, await ev(`document.querySelectorAll('.file-view .hunk-lines.split').length`));
+
+log(await setLayout('Split'));
+await waitSplitDiff('Unstaged', 2, [HUNK_EDIT_1, HUNK_EDIT_2]);
+await shot('diff-split.png');
+const rows = JSON.parse(await splitRows(0));
+// big.txt changes one line in place, so this hunk is context either side of a single paired change:
+// every row carries both sides, the numbering runs in step because no line was added or removed,
+// and the one row whose halves differ is `row 3` becoming `row 3 edited`.
+const changed = rows.filter(([, l, , r]) => l !== r);
+check('every row of the split hunk carries a line from each file, none padded', rows.every(([, l, , r]) => l !== null && r !== null), JSON.stringify(rows));
+check('the two sides number in step, so the rows line up', rows.every(([ln, , rn]) => ln === rn), rows.map(([ln, , rn]) => `${ln}/${rn}`).join(' '));
+check('exactly one row differs, pairing the old line with the edited one', changed.length === 1 && changed[0][1] === 'row 3' && changed[0][3] === HUNK_EDIT_1, JSON.stringify(changed));
+
+log(await hunkAction(1, 'Stage hunk'));
+await waitSplitDiff('Unstaged', 1, [HUNK_EDIT_1]);
+await waitIdle();
+const splitCached = git(['diff', '--cached', '--', HUNK_FILE]);
+check('Stage hunk from the split layout stages that hunk, and only that hunk', splitCached.includes(`+${HUNK_EDIT_2}`) && !splitCached.includes(HUNK_EDIT_1), splitCached.split('\n').filter((l) => /^[+-]/.test(l) && !/^[+-][+-]/.test(l)).join(' | '));
+
+// Put it back through the app rather than with a `git reset` behind the app's back, then stage the
+// very same hunk from the unified layout and compare the two patches git recorded.
+await inGroup('Staged Files', HUNK_FILE);
+log(await clickFileRow('Staged Files', HUNK_FILE));
+await waitSplitDiff('Staged', 1, [HUNK_EDIT_2]);
+log(await hunkAction(0, 'Unstage hunk'));
+await waitFor(`!document.querySelector('.file-view')`, `the file view to close as ${HUNK_FILE} leaves the Staged group`);
+await waitIdle();
+check('unstaging from the split layout empties the index again', git(['diff', '--cached', '--', HUNK_FILE]) === '', git(['diff', '--cached', '--name-status', '--', HUNK_FILE]).replace(/\n/g, ' ') || `(${HUNK_FILE} is not staged)`);
+
+await inGroup('Unstaged Files', HUNK_FILE);
+log(await clickFileRow('Unstaged Files', HUNK_FILE));
+// The layout is remembered, so the view comes back split: the toggle is what puts it back.
+await waitSplitDiff('Unstaged', 2, [HUNK_EDIT_1, HUNK_EDIT_2]);
+check('the layout is remembered, so the next file view opens the way the last was left', (await ev(`document.querySelectorAll('.file-view .hunk-lines.split').length`)) === 2, await ev(`document.querySelectorAll('.file-view .hunk-lines').length`));
+log(await setLayout('Unified'));
+await waitDiff('Unstaged', 2, [HUNK_EDIT_1, HUNK_EDIT_2]);
+log(await hunkAction(1, 'Stage hunk'));
+await waitDiff('Unstaged', 1, [HUNK_EDIT_1]);
+await waitIdle();
+check('the same hunk staged from either layout records the same patch', git(['diff', '--cached', '--', HUNK_FILE]) === splitCached && splitCached !== '', `unified: ${git(['diff', '--cached', '--', HUNK_FILE]).length} bytes | split: ${splitCached.length} bytes`);
+
+await inGroup('Staged Files', HUNK_FILE);
+log(await clickFileRow('Staged Files', HUNK_FILE));
+await waitDiff('Staged', 1, [HUNK_EDIT_2]);
+log(await hunkAction(0, 'Unstage hunk'));
+await waitFor(`!document.querySelector('.file-view')`, `the file view to close as ${HUNK_FILE} leaves the Staged group`);
+await waitIdle();
+check('the step leaves both edits unstaged, the way it found them', git(['diff', '--cached', '--', HUNK_FILE]) === '' && shortOf(HUNK_FILE) === `M ${HUNK_FILE}`, `${shortOf(HUNK_FILE)} | staged: ${git(['diff', '--cached', '--name-status', '--', HUNK_FILE]).replace(/\n/g, ' ') || 'none'}`);
+log(await act(() => tool('Refresh')));
+
+step(29, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

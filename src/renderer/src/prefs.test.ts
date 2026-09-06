@@ -67,6 +67,7 @@ describe('load', () => {
       commitColumnGuide: false,
       graphColumns: { author: true, date: true, sha: false },
       theme: 'light',
+      diffView: 'split',
     };
     const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify(blob) });
     expect(getPrefs()).toEqual(blob);
@@ -82,6 +83,7 @@ describe('load', () => {
       commitColumnGuide: DEFAULT_PREFS.commitColumnGuide,
       graphColumns: DEFAULT_PREFS.graphColumns,
       theme: DEFAULT_PREFS.theme,
+      diffView: DEFAULT_PREFS.diffView,
     });
   });
 

@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { FileChangeKind } from '@shared/types';
-import { buildHunkPatch, parseUnifiedDiff, type DiffHunk, type FileDiff } from './parseDiff';
+import { alignHunks, buildHunkPatch, parseUnifiedDiff, type DiffHunk, type DiffLine, type FileDiff } from './parseDiff';
 import { X } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { useUi } from '../ui/UiContext';
+import { setPrefs, usePrefs, type DiffViewMode } from '../prefs';
+
+const VIEW_MODES: { mode: DiffViewMode; label: string; title: string }[] = [
+  { mode: 'unified', label: 'Unified', title: 'One column: removals and additions in file order' },
+  { mode: 'split', label: 'Split', title: 'Side by side: the old file left, the new file right' },
+];
+
+/** Which tint a split cell takes. An empty side is padding, not an unchanged line. */
+const sideClass = (line: DiffLine | null): string => (line === null ? 'pad' : line.type);
 
 export type FileViewSource =
   | { source: 'commit'; sha: string; path: string; kind: FileChangeKind }
@@ -28,6 +37,7 @@ function splitPath(path: string): [string, string] {
 
 export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageFile, onDiscardFile, onApplyPatch }: Props): JSX.Element {
   const ui = useUi();
+  const split = usePrefs().diffView === 'split';
   // (GC-075) What was loaded, and which view it was loaded for. The header chip and the hunk
   // buttons come straight from `view` and flip the instant it changes, so a diff kept from the
   // previous view would be on screen under a header claiming the other side of the file, and a
@@ -142,6 +152,22 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
           </span>
         )}
         <span className="spacer" />
+        {/* The layout of what is already loaded, so flipping it costs no reload and never disables
+            an action: `hunk.raw` is what a Stage/Discard patch is built from, and alignment does not
+            touch it (GC-014). */}
+        <div className="seg" role="group" aria-label="Diff layout">
+          {VIEW_MODES.map((m) => (
+            <button
+              key={m.mode}
+              className={`seg-btn${split === (m.mode === 'split') ? ' on' : ''}`}
+              title={m.title}
+              aria-pressed={split === (m.mode === 'split')}
+              onClick={() => setPrefs({ diffView: m.mode })}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         {isWip && view.source === 'wip' && !view.staged && (
           <>
             <button className="btn success" disabled={actionsDisabled} onClick={() => void run(() => onStageFile(view.path))}>
@@ -191,20 +217,40 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                 <span className="spacer" />
                 <span className="hunk-actions">{hunkAction(h)}</span>
               </div>
-              <table className="hunk-lines">
-                <tbody>
-                  {h.lines.map((l, li) => (
-                    <tr key={li} className={`line ${l.type}`}>
-                      <td className="no">{l.oldNo ?? ''}</td>
-                      <td className="no">{l.newNo ?? ''}</td>
-                      <td className="mark">{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ''}</td>
-                      <td className="code">
-                        <pre>{l.text}</pre>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {split ? (
+                // Six columns, so both halves keep the gutter the unified table has. The tint is on
+                // the cells rather than the row: a split row is one line of each file and the two
+                // sides are rarely the same kind (GC-014).
+                <table className="hunk-lines split">
+                  <tbody>
+                    {alignHunks(h).map((r, ri) => (
+                      <tr key={ri} className="line">
+                        <td className={`no ${sideClass(r.left)}`}>{r.left?.oldNo ?? ''}</td>
+                        <td className={`mark ${sideClass(r.left)}`}>{r.left?.type === 'del' ? '−' : ''}</td>
+                        <td className={`code ${sideClass(r.left)}`}>{r.left && <pre>{r.left.text}</pre>}</td>
+                        <td className={`no ${sideClass(r.right)}`}>{r.right?.newNo ?? ''}</td>
+                        <td className={`mark ${sideClass(r.right)}`}>{r.right?.type === 'add' ? '+' : ''}</td>
+                        <td className={`code ${sideClass(r.right)}`}>{r.right && <pre>{r.right.text}</pre>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="hunk-lines">
+                  <tbody>
+                    {h.lines.map((l, li) => (
+                      <tr key={li} className={`line ${l.type}`}>
+                        <td className="no">{l.oldNo ?? ''}</td>
+                        <td className="no">{l.newNo ?? ''}</td>
+                        <td className="mark">{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ''}</td>
+                        <td className="code">
+                          <pre>{l.text}</pre>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           ))}
       </div>

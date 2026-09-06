@@ -5,6 +5,9 @@ import type { PullMode, ResolvedTheme, Theme } from '@shared/types';
 // settings do not keep sprouting their own keys; the per-repository pin and the ref column width
 // stay separate because they are remembered state, not preferences.
 
+/** How a file's diff is laid out: one column of changes, or the two files side by side (GC-014). */
+export type DiffViewMode = 'unified' | 'split';
+
 /** The optional graph columns, drawn to the right of the commit message when enabled. */
 export interface GraphColumns {
   author: boolean;
@@ -25,6 +28,8 @@ export interface Prefs {
   graphColumns: GraphColumns;
   /** Dark, light, or whatever the OS is set to (GC-013). */
   theme: Theme;
+  /** Unified or side-by-side diffs; the file view's own toggle writes it back here (GC-014). */
+  diffView: DiffViewMode;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -34,6 +39,7 @@ export const DEFAULT_PREFS: Prefs = {
   commitColumnGuide: true,
   graphColumns: { author: false, date: false, sha: false },
   theme: 'dark',
+  diffView: 'unified',
 };
 
 const KEY = 'gitclient.prefs';
@@ -42,6 +48,7 @@ const LEGACY_PULL_MODE_KEY = 'gitclient.pullMode';
 
 const isPullMode = (v: unknown): v is PullMode => v === 'ff' || v === 'ff-only' || v === 'rebase';
 const isTheme = (v: unknown): v is Theme => v === 'dark' || v === 'light' || v === 'system';
+const isDiffView = (v: unknown): v is DiffViewMode => v === 'unified' || v === 'split';
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
 
 /** Each column falls back on its own, so a truncated or half-written object still loads (GC-032). */
@@ -66,6 +73,7 @@ function load(): Prefs {
         commitColumnGuide: bool(o.commitColumnGuide, DEFAULT_PREFS.commitColumnGuide),
         graphColumns: graphColumns(o.graphColumns),
         theme: isTheme(o.theme) ? o.theme : DEFAULT_PREFS.theme,
+        diffView: isDiffView(o.diffView) ? o.diffView : DEFAULT_PREFS.diffView,
       };
     }
     // Migration: the pull mode used to have its own key.

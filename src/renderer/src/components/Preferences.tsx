@@ -1,12 +1,17 @@
 import { type JSX, type ReactNode } from 'react';
 import type { PullMode, Theme } from '@shared/types';
-import { setPrefs, usePrefs, type GraphColumns, type Prefs } from '../prefs';
+import { setPrefs, usePrefs, type DiffViewMode, type GraphColumns, type Prefs } from '../prefs';
 import { matches } from '../shortcuts';
 
 const THEMES: { theme: Theme; label: string }[] = [
   { theme: 'dark', label: 'Dark' },
   { theme: 'light', label: 'Light' },
   { theme: 'system', label: 'Match the system' },
+];
+
+const DIFF_VIEWS: { mode: DiffViewMode; label: string }[] = [
+  { mode: 'unified', label: 'Unified' },
+  { mode: 'split', label: 'Split (side by side)' },
 ];
 
 const PULL_MODES: { mode: PullMode; label: string }[] = [
@@ -85,6 +90,18 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
           <ColumnToggle of="author" label="Author column" hint="The commit author's name, after the message." />
           <ColumnToggle of="date" label="Date / time column" hint="The author date, dd/mm/yyyy and the local time." />
           <ColumnToggle of="sha" label="SHA column" hint="The commit's abbreviated hash." />
+        </div>
+        <div className="pref-group">
+          <div className="pref-group-title">Diff</div>
+          <Row label="Diff layout" hint="The file view's own toggle writes back here, so the last layout used is the one it opens with.">
+            <select className="pref-select" value={prefs.diffView} onChange={(e) => setPrefs({ diffView: e.target.value as DiffViewMode })}>
+              {DIFF_VIEWS.map((v) => (
+                <option key={v.mode} value={v.mode}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </Row>
         </div>
         <div className="pref-group">
           <div className="pref-group-title">Behaviour</div>

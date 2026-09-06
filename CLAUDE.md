@@ -324,6 +324,20 @@ bumps: while a same-identity reload is pending the content stays and dims (`.dif
 Both are derived **during render**, not cleared from an effect — an effect runs after React has
 committed the new view, painting one frame with the new header over the old hunks and live buttons.
 
+**Two layouts, one load.** `prefs.diffView` picks the four-column unified table or the six-column
+`.hunk-lines.split`, and the `Unified | Split` switch in the header (`.seg` / `.seg-btn`, the app's
+only segmented control) writes that pref. `alignHunks(hunk)` is the pure function behind the split
+one: it pairs each run of removals with the additions that follow it index by index, pads the
+shorter side with `null`, puts a context line on both sides, and pairs a `\ No newline` marker only
+with the marker opposite it. Three things must stay true (GC-014): the layout is a **render of what
+is already loaded**, so flipping it costs no reload and disables no action; a hunk button still
+builds from `hunk.raw`, so the same hunk staged from either layout is byte-for-byte the same patch
+(e2e step 28 asserts exactly that); and in split the tint is on the **cells**, not the row, because
+a split row is one line of each file — `.line.add` matches nothing there, which is why the e2e
+suite has `waitSplitDiff` beside `waitDiff`. `table-layout: fixed` keeps the halves exactly equal
+and a long line therefore wraps; clipping it or giving each side its own scrollbar would both hide
+changed code.
+
 ### Detail panel
 
 Staging view (operation banner with Abort, Conflicted / Unstaged / Staged groups, commit form with
@@ -342,8 +356,8 @@ by turning the box RTL and a `/` at either end is reordered to the other one.
 `prefs.ts` is the single home for user settings: a typed `Prefs` with `DEFAULT_PREFS`, persisted as
 one JSON blob under `gitclient.prefs`, read with `usePrefs()` and written with `setPrefs(patch)`.
 `load()` validates each field and falls back to the default, so a hand-edited blob cannot break the
-app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `theme` and
-`graphColumns` — the one nested value, so `load()` falls back per column and a `defaults()` helper
+app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `theme`, `diffView`
+and `graphColumns` — the one nested value, so `load()` falls back per column and a `defaults()` helper
 copies it, a bare spread having shared the nested object. Adding a setting means: a field with a
 default in `prefs.ts`, validation in `load()`, a row in `components/Preferences.tsx`, and reading
 it with `usePrefs()`. There is no OK/Cancel; every change applies immediately.
@@ -426,7 +440,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-106 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+118 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -435,7 +449,7 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 28 steps, 143 assertions, ~22s.
+asserting against git after each step. 29 steps, 151 assertions, ~24s.
 
 The fixture (`setup-testrepo.mjs`) has a merge, a tag, three branches, a commit that deletes a
 file, a bare `origin`, a git note — a ref outside heads/remotes/tags, so the suite can tell that the
@@ -451,7 +465,7 @@ here. Rules a new step must respect:
   git's stderr, so a broken fixture stops the run where it happened instead of surfacing steps later
   as a row that never appeared. `gitMay()` is the explicit opt-out, for the commands whose failure is
   the normal case (the prologue's `--abort`s and deletes) and for the two that use git's exit code as
-  their answer — `check-ignore`, and step 28's drift scan, which must report a missing branch rather
+  their answer — `check-ignore`, and step 29's drift scan, which must report a missing branch rather
   than crash on it. `.git/index.lock` is retried five times at 200ms first, because the collision is
   with the app's own watcher refresh. A throw is caught by `bail`, which stops the run's Electron.
 - **Wait on the DOM, never on a fixed sleep.** `waitFor(expression, what, max)` polls the renderer
@@ -518,7 +532,9 @@ Design decisions that must not be quietly undone, and where each is explained ab
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
 one layer, one shortcut table, every confirmation on the modal (App state, UI layer); `--index` on
 stash apply and pop, `defaultRemote` shared both ways (Main process); the diff keyed to its view
-identity (Diff); the hidden set applied to a path's first load (Graph); every colour a token, the
+identity, the split layout a render of what is already loaded and a hunk patch built from
+`hunk.raw` whichever layout is showing (Diff); the hidden set applied to a path's first load
+(Graph); every colour a token, the
 theme resolved in `prefs.ts` (Styling, Preferences); a failing e2e git call throwing (Testing);
 stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).

@@ -248,11 +248,13 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | done |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
 | GC-013 | Light theme | ui | M | P3 | done |
-| GC-014 | Side-by-side diff | diff | L | P3 | in-progress |
+| GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | todo |
+| GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
 | GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | todo |
+| GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | todo |
 | GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | todo |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | done |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
@@ -868,7 +870,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-014 Side-by-side diff
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** diff | **Size:** L | **Priority:** P3
 - **Depends on:** GC-002
 - **Why:** The unified view is the only one. GitKraken offers a split view and a toggle.
@@ -878,12 +880,54 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     both views.
 - **Out of scope:** intra-line (word) diff highlighting, syntax highlighting.
 - **Acceptance:**
-  - [ ] Two-hunk file in the e2e repo renders aligned rows; staging a hunk from the split view
+  - [x] Two-hunk file in the e2e repo renders aligned rows; staging a hunk from the split view
     matches the unified result (`git diff --cached`).
 - **Files:** `parseDiff.ts`, `DiffView.tsx`, `app.css`, tests.
 - **Verify:** `npm test`, e2e, screenshot.
 - **Log:**
   - 2026-09-06 05:00 claimed
+  - 2026-09-06 06:05 done. `alignHunks(hunk)` in `parseDiff.ts` pairs each block of removals with
+    the additions that follow it, index by index, pads the shorter side with `null` and puts a
+    context line on both sides; a `\ No newline` marker is paired with the marker opposite it, or
+    with itself after a context line, so it never lands beside a line of code. `DiffView` renders
+    either the four-column unified table it always had or a six-column `.hunk-lines.split`, chosen
+    from the new `prefs.diffView` and flipped by a `Unified | Split` switch in the file view header
+    — a segmented control (`.seg` / `.seg-btn`), the first in the app. The tint moves from the row
+    to the cells there, because a split row is one line of each file.
+  - 2026-09-06 06:05 verified: 118 unit tests (up from 106) — 8 new `alignHunks` cases in
+    `parseDiff.test.ts` including "loses no line", which asserts the left and right columns are
+    exactly the hunk's del+context and add+context lines, and 4 in a new `DiffView.test.tsx` that
+    pin the row shape, the per-cell classes and the buttons staying live across a flip. e2e: 29
+    steps, 151 assertions, 23.5s, all passing. Step 28 is new and carries the acceptance criterion:
+    it reads the split table back as rows (`[["3","row 3","3","row 3 edited"], …]`), then stages
+    hunk 2 of `big.txt` from the split layout, unstages it through the app, stages the same hunk
+    from the unified layout and asserts the two `git diff --cached` outputs are byte-identical (184
+    bytes each). That is the real guarantee: `buildHunkPatch` builds from `hunk.raw`, which
+    alignment never touches.
+  - 2026-09-06 06:05 measured, not assumed: at a 1100px window the six cells are
+    `[44, 16, 305, 44, 16, 305]` — the halves are exactly equal — and `.diff-body`'s `scrollWidth`
+    equals its `clientWidth`, so nothing scrolls sideways. `table-layout: fixed` is what buys that,
+    and the price is that a long line wraps (`pre-wrap` on split code cells only): halving the
+    width is the point of the view, and both alternatives — clipping, or a scrollbar per side —
+    hide changed code. The unified layout is untouched and still scrolls.
+  - 2026-09-06 06:05 looked at, dark and light: `docs/screenshots/gc-014-split.png` (both hunks of
+    `big.txt`, the changed row red left and green right with the divider between the halves),
+    `gc-014-split-added-file.png` (an untracked file: every left cell is `pad`, read back from the
+    DOM as `no pad / mark pad / code pad`), `gc-014-split-light.png` (the same view with the light
+    tokens) and `gc-014-split-narrow.png` (1100px). `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css`
+    still prints nothing: the split view needed no new colour, only `--diff-add`, `--diff-del`,
+    `--diff-gutter` and `--border`.
+  - 2026-09-06 06:05 one deviation from the Files line, deliberate: `prefs.ts` and
+    `components/Preferences.tsx` are touched too. "Remembered in prefs" makes this a setting, and
+    `CLAUDE.md` says a setting means a field with a default, validation in `load()` **and** a row in
+    Preferences — so it got a "Diff" group with a Diff layout dropdown rather than a preference with
+    no home in the dialog (`docs/screenshots/gc-014-preferences-diff.png`). `prefs.test.ts` gained
+    the field in both round-trip cases.
+  - 2026-09-06 06:05 noticed while screenshotting that dialog, and filed as GC-103: at a 720px-tall
+    window the Preferences modal is 770px and its Close button sits 33px below the fold, with the
+    backdrop at `overflow: visible` so there is nothing to scroll. This ticket's row makes it ~78px
+    worse but did not cause it. Intra-line highlighting, which this ticket puts out of scope and the
+    study records GitKraken having, is GC-104.
 
 ### GC-015 Drag-and-drop merge and rebase between chips
 
@@ -5195,6 +5239,79 @@ decision is missing.
     review had captured before. Found by comparing computed styles rather than by eye — the Arial
     select is obvious once seen, the 13px OS-accent checkbox is the kind of thing that reads as
     "slightly off" without ever naming itself.
+
+### GC-103 The Preferences dialog outgrows a short window and its last rows cannot be reached
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** `.modal` sets a width and no height at all, and `.modal-backdrop` centres it with
+  `overflow: visible`. The Preferences dialog is the tallest one in the app and keeps growing —
+  GC-013 added the theme row, GC-014 a Diff group — so on a window shorter than about 790px it is
+  taller than the viewport and the overflow is simply cut off at both ends with nothing to scroll.
+  Measured over CDP at three window heights with the dialog open, defaults loaded: at 900px the
+  modal is 65-835 and Close ends at 818, fine; at 800px it is 15-785; at **720px it is 0-770 with
+  Close at 753 against a 720px viewport**, so the Close button and the "Confirm checkout with
+  uncommitted changes" row are off-screen and unreachable — `backdropScrollHeight` 770 against
+  `clientHeight` 720, but `overflow-y: visible`, so the wheel does nothing. Escape still closes it
+  (`App` owns Escape), so it is not a trap, but the last settings cannot be read or changed.
+- **Scope:**
+  - `.modal` gets a `max-height` bounded by the viewport, and the part of it that can overflow —
+    the body between the title and `.modal-buttons` — scrolls, so the heading and the buttons stay
+    put. The global `::-webkit-scrollbar` rules already style whatever scrolls (GC-079).
+  - Every modal, not just Preferences: a prompt with a long message has the same shape.
+- **Out of scope:** making the dialog shorter by regrouping or paginating the settings, and the
+  unstyled checkboxes and select (GC-101).
+- **Acceptance:**
+  - [ ] At a 720px-tall window with Preferences open, the Close button's bottom is inside the
+        viewport and every `.pref-row` can be scrolled to.
+  - [ ] At 900px nothing scrolls and the dialog looks exactly as it does today.
+  - [ ] The title and the button row do not scroll away with the content.
+- **Files:** `src/renderer/src/styles/app.css`.
+- **Verify:** launch through `tools/launch-app.mjs`, open Preferences, set the window to 1400x720
+  over `Emulation.setDeviceMetricsOverride` and read back the Close button's rect against
+  `innerHeight`; screenshot at 720 and at 900.
+- **Log:**
+  - 2026-09-06 proposed by GC-014 (this ticket): its Preferences row pushed the dialog to 770px and
+    the measurement above fell out of screenshotting it.
+
+### GC-104 Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line
+
+- **Status:** todo
+- **Area:** diff | **Size:** M | **Priority:** P3
+- **Depends on:** GC-014
+- **Why:** Both diff layouts tint a changed line whole. GitKraken does not: the study records
+  "deleted lines tinted red, added lines tinted green with intra-line highlights"
+  (`docs/reference/gitkraken/04-panels.md`). The gap is most obvious in the split view GC-014 just
+  added, where the two versions of a line sit side by side and the eye has to diff them itself — on
+  `big.txt` the paired row is `row 3` beside `row 3 edited`, and nothing says the difference is the
+  trailing word. GC-014 put this out of scope and GC-052 excludes it too, so nothing owns it.
+- **Scope:**
+  - A pure `wordDiff(oldText, newText)` returning the spans that differ on each side, unit tested,
+    next to `alignHunks` in `parseDiff.ts`. A common-prefix/common-suffix trim plus a word-level
+    LCS on what is left is enough; it must be cheap enough to run per paired row.
+  - `DiffView` renders the spans as `<span class="word">` inside the existing `pre`, in both
+    layouts, with their own tokens (a stronger add/del than the line tint).
+  - Only lines that are actually paired get it: a padded side, a pure addition and a pure removal
+    are unchanged.
+  - A guard for the pathological case — two long lines with nothing in common should fall back to
+    the plain line tint rather than a confetti of one-character spans.
+- **Out of scope:** syntax highlighting, character-level diff inside a word, and the hunk actions,
+  which act on `hunk.raw` and must stay untouched.
+- **Acceptance:**
+  - [ ] `wordDiff` unit tests: a trailing-word edit marks only that word; identical lines mark
+        nothing; two unrelated lines fall back rather than marking everything.
+  - [ ] In the e2e repo's `big.txt`, the split view marks `edited` on the added side and nothing on
+        the removed side.
+  - [ ] The unified layout marks the same spans on the same lines.
+  - [ ] Staging a hunk still records the same patch it does today.
+- **Files:** `src/renderer/src/diff/parseDiff.ts`, `src/renderer/src/diff/DiffView.tsx`,
+  `src/renderer/src/styles/app.css`, `src/renderer/src/styles/tokens.css`, tests.
+- **Verify:** `npm test`, e2e, and a screenshot of the split view next to
+  `docs/reference/gitkraken/04-diff-view.png`.
+- **Log:**
+  - 2026-09-06 proposed by GC-014 (this ticket): the split view makes the missing intra-line
+    highlight plain, and the study records GitKraken having it.
 
 ## Reviews
 

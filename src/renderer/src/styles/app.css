@@ -1088,6 +1088,33 @@ textarea:focus {
   cursor: default;
 }
 
+/* A segmented switch: two or more buttons sharing one border, the chosen one filled. Used by the
+   file view's Unified / Split toggle (GC-014). */
+.seg {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.seg-btn {
+  height: 22px;
+  padding: 0 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.seg-btn + .seg-btn {
+  border-left: 1px solid var(--border-strong);
+}
+.seg-btn:hover {
+  color: var(--text-bright);
+}
+.seg-btn.on {
+  background: var(--accent-soft);
+  color: var(--text-bright);
+}
+
 /* ---- Collapsed left panel (icon rail) -------------------------------------- */
 
 .left-panel.collapsed {
@@ -1382,6 +1409,48 @@ textarea:focus {
 .hunk-lines .line.meta {
   color: var(--text-dim);
   font-style: italic;
+}
+
+/* Side-by-side layout (GC-014). Six columns, so each half keeps the number and marker gutter the
+   unified table has, and `table-layout: fixed` so the two halves stay exactly equal whatever the
+   content is. Equal halves mean a long line has to wrap: halving the width is the point of the
+   view, and the alternatives — clipping the overflow, or a scrollbar per side — both hide changed
+   code. The tint moves from the row to the cells, because a split row is one line of each file and
+   the two sides are rarely the same kind. */
+.hunk-lines.split {
+  table-layout: fixed;
+}
+.hunk-lines.split .code {
+  width: calc((100% - 120px) / 2);
+}
+.hunk-lines.split .code pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.hunk-lines.split td.add {
+  background: var(--diff-add);
+}
+.hunk-lines.split td.del {
+  background: var(--diff-del);
+}
+.hunk-lines.split td.mark.add {
+  color: var(--success);
+}
+.hunk-lines.split td.mark.del {
+  color: var(--danger);
+}
+.hunk-lines.split td.meta {
+  color: var(--text-dim);
+  font-style: italic;
+}
+/* Neither file has a line here: the same neutral fill as the number gutter, so the padding reads as
+   absence rather than as an unchanged line. */
+.hunk-lines.split td.pad {
+  background: var(--diff-gutter);
+}
+/* The new file's number column is where the two halves meet. */
+.hunk-lines.split td.no:nth-child(4) {
+  border-left: 1px solid var(--border);
 }
 
 /* ---- Context menu ---------------------------------------------------------- */

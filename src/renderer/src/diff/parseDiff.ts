@@ -122,6 +122,74 @@ export function parseUnifiedDiff(text: string): FileDiff[] {
   return files;
 }
 
+/**
+ * One row of the side-by-side view: the old file's line, the new file's line, or both (GC-014).
+ * A context line is the same `DiffLine` on both sides — it carries `oldNo` and `newNo` — while a
+ * changed line has whichever side it belongs to and `null` for the padding opposite it.
+ */
+export interface DiffRow {
+  left: DiffLine | null;
+  right: DiffLine | null;
+}
+
+/**
+ * Pair a hunk's removed and added lines into rows for the split view (GC-014).
+ *
+ * Unified output emits a change block as a run of `-` lines followed by a run of `+` lines, so the
+ * pairing is per block and index by index: the first removal sits beside the first addition, and
+ * the shorter run is padded with `null` rather than the rows being allowed to drift. A context line
+ * ends the block and occupies both sides. `\ No newline at end of file` describes the side above it
+ * — the two sides can disagree about the trailing newline — so it is paired with the marker on the
+ * other side if there is one, and after a context line, which both sides share, it appears on both.
+ *
+ * Every line of the hunk appears exactly once, on its own side: nothing is dropped and nothing is
+ * duplicated except a context line, which genuinely is in both files.
+ */
+export function alignHunks(hunk: DiffHunk): DiffRow[] {
+  const rows: DiffRow[] = [];
+  let dels: DiffLine[] = [];
+  let adds: DiffLine[] = [];
+  /** The side the last non-meta line was on, which is what a `\ No newline` marker refers to. */
+  let side: DiffLineType | null = null;
+
+  const flush = (): void => {
+    // Markers pair with markers, so a `\ No newline` on one side never lands beside a code line on
+    // the other; both sub-lists keep the order they arrived in.
+    const dl = dels.filter((l) => l.type !== 'meta');
+    const al = adds.filter((l) => l.type !== 'meta');
+    for (let i = 0; i < Math.max(dl.length, al.length); i++) rows.push({ left: dl[i] ?? null, right: al[i] ?? null });
+    const dm = dels.filter((l) => l.type === 'meta');
+    const am = adds.filter((l) => l.type === 'meta');
+    for (let i = 0; i < Math.max(dm.length, am.length); i++) rows.push({ left: dm[i] ?? null, right: am[i] ?? null });
+    dels = [];
+    adds = [];
+  };
+
+  for (const line of hunk.lines) {
+    if (line.type === 'del') {
+      // A removal after an addition is a new block: git does not interleave them within one.
+      if (adds.length) flush();
+      dels.push(line);
+      side = 'del';
+    } else if (line.type === 'add') {
+      adds.push(line);
+      side = 'add';
+    } else if (line.type === 'context') {
+      flush();
+      rows.push({ left: line, right: line });
+      side = 'context';
+    } else if (side === 'del') {
+      dels.push(line);
+    } else if (side === 'add') {
+      adds.push(line);
+    } else {
+      rows.push({ left: line, right: line });
+    }
+  }
+  flush();
+  return rows;
+}
+
 /** Build a patch containing only the given hunk of a file, suitable for `git apply`. */
 export function buildHunkPatch(file: FileDiff, hunk: DiffHunk): string {
   const header = file.headerLines.filter((l) => !l.startsWith('index ')); // let git apply ignore blob ids

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHunkPatch, parseUnifiedDiff } from './parseDiff';
+import { alignHunks, buildHunkPatch, parseUnifiedDiff, type DiffRow } from './parseDiff';
 
 /** Build a diff body the way `git diff` prints it: every line ends with \n. */
 const diff = (...lines: string[]): string => lines.join('\n') + '\n';
@@ -255,5 +255,106 @@ describe('buildHunkPatch', () => {
     expect(reparsed!.oldPath).toBeNull();
     expect(reparsed!.newPath).toBe('fresh.txt');
     expect(reparsed!.hunks[0]!.lines.map((l) => l.text)).toEqual(['hello']);
+  });
+});
+
+describe('alignHunks (GC-014)', () => {
+  /** Parse one hunk body and align it; the file header is noise for these cases. */
+  const rowsOf = (...body: string[]): DiffRow[] => {
+    const [file] = parseUnifiedDiff(diff('diff --git a/f.txt b/f.txt', '--- a/f.txt', '+++ b/f.txt', ...body));
+    return alignHunks(file!.hunks[0]!);
+  };
+  /** A row as [left text, right text], with `null` for the side that has no line. */
+  const shape = (rows: DiffRow[]): (string | null)[][] => rows.map((r) => [r.left?.text ?? null, r.right?.text ?? null]);
+
+  it('puts a context line on both sides, with a number for each file', () => {
+    const rows = rowsOf('@@ -4,2 +9,2 @@', ' one', ' two');
+    expect(shape(rows)).toEqual([
+      ['one', 'one'],
+      ['two', 'two'],
+    ]);
+    expect(rows[0]!.left!.oldNo).toBe(4);
+    expect(rows[0]!.right!.newNo).toBe(9);
+  });
+
+  it('pairs a removal run with the addition run that follows it, index by index', () => {
+    expect(shape(rowsOf('@@ -1,4 +1,4 @@', ' ctx', '-a', '-b', '+A', '+B', ' end'))).toEqual([
+      ['ctx', 'ctx'],
+      ['a', 'A'],
+      ['b', 'B'],
+      ['end', 'end'],
+    ]);
+  });
+
+  it('pads the shorter side rather than letting the rows drift', () => {
+    expect(shape(rowsOf('@@ -1,3 +1,2 @@', '-a', '-b', '-c', '+A'))).toEqual([
+      ['a', 'A'],
+      ['b', null],
+      ['c', null],
+    ]);
+    expect(shape(rowsOf('@@ -1,1 +1,3 @@', '-a', '+A', '+B', '+C'))).toEqual([
+      ['a', 'A'],
+      [null, 'B'],
+      [null, 'C'],
+    ]);
+  });
+
+  it('leaves the old side empty for a pure addition and the new side empty for a pure removal', () => {
+    expect(shape(rowsOf('@@ -0,0 +1,2 @@', '+one', '+two'))).toEqual([
+      [null, 'one'],
+      [null, 'two'],
+    ]);
+    expect(shape(rowsOf('@@ -1,2 +0,0 @@', '-one', '-two'))).toEqual([
+      ['one', null],
+      ['two', null],
+    ]);
+  });
+
+  it('starts a new block when a removal follows an addition, so neither run absorbs the other', () => {
+    // Two independent change groups with no context between them: `+A` replaces nothing that comes
+    // after it, and pairing across the boundary would put `A` beside `b`.
+    expect(shape(rowsOf('@@ -1,2 +1,2 @@', '+A', '-b', '+B'))).toEqual([
+      [null, 'A'],
+      ['b', 'B'],
+    ]);
+  });
+
+  it('keeps a "\\ No newline" marker on the side it describes', () => {
+    const rows = rowsOf('@@ -1,2 +1,2 @@', ' first', '-second', '\\ No newline at end of file', '+second!', '\\ No newline at end of file');
+    expect(shape(rows)).toEqual([
+      ['first', 'first'],
+      ['second', 'second!'],
+      ['\\ No newline at end of file', '\\ No newline at end of file'],
+    ]);
+    // Only one side loses its newline: the marker there has no partner to pair with.
+    expect(shape(rowsOf('@@ -1,1 +1,1 @@', '-a', '+A', '\\ No newline at end of file'))).toEqual([
+      ['a', 'A'],
+      [null, '\\ No newline at end of file'],
+    ]);
+    // After a context line the marker belongs to both files, which still agree at that point.
+    expect(shape(rowsOf('@@ -1,1 +1,1 @@', ' same', '\\ No newline at end of file'))).toEqual([
+      ['same', 'same'],
+      ['\\ No newline at end of file', '\\ No newline at end of file'],
+    ]);
+  });
+
+  it('loses no line: every line of the hunk appears once on its own side', () => {
+    const [file] = parseUnifiedDiff(TWO_HUNK_DIFF);
+    for (const hunk of file!.hunks) {
+      const rows = alignHunks(hunk);
+      const left = rows.map((r) => r.left).filter((l) => l !== null);
+      const right = rows.map((r) => r.right).filter((l) => l !== null);
+      expect(left).toEqual(hunk.lines.filter((l) => l.type === 'del' || l.type === 'context'));
+      expect(right).toEqual(hunk.lines.filter((l) => l.type === 'add' || l.type === 'context'));
+    }
+  });
+
+  it('is unaffected by, and does not touch, the raw text a hunk patch is built from', () => {
+    const [file] = parseUnifiedDiff(TWO_HUNK_DIFF);
+    const hunk = file!.hunks[0]!;
+    const before = hunk.raw;
+    alignHunks(hunk);
+    expect(hunk.raw).toBe(before);
+    expect(buildHunkPatch(file!, hunk)).toContain(before);
   });
 });
