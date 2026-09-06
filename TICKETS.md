@@ -262,18 +262,14 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-203 | `--force-with-lease` is implemented, typed and validated, and no call site can reach it | actions | S | P2 | in-progress |
-| GC-209 | A sticky group head is stuck 12px below the edge that clips the rows, so a file row shows above it and behind it | ui | S | P2 | in-progress |
+| GC-210 | The force push is destructive, reachable and covered by nothing the suite runs | tests | S | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | in-progress |
-| GC-198 | `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk | infra | S | P3 | in-progress |
-| GC-199 | A stash row carries five things at a 220px panel and the message gets 48px of them | ui | S | P3 | in-progress |
-| GC-201 | The lane band is a flat wash where it should read as light coming off the lane | ui | S | P3 | in-progress |
 | GC-208 | An image in a commit says "Binary file." where the picture is what the reader wants | diff | M | P3 | todo |
 | GC-204 | Blame: the file view's third mode, and the last Build row of the study's file panel | diff | M | P3 | todo |
 | GC-205 | The staging view's bottom section keeps its place now, but still cannot be resized | ui | S | P3 | todo |
 | GC-207 | The staging view's two file lists take an equal share of the panel whatever each holds | ui | S | P3 | todo |
 | GC-206 | The detail panel draws every file row, and it is now the box that scrolls | ui | S | P3 | todo |
+| GC-211 | An empty staging group's head is drawn 4px above the box it is stuck to | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
 
@@ -400,243 +396,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
       weakening a single condition, but it also stops passing lines from printing their measured values,
       and those values are what tickets in this file cite as evidence. That is a trade about what the run
       reports, not a refactor, so it is Ricardo's to make.
-
----
-
-### GC-184 The folded +N block cannot be opened by any driver, so nothing covers it end to end
-
-- **Status:** in-progress
-- **Area:** tests | **Size:** S | **Priority:** P3
-- **Depends on:** GC-123
-- **Why:** The `+N` fold opens on `:hover`, and `:hover` never fires in the app the routine
-  launches: it runs offscreen (`webPreferences.offscreen`, GC-060's stealth), where a CDP
-  `Input.dispatchMouseEvent` `mouseMoved` does not update the hover state — measured while
-  verifying GC-147, where a real dispatched move left `getComputedStyle(list).display` at
-  `none`. So the e2e suite drives no hover at all and the block has never been opened in a run.
-  What covers it today is jsdom class assertions (GC-058's `flip-up`), which apply no stylesheet
-  and so cannot see the two things that have actually broken here: the `overflow: hidden` that
-  clipped it to 28px (GC-123) and the padding that shifted its first line (GC-022, GC-078).
-  There is a way in that does not need hover: `.more-drag`, which GC-123 added for the same
-  reason and which the CSS treats as the hover state by construction — every rule that opens the
-  block is written as a `:hover, .more-drag` pair — and which a `dragover` carrying
-  `REF_DRAG_TYPE` sets. Step 39 already dispatches exactly those events.
-- **Scope:**
-  - An e2e step that opens the fold on the fixture's `main` row through a `dragover` carrying
-    `REF_DRAG_TYPE`, and asserts what only a rendered stylesheet can answer: every folded ref is
-    a line, the block is taller than the 28px row and is not clipped, it stays inside
-    `.graph-body`, and its first line sits on the pixel the row chip occupied.
-  - The step ends the drag and leaves the class off, so no later step meets an open block.
-- **Out of scope:** making `:hover` reachable — an offscreen window is what keeps a run
-  invisible (rule 3) and is not up for trade; and the flip-up decision near the bottom edge,
-  which needs a row there and is its own step if it is wanted.
-- **Acceptance:**
-  - [ ] A run opens the folded block and asserts its height, its clipping and its lines.
-  - [ ] The step leaves the graph as it found it, and the suite still ends ALL PASSED.
-- **Files:** `tools/e2e/run.mjs`.
-- **Verify:** `npm run e2e`; the step must fail if `.col-ref.more-drag`'s `overflow: visible`
-  rule is removed, which is the regression GC-123 fixed.
-- **Log:**
-  - 2026-09-06 proposed by GC-147 (this ticket): the ticket's acceptance asked that hovering
-    `+N` still work over the new band, and there was no way to hover; the check had to be made
-    through `.more-drag` instead, which is what showed the gap.
-  - 2026-09-06 21:30 claimed
-
----
-
-### GC-198 `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk
-
-- **Status:** in-progress
-- **Area:** infra | **Size:** S | **Priority:** P3
-- **Depends on:** none
-- **Why:** `repoRel()` in `ipc.ts` does two things at once: it refuses a path that resolves outside
-  the repository (GC-093's rule, the security one) and it refuses one missing from the working tree.
-  Both are right for the `shell:*` channels it was written for — `openFile` and `showInFolder` can
-  do nothing with a path that is not on disk. They are not right together anywhere else, and three
-  handlers now take their path through a bare `str` **because of the second check**, each with its
-  own comment saying git resolves the path itself: `workdir:resolveConflict`, `workdir:restoreFile`
-  and, as of GC-166, `repo:fileLog` — whose whole point is a file the working tree no longer has.
-  So the containment check, which is the one that matters, is skipped by the three handlers that
-  cannot use the existence check, and the reason is a comment repeated three times rather than a
-  function. `repoRel` already has a sibling in this shape: `repoFile()` is `repoRel` plus a resolve.
-- **Scope:**
-  - Split the two: a containment-only answer (`repoRelAny`, or `repoRel(repo, path, { onDisk })`)
-    and the existing `repoRel` expressed in terms of it, so there is one implementation of the rule
-    that refuses a `..`, an absolute path or another drive.
-  - The three handlers above take the containment-only form instead of a bare `str`, and their
-    three comments collapse into the one sentence the function's own doc carries.
-  - A unit test for the containment-only form: a `..`, an absolute path, another Windows drive, and
-    a path that is inside but not on disk, which must now pass.
-- **Out of scope:** the `shell:*` channels' behaviour, which must keep refusing a missing file;
-  `repoFile()`; and any change to what the three handlers do once the path is accepted.
-- **Acceptance:**
-  - [ ] `repo:fileLog`, `workdir:restoreFile` and `workdir:resolveConflict` refuse a path outside
-        the repository, asserted per handler.
-  - [ ] A path inside the repository but absent from the working tree is accepted by the new form
-        and still refused by `repoRel`.
-  - [ ] The three per-handler comments are gone, replaced by the function's own.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/main/ipc.ts`, new `src/main/ipc.test.ts` (or the nearest existing home for it).
-- **Verify:** `npm test`, then drive one of the three over CDP with a `../` path and read the error.
-- **Log:**
-  - 2026-09-06 proposed by GC-166 (this ticket's batch): its own scope said the path should go
-    through `repoRel()`, and it could not, because the acceptance criterion "History on the
-    fixture's deleted file lists the commit that deleted it" is exactly the case `repoRel` refuses.
-  - 2026-09-06 21:30 claimed
-
----
-
-### GC-199 A stash row carries five things at a 220px panel and the message gets 48px of them
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-171
-- **Why:** measured after GC-171, in the running app at the **default** 220px panel: the row is
-  219px and spends 34px on padding (`.ref-row`'s 26px left, for the folder tree's alignment, plus
-  8 right), 32px on its four `--sp-2` gaps, 12 on the archive icon, 6 on `.stash-idx`, 41 on
-  GC-150's short sha and 46 on GC-171's age — 171px of furniture before the message sees anything,
-  which leaves it **48px of the 207 it wants**. GC-171 fixed the two things it named — the age was
-  content-sized and grew with its own phrase, and git's `On <branch>: ` prefix was eating the first
-  nine characters — and those were worth 12px and nine characters. What is left is not a bug in any
-  one of them: it is five items on a 220px row. Two stashes can be told apart now ("the di…" against
-  "rewrit…"), which is what GC-171 was asked for, but that is the floor and not a readable row.
-  At 300px the message has 128px and at 420px its natural width, so this is about the default alone.
-- **Scope:**
-  - Decide what gives way on a narrow panel, and say why in the code. The candidates, in the order
-    they cost the row: the sha (41px, GC-150 — it is the one item repeated verbatim on the graph row
-    directly above the same stash), the 26px left padding (there so a row's icon aligns under the
-    folder chevrons, which a stash row has none of), and the gaps.
-  - Whatever gives way must come back when there is room, the way `fitOptCols` drops a whole graph
-    column rather than narrowing it (GC-116) — that is the pattern this is one panel over, and its
-    rule is "whole ones rather than narrowed", because half a sha identifies a commit no better
-    than none.
-  - A `LeftPanel.test.tsx` case pinning what is drawn at the narrow width and what comes back.
-- **Out of scope:** `relativeTime`'s wording (GC-135), the prefix rule (GC-170, GC-171), the
-  panel's default width, and the branch rows, whose ahead/behind is genuinely four or five
-  characters.
-- **Acceptance:**
-  - [ ] At the default 220px panel a stash message gets materially more than 48px, measured in the
-        running app, with the numbers in this log.
-  - [ ] Whatever was dropped is back at a wider panel, asserted rather than eyeballed.
-  - [ ] Nothing is drawn half: no truncated sha, no truncated age.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/renderer/src/components/LeftPanel.tsx`,
-  `src/renderer/src/components/LeftPanel.test.tsx`, `src/renderer/src/styles/app.css`,
-  `src/renderer/src/styles/tokens.css`, `CLAUDE.md`
-- **Verify:** build, launch through `tools/launch-app.mjs`, take two stashes on the same branch with
-  different messages, and read `getBoundingClientRect().width` back for every child of the row at
-  220, 300 and 420px.
-- **Log:**
-  - 2026-09-06 proposed by GC-171 (this ticket's batch): its own fix landed and the row is still
-    48px of message, because the pressure that is left is the number of items on the row rather
-    than the width of any one of them.
-  - 2026-09-06 21:30 claimed
-
----
-
-### GC-201 The lane band is a flat wash where it should read as light coming off the lane
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-200
-- **Why:** GC-186's band is right and Ricardo says so — the ask is the next step, not a correction.
-  Today it is one rectangle at `BAND_TINT = 0.1` of the lane colour, the same opacity from the
-  node's edge to the cell's, which is what makes it read as a printed rectangle: it has a hard
-  right edge in the middle of the row and nothing about it says which end the lane is at. The
-  GitKraken capture Ricardo compared it against reads as the row being lit from the lane rather
-  than as a block laid on it. `03-graph.md` line 45 records only a "background band
-  (`commit-bg-color`, 50% lane tint)", so the study settles the *place* and not the paint; this is
-  our own call, which is why it is a ticket and not a bug.
-  It is filed after GC-200 because that ticket decides where the band's left edge is, and a
-  gradient's first stop is exactly that edge.
-- **Scope:**
-  - Give the band a gradient, strongest at the node and falling away to the right, so the row reads
-    as lane light. An SVG `linearGradient` per lane colour is the direct route; a `color-mix` on the
-    lane variable is the other. Whichever is used, the paint must come from the **same lane
-    variable** the flat fill uses — no new colour literal, in the component or in a stylesheet
-    (`CLAUDE.md`, Styling).
-  - Keep every one of GC-186's promises, and say so in the comment: drawn **first** in all three
-    cell kinds so every line and node paints over it; on **every** row, not only the selected and
-    WIP ones; the height and the right edge unchanged unless the work says otherwise.
-  - Check it in **both themes**: a tint calibrated on the dark ramp is not the same tint on the
-    light one (GC-175), and a gradient that reads as light on dark can read as a smudge on light.
-  - Screenshots of the graph in both themes, before and after, in `docs/screenshots/`.
-- **Out of scope:** the band's geometry at the node (GC-200), the selected row's accent wash, the
-  chip connector, and the lane colours themselves.
-- **Acceptance:**
-  - [ ] The band's paint varies across its width and is built from the row's lane variable; no hex
-        or `rgba()` literal was added anywhere.
-  - [ ] Drawn first in all three cell kinds, on every row, with every line and node over it —
-        unchanged from GC-186 and asserted, not assumed.
-  - [ ] Screenshots of the graph before and after in both themes, at 100%, looked at side by side.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/renderer/src/graph/GraphCell.tsx`, possibly
-  `src/renderer/src/styles/tokens.css`
-- **Verify:** build, launch through `tools/launch-app.mjs` on a repository with several lanes,
-  screenshot the graph in dark and in light at full scale, and compare against
-  `%TEMP%/gitclient-review/GR-025/01-graph.png`, which is the flat band as it ships today.
-- **Log:**
-  - 2026-09-06 proposed by GR-025, from Ricardo's inbox: the band landed and reads well, and the
-    remaining complaint is that one opacity across the whole cell reads as a printed rectangle
-    rather than as light off the lane.
-  - 2026-09-06 21:30 claimed
-
----
-
-### GC-203 `--force-with-lease` is implemented, typed and validated, and no call site can reach it
-
-- **Status:** in-progress
-- **Area:** actions | **Size:** S | **Priority:** P2
-- **Depends on:** GC-202
-- **Why:** Ricardo amended a commit that was already on the remote and the app had no way to publish
-  it. Confirmed in the source: `PushRequest.force` is a typed field in `shared/types.ts`, `ipc.ts`
-  validates it (`force: !!r.force`) and `push()` in `git.ts` turns it into `--force-with-lease` —
-  the safe form, which refuses when the remote has moved since the last fetch. All five call sites
-  in `App.tsx` pass only `remote`, `branch` and `setUpstream`: the toolbar button (line 2354), its
-  popover, the branch menu's two rows (1675, 1689) and the tag menu's (1540, 1543). So the
-  capability has never been reachable from the UI, and a grep for `force` outside `deleteBranch`
-  finds it only in the type, the handler and the git call.
-  Amending a published commit is the ordinary case, not an exotic one, and it is the one the
-  staging form's own Amend checkbox leads people into.
-- **Scope:**
-  - A way to force a push, using the `--force-with-lease` that already exists — never `--force`.
-    The natural home is the Push popover, which already carries the push's options, with the branch
-    menu's rows a second candidate; pick one and say why in the log rather than adding it
-    everywhere.
-  - Behind a confirmation through `useUi().confirm` (`CLAUDE.md`, UI layer — the native `confirm()`
-    is not used), whose wording says what is being overwritten and names the remote and branch, the
-    way every other row that pushes names its remote rather than an upstream ref (GC-114).
-  - The rejection GC-202 makes legible is the natural way in: a user who has just been told the push
-    was rejected as non-fast-forward is the one who needs this. Whether the dialog offers it
-    directly is a judgement call — decide it and say why, but do not make a destructive action a
-    one-click follow-on from an error message without a confirmation of its own.
-  - The amend path: the staging form offers Amend with nothing saying the commit being amended is
-    already published. Say so where the checkbox is — the branch's ahead/behind is already in the
-    snapshot, so "this commit is on `<remote>`; amending it will need a force push" is a derivation
-    and not a new git call. If that turns out to need more than a line, file it and say so here.
-- **Out of scope:** `--force` without a lease, ever; force-pushing tags; deleting a remote branch
-  (GC-112 owns that); and the message a rejection draws (GC-202).
-- **Acceptance:**
-  - [ ] A force push is reachable from the UI, runs `--force-with-lease`, and is asserted by reading
-        the command git received rather than by the push appearing to work.
-  - [ ] It asks first, through the app's own modal, and the question names the remote and the
-        branch.
-  - [ ] Cancelling runs nothing.
-  - [ ] A force push whose lease is stale — the remote moved after the last fetch — fails and
-        reports, rather than overwriting.
-  - [ ] The amend hint appears only when the commit being amended is on a remote, and never costs a
-        git call.
-  - [ ] `npm run typecheck` and `npm test` pass; the e2e suite still passes.
-- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/Toolbar.tsx`,
-  `src/renderer/src/components/DetailPanel.tsx`, `tools/e2e/run.mjs`, `CLAUDE.md`
-- **Verify:** build, and drive it against the **e2e scratch repository only** (`CLAUDE.md`, rule 2):
-  amend a commit that is on the fixture's bare `remote.git`, force push, and assert with
-  `git -C remote.git rev-parse` that the remote ref moved. Never against `catena-feed` or
-  `kyushu-route`.
-- **Log:**
-  - 2026-09-06 proposed by GR-025, from Ricardo's inbox: he could not publish an amended commit;
-    the flag that would have done it safely is implemented and validated and reachable from nowhere
-    in the renderer.
-  - 2026-09-06 21:30 claimed
 
 ---
 
@@ -899,63 +658,82 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
-### GC-209 A sticky group head is stuck 12px below the edge that clips the rows, so a file row shows above it and behind it
+### GC-210 The force push is destructive, reachable and covered by nothing the suite runs
 
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P2
-- **Depends on:** none
-- **Why:** Reported by Ricardo and reproduced exactly, on the same file he named. A commit with more
-  files than the list can show draws the row under the sticky head **cut in half**: its top band is
-  drawn above the head, the rest is hidden behind it, and one file reads as two pieces.
-  His own note said the capture did not add up — a row above a head stuck at `top: 0` should be
-  clipped away entirely — and that is the finding. The two edges are not the same edge. A sticky
-  inset is resolved against the scroll container's **content** box, while overflow clipping happens
-  at its **padding** box, and `.file-list` carries GC-142's `padding-top: 12px`. So the head sticks
-  12px lower than the line the rows are cut at, and the strip between them shows whatever is
-  passing through it.
-  Measured in the running app at 1400x900, a 33-file commit, the list scrolled to 100: list rect
-  top 345, `border-top` 1px so the scrollport clips at **346**, `padding-top` 12px so the head is
-  stuck at **358**; the `TICKETS.md` row spans **344 to 370**, which puts 12 of its 26 pixels in the
-  uncovered strip. `04-sticky-head.png` in this review's folder is the capture, and the top half of
-  that row's name and its kind icon are legible above the band.
-  The head's own `background: var(--bg-panel)` is the surface the rows sit on, which is why the
-  strip reads as a row torn in two rather than as something passing behind a header — but the
-  background is not the defect, the 12px is. Pinning is not in question: it is GC-191's own
-  argument, and GC-206 depends on it.
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-203
+- **Why:** GC-203 made `--force-with-lease` reachable from the Push popover, and what proves it is
+  the *lease* rather than a plain `--force` is that a stale one is refused — the renderer cannot see
+  git's argv, so behaviour is the only evidence there is. That was checked by hand, once, in a
+  throwaway driver: amend a commit that is on the fixture's bare `remote.git`, move the bare ref
+  behind the app's back, force push and watch it come back `! [rejected] main -> main (stale info)`,
+  then restore the ref and watch the same row move `refs/heads/main` to the amended sha. Nothing in
+  `npm run e2e` does any of that, so the one action in the app that can destroy published history
+  has no repeatable coverage at all, and a future change from `--force-with-lease` to `--force`
+  would pass every check this repository runs.
+  What kept it out of GC-203 is real and is what this ticket has to solve: a force push moves the
+  bare origin, and step 43 asserts every branch is back on its baseline tip *there* as well as here
+  — which is exactly the check that would catch it, so the step has to put the remote back itself.
 - **Scope:**
-  - The sticky edge and the clipping edge are made the same edge. The direct route is to take the
-    padding off the scroll box's sticky side and express GC-142's 12px separation as something
-    outside the padding box — a margin, or a wrapper that is not the scrollport — since a margin and
-    a border both sit outside the clip and cause no mismatch.
-  - State the rule where the next scroll box will meet it: **a scroll container with a sticky child
-    carries no padding on that child's sticky edge.** It belongs in the `.file-list` comment beside
-    GC-191's, and in `CLAUDE.md` if it is worth an invariant there.
-  - Check the other scrolling surfaces for the same shape. The left panel's sections are the near
-    miss and look safe by construction — `.section-head` is `flex: none` **outside** `.section-rows`,
-    so nothing there is sticky at all (GC-153) — but confirm it rather than assume it.
-- **Out of scope:** whether the head pins (GC-191 decided that, and GC-206 needs it), the head's
-  4px `margin-bottom`, which sits below the band and clips nothing; the head's own colour and
-  border; collapsing the groups (GC-197); and the share the lists take (GC-207).
+  - An e2e step that amends a published commit through the staging form, force pushes it from the
+    popover, and asserts with `git -C remote.git rev-parse` that the remote ref moved to the amended
+    sha — not that the status bar looks happy.
+  - The stale-lease case in the same step: move `refs/heads/main` in the bare repository directly,
+    force push, and assert the push was **refused** and the remote unchanged. That assertion is what
+    names the flag; without it the step passes under `--force` too.
+  - The confirmation is part of it: cancelling runs nothing, and the question names the remote and
+    the branch (GC-114).
+  - Putting the fixture back: the local branch resets to its baseline and the remote is force pushed
+    or `update-ref`d back, before step 43 measures. Decide which and say why — a `update-ref` in the
+    bare repository is not the app's own path but it cannot itself fail the way a push can.
+- **Out of scope:** the amend hint (a rendering, covered by whatever unit test wants it), pushing
+  tags, and any new git call.
 - **Acceptance:**
-  - [ ] With the list scrolled, no part of any `.file-row` is drawn above the sticky head: the
-        topmost visible row pixel is at or below the head's bottom, measured over CDP at several
-        scroll offsets rather than eyeballed.
-  - [ ] GC-142's 12px separation between `.file-list` and the block above it is unchanged, measured
-        at scroll offset 0 in both the commit view and the staging view.
-  - [ ] The head still pins: scrolled to the end, its count and its action button are still on
-        screen.
-  - [ ] The left panel's sections are confirmed unaffected, with the reason in the log.
+  - [ ] A run force pushes an amended commit and asserts the bare repository's ref moved to it.
+  - [ ] A run with a stale lease asserts the push was refused and the remote unchanged.
+  - [ ] The step puts both repositories back, and step 43 still passes with no drift reported.
+  - [ ] `npm run e2e` ends ALL PASSED.
+- **Files:** `tools/e2e/run.mjs`, `CLAUDE.md`
+- **Verify:** `npm run e2e` twice in a row, since a step that half-restores the fixture passes once.
+- **Log:**
+  - 2026-09-06 proposed by GC-203 (this ticket): its own verification had to be a throwaway driver
+    because a force push moves the bare origin that step 43's baseline check exists to catch, and a
+    destructive action verified once by hand is not verified.
+
+---
+
+### GC-211 An empty staging group's head is drawn 4px above the box it is stuck to
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-209
+- **Why:** Found while measuring GC-209. `.file-list` has `min-height: 30px`, which is "its head and
+  never less" (GC-153's argument, one panel over) — but the head is 30px **plus** its 4px
+  `margin-bottom`, so a group squeezed to that floor is 34px of content in a 30px box and the sticky
+  head hangs 4px out of the top of it. Measured in the app at 1400x480 on this checkout, with 25
+  unstaged files and none staged: the Staged list's box top was 199 and its head's top 195, so the
+  head was drawn into the 12px gap that separates the two lists. Nothing overlaps a row — the group
+  is empty, which is the only case that reaches the floor — so it is cosmetic, and it is filed
+  separately from GC-209 because that ticket is about the clipping edge and this is about the floor.
+- **Scope:**
+  - Make the floor the head's own outer height rather than its box height, or move the 4px so it is
+    not part of what has to fit. Whichever, say in the comment which number `min-height` is.
+  - Check the same arithmetic in `MIN_SECTION_H` (GC-153), which is stated as "a header and two
+    rows" and may have the same off-by-a-margin.
+- **Out of scope:** the share the lists take (GC-207), whether the bottom one can be resized
+  (GC-205), and the sticky edge itself (GC-209).
+- **Acceptance:**
+  - [ ] An empty group at its floor draws its head inside its own box, measured over CDP.
+  - [ ] A group with rows is unchanged at every height, measured at the same window.
   - [ ] `npm run typecheck` and `npm test` pass.
 - **Files:** `src/renderer/src/styles/app.css`, possibly
-  `src/renderer/src/components/DetailPanel.tsx`, `CLAUDE.md`
-- **Verify:** build, launch through `tools/launch-app.mjs`, open a commit touching about thirty
-  files, set `.file-list`'s `scrollTop` over CDP and read back the head's rect against the rect of
-  every row that overlaps it — the reproduction above is the before value.
+  `src/renderer/src/components/LeftPanel.tsx`
+- **Verify:** build, launch through `tools/launch-app.mjs` on a repository with unstaged files and
+  nothing staged, and read the Staged head's rect back against its list's.
 - **Log:**
-  - 2026-09-06 proposed by GR-026, from Ricardo's inbox: reproduced on a 33-file commit, and the
-    part he could not account for is the cause — sticky insets resolve against the content box while
-    clipping happens at the padding box, so GC-142's 12px padding is a strip the head does not cover.
-  - 2026-09-06 21:30 claimed
+  - 2026-09-06 proposed by GC-209 (this ticket's batch): measured at 1400x480, the Staged head's top
+    was 195 against its list's 199, which is the head's 4px margin inside a 30px floor.
 
 ---
 

@@ -186,6 +186,17 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   moment the upstream's branch name was not the local name.
   `src/shared/` is the only place code is shared both ways, so a menu label cannot promise a
   different remote from the one the push uses.
+- **A push may be forced, and only ever with a lease** (GC-203). `push()` has turned
+  `PushRequest.force` into `--force-with-lease` since the field existed — never `--force`, which is
+  not a thing this app does — and no call site passed it, so amending a published commit left the
+  user with nothing to do. The **Push popover** is the one place that offers it: one row per remote
+  (so the row names what it overwrites, GC-114), `.danger`, behind `App`'s `forcePush` and a
+  `useUi().confirm` naming the remote and the branch. The caret is therefore drawn with one remote
+  too, where GC-057 had it as "which remote" alone. It is deliberately **not** offered from the
+  rejection dialog GC-202 draws: that would make overwriting a remote a click on an error message.
+  The staging form says so where it leads people into it — with Amend ticked on a branch that has an
+  upstream and nothing ahead, a `.form-hint` in `--warning` says the commit is on that ref, which is
+  a derivation from the snapshot and costs no git call.
 
 - **A conflict can be resolved to a side, not only marked resolved** (GC-181).
   `resolveConflictWith(run, path, side)` is `git checkout --ours|--theirs -- <path>` followed by
@@ -253,9 +264,16 @@ and are exposed as their own `window.shell` bridge, not as more of `window.api`.
 to the OS is a URL, and `shell.openExternal` follows whatever it is given, so it refuses any scheme
 but `http:` and `https:` — `isWebUrl` in `shared/remotes.ts`, the same one line
 `setWindowOpenHandler` in `index.ts` now asks, because a second copy of a security check is a second
-chance to get it wrong. `repoRel()` is the
-same check answering the relative path, which is what `workdir:ignore` builds its `.gitignore`
-pattern from (GC-093), so a pattern can never be made out of a path outside the repository. `repo:changed` is
+chance to get it wrong. **The path check is two functions, and which one a handler takes is the
+whole of it** (GC-198). `repoRelAny()` is the containment rule alone — the one implementation of
+"it has to land inside this repository", refusing a `..`, an absolute path and another Windows
+drive — answering the repository-relative path; `repoRel()` is that plus `existsSync`, and
+`repoFile()` is `repoRel` resolved. `workdir:ignore` takes `repoRel`, because a `.gitignore`
+pattern is built from a file the user is looking at (GC-093). The three that ask git about a path
+the working tree may no longer have — `repo:fileLog`, `workdir:restoreFile` and
+`workdir:resolveConflict` — take `repoRelAny`, where each used to take a bare `str` with its own
+comment saying why it could not use `repoRel`: the check that actually matters was skipped by
+exactly the handlers that could not afford the other one. `repo:changed` is
 the **one main → renderer push**, subscribed by a hand-written preload entry returning an
 unsubscribe.
 
@@ -782,7 +800,7 @@ opens.
 
 The band is `Band` in `GraphCell.tsx`, drawn **first** in every one of the three cell kinds
 (commit, stash, WIP) so every line and node paints over it: 22px, `.col-msg`'s own height, from the
-node's **centre** to the cell's own edge, at `BAND_TINT` (10%) of the lane colour. From the centre
+node's **centre** to the cell's own edge, in the lane colour. From the centre
 because a square corner cannot meet a circle (GC-200): butted against the node's drawn radius the
 two touched at one point and left about 6.6px of untinted row above and below it, two crescents a
 taller band only makes larger. Run under the node and the circle covers what it overlaps, which is
@@ -791,10 +809,21 @@ their own fill taken out to the stroke's outer edge, or the band reads through t
 as a tinted ring. A solid node needs none: its stroke has no gaps. On **every** row, not
 only the selected and WIP ones the study first recorded — Ricardo's own capture of `catena-feed`
 has it throughout, and a band on some rows only reads as a property of *those commits* rather than
-of the row's lane. 10% because a tint chosen for four rows in nine is a stripe on all nine, and
-because 8% was measured first and read as a smudge. A selected row keeps its accent wash, which is
-the app's own selection language and spans the whole row where the band spans one cell. Nothing
-here adds a colour to a stylesheet: both halves take the lane variable.
+of the row's lane. A selected row keeps its accent wash, which is the app's own selection language
+and spans the whole row where the band spans one cell. Nothing here adds a colour to a stylesheet:
+both halves take the lane variable.
+
+**And the paint is light off the lane rather than a flat wash** (GC-201). One opacity from the node
+to the cell's edge read as a printed rectangle: it had a hard right edge in the middle of the row
+and nothing about it said which end the lane was at. So the band's fill is a `linearGradient` —
+`BAND_PEAK` (16%) at the node falling to `BAND_FADE` (30%) of that at the far edge, which averages
+about the 10% GC-186 settled and is why the peak sits above it: a peak is not sustained the way a
+wash is. The ten definitions, one per lane colour, are `BandGradients`, rendered **once** by
+`CommitGraph` beside the avatar clip path, because a row is its own `<svg>` and there are hundreds
+of them; the stops are `objectBoundingBox` units, so one gradient serves every row whatever lane it
+is in, and the rect keeps the flat lane variable as the SVG `fill` fallback so a band is still
+drawn if the defs are ever absent. Everything GC-186 promised is unchanged and asserted rather than
+assumed: drawn first in all three cell kinds, on every row, with every line and node over it.
 
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold. With **no branch checked out** a synthetic `HEAD` chip is
@@ -928,23 +957,36 @@ a stash list is read for. `relativeTime` renders it into a `.row-when` on the ri
 row, the way a branch row's ahead/behind sits, with the absolute form joining the message on the
 row's `title`.
 
-**The width is `--row-when-w` (46px) and not the phrase's own** (GC-171), which is where GC-135 was
+**The width is `--row-when-w` and not the phrase's own** (GC-171), which is where GC-135 was
 wrong: it was `flex: none` with no width at all, so the box was content-sized and grew with what
 `relativeTime` produced — "2 minutes ago" is thirteen characters and 66px, not the four or five
 characters the ahead/behind readout it was copied from has — and it grew out of the **message**,
-which is the only thing on the row saying *which* stash this is. The age ellipsises inside its box
-now; the message takes the remainder. And the drawn message is `stashMessageText`'s, the graph
+which is the only thing on the row saying *which* stash this is. The box is 72px — the widest
+phrase `relativeTime` can produce, measured at `--fs-xs` ("59 minutes ago" 72, "1 minute ago" 62,
+the absolute form past 30 days 57) — so the age is drawn whole and the `overflow: hidden` on it is
+a guard rather than the normal case (GC-199). It was 46px while the row also carried GC-150's sha;
+the 26px became affordable when the sha started giving way. And the drawn message is `stashMessageText`'s, the graph
 row's own answer (GC-170), so git's `On <branch>: ` prefix is off the line here too — every stash
 git makes carries it, so the nine characters that survived the column were the ones identical
 across every stash on the branch, and two stashes on `main` drew the same row. Never in the
 `title`, and never in what `stashRename` stores.
 
-Measured on the fixture at the default 220px panel: the message gets **48px** of the 207 it wants,
-where before it got 36 and spent the first nine characters on the prefix. The row spends 34px on
-padding, 32 on gaps and 59 on the icon, the index and GC-150's sha before the message sees
-anything, which is why 220px is tight whatever the age does; at 300px the message has 128px and at
-420px its natural width. The old claim that "at 300px and above the name is back at its natural
-width" was never true.
+**What is left is five items on a 220px row, so two of them give way** (GC-199). The folder-tree
+indent goes for good, in the stylesheet: `.ref-row`'s 26px left padding aligns a leaf row's icon
+under a folder row's, and the STASHES section has no folders, so `.ref-row.stash` takes those 18px
+back. The rest is `fitStashCols`, `fitOptCols` one panel over (GC-116): the **sha** is dropped
+**whole** below the width the message needs — half a sha identifies a commit no better than none,
+and of the five it is the one repeated verbatim a few pixels away, on the graph row GC-170 draws
+directly above the same stash — and comes back when there is room, from the panel's own measured
+width (the same `ResizeObserver` that answers `fitSections`' column height, with 0 meaning "not
+measured yet" and drawing everything). The age is never dropped: it is the question a stash list is
+read for and it is repeated nowhere on this screen. `STASH_ROW_W` mirrors `app.css` the way
+`OPT_COL_W` mirrors the optional columns, so the arithmetic lives in a test.
+
+Measured in the app on two stashes on `main`: at the default 220px panel the message went from
+**48px to 89px** with no sha drawn and the age whole, at 300px the sha is back at its full 41px with
+120px of message, and at 420px the message is at its natural 191px. The old claim that "at 300px
+and above the name is back at its natural width" was never true.
 
 **And which commit it was taken from, in the graph's own vocabulary** (GC-150): a `.row-sha` beside
 the age. A single click selects the stash — the gesture every other row in the panel answers, and
@@ -1045,9 +1087,9 @@ segmented control sits beside `Unified | Split`; the list is `getFileLog(cwd, pa
 `LOG_FORMAT` `getLog` uses, both parsed by the shared `parseCommits` so the fields cannot drift,
 and deliberately **not** the graph traversal: `--follow` takes one pathspec and walks from HEAD, so
 the globs and the hidden set have no part in a question about one file. The path goes through
-`str` and not `repoRel()`, the way `workdir:restoreFile` already does — git resolves it against the
-repository and refuses one outside it, and a history is read precisely for a file the working tree
-no longer has, which `repoRel` would refuse for not being on disk.
+`repoRelAny()` and not `repoRel()` (GC-198): a history is read precisely for a file the working tree
+no longer has, which `repoRel` would refuse for not being on disk, and the containment half of the
+check is the one that matters here.
 
 Which body is showing is `DiffView` state carrying the identity it was chosen for, compared during
 render like `loaded` and `sel` (GC-075), so opening another file asks the question again. The diff's
@@ -1132,7 +1174,18 @@ whole at whatever height it needs and only the description scrolls; `.file-list`
 `.file-row` and `.group-head` `flex: none` inside it — a row's 26px is a basis a bounded flex
 column will otherwise shrink, and 29 of them came out at 15px each, all on screen and none
 readable. The `.group-head` is `sticky`, since the count and the Stage-all button are what a list
-scrolling away would take with it. What this buys is the staging view: `.commit-form` keeps the
+scrolling away would take with it — and because it is, **`.file-list` carries no `padding-top`**
+(GC-209): a scroll container with a sticky child carries no padding on that child's sticky edge, in
+this panel and in the next one that grows a sticky head. A sticky inset resolves against the
+container's *content* box while overflow clips at its *padding* box, so GC-142's 12px left the head
+stuck 12px below the line the rows are cut at, and whatever passed through the strip between them
+was drawn — measured on a 33-file commit at 1400x900, half a file row above the band, reading as one
+file torn in two. A margin or a border sits outside the clip and costs nothing; padding is the one
+that cannot. GC-142's own "a rule and the body's own 12px" is the `.detail-body` gap above the
+border and is untouched; what went is the second 12px, which was between the rule and the head.
+`.file-list .group-head` is the only `position: sticky` rule in `app.css`, and the left panel's
+sections are safe by construction — `.section-head` is `flex: none` outside `.section-rows`, which
+has no padding of its own (GC-153). What this buys is the staging view: `.commit-form` keeps the
 bottom of the panel at every file count, where it used to sit 328px below the fold. `.detail-body`
 keeps its own `overflow: auto` as the fallback for a panel too short even for the blocks that
 cannot shrink.
@@ -1349,7 +1402,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-521 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+535 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
 
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
@@ -1377,8 +1430,8 @@ closed, and a port nobody holds is the fallback.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 42 steps, 314 assertions. It ends with
-`total: 80.5s | git: 386 calls, 21.6s` — measured 2026-09-06, and the clock is worth reading as a
+asserting against git after each step. 43 steps, 320 assertions. It ends with
+`total: 46.6s | git: 386 calls, 10.2s` — measured 2026-09-06, and the clock is worth reading as a
 comparison rather than as a constant: the same suite has ended at 45s on an idle machine and takes
 about twice that with another Electron and a build running beside it. The line is
 the run's own clock (GC-080) beside the cost of its own
@@ -1633,6 +1686,14 @@ starting at the node's centre with a dashed node masking it, the staging groups 
 open set stored where the left panel's is, a stash view offering the stash menu's own rows, the WIP
 row's counts drawn with the panel's file-kind marks, and the author block's parents wrapping rather
 than being crushed (App state, Graph, Detail panel);
+
+a force push offered from one place only, always with a lease and never from an error message, with
+the amend that leads to it saying so; no padding on the sticky edge of a scroll container that has a
+sticky child; the containment check split from the working-tree one so the handlers that cannot have
+the second still get the first; a stash row's sha dropped whole for its message and its age given
+the widest phrase it can produce; the band's paint a falloff from the lane defined once for all
+rows; and the folded block opened in a run by the class the CSS treats as hover, so a rendered
+stylesheet is what answers for it (App state, Detail panel, Main process, Graph, Testing);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control
