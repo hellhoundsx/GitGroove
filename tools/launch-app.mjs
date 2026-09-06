@@ -14,6 +14,14 @@
 // out however that process ends (GC-154), so a driver that throws cannot leave an Electron holding
 // the port for the next run to attach to and measure a stale build.
 //
+// And it asks before it kills (GC-162). Chromium commits `localStorage` on a timer, so `taskkill
+// /F` loses whatever the page wrote in the last second or so — silently, because the page reads
+// its own in-memory copy back. `stop()` and `stopPort()` therefore ask the app to close first and
+// wait a bounded time for it to go; the kill still runs unconditionally afterwards. A driver that
+// seeds a `gitclient.*` key and relaunches on the same port to assert it came back needs that: it
+// is the whole difference between measuring the app and measuring nothing. `stopNow()` is the
+// immediate kill for a caller with nothing to lose.
+//
 // Every launch made here also gets its own Electron profile, `<os.tmpdir()>/gitclient-profiles/<port>`,
 // through GITCLIENT_USER_DATA (GC-060), so nothing an unattended run stores in `localStorage` — the
 // last repository, the ref column width, the preferences — reaches the profile Ricardo's own app uses.
@@ -80,9 +88,78 @@ export function killTree(pid) {
   }
 }
 
-/** Stops an app launched by `launchApp`, and only that one. */
+/** Stops an app launched by `launchApp`, and only that one. Immediate: see `stopGracefully`. */
 export function stopApp(child) {
   return killTree(child?.pid);
+}
+
+/** How long a graceful stop waits for the app to go before the kill takes over (GC-162). */
+export const GRACEFUL_STOP_MS = 6000;
+
+/** Whether a pid is still running. `kill(pid, 0)` throws once it is gone, on Windows too. */
+export function processAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Polls a predicate until it answers true or the deadline passes. */
+async function until(predicate, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return true;
+    await sleep(200);
+  }
+  return false;
+}
+
+/**
+ * Asks the app on this DevTools port to close its page, over the DevTools HTTP endpoint — no
+ * WebSocket, and nothing for a caller to attach to. Closing the window is what quits the app
+ * (`window-all-closed` in `src/main/index.ts`), which is what makes the write below survive.
+ * Answers whether the request was made at all; nobody on the port is a plain false.
+ */
+export async function requestClose(port) {
+  try {
+    const list = await (await fetch(`http://localhost:${port}/json`)).json();
+    const page = list.find((t) => t.type === 'page');
+    if (!page) return false;
+    await fetch(`http://localhost:${port}/json/close/${page.id}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stop an app the way that keeps what its page last wrote (GC-162). Chromium batches
+ * `localStorage` into a LevelDB store and commits it on a timer, so `taskkill /F` — which is all
+ * `stopApp` is — throws away a write made shortly before it: the page reads its own in-memory copy
+ * back, so the loss is silent, and a driver that seeds a remembered key and relaunches to assert it
+ * came back was measuring nothing. Asking the app to close instead lets Electron quit and flush.
+ *
+ * Answers true only when the process actually went within `timeoutMs`. It never kills anything:
+ * the kill stays unconditional and stays with the caller, so a graceful path that hangs cannot
+ * weaken GC-154's promise that a spawned app is stopped however its driver ends.
+ */
+export async function stopGracefully(port, pid = null, timeoutMs = GRACEFUL_STOP_MS) {
+  if (!(await requestClose(port))) return false;
+  return until(() => (pid ? !processAlive(pid) : pidOnPort(port) === null), timeoutMs);
+}
+
+/**
+ * What `launchApp`'s `stop()` is: ask, wait, then kill whatever is left (GC-162). Exported so both
+ * paths are testable against a sleeping process — a unit test never starts Electron. `owner.stop()`
+ * runs either way, because it is also what takes the exit handlers off (GC-154).
+ */
+export async function stopOwned(owner, child, port, timeoutMs = GRACEFUL_STOP_MS) {
+  const gone = await stopGracefully(port, child?.pid ?? null, timeoutMs);
+  const killed = owner.stop();
+  return gone || killed;
 }
 
 /**
@@ -148,6 +225,10 @@ export function pidOnPort(port) {
 export async function stopPort(port, timeoutMs = 10000) {
   const pid = pidOnPort(port);
   if (!pid) return false;
+  // Asked first, for the same reason `stop()` asks (GC-162): this is how the CLI frees a port a
+  // previous driver left held, and that driver's last write is worth keeping. The kill below is
+  // unconditional whatever the answer.
+  if (await stopGracefully(port, pid)) return true;
   killTree(pid);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -198,7 +279,9 @@ export async function launchApp({ port = 9333, repo = null, visible = false, app
   }
   if (!target) throw new Error(`app did not start: no page target on port ${port} after ${timeoutMs}ms`);
   if (repo) await setRepo(target, repo);
-  return { child, target, stop: owner.stop, release: owner.release };
+  // `stop()` asks before it kills, so a driver that wrote a `gitclient.*` key finds it there on the
+  // next launch (GC-162); `stopNow()` is the immediate kill, for a caller with nothing to lose.
+  return { child, target, stop: () => stopOwned(owner, child, port), stopNow: owner.stop, release: owner.release };
 }
 
 /** Points the running app at a repository through localStorage and reloads it. */

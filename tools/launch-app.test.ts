@@ -277,6 +277,98 @@ describe('tools/launch-app.mjs ownChild', () => {
   }, 60000);
 });
 
+/** The launcher's graceful-stop exports, imported the ordinary way. */
+async function loadStopApi(): Promise<{
+  stopGracefully: (port: number, pid?: number | null, timeoutMs?: number) => Promise<boolean>;
+  stopOwned: (owner: Owner, child: { pid: number | null }, port: number, timeoutMs?: number) => Promise<boolean>;
+  requestClose: (port: number) => Promise<boolean>;
+}> {
+  const mod = (await import(/* @vite-ignore */ pathToFileURL(LAUNCHER).href)) as Record<string, unknown>;
+  return mod as never;
+}
+
+/**
+ * A fake app: the same `/json` a real one answers, plus a `/json/close/<id>` that stops `pid` — the
+ * DevTools endpoint the graceful stop uses, and the app's own quit standing in for Electron's
+ * (GC-162). Records whether the close was actually asked for, which is what separates the two
+ * paths: a stop that killed without asking is what this ticket exists to have fixed.
+ */
+function startClosableCdp(pid: number): Promise<{ port: number; closed: () => boolean; close: () => Promise<void> }> {
+  let asked = false;
+  const server: Server = createServer((req, res) => {
+    if (req.url?.startsWith('/json/close/')) {
+      asked = true;
+      killPid(pid);
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('Target is closing');
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify([{ id: 'gc162', type: 'page', title: 'fake', url: FAKE_PAGE_URL, webSocketDebuggerUrl: 'ws://localhost/devtools/page/gc162' }]));
+  });
+  return new Promise((res, rej) => {
+    server.on('error', rej);
+    server.listen(0, () => {
+      res({
+        port: (server.address() as AddressInfo).port,
+        closed: () => asked,
+        close: () =>
+          new Promise<void>((done) => {
+            server.closeAllConnections?.();
+            server.close(() => done());
+          }),
+      });
+    });
+  });
+}
+
+/** A detached, unref'd sleeper: the shape of a stealth Electron, and never one (GC-154). */
+function startSleeper(): { pid: number } {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 3600000)'], { detached: true, stdio: 'ignore' });
+  child.unref();
+  return { pid: child.pid as number };
+}
+
+describe('tools/launch-app.mjs graceful stop (GC-162)', () => {
+  it('asks the app to close and answers true once the process has gone', async () => {
+    const { stopGracefully } = await loadStopApi();
+    const sleeper = startSleeper();
+    const cdp = await startClosableCdp(sleeper.pid);
+    try {
+      expect(await stopGracefully(cdp.port, sleeper.pid, 10000)).toBe(true);
+      expect(cdp.closed()).toBe(true);
+      expect(alive(sleeper.pid)).toBe(false);
+    } finally {
+      killPid(sleeper.pid);
+      await cdp.close();
+    }
+  }, 60000);
+
+  it('still stops an app that ignores the request, which is what keeps GC-154 true', async () => {
+    const { stopOwned } = await loadStopApi();
+    const ownChild = await loadOwnChild();
+    const sleeper = startSleeper();
+    // Nothing answers on this port, so the ask fails immediately and only the fallback can be what
+    // stops the process — the case a hung or unreachable app takes.
+    const port = await freePort();
+    const owner = ownChild({ pid: sleeper.pid });
+    try {
+      const started = Date.now();
+      expect(await stopOwned(owner, { pid: sleeper.pid }, port, 2000)).toBe(true);
+      expect(await waitGone(sleeper.pid)).toBe(true);
+      // Bounded: a port nobody holds must not cost the caller the whole graceful timeout.
+      expect(Date.now() - started).toBeLessThan(10000);
+    } finally {
+      killPid(sleeper.pid);
+    }
+  }, 60000);
+
+  it('reports no ask when nothing is listening, rather than throwing', async () => {
+    const { requestClose } = await loadStopApi();
+    expect(await requestClose(await freePort())).toBe(false);
+  }, 30000);
+});
+
 describe('tools/launch-app.mjs --keep-running', () => {
   it('attaches to the app already on the DevTools port instead of spawning a second Electron', async () => {
     const cdp = await startFakeCdp();
