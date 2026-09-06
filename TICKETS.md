@@ -255,13 +255,13 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-186 | The row band GC-147 added is on the wrong side of the node, and on four rows in nine | graph | M | P1 | todo |
-| GC-185 | The clone dialog’s folder picker is disabled until the folder is typed by hand | ui | S | P1 | todo |
-| GC-187 | A file compared against the working directory cannot be restored from the commit it is being read against | ui | S | P3 | todo |
-| GC-188 | The Unified / Split switch stays pressed on Split while a conflicted file is drawn unified | diff | S | P3 | todo |
+| GC-186 | The row band GC-147 added is on the wrong side of the node, and on four rows in nine | graph | M | P1 | in-progress |
+| GC-185 | The clone dialog’s folder picker is disabled until the folder is typed by hand | ui | S | P1 | in-progress |
+| GC-187 | A file compared against the working directory cannot be restored from the commit it is being read against | ui | S | P3 | in-progress |
+| GC-188 | The Unified / Split switch stays pressed on Split while a conflicted file is drawn unified | diff | S | P3 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-159 | The remote menu can copy a URL but cannot open the remote on its hosting service | actions | S | P3 | todo |
-| GC-165 | The empty state’s recents paths ellipsise at the wrong end, unlike the menu’s | ui | S | P3 | todo |
+| GC-159 | The remote menu can copy a URL but cannot open the remote on its hosting service | actions | S | P3 | in-progress |
+| GC-165 | The empty state’s recents paths ellipsise at the wrong end, unlike the menu’s | ui | S | P3 | in-progress |
 | GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | todo |
 | GC-166 | A file can be diffed but never followed: no history for one path | graph | M | P3 | todo |
 | GC-171 | A stash row spends 66px on its age and leaves its message 77px of the 192 it wants | ui | S | P3 | todo |
@@ -401,7 +401,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-159 The remote menu can copy a URL but cannot open the remote on its hosting service
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P3
 - **Depends on:** GC-008
 - **Why:** `docs/reference/gitkraken/06-feature-inventory.md` lists GitKraken's remote menu as
@@ -462,6 +462,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
     "Copy remote URL"; the translation is a pure function, `shared/remotes.ts` is already the home
     for it and `shell.openExternal` is already in `index.ts`, so this is the smallest uncovered
     item left in `06-feature-inventory.md`.
+  - 2026-09-06 17:35 claimed
 
 ---
 
@@ -500,7 +501,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-165 The empty state's recents paths ellipsise at the wrong end, unlike the menu's
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-044
 - **Why:** The same recents list is drawn twice, and the two truncate opposite ways. In the menu a
@@ -542,6 +543,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-019: from the UI pass over the empty state, a surface no review had
     screenshotted before. Found while investigating Ricardo's inbox item about `+`, since that page
     is where GC-163 sends it.
+  - 2026-09-06 17:35 claimed
 
 ---
 
@@ -909,7 +911,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-185 The clone dialog's folder picker is disabled until the folder is typed by hand
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-128
 - **Why:** GC-128's clone dialog asks for two things — a URL and a parent folder — and offers
@@ -960,12 +962,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-023: measured in the running app at `6996bc0` — Browse… is disabled
     on the clone dialog's opening state and becomes live only once the folder it exists to supply
     has already been typed.
+  - 2026-09-06 17:35 claimed
 
 ---
 
 ### GC-186 The row band GC-147 added is on the wrong side of the node, and on four rows in nine
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P1
 - **Depends on:** GC-147
 - **Why:** GC-147 read the study backwards. `docs/reference/gitkraken/03-graph.md` records two
@@ -1028,12 +1031,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
     of the node and on too few rows; the study's own lines 45 and 58 put the band right of the node
     and make the chip connector a 2px line, and the running app measures 4 bands on 9 rows with a
     transparent message column.
+  - 2026-09-06 17:35 claimed
 
 ---
 
 ### GC-187 A file compared against the working directory cannot be restored from the commit it is being read against
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-152
 - **Why:** GC-152's comparison lists the files that differ between a commit and the working tree,
@@ -1063,12 +1067,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-152 (this ticket): the compare list reuses the commit list's menu, and
     the one guard in it reads its kind in the opposite direction from the one the comparison means.
+  - 2026-09-06 17:35 claimed
 
 ---
 
 ### GC-188 The Unified / Split switch stays pressed on Split while a conflicted file is drawn unified
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** S | **Priority:** P3
 - **Depends on:** GC-180
 - **Why:** GC-180 draws a combined diff as one column of code, because that is what a combined diff
@@ -1100,6 +1105,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-180 (this ticket): the combined diff is drawn unified by construction
     and the segmented control above it still shows Split as the pressed button.
+  - 2026-09-06 17:35 claimed
 
 ---
 
