@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react';
 import { Archive, Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus, Search, Tag, TriangleAlert, X } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
 import { continuesRange, layoutGraph, wipDashFor, type GraphLayout } from './lanes';
@@ -12,7 +12,7 @@ import { usePrefs } from '../prefs';
 import { formatDateTime } from '../time';
 import { useUi } from '../ui/UiContext';
 import { fitOptCols, fitRefCol, useDragWidth, MIN_MSG_W, type OptCols } from '../ui/useDragWidth';
-import { useDragScroll, useRefDrag, type RefDragHandlers } from '../ui/refDrag';
+import { REF_DRAG_TYPE, useDragScroll, useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 
 interface Props {
   commits: Commit[];
@@ -471,10 +471,19 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   // hover against the live rects, the way `ContextMenu` clamps itself to the viewport, and is
   // held as the sha of the hovered row because the rows are virtualised (GC-022).
   const [moreUp, setMoreUp] = useState<string | null>(null);
+  /**
+   * The row whose folded block is held open by a drag (GC-123). Chromium does not update `:hover`
+   * while an HTML5 drag is in flight, so the CSS rule that opens the block never fires during one:
+   * a folded ref could be neither picked up nor dropped on — on the e2e fixture, four of the seven
+   * refs on `main`'s tip. `dragover` is the event that does still arrive, so it opens the block by
+   * class instead, and the chips inside it are drop targets like any other.
+   */
+  const [moreDrag, setMoreDrag] = useState<string | null>(null);
 
-  const onMoreEnter = (e: MouseEvent<HTMLElement>, sha: string): void => {
+  /** Which way the folded block opens on `cell`, decided against the live rects (GC-022). */
+  const decideFlip = (cell: HTMLElement, sha: string): void => {
     const body = bodyRef.current;
-    const list = e.currentTarget.querySelector<HTMLElement>('.more-list');
+    const list = cell.querySelector<HTMLElement>('.more-list');
     if (!body || !list) {
       setMoreUp(null);
       return;
@@ -485,13 +494,38 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     list.style.display = 'flex';
     const height = list.getBoundingClientRect().height;
     list.style.display = shown;
-    const chip = e.currentTarget.getBoundingClientRect();
+    const chip = cell.getBoundingClientRect();
     const bodyRect = body.getBoundingClientRect();
     const below = bodyRect.bottom - chip.bottom;
     const above = chip.top - bodyRect.top;
     // Flip only when it does not fit below *and* there is more room above, so a list taller than
     // the whole body still opens on the side that shows the most of it.
     setMoreUp(height > below && above > below ? sha : null);
+  };
+
+  const onMoreEnter = (e: MouseEvent<HTMLElement>, sha: string): void => decideFlip(e.currentTarget, sha);
+
+  // A drag that ends on the block itself produces no `dragleave`, and one dropped outside the
+  // graph produces none either, so the end of the drag is what closes it (GC-123).
+  useEffect(() => {
+    if (!refDrag.dragging) setMoreDrag(null);
+  }, [refDrag.dragging]);
+
+  /**
+   * The drag's own way in and out of the block (GC-123). It opens on the first `dragover` over the
+   * cell — measured the same way a hover is, so it flips near the bottom edge just as it would —
+   * and closes only when the pointer leaves the cell for something outside it: `dragleave` bubbles
+   * from every chip inside the block the pointer crosses, so `relatedTarget` is what decides,
+   * exactly as `useDragScroll` decides it for the container.
+   */
+  const onMoreDragOver = (e: ReactDragEvent<HTMLElement>, sha: string): void => {
+    if (!e.dataTransfer.types.includes(REF_DRAG_TYPE) || moreDrag === sha) return;
+    decideFlip(e.currentTarget, sha);
+    setMoreDrag(sha);
+  };
+  const onMoreDragLeave = (e: ReactDragEvent<HTMLElement>, sha: string): void => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setMoreDrag((n) => (n === sha ? null : n));
   };
 
   const renderChip = ({ ref: r, upstreamHere }: Chip, color: string, room: number, commit?: Commit, plain?: boolean): JSX.Element => {
@@ -618,7 +652,15 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     const wipDash = hasWip && headRow ? wipDashFor(row, i, headRowIndex, headRow.lane, headOwnsLane) : null;
     return (
       <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''} ${!filtering ? '' : matchSet.has(c.sha) ? 'match' : 'unmatched'}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
-        <div className="col-ref" onMouseEnter={(e) => onMoreEnter(e, c.sha)} onMouseLeave={() => setMoreUp(null)}>
+        <div
+          className={`col-ref ${moreDrag === c.sha ? 'more-drag' : ''}`}
+          onMouseEnter={(e) => onMoreEnter(e, c.sha)}
+          onMouseLeave={() => setMoreUp(null)}
+          // A drag is what `:hover` cannot answer, so the fold gets its own way open (GC-123).
+          onDragOver={(e) => onMoreDragOver(e, c.sha)}
+          onDragLeave={(e) => onMoreDragLeave(e, c.sha)}
+          onDrop={() => setMoreDrag(null)}
+        >
           {chips.slice(0, MAX_CHIPS).map((chip) => renderChip(chip, color, room, c))}
           {chips.length > MAX_CHIPS && (
             // Not a popover, and not something to go and find: hovering the refs grows them. The

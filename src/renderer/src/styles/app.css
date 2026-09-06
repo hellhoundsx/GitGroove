@@ -989,10 +989,16 @@ input[type='radio']:disabled {
   top: auto;
   bottom: -4px;
 }
-.graph-row .col-ref:hover .more-list {
+/* `.more-drag` is the hover the browser will not give: Chromium does not update `:hover` while an
+   HTML5 drag is in flight, so a folded ref could be neither picked up nor dropped on. `CommitGraph`
+   puts the class on from `dragover` and the block opens exactly as it does under the pointer
+   (GC-123). */
+.graph-row .col-ref:hover .more-list,
+.graph-row .col-ref.more-drag .more-list {
   display: flex;
 }
-.graph-row .col-ref:hover .ref-chip.more {
+.graph-row .col-ref:hover .ref-chip.more,
+.graph-row .col-ref.more-drag .ref-chip.more {
   visibility: hidden;
 }
 /* Each ref is one more line of the same block, not a pill sitting on a panel: no background of

@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, createEvent, fireEvent, render } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import type { Commit, GitRef, Stash } from '@shared/types';
 import type { RefDragHandlers } from '../ui/refDrag';
@@ -303,6 +303,91 @@ describe('CommitGraph branch drag and drop (GC-015)', () => {
     expect(feature.className).not.toContain('drop-over');
     fireEvent.drop(feature, { dataTransfer: dt });
     expect(dropped.dst).toBe(null);
+  });
+});
+
+// ---- GC-123: the fold has to open for a drag, which `:hover` never does ---------------------
+// Chromium does not update `:hover` while an HTML5 drag is in flight, so the CSS rule that opens
+// `.more-list` cannot fire during one and a folded ref was reachable by neither end of the
+// gesture. jsdom applies no stylesheet, so the assertion here is on the class `CommitGraph` puts
+// on the cell from `dragover` — which is exactly what the new rule is keyed to.
+describe('the folded block opens for a drag (GC-123)', () => {
+  /** Three branches on one commit: one chip shows, the other two fold behind `+2`. */
+  const foldedRefs: GitRef[] = [
+    { name: 'main', fullName: 'refs/heads/main', kind: 'head', sha: commit.sha, isHead: true },
+    { name: 'feature', fullName: 'refs/heads/feature', kind: 'head', sha: commit.sha, isHead: false },
+    { name: 'spike', fullName: 'refs/heads/spike', kind: 'head', sha: commit.sha, isHead: false },
+  ];
+  const dragging: GitRef = { name: 'other', fullName: 'refs/heads/other', kind: 'head', sha: 'd'.repeat(40), isHead: false };
+
+  const cellOf = (c: HTMLElement): HTMLElement => c.querySelector<HTMLElement>('.graph-row .col-ref')!;
+
+  /**
+   * A `dragleave` carrying a `relatedTarget`. jsdom implements no `DragEvent`, so RTL falls back
+   * to a bare `Event`, which ignores every `MouseEventInit` member — including the one this
+   * handler is entirely about. Defining it on the event is the only way to say where the pointer
+   * went.
+   */
+  const dragLeaveTo = (cell: HTMLElement, to: Node | null): void => {
+    const ev = createEvent.dragLeave(cell);
+    Object.defineProperty(ev, 'relatedTarget', { value: to });
+    fireEvent(cell, ev);
+  };
+
+  function renderFolded(inFlight: GitRef | null): HTMLElement {
+    const { container } = renderGraph({
+      refs: foldedRefs,
+      refDrag: { dragging: inFlight, onDragStart: () => {}, onDragEnd: () => {}, onDrop: () => {} },
+    });
+    return container as HTMLElement;
+  }
+
+  it('opens on the first dragover and closes when the pointer leaves the cell', () => {
+    const c = renderFolded(dragging);
+    const cell = cellOf(c);
+    expect(cell.className).not.toContain('more-drag');
+    fireEvent.dragOver(cell, { dataTransfer: dataTransfer(['application/x-gitclient-ref']) });
+    expect(cell.className).toContain('more-drag');
+    // A `dragleave` into one of the block's own chips is not a leave: that event bubbles from
+    // every chip the pointer crosses, so `relatedTarget` is what decides.
+    dragLeaveTo(cell, cell.querySelector('.more-list .ref-chip'));
+    expect(cell.className).toContain('more-drag');
+    dragLeaveTo(cell, document.body);
+    expect(cell.className).not.toContain('more-drag');
+  });
+
+  it('makes a chip inside the block a drop target while it is open', () => {
+    const c = renderFolded(dragging);
+    fireEvent.dragOver(cellOf(c), { dataTransfer: dataTransfer(['application/x-gitclient-ref']) });
+    const folded = [...c.querySelectorAll<HTMLElement>('.more-list .ref-chip')].find((x) => x.textContent === 'spike');
+    expect(folded).toBeDefined();
+    const dt = dataTransfer(['application/x-gitclient-ref']);
+    // `preventDefault` — a false return — is the only thing that makes an element a drop target.
+    expect(fireEvent.dragOver(folded!, { dataTransfer: dt })).toBe(false);
+    expect(folded!.className).toContain('drop-over');
+  });
+
+  it('ignores a drag that is not one of ours, and closes when the drag ends', () => {
+    const c = renderFolded(dragging);
+    const cell = cellOf(c);
+    // A file dragged in from Explorer carries no `REF_DRAG_TYPE` and opens nothing.
+    fireEvent.dragOver(cell, { dataTransfer: dataTransfer(['Files']) });
+    expect(cell.className).not.toContain('more-drag');
+
+    fireEvent.dragOver(cell, { dataTransfer: dataTransfer(['application/x-gitclient-ref']) });
+    expect(cell.className).toContain('more-drag');
+    // A drag that ends on the block itself produces no `dragleave`, so the end of the drag closes
+    // it: `App` clears the ref in flight and the cell follows.
+    cleanup();
+    const c2 = renderFolded(null);
+    expect(cellOf(c2).className).not.toContain('more-drag');
+  });
+
+  it('leaves the block alone with no drag in flight', () => {
+    const c = renderFolded(null);
+    const cell = cellOf(c);
+    fireEvent.mouseEnter(cell);
+    expect(cell.className).not.toContain('more-drag');
   });
 });
 
