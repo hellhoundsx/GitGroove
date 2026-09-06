@@ -30,8 +30,8 @@ import type {
   StatusEntry,
   WorkdirDiffRequest,
 } from '@shared/types';
-// A value, not a type: the one word both processes agree an advisory failure is named by (GC-091).
-import { ADVISORY } from '@shared/types';
+// Values, not types: the two words both processes agree a failure is named by (GC-091, GC-169).
+import { ADVISORY, AUTH_FAILURE } from '@shared/types';
 import { defaultRemote } from '@shared/remotes';
 
 const FIELD = '\x1f';
@@ -49,9 +49,15 @@ export class GitError extends Error {
      * error the renderer receives once Electron has serialised it across IPC.
      */
     public readonly advisory = false,
+    /**
+     * A remote operation git refused over a credential (GC-169). It rides on the name for the
+     * same reason `advisory` does, and it is what puts the whole of git's message in front of
+     * the user instead of the status bar's pick of one line.
+     */
+    public readonly auth = false,
   ) {
     super(message);
-    this.name = advisory ? ADVISORY : 'GitError';
+    this.name = advisory ? ADVISORY : auth ? AUTH_FAILURE : 'GitError';
   }
 }
 
@@ -60,6 +66,38 @@ interface RunOptions {
   input?: string;
   /** Exit codes other than 0 that should resolve instead of reject. */
   okCodes?: number[];
+  /**
+   * Let git and the credential helper ask for a credential (GC-169). Off for every one of the
+   * hundred-odd calls a snapshot makes — an unattended `git status` must never sit on a prompt —
+   * and on for the three that talk to a remote, where the helper's own GUI is the only thing that
+   * can complete a re-authorisation. A command spawned this way is cancellable and times out.
+   */
+  prompt?: boolean;
+}
+
+/** How long a prompting remote command may sit waiting for a person before it is killed (GC-169). */
+const PROMPT_TIMEOUT_MS = 120_000;
+
+/**
+ * The prompting children currently in flight, so `cancelRemote` has something to kill (GC-169).
+ * The value records whether the kill came from us, which is what separates "the user cancelled"
+ * — an advisory outcome — from git having failed on its own.
+ */
+const promptingChildren = new Map<ReturnType<typeof spawn>, { cancelled: boolean }>();
+
+/**
+ * Kill whatever remote command is waiting on a credential, and report whether there was one
+ * (GC-169). At most one is ever meaningful, but killing every prompting child is the honest
+ * answer to "stop asking me": nothing else is ever in this map.
+ */
+export function cancelRemote(): boolean {
+  let killed = false;
+  for (const [child, state] of promptingChildren) {
+    state.cancelled = true;
+    child.kill();
+    killed = true;
+  }
+  return killed;
 }
 
 const BASE_ARGS = ['--no-pager', '-c', 'core.quotepath=off', '-c', 'color.ui=never'];
@@ -81,17 +119,49 @@ export function runGit(cwd: string, args: string[], opts: RunOptions = {}): Prom
     }
     const child = spawn('git', [...BASE_ARGS, ...args], {
       cwd,
+      // Stays true whichever way this spawns: what `prompt` buys is the credential helper's own
+      // window being allowed to open, never a console of ours (GC-169).
       windowsHide: true,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: opts.prompt ? '1' : '0', LC_ALL: 'C' },
     });
+    // A prompting child can sit on a person forever, so it is registered for `cancelRemote` and
+    // given a wall clock (GC-169). Everything else is spawned exactly as it always was.
+    const state = { cancelled: false };
+    let timer: NodeJS.Timeout | null = null;
+    let timedOut = false;
+    if (opts.prompt) {
+      promptingChildren.set(child, state);
+      timer = setTimeout(() => {
+        timedOut = true;
+        child.kill();
+      }, PROMPT_TIMEOUT_MS);
+    }
+    const done = (): void => {
+      if (timer) clearTimeout(timer);
+      promptingChildren.delete(child);
+    };
     let out = '';
     let err = '';
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (d: string) => (out += d));
     child.stderr.on('data', (d: string) => (err += d));
-    child.on('error', (e) => reject(new GitError((e as NodeJS.ErrnoException).code === 'ENOENT' ? GIT_MISSING_MESSAGE : e.message, args, '', null)));
+    child.on('error', (e) => {
+      done();
+      reject(new GitError((e as NodeJS.ErrnoException).code === 'ENOENT' ? GIT_MISSING_MESSAGE : e.message, args, '', null));
+    });
     child.on('close', (code) => {
+      done();
+      // A child we killed is not a failure to report in red: the user asked for it to stop, or it
+      // spent two minutes waiting for someone who is not there (GC-169).
+      if (state.cancelled) {
+        reject(new GitError(`${args[0]} cancelled.`, args, err, code, true));
+        return;
+      }
+      if (timedOut) {
+        reject(new GitError(`git ${args[0]} was still waiting for a credential after two minutes and was stopped. Nothing was changed.`, args, err, code));
+        return;
+      }
       if (code === 0 || (opts.okCodes ?? []).includes(code ?? -1)) resolvePromise(out);
       else {
         // merge/cherry-pick/rebase report conflicts on stdout, so fall back to it when stderr is empty
@@ -700,14 +770,76 @@ export const deleteRemoteTag = (cwd: string, remote: string, name: string): Prom
 // Remote operations
 // ---------------------------------------------------------------------------
 
+/**
+ * What git and the common credential helpers actually write when the refusal is about who you
+ * are rather than about what you asked for (GC-169). Recognised rather than guessed: the point
+ * of the flag is that a *different* failure of the same command — a non-fast-forward push, a
+ * missing branch — keeps behaving exactly as it does today.
+ *
+ * `401` and `403` are matched as whole words in an HTTP sentence git only writes for this; the
+ * rest are the messages themselves. `SAML` is here because it is the one that cannot be got past
+ * by waiting: the organisation wants an interactive re-authorisation and says so in a
+ * `remote:` line, which is precisely the line the status bar used to drop.
+ */
+export function isAuthMessage(text: string): boolean {
+  return (
+    /returned error: (401|403)\b/i.test(text) ||
+    /\b(401 Unauthorized|403 Forbidden)\b/i.test(text) ||
+    /Authentication failed/i.test(text) ||
+    /could not read (Username|Password)/i.test(text) ||
+    /terminal prompts disabled/i.test(text) ||
+    /Permission denied \(publickey\)/i.test(text) ||
+    /\bSAML\b/i.test(text) ||
+    /Invalid username or password/i.test(text) ||
+    /Support for password authentication was removed/i.test(text)
+  );
+}
+
+/**
+ * The one-line summary a credential failure gets, which is also the first line of the message
+ * that crosses IPC (GC-169). It names the remote and its URL, because `headline()`'s pick of
+ * git's own lines is the `fatal:` one — the one saying 403 and nothing else.
+ */
+export function authSummary(remote: string | null, url: string | null): string {
+  const where = remote ? (url ? `${remote} (${url})` : remote) : 'the remote';
+  return `Authentication failed for ${where}`;
+}
+
+/**
+ * Run a command that talks to a remote (GC-169): the three that can ever need a credential, and
+ * the only three spawned with prompting on.
+ *
+ * A failure git blames on the credential is rethrown flagged, carrying its **whole** message
+ * under a summary line naming the remote and its URL. Everything the user needs is then in one
+ * string, which is all Electron keeps of a rejected handler: the summary is what the status bar
+ * shows and the rest is what the dialog does.
+ */
+async function runRemote(cwd: string, args: string[], remote: string | null): Promise<string> {
+  try {
+    return await runGit(cwd, args, { prompt: true });
+  } catch (e) {
+    if (!(e instanceof GitError) || e.advisory || !isAuthMessage(e.message)) throw e;
+    let url: string | null = null;
+    if (remote) {
+      // Best effort: the URL is worth having and never worth failing the report for.
+      try {
+        url = (await runGit(cwd, ['remote', 'get-url', remote])).trim() || null;
+      } catch {
+        url = null;
+      }
+    }
+    throw new GitError(`${authSummary(remote, url)}\n${e.message}`, args, e.stderr, e.code, false, true);
+  }
+}
+
 export async function fetch(cwd: string, remote?: string): Promise<void> {
-  await runGit(cwd, remote ? ['fetch', '--prune', remote] : ['fetch', '--all', '--prune']);
+  await runRemote(cwd, remote ? ['fetch', '--prune', remote] : ['fetch', '--all', '--prune'], remote ?? null);
 }
 
 /** Add a remote and fetch it, so its branches appear straight away. */
 export async function remoteAdd(cwd: string, name: string, url: string): Promise<void> {
   await runGit(cwd, ['remote', 'add', name, url]);
-  await runGit(cwd, ['fetch', '--prune', name]);
+  await runRemote(cwd, ['fetch', '--prune', name], name);
 }
 
 export const remoteRemove = (cwd: string, name: string): Promise<string> => runGit(cwd, ['remote', 'remove', name]);
@@ -730,7 +862,7 @@ export async function pull(cwd: string, mode: PullMode, remote?: string): Promis
     if (!branch) throw new GitError('Cannot pull into a detached HEAD', args, '', null);
     args.push(remote, branch);
   }
-  await runGit(cwd, args);
+  await runRemote(cwd, args, remote ?? null);
 }
 
 /**
@@ -759,6 +891,7 @@ export async function setUpstream(cwd: string, branch: string, upstream: string 
 
 export async function push(cwd: string, req: PushRequest): Promise<void> {
   const args = ['push'];
+  let named: string | null = null;
   if (req.force) args.push('--force-with-lease');
   if (req.tags) args.push('--tags');
   if (req.setUpstream || req.remote || req.branch) {
@@ -772,6 +905,7 @@ export async function push(cwd: string, req: PushRequest): Promise<void> {
     if (!branch) throw new GitError('Cannot push from a detached HEAD', args, '', null);
     if (req.setUpstream) args.push('-u');
     args.push(remote, branch);
+    named = remote;
   }
-  await runGit(cwd, args);
+  await runRemote(cwd, args, named);
 }

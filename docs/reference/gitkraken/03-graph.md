@@ -71,6 +71,30 @@ default or compact layout from preferences.
   for deleted. Clicking the row opens the staging panel on the right.
 - Row is selected by default when the repo opens.
 
+## Stash rows
+
+Described from a capture Ricardo took of GitKraken on `catena-feed` (2026-09-06),
+in our own words: nothing here is copied from GitKraken's markup, CSS or strings,
+and the only quoted text is the stash message git itself wrote.
+
+- A stash is **a row of its own**, not a marker on another row. It sits directly
+  above the commit it was taken from — the tip of the branch it was stashed on —
+  in that branch's lane.
+- Its node is a **full-size circle with a dashed outline**, the same diameter as a
+  commit node, with a small stash glyph inside it. The lane line runs down from the
+  node into the tip below, so the two read as connected.
+- The **message column carries the stash's message**, with git's own
+  `On <branch>: ` prefix removed: an entry stored as `On 008-page-monitor-port: est`
+  is drawn as `est`. The branch is already named by the lane the row sits in.
+- The row is **selectable like a commit row**, taking the same highlighted band
+  across the full width of the graph.
+- The ref column of the row is empty, and the tip below carries no stash marker of
+  any kind: the row is the whole of how a stash appears in the graph.
+
+Our answer (GC-170) is the same shape, with two additions the capture did not have
+to settle: two stashes on one commit draw two rows in `git stash list` order,
+newest first, and a stash whose parent is outside the loaded range draws nothing.
+
 ## Ordering and lane rules (verified against git)
 
 - Rows follow commit-date order with topological constraints, which is what

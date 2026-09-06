@@ -42,7 +42,7 @@ own Git client with a comparable experience. They are observations, not source.
 | --- | --- |
 | `01-layout.md` | Window regions, sizes, component hierarchy, panel behaviour |
 | `02-design-tokens.md` | Type scale, spacing, colours, button and input styles, graph palette |
-| `03-graph.md` | Commit graph anatomy: columns, rows, nodes, lines, refs, WIP row |
+| `03-graph.md` | Commit graph anatomy: columns, rows, nodes, lines, refs, WIP row, stash rows |
 | `04-panels.md` | Left ref panel, toolbar, title bar, status bar, commit/staging panel, file diff view |
 | `05-menus-shortcuts.md` | Application menu tree, keyboard shortcuts, context menu actions |
 | `06-feature-inventory.md` | Every feature area found in the UI string table, with a build/skip recommendation |

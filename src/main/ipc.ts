@@ -278,6 +278,10 @@ export function registerIpc(): void {
     });
   });
 
+  // Kills a remote command waiting on a credential (GC-169). Like `repo:checkGit` it takes no
+  // arguments: what it stops is a process, not something inside a repository.
+  ipcMain.handle('remote:cancel', () => git.cancelRemote());
+
   // stashes
   ipcMain.handle('stash:save', (_e, repo: unknown, req: unknown) => {
     const r = (req ?? {}) as Partial<StashSaveRequest>;

@@ -3,7 +3,7 @@ import { cleanup, createEvent, fireEvent, render } from '@testing-library/react'
 import type { ComponentProps } from 'react';
 import type { Commit, GitRef, Stash } from '@shared/types';
 import type { RefDragHandlers } from '../ui/refDrag';
-import { chipRoom, CommitGraph, rowIndexOf, stashesByParent } from './CommitGraph';
+import { chipRoom, CommitGraph, displayRows, rowIndexOf, shouldRevealSelection, stashesByParent, stashMessageText } from './CommitGraph';
 import { DEFAULT_PREFS, setPrefs } from '../prefs';
 
 // GC-058: a guard for GC-022's folded-refs dropdown. `onMoreEnter` decides the direction from
@@ -391,8 +391,14 @@ describe('the folded block opens for a drag (GC-123)', () => {
   });
 });
 
-describe('stash markers in the graph (GC-140)', () => {
-  const stash = (index: number, parent: string): Stash => ({ index, sha: `s${index}`.padEnd(40, '0'), message: `WIP ${index}`, date: '2026-01-02T03:04:05Z', parent });
+describe('a stash is a row of its own, above the commit it was taken from (GC-170)', () => {
+  const stash = (index: number, parent: string, message = `On main: work ${index}`): Stash => ({
+    index,
+    sha: `s${index}`.padEnd(40, '0'),
+    message,
+    date: '2026-01-02T03:04:05Z',
+    parent,
+  });
 
   it('keys stashes by the commit they were taken from, and keeps two on one commit', () => {
     const m = stashesByParent([stash(0, 'aaa'), stash(1, 'bbb'), stash(2, 'aaa')]);
@@ -401,90 +407,165 @@ describe('stash markers in the graph (GC-140)', () => {
   });
 
   it('a stash whose parent is not in the loaded range is simply never looked up', () => {
-    // The not-loaded case costs nothing and throws nothing: the map is keyed by parent sha, and
-    // no row asks for a sha it does not have.
     const m = stashesByParent([stash(0, 'not-loaded')]);
     expect(m.get(commit.sha)).toBe(undefined);
-    // A stash on an unborn HEAD has no parent at all, and marks nothing.
+    // A stash on an unborn HEAD has no parent at all, and draws nothing.
     expect(stashesByParent([{ ...stash(0, ''), parent: '' }]).size).toBe(0);
   });
 
-  it('draws one marker per stash on its commit, outside the chip fold', () => {
+  it('puts the stash rows above their commit, newest first, with the WIP row still on top', () => {
+    const byParent = stashesByParent([stash(0, commit.sha), stash(1, commit.sha)]);
+    const rows = displayRows([commit], true, byParent);
+    expect(rows.map((r) => r.kind)).toEqual(['wip', 'stash', 'stash', 'commit']);
+    // `git stash list` order, so stash@{0} is the topmost of the two.
+    expect(rows.filter((r) => r.kind === 'stash').map((r) => (r as { stash: Stash }).stash.index)).toEqual([0, 1]);
+  });
+
+  it('adds no row for a stash whose parent is not loaded, and none at all without stashes', () => {
+    expect(displayRows([commit], true, stashesByParent([stash(0, 'z'.repeat(40))])).map((r) => r.kind)).toEqual(['wip', 'commit']);
+    expect(displayRows([commit], false, new Map()).map((r) => r.kind)).toEqual(['commit']);
+  });
+
+  it('draws one row per stash and no marker in the commit s ref cell', () => {
     const { container } = renderGraph({ stashes: [stash(0, commit.sha), stash(1, commit.sha)] });
-    expect(container.querySelectorAll('.graph-row .stash-chip')).toHaveLength(2);
-    // The row's single chip slot and its `+N` are untouched: a stash is not a ref (GC-078).
+    expect(container.querySelectorAll('.graph-row.stash-row')).toHaveLength(2);
+    // The marker GC-140 put in the ref column is gone, and with it the width it cost the name.
+    expect(container.querySelectorAll('.stash-chip')).toHaveLength(0);
+    // The row's single chip slot and its `+N` are untouched: a stash was never a ref (GC-078).
     expect(container.querySelectorAll('.graph-row .col-ref > .ref-chip:not(.more)')).toHaveLength(1);
     expect(container.querySelector('.graph-row .ref-chip.more')?.textContent).toBe('+5');
-    // And it is not a `.ref-chip`, so no chip rule — drag, grow-on-hover, fold — can reach it.
-    expect(container.querySelector('.stash-chip')?.classList.contains('ref-chip')).toBe(false);
   });
 
   it('draws nothing when the stash belongs to a commit that is not on screen', () => {
     const { container } = renderGraph({ stashes: [stash(0, 'z'.repeat(40))] });
-    expect(container.querySelectorAll('.stash-chip')).toHaveLength(0);
+    expect(container.querySelectorAll('.stash-row')).toHaveLength(0);
   });
 
-  it('offers the same two gestures the left panel s stash row does', () => {
-    const seen = { menu: 0, applied: null as number | null };
+  it('reads the message in the message column with git s own prefix off it', () => {
+    const { container } = renderGraph({ stashes: [stash(0, commit.sha, 'On 008-page-monitor-port: est')] });
+    const row = container.querySelector('.stash-row')!;
+    expect(row.querySelector('.summary')?.textContent).toBe('est');
+    // The whole, untouched message is still what the row says on hover.
+    expect(row.querySelector('.col-msg')?.getAttribute('title')).toContain('On 008-page-monitor-port: est');
+  });
+
+  it('offers the same two gestures the left panel s stash row does, and selects on a click', () => {
+    const seen = { menu: 0, applied: null as number | null, selected: null as string | null };
     const { container } = renderGraph({
       stashes: [stash(3, commit.sha)],
       onStashMenu: () => seen.menu++,
       onStashActivate: (s) => (seen.applied = s.index),
+      onSelect: (sha) => (seen.selected = sha),
     });
-    const marker = container.querySelector('.stash-chip')!;
-    fireEvent.contextMenu(marker);
-    fireEvent.doubleClick(marker);
-    expect(seen).toEqual({ menu: 1, applied: 3 });
+    const row = container.querySelector('.stash-row')!;
+    fireEvent.contextMenu(row);
+    fireEvent.doubleClick(row);
+    fireEvent.click(row);
+    expect(seen).toEqual({ menu: 1, applied: 3, selected: 's3'.padEnd(40, '0') });
+  });
+
+  it('takes the same .selected treatment a commit row does', () => {
+    const { container } = renderGraph({ stashes: [stash(0, commit.sha)], selected: 's0'.padEnd(40, '0') });
+    expect(container.querySelector('.stash-row')?.classList.contains('selected')).toBe(true);
   });
 });
 
-describe('rowIndexOf (GC-141)', () => {
-  const commits = [commit, { ...commit, sha: 'b'.repeat(40) }];
+describe('stashMessageText: git s prefix off the line, never off the message (GC-170)', () => {
+  it('drops the branch prefix, which the lane the row sits in already says', () => {
+    expect(stashMessageText('On 008-page-monitor-port: est')).toBe('est');
+    expect(stashMessageText('On main: review: a stash to look at')).toBe('review: a stash to look at');
+  });
 
-  it('offsets by the WIP row when there is one', () => {
-    expect(rowIndexOf(commits, commit.sha, false)).toBe(0);
-    expect(rowIndexOf(commits, commit.sha, true)).toBe(1);
-    expect(rowIndexOf(commits, 'b'.repeat(40), true)).toBe(2);
+  it('drops the WIP form git writes when it was given no message', () => {
+    expect(stashMessageText('WIP on main: 1234567 the commit it was taken from')).toBe('1234567 the commit it was taken from');
+  });
+
+  it('leaves a message with no prefix alone', () => {
+    expect(stashMessageText('a stash to look at')).toBe('a stash to look at');
+    expect(stashMessageText('')).toBe('');
+    // Not a prefix: a ref name cannot hold a colon, so only the first one can end one.
+    expect(stashMessageText('Onwards: a message')).toBe('Onwards: a message');
+  });
+});
+
+describe('rowIndexOf (GC-141, GC-170)', () => {
+  const commits = [commit, { ...commit, sha: 'b'.repeat(40) }];
+  const rows = (hasWip: boolean, stashes: Stash[] = []): ReturnType<typeof displayRows> => displayRows(commits, hasWip, stashesByParent(stashes));
+
+  it('counts the rows as drawn, WIP row and stash rows included', () => {
+    expect(rowIndexOf(rows(false), commit.sha)).toBe(0);
+    expect(rowIndexOf(rows(true), commit.sha)).toBe(1);
+    expect(rowIndexOf(rows(true), 'b'.repeat(40))).toBe(2);
+    // A stash above the first commit pushes that commit down a row, and is found itself (GC-170).
+    const withStash = rows(true, [{ index: 0, sha: 's'.repeat(40), message: 'On main: x', date: '2026-01-02T03:04:05Z', parent: commit.sha }]);
+    expect(rowIndexOf(withStash, 's'.repeat(40))).toBe(1);
+    expect(rowIndexOf(withStash, commit.sha)).toBe(2);
   });
 
   it('answers -1 for a sha the loaded range does not hold, with and without a WIP row', () => {
     // The case that was silently wrong: -1 + the WIP offset came to 0, so the `index < 0` guard
-    // never fired and the graph scrolled to the WIP row instead of staying put.
-    expect(rowIndexOf(commits, 'z'.repeat(40), true)).toBe(-1);
-    expect(rowIndexOf(commits, 'z'.repeat(40), false)).toBe(-1);
+    // never fired and the graph scrolled to the WIP row instead of staying put. Asked of the rows
+    // there is no offset left to add (GC-170).
+    expect(rowIndexOf(rows(true), 'z'.repeat(40))).toBe(-1);
+    expect(rowIndexOf(rows(false), 'z'.repeat(40))).toBe(-1);
   });
 
   it('places the WIP selection on row 0, and nowhere at all without a WIP row', () => {
-    expect(rowIndexOf(commits, 'WIP', true)).toBe(0);
-    expect(rowIndexOf(commits, 'WIP', false)).toBe(-1);
-    expect(rowIndexOf(commits, null, true)).toBe(-1);
+    expect(rowIndexOf(rows(true), 'WIP')).toBe(0);
+    expect(rowIndexOf(rows(false), 'WIP')).toBe(-1);
+    expect(rowIndexOf(rows(true), null)).toBe(-1);
   });
 });
 
-describe('chipRoom: what the primary chip is drawn at (GC-156)', () => {
-  // The numbers below are the stylesheet's, measured over CDP and mirrored in `CommitGraph.tsx`:
-  // 3px of cell padding, a 4px gap between every adjacent pair, a 26px `+N`, a 20px stash marker
-  // and the 4px the `.ref-line` keeps. jsdom applies no stylesheet, so the arithmetic is asserted
-  // on the pure function rather than on a rendered width.
-  it('reproduces GC-071 measurement exactly when the +N and the line are all there is', () => {
-    // GC-071 wrote this as the constant `width - 41`, and that case must not have moved.
-    expect(chipRoom(150, true, 0)).toBe(150 - 41);
-    expect(chipRoom(120, true, 0)).toBe(79); // the column GC-071 brought the cloud back at
-    expect(chipRoom(100, true, 0)).toBe(59); // the minimum, where `main` rendered as `ma…`
+describe('shouldRevealSelection: when the graph is scrolled to the selection (GC-172)', () => {
+  it('scrolls to a selection the graph has not answered for yet', () => {
+    expect(shouldRevealSelection(undefined, commit.sha)).toBe(true);
+    expect(shouldRevealSelection('b'.repeat(40), commit.sha)).toBe(true);
   });
 
-  it('charges a stash marker to the furniture, not to the name', () => {
-    // The measurement GR-018 took: a fitted 134px column with one stash left the chip 69px, and
-    // 69 is below `CHIP_CLOUD_MIN`, so it is now the cloud that goes rather than the name.
-    expect(chipRoom(134, true, 1)).toBe(69);
-    // 20px for the marker plus the 4px gap it brings with it, per stash.
-    expect(chipRoom(150, true, 0) - chipRoom(150, true, 1)).toBe(24);
-    expect(chipRoom(150, true, 1) - chipRoom(150, true, 2)).toBe(24);
+  it('leaves the position alone when the selection is the one already answered for', () => {
+    // The bug: `commits` is in the effect's dependencies for the row lookup, so a reload, a page
+    // append or a tab switch's own refresh re-ran it unchanged. With WIP selected that is row 0,
+    // and a graph scrolled anywhere came back at the top.
+    expect(shouldRevealSelection('WIP', 'WIP')).toBe(false);
+    expect(shouldRevealSelection(commit.sha, commit.sha)).toBe(false);
+  });
+
+  it('treats a restored offset as the answer for the selection it was parked with', () => {
+    // What the mount writes when it puts a parked offset back (GC-016): the tab's own selection.
+    expect(shouldRevealSelection('WIP', 'WIP')).toBe(false);
+  });
+
+  it('has nothing to reveal with no selection', () => {
+    expect(shouldRevealSelection(undefined, null)).toBe(false);
+    expect(shouldRevealSelection('WIP', null)).toBe(false);
+  });
+});
+
+describe('chipRoom: what the primary chip is drawn at (GC-156, GC-170)', () => {
+  // The numbers below are the stylesheet's, measured over CDP and mirrored in `CommitGraph.tsx`:
+  // 3px of cell padding, a 4px gap between every adjacent pair, a 26px `+N` and the 4px the
+  // `.ref-line` keeps. jsdom applies no stylesheet, so the arithmetic is asserted on the pure
+  // function rather than on a rendered width.
+  it('reproduces GC-071 measurement exactly when the +N and the line are all there is', () => {
+    // GC-071 wrote this as the constant `width - 41`, and that case must not have moved.
+    expect(chipRoom(150, true)).toBe(150 - 41);
+    expect(chipRoom(120, true)).toBe(79); // the column GC-071 brought the cloud back at
+    expect(chipRoom(100, true)).toBe(59); // the minimum, where `main` rendered as `ma…`
+  });
+
+  it('keeps the cloud at the width GC-156 measured it losing it at, now that the marker is gone', () => {
+    // GR-018's measurement: a fitted 134px column with a stash marker beside the chip left it
+    // 69px, below `CHIP_CLOUD_MIN`, so the cloud went. The marker is a row of its own now
+    // (GC-170), so the same column leaves the chip 93px and the cloud is kept — which is the
+    // point of moving it: the 24px it cost came out of the name at every width above 120.
+    expect(chipRoom(134, true)).toBe(93);
+    expect(chipRoom(134, true) >= 79).toBe(true);
   });
 
   it('counts only the furniture that is actually on the row', () => {
-    // One ref and no stash: no `+N` at all, so the chip gets 26px plus a gap more.
-    expect(chipRoom(150, false, 0)).toBe(150 - 11);
-    expect(chipRoom(150, false, 0) - chipRoom(150, true, 0)).toBe(30);
+    // One ref: no `+N` at all, so the chip gets 26px plus a gap more.
+    expect(chipRoom(150, false)).toBe(150 - 11);
+    expect(chipRoom(150, false) - chipRoom(150, true)).toBe(30);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GitError, ignorePattern, restoreStashWith, type GitRunner } from './git';
-import { ADVISORY } from '@shared/types';
+import { authSummary, GitError, ignorePattern, isAuthMessage, restoreStashWith, runGit, type GitRunner } from './git';
+import { ADVISORY, AUTH_FAILURE } from '@shared/types';
 
 // `restoreStashWith` is the whole of GC-092's decision: whether a failed `stash apply --index`
 // left the repository alone, and may be retried without `--index`, or merged and conflicted, where
@@ -109,4 +109,76 @@ describe('ignorePattern', () => {
       expect(ignorePattern(path, kind)).toBe(expected);
     });
   }
+});
+
+// ---- GC-169: a remote refused over a credential ---------------------------------------------
+
+// The messages below are what git and the common helpers actually write; the SAML one is the
+// shape Ricardo hit on `catena-feed`, retyped here rather than captured from a live refusal, and
+// no repository of his is touched by any of this.
+describe('isAuthMessage: which failures are about who you are', () => {
+  const auth: Array<[string, string]> = [
+    [
+      'SAML SSO, the case that cannot be waited out',
+      "remote: The 'Catena-Media' organization has enabled or enforced SAML SSO.\nremote: To access this repository, visit https://github.com/orgs/Catena-Media/sso and sign in.\nfatal: unable to access 'https://github.com/Catena-Media/catena-feed.git/': The requested URL returned error: 403",
+    ],
+    ["a token that no longer carries the scope", "fatal: unable to access 'https://github.com/x/y.git/': The requested URL returned error: 401"],
+    ['the helper answering outright', "remote: Invalid username or password.\nfatal: Authentication failed for 'https://github.com/x/y.git/'"],
+    ['no credential and nobody to ask', "fatal: could not read Username for 'https://github.com': terminal prompts disabled"],
+    ['ssh with a key the server will not take', 'git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.'],
+    ['a password where a token is now required', 'remote: Support for password authentication was removed on August 13, 2021.'],
+  ];
+  for (const [what, text] of auth) {
+    it(`flags ${what}`, () => {
+      expect(isAuthMessage(text)).toBe(true);
+    });
+  }
+
+  const other: Array<[string, string]> = [
+    [
+      'a non-fast-forward push, which must behave exactly as it does today',
+      " ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to 'https://github.com/x/y.git'\nhint: Updates were rejected because the remote contains work that you do not have locally.",
+    ],
+    ['a remote that is not there', "fatal: 'origin' does not appear to be a git repository"],
+    ['a branch the other side does not have', "error: src refspec nope does not match any\nerror: failed to push some refs to 'origin'"],
+    ['a merge conflict from a pull', 'CONFLICT (content): Merge conflict in f.txt\nAutomatic merge failed; fix conflicts and then commit the result.'],
+    ['a 403 that is only a number in a commit message', 'error: could not apply 1234403 - fix the 401 parser'],
+  ];
+  for (const [what, text] of other) {
+    it(`leaves ${what} unflagged`, () => {
+      expect(isAuthMessage(text)).toBe(false);
+    });
+  }
+});
+
+describe('the flag on the error, which is all IPC keeps (GC-169)', () => {
+  it('names the error so the renderer can read it back off the name', () => {
+    const e = new GitError('Authentication failed for origin', ['fetch'], '', 128, false, true);
+    expect(e.auth).toBe(true);
+    expect(e.name).toBe(AUTH_FAILURE);
+    // The two flags are separate severities and never both: an advisory outcome keeps its own name.
+    expect(new GitError('x', ['fetch'], '', 1, true).name).toBe(ADVISORY);
+    expect(new GitError('x', ['fetch'], '', 1).name).toBe('GitError');
+  });
+
+  it('puts the remote and its URL in the summary line, which is what the status bar shows', () => {
+    expect(authSummary('origin', 'https://github.com/x/y.git')).toBe('Authentication failed for origin (https://github.com/x/y.git)');
+    expect(authSummary('origin', null)).toBe('Authentication failed for origin');
+    // `fetch --all` names no remote, and saying so beats naming the wrong one.
+    expect(authSummary(null, null)).toBe('Authentication failed for the remote');
+  });
+});
+
+describe('GIT_TERMINAL_PROMPT is no longer unconditional (GC-169)', () => {
+  // A `!` alias runs in a shell, so it can report the environment git was actually spawned with.
+  // Read-only, and in this repository: nothing here touches a repository of Ricardo's.
+  const showPrompt = ['-c', 'alias.showprompt=!echo "prompt=${GIT_TERMINAL_PROMPT}"', 'showprompt'];
+
+  it('leaves every ordinary command unable to prompt', async () => {
+    expect((await runGit(process.cwd(), showPrompt)).trim()).toBe('prompt=0');
+  });
+
+  it('lets a command asked for it prompt, which is the only way the helper can ask', async () => {
+    expect((await runGit(process.cwd(), showPrompt, { prompt: true })).trim()).toBe('prompt=1');
+  });
 });

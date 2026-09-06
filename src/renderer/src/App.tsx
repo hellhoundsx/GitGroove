@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { ChevronLeft } from 'lucide-react';
 import { Icon } from './ui/icons';
 import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, RepoStatus, Stash, StatusEntry } from '@shared/types';
-import { ADVISORY } from '@shared/types';
+import { ADVISORY, AUTH_FAILURE } from '@shared/types';
 import { defaultRemote, remoteCopyOf } from '@shared/remotes';
 import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type OptCols, type PanelFit } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
@@ -10,6 +10,7 @@ import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
 import { DetailPanel, discardFileConfirm, type FileMenuTarget, type StagingActions } from './components/DetailPanel';
 import { StatusBar } from './components/StatusBar';
+import { AuthErrorDialog } from './components/AuthErrorDialog';
 import { CommitGraph, WIP } from './graph/CommitGraph';
 import { DiffView, type FileViewSource } from './diff/DiffView';
 import { Preferences } from './components/Preferences';
@@ -147,6 +148,21 @@ const msg = (e: unknown): string =>
  * that survives Electron's serialisation of a rejected handler — the same name `msg` strips off.
  */
 const isAdvisory = (e: unknown): boolean => new RegExp(`(^|: )${ADVISORY}: `).test(e instanceof Error ? e.message : String(e));
+/**
+ * Whether the main process flagged this failure as a credential refusal (GC-169) — read the same
+ * way `isAdvisory` reads its own word, off the name, which is all IPC keeps of a rejected handler.
+ */
+const isAuthFailure = (e: unknown): boolean => new RegExp(`(^|: )${AUTH_FAILURE}: `).test(e instanceof Error ? e.message : String(e));
+/**
+ * Split a flagged failure into the line the status bar shows and the rest, which is git's whole
+ * message (GC-169). The first line is the summary the main process composed — what happened, on
+ * which remote, at which URL — and everything under it is what the dialog exists to show.
+ */
+const authParts = (e: unknown): { summary: string; detail: string } => {
+  const text = msg(e);
+  const at = text.indexOf('\n');
+  return at < 0 ? { summary: text, detail: '' } : { summary: text.slice(0, at), detail: text.slice(at + 1) };
+};
 
 export function App(): JSX.Element {
   const ui = useUi();
@@ -234,6 +250,14 @@ export function App(): JSX.Element {
    */
   const [notice, setNotice] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null); // git itself is missing (GC-025)
+  /**
+   * The credential refusal a remote operation last reported, kept after its dialog is closed so
+   * the status bar's summary can open it again (GC-169). Cleared by the next action, like `error`.
+   */
+  const [authFailure, setAuthFailure] = useState<{ summary: string; detail: string } | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  /** Whether the running action is one that talks to a remote, and so one Cancel can stop (GC-169). */
+  const [busyRemote, setBusyRemote] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Which optional graph columns are actually drawn, as `CommitGraph` computed them (GC-117). Held
@@ -769,7 +793,7 @@ export function App(): JSX.Element {
 
   /** Run a git operation with busy/error handling, then reload the snapshot (or only the status). */
   const run = useCallback(
-    async (label: string, fn: () => Promise<unknown>, opts: { statusOnly?: boolean; rethrow?: boolean } = {}): Promise<void> => {
+    async (label: string, fn: () => Promise<unknown>, opts: { statusOnly?: boolean; rethrow?: boolean; remote?: boolean } = {}): Promise<void> => {
       if (!repo) return;
       // The user acted, so whatever a background load is about to return was captured before this
       // and must not land on top of the reload below (GC-068).
@@ -780,6 +804,12 @@ export function App(): JSX.Element {
       const owns = takeBusy(label);
       setError(null);
       setNotice(null);
+      // The last refusal belongs to the action that produced it: a new one starts with none, so
+      // the status bar can never offer to reopen a dialog about something else (GC-169).
+      setAuthFailure(null);
+      // Only a remote command can be waiting on a person, and only one of those can be stopped,
+      // so only one of those puts Cancel on the busy line (GC-169).
+      setBusyRemote(!!opts.remote);
       let failure: unknown = null;
       try {
         await fn();
@@ -795,7 +825,10 @@ export function App(): JSX.Element {
         } catch (e) {
           failure ??= e;
         } finally {
-          if (owns()) setBusy(null);
+          if (owns()) {
+            setBusy(null);
+            setBusyRemote(false);
+          }
         }
       }
       if (failure !== null) {
@@ -804,7 +837,16 @@ export function App(): JSX.Element {
         // unless a later action owns the bar by now, whose state this message would not describe.
         // An advisory failure is not a failure to report in red: the stash came back and only its
         // staging did not, and the red line said the pop had failed when it had not (GC-091).
-        if (owns()) (isAdvisory(failure) ? setNotice : setError)(msg(failure));
+        // A credential refusal is a failure like any other on the status bar, and more than one
+        // line everywhere else: the summary goes in the bar, the whole of git's message into the
+        // dialog, which opens straight away because there is nothing the user can do until it is
+        // read (GC-169).
+        if (owns() && isAuthFailure(failure)) {
+          const parts = authParts(failure);
+          setAuthFailure(parts);
+          setAuthOpen(true);
+          setError(parts.summary);
+        } else if (owns()) (isAdvisory(failure) ? setNotice : setError)(msg(failure));
         // The caller asked to handle the failure itself, and its own logic does not depend on
         // which action currently owns the status bar.
         if (opts.rethrow) throw failure;
@@ -1001,6 +1043,12 @@ export function App(): JSX.Element {
 
   const commits = snapshot?.commits ?? [];
   const selectedCommit = useMemo(() => (selected && selected !== WIP ? commits.find((c) => c.sha === selected) ?? null : null), [commits, selected]);
+  /**
+   * The stash a stash row's selection stands for (GC-170). Its sha is a commit git keeps out of
+   * the graph's traversal, so it is never in `commits`: the panel is told about it separately, and
+   * it is looked up before the commit so a selection can only ever be one of the two.
+   */
+  const selectedStash = useMemo(() => (selected && selected !== WIP ? snapshot?.stashes.find((s) => s.sha === selected) ?? null : null), [snapshot, selected]);
   const headCommit = useMemo(() => (snapshot?.info.headSha ? commits.find((c) => c.sha === snapshot.info.headSha) ?? null : null), [commits, snapshot]);
   const headRef = useMemo(() => snapshot?.refs.find((r) => r.isHead) ?? null, [snapshot]);
   // Resolved on every snapshot so the pinned lane follows the branch as it gains commits; a pin on a
@@ -1282,10 +1330,10 @@ export function App(): JSX.Element {
         items.push({ separator: true });
         if (remotes.length > 1) {
           for (const rem of remotes) {
-            items.push({ label: `Push tag ${r.name} to ${rem.name}`, onClick: () => run(`Pushing tag ${r.name} to ${rem.name}`, () => window.api.push(repo!, { remote: rem.name, branch: r.name })) });
+            items.push({ label: `Push tag ${r.name} to ${rem.name}`, onClick: () => run(`Pushing tag ${r.name} to ${rem.name}`, () => window.api.push(repo!, { remote: rem.name, branch: r.name }), { remote: true }) });
           }
         } else {
-          items.push({ label: `Push tag ${r.name} to ${fallback ?? 'remote'}`, disabled: !fallback, onClick: () => run(`Pushing tag ${r.name} to ${fallback}`, () => window.api.push(repo!, { remote: fallback, branch: r.name })) });
+          items.push({ label: `Push tag ${r.name} to ${fallback ?? 'remote'}`, disabled: !fallback, onClick: () => run(`Pushing tag ${r.name} to ${fallback}`, () => window.api.push(repo!, { remote: fallback, branch: r.name }), { remote: true }) });
         }
         // A tag pushed with the row above could not be taken back at all: `deleteTag` is local-only
         // and there was no remote-tag call in `git.ts` (GC-112). The remote rows mirror the push
@@ -1417,7 +1465,7 @@ export function App(): JSX.Element {
             items.push({
               label: `Push ${r.name} to ${rem.name}`,
               hint: r.upstream ? undefined : 'sets the upstream',
-              onClick: () => run(`Pushing ${r.name} to ${rem.name}`, () => window.api.push(repo!, { remote: rem.name, branch: r.name, setUpstream: !r.upstream })),
+              onClick: () => run(`Pushing ${r.name} to ${rem.name}`, () => window.api.push(repo!, { remote: rem.name, branch: r.name, setUpstream: !r.upstream }), { remote: true }),
             });
           }
         } else {
@@ -1431,7 +1479,7 @@ export function App(): JSX.Element {
             label: `Push ${r.name} to ${fallback ?? 'remote'}`,
             hint: r.upstream ? undefined : 'sets the upstream',
             disabled: !fallback,
-            onClick: () => run(`Pushing ${r.name} to ${fallback}`, () => window.api.push(repo!, { remote: fallback, branch: r.name, setUpstream: !r.upstream })),
+            onClick: () => run(`Pushing ${r.name} to ${fallback}`, () => window.api.push(repo!, { remote: fallback, branch: r.name, setUpstream: !r.upstream }), { remote: true }),
           });
         }
       }
@@ -1678,7 +1726,7 @@ export function App(): JSX.Element {
 
   const remoteMenuItems = useCallback(
     (rem: Remote): MenuItem[] => [
-      { label: `Fetch ${rem.name}`, onClick: () => run(`Fetching ${rem.name}`, () => window.api.fetch(repo!, rem.name)) },
+      { label: `Fetch ${rem.name}`, onClick: () => run(`Fetching ${rem.name}`, () => window.api.fetch(repo!, rem.name), { remote: true }) },
       { separator: true },
       {
         label: 'Edit URL…',
@@ -1783,7 +1831,7 @@ export function App(): JSX.Element {
   // nothing else, which is why no layer handles Escape itself. The listener runs in the capture
   // phase so that when it does close a layer it can stop the event before any React handler
   // underneath sees it — the find bar's input closes itself on Escape otherwise.
-  const layerOpen = shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen || pushOpen;
+  const layerOpen = authOpen || shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen || pushOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // The topmost layer owns the keyboard while it is up: it closes on Escape (and the overlay
@@ -1794,7 +1842,8 @@ export function App(): JSX.Element {
         if (matches('dialogCancel', e) || (shortcutsOpen && matches('help', e))) {
           e.preventDefault();
           e.stopPropagation();
-          if (shortcutsOpen) setShortcutsOpen(false);
+          if (authOpen) setAuthOpen(false);
+          else if (shortcutsOpen) setShortcutsOpen(false);
           else if (prefsOpen) setPrefsOpen(false);
           else if (ui.dialogOpen) ui.closeDialog();
           else if (ui.menuOpen) ui.closeMenu();
@@ -1868,7 +1917,7 @@ export function App(): JSX.Element {
       }
       if (hit('fetchAll')) {
         e.preventDefault();
-        if (snapshot && !busy && snapshot.remotes.length > 0) void run('Fetching', () => window.api.fetch(repo!));
+        if (snapshot && !busy && snapshot.remotes.length > 0) void run('Fetching', () => window.api.fetch(repo!), { remote: true });
         return;
       }
       if (hit('stageAll')) {
@@ -1938,8 +1987,8 @@ export function App(): JSX.Element {
         onPullModeChange={(mode) => setPrefs({ pullMode: mode })}
         onPullOpenChange={setPullOpen}
         onPushOpenChange={setPushOpen}
-        onFetch={() => void run('Fetching', () => window.api.fetch(repo!))}
-        onPull={(mode, remote) => void run(remote ? `Pulling from ${remote}` : 'Pulling', () => window.api.pull(repo!, mode, remote))}
+        onFetch={() => void run('Fetching', () => window.api.fetch(repo!), { remote: true })}
+        onPull={(mode, remote) => void run(remote ? `Pulling from ${remote}` : 'Pulling', () => window.api.pull(repo!, mode, remote), { remote: true })}
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenShortcuts={() => setShortcutsOpen(true)}
         onRepoMenu={openRepoMenu}
@@ -1947,7 +1996,7 @@ export function App(): JSX.Element {
         // A named remote is a deliberate choice, so it sets the upstream when the branch has none
         // wherever it is pushed; with none named this is the button it always was (GC-057).
         onPush={(remote) =>
-          void run(remote ? `Pushing to ${remote}` : 'Pushing', () => window.api.push(repo!, { remote, setUpstream: !headRef?.upstream }))
+          void run(remote ? `Pushing to ${remote}` : 'Pushing', () => window.api.push(repo!, { remote, setUpstream: !headRef?.upstream }), { remote: true })
         }
         onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
         onStash={() => void stashChanges()}
@@ -2054,6 +2103,7 @@ export function App(): JSX.Element {
                 key={`detail-${repo}`}
                 repo={repo}
                 commit={selectedCommit}
+                stash={selectedStash}
                 headCommit={headCommit}
                 status={snapshot.status}
                 openFile={fileView}
@@ -2120,9 +2170,19 @@ export function App(): JSX.Element {
         generation={dataGen}
         error={error}
         notice={notice}
-        onDismissError={() => setError(null)}
+        onDismissError={() => {
+          setError(null);
+          setAuthFailure(null);
+        }}
         onDismissNotice={() => setNotice(null)}
+        // Only a credential refusal has more to show than the line in the bar, so only then is
+        // the summary something to click rather than only something to dismiss (GC-169).
+        onErrorDetails={authFailure ? () => setAuthOpen(true) : undefined}
+        // A credential helper's own window can wait for a person forever, so the one command that
+        // can be sitting behind one is the one the user can stop (GC-169).
+        onCancelBusy={busy && busyRemote ? () => void window.api.cancelRemote() : undefined}
       />
+      {authOpen && authFailure && <AuthErrorDialog summary={authFailure.summary} detail={authFailure.detail} onClose={() => setAuthOpen(false)} />}
       {/* With a file view open there is no graph to have dropped anything, so the dialog is told
           nothing rather than the last answer some earlier window width produced (GC-117). */}
       {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} drawnCols={fileView ? null : drawnCols} />}

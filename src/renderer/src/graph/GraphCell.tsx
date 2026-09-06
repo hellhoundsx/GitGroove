@@ -1,5 +1,6 @@
 import { useState, type JSX } from 'react';
-import type { RowLayout, WipDash } from './lanes';
+import { Archive } from 'lucide-react';
+import type { RowLayout, Segment, WipDash } from './lanes';
 import { avatarFailed, markAvatarFailed, useGravatar } from '../ui/avatars';
 
 export const ROW_H = 28;
@@ -28,6 +29,24 @@ interface Props {
    * starting a dash that runs off the bottom of the graph (GC-144).
    */
   wip?: { lane: number; color: number; linked: boolean };
+  /**
+   * A stash's own row, in the lane of the commit it was taken from (GC-170): a full-size circle
+   * with a dashed outline and the stash glyph inside it, the lane line running down from it into
+   * that commit's node on the row below.
+   *
+   * `through`, `incoming` and `above` are that commit's, and they are what this row draws of
+   * every *other* line: a lane passing the parent from above passes this row too, or a line would
+   * appear to break where a stash was inserted. Dashed, like the working-directory node, because
+   * what the row stands for is not on the branch.
+   */
+  stash?: { lane: number; color: number; through: Segment[]; incoming: Segment[]; above: boolean };
+  /**
+   * What a stash row draws of the dashed WIP-to-HEAD run passing it (GC-170, GC-144). The run has
+   * to cover the whole distance, and a stash row inserted inside it is one more row it crosses:
+   * `toNode` when the run is in this row's own lane and ends at the node below, otherwise a
+   * through dash in `lane`.
+   */
+  stashDash?: { lane: number; toNode: boolean };
   /** Draw the dashed WIP-to-HEAD link in this lane: straight through the row, or down into this row's node. */
   wipDash?: WipDash;
   wipDashLane?: number;
@@ -76,8 +95,38 @@ function NodeAvatar({ x, y, author, color }: { x: number; y: number; author: Pro
  * branch connector and the node itself. Everything is drawn in the row's own 28px coordinate
  * space so adjacent rows line up (node centre at y = 14).
  */
-export function GraphCell({ row, width, wip, wipDash = null, wipDashLane, connector, author }: Props): JSX.Element {
+export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, wipDashLane, connector, author }: Props): JSX.Element {
   const mid = ROW_H / 2;
+  if (!row && stash) {
+    const x = laneX(stash.lane);
+    const color = laneColor(stash.color);
+    // Every lane that passes the parent row from above passes this one: its through lines, and
+    // the lane each of its `incoming` curves arrives in. The parent's own lane is drawn above the
+    // node only when a child is there to draw it for; below the node it is the run into the tip.
+    const above = [...stash.through.map((s) => ({ lane: s.lane, color: s.color })), ...stash.incoming.map((s) => ({ lane: s.lane, color: s.color }))].filter(
+      (s) => s.lane !== stash.lane && !(stashDash && !stashDash.toNode && s.lane === stashDash.lane),
+    );
+    const r = NODE / 2 - 1;
+    const dashX = stashDash ? laneX(stashDash.lane) : 0;
+    return (
+      <svg width={width} height={ROW_H} aria-hidden="true">
+        {above.map((s) => (
+          <line key={`t${s.lane}`} x1={laneX(s.lane)} y1={0} x2={laneX(s.lane)} y2={ROW_H} stroke={laneColor(s.color)} strokeWidth={2} />
+        ))}
+        {/* The run passing this row, dashed in place of the solid line as everywhere else (GC-144). */}
+        {stashDash && !stashDash.toNode && <line x1={dashX} y1={0} x2={dashX} y2={ROW_H} stroke={laneColor(stashDash.lane % 10)} strokeWidth={2} strokeDasharray={DASH} />}
+        {stashDash?.toNode && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
+        {stash.above && !stashDash?.toNode && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} />}
+        <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />
+        <circle cx={x} cy={mid} r={r} fill="var(--bg-panel)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
+        {/* The glyph inside the node. A lucide icon is its own `svg`, so it is positioned by a
+            `g` around it rather than by x/y of its own, and drawn in the lane's colour. */}
+        <g transform={`translate(${x - 6}, ${mid - 6})`} color={color}>
+          <Archive width={12} height={12} strokeWidth={2} stroke="currentColor" />
+        </g>
+      </svg>
+    );
+  }
   if (!row && wip) {
     const x = laneX(wip.lane);
     const color = laneColor(wip.color);

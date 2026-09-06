@@ -62,6 +62,7 @@ function renderPanel(status: RepoStatus, onSelectSha: (sha: string) => void = no
       <DetailPanel
         repo="C:/repo"
         commit={COMMIT}
+        stash={null}
         headCommit={COMMIT}
         status={status}
         openFile={null}

@@ -234,6 +234,12 @@ export interface GitApi {
   /** `remote` overrides the upstream, as the toolbar popover offers (GC-057). */
   pull(repo: string, mode: PullMode, remote?: string): Promise<void>;
   push(repo: string, req: PushRequest): Promise<void>;
+  /**
+   * Stop a remote command that is waiting on a credential, and answer whether there was one
+   * (GC-169). The only handler that takes no repository besides `repo:checkGit`: what it kills is
+   * a process, and there is at most one.
+   */
+  cancelRemote(): Promise<boolean>;
   // stashes
   stashSave(repo: string, req: StashSaveRequest): Promise<void>;
   stashApply(repo: string, index: number): Promise<void>;
@@ -264,3 +270,15 @@ export interface ShellApi {
  * this one word, and nothing else about the error has to change.
  */
 export const ADVISORY = 'GitAdvisory';
+
+/**
+ * The `name` a `GitError` carries when a remote operation was refused over a credential (GC-169):
+ * a 403 under SAML SSO, an expired token, a key the server will not take. One more word both
+ * processes agree on, on the error's name for `ADVISORY`'s reason above.
+ *
+ * The message under that name is the whole of what git wrote, under a first line naming the
+ * remote and its URL. The first line is the status bar's summary; the rest is what the dialog
+ * shows, because the `remote:` lines saying how to fix it are exactly the ones a one-line status
+ * bar drops.
+ */
+export const AUTH_FAILURE = 'GitAuthError';

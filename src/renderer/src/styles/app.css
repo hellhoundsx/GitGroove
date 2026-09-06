@@ -800,8 +800,8 @@ input[type='radio']:disabled {
 }
 /* positioned, because the folded refs open under the chip that stayed put — they hang off this
    cell, not off the +N chip they are reached through.
-   The padding and the gap here, and the widths of every `flex: none` child below — `.ref-chip.more`,
-   `.stash-chip`, `.ref-line` — are mirrored by `chipRoom` in `CommitGraph.tsx`, which is what
+   The padding and the gap here, and the widths of every `flex: none` child below — `.ref-chip.more`
+   and `.ref-line` — are mirrored by `chipRoom` in `CommitGraph.tsx`, which is what
    decides whether the one chip that shrinks still has room for its upstream cloud (GC-156). A
    width changed here changes there. */
 .graph-row .col-ref {
@@ -1076,25 +1076,22 @@ input[type='radio']:disabled {
 .ref-row.drop-over {
   background: var(--accent-hover);
 }
-/* A stash on the commit it was taken from (GC-140). Same family as a chip — the same height,
-   radius and raised background a tag or a `+N` uses — but square and icon-only, so it never reads
-   as a ref: it carries no name, and nothing that folds. `flex: none` keeps it in place while the
-   chip beside it gives way, since it is the whole marker and has no ellipsis to fall back on. */
-.stash-chip {
+/* A stash's own row, above the commit it was taken from (GC-170). The node is the graph cell's
+   business; here it is only the label that says what the row is, in the message column ahead of
+   the message itself, so a stash reads as a stash without its icon having to carry that alone. */
+.graph-row.stash-row .stash-tag {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 3px;
   flex: none;
-  width: 20px;
-  height: 20px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel-raised);
-  color: var(--text-muted);
-  cursor: pointer;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
 }
-.stash-chip:hover {
-  color: var(--text-bright);
-  background: var(--hover-overlay);
+.graph-row.stash-row .summary {
+  color: var(--text-muted);
+  font-style: italic;
 }
 .ref-line {
   flex: 1;
@@ -2239,6 +2236,23 @@ input[type='radio']:disabled {
 .statusbar .err .dismiss {
   color: var(--text-dim);
 }
+/* A summary with more behind it (GC-169): the line opens the whole message, so it reads as
+   something to click rather than only something to get rid of. */
+.statusbar button.err.has-details {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* Stopping a remote command waiting on a credential helper (GC-169). It sits inside the busy
+   line, so it goes when the operation does and never stands there with nothing to stop. */
+.statusbar .cancel-busy {
+  margin-left: var(--sp-2);
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.statusbar .cancel-busy:hover {
+  color: var(--text-bright);
+}
 
 .statusbar {
   display: flex;
@@ -2276,6 +2290,38 @@ img.avatar {
 .file-row .kind,
 .file-view-head .kind {
   flex: none;
+}
+
+/* ---- The credential-refusal dialog (GC-169) ------------------------------------- */
+
+/* Wider than an ordinary prompt because what it holds is git's own output, wrapped by git at its
+   own width; `.modal`'s cap and `.modal-body`'s scroll do the rest (GC-103). */
+.modal.auth-error {
+  width: 620px;
+}
+.auth-error-text {
+  margin: 0;
+  padding: var(--sp-2);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.modal-note {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.modal.auth-error .modal-buttons .spacer {
+  flex: 1;
+}
+.modal.auth-error .copied {
+  color: var(--success);
 }
 
 /* ---- Preferences -------------------------------------------------------------- */

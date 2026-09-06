@@ -58,6 +58,7 @@ const api: GitApi = {
   fetch: call('remote:fetch'),
   pull: call('remote:pull'),
   push: call('remote:push'),
+  cancelRemote: call('remote:cancel'),
   stashSave: call('stash:save'),
   stashApply: call('stash:apply'),
   stashPop: call('stash:pop'),

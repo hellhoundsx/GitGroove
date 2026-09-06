@@ -1003,7 +1003,7 @@ git(['add', `pick-${stamp}.txt`]);
 git(['commit', '-qm', `Pickable commit ${stamp}`]);
 git(['checkout', '-q', 'main']);
 log(await act(() => tool('Refresh')));
-log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
+log(await contextMenuOn('.graph-rows .graph-row:not(.wip):not(.stash-row)', 'Pickable commit'));
 log(await act(() => menuClick('Cherry pick commit')));
 check('cherry-pick applied', git(['log', '--oneline', '-1']).includes('Pickable commit') && existsSync(join(R, `pick-${stamp}.txt`)));
 
@@ -1041,7 +1041,7 @@ log(await act(() => tool('Pull')));
 check('pulled', git(['log', '--oneline', '-1']).includes('Commit from another clone') && git(['rev-list', '--count', 'main..origin/main']) === '0');
 
 step(11, 'tag create via commit menu, delete via left panel');
-log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Work on wip branch'));
+log(await contextMenuOn('.graph-rows .graph-row:not(.wip):not(.stash-row)', 'Work on wip branch'));
 log('menu:', await menuList());
 await shot('commit-context-menu.png');
 log(await menuClick('Create tag here'));
@@ -1066,7 +1066,7 @@ step(12, 'the staged-index guard, then an already-applied cherry-pick: error kep
 const stagedForPick = git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean);
 check('the fixture has a staged half for the guard to catch', stagedForPick.length > 0, stagedForPick.join(' ') || 'nothing staged');
 const headBeforePick = git(['rev-parse', 'HEAD']);
-log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
+log(await contextMenuOn('.graph-rows .graph-row:not(.wip):not(.stash-row)', 'Pickable commit'));
 log(await menuClick('Cherry pick commit'));
 await waitModal();
 check('the guard names the files in the way', new RegExp(`${stagedForPick.length} staged files?`).test(await modalMessage()), await modalMessage());
@@ -1082,7 +1082,7 @@ check(
   git(['rev-parse', 'HEAD']) === headBeforePick && git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean).join(' ') === stagedForPick.join(' ') && !existsSync(join(R, '.git', 'CHERRY_PICK_HEAD')),
   status(),
 );
-log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
+log(await contextMenuOn('.graph-rows .graph-row:not(.wip):not(.stash-row)', 'Pickable commit'));
 log(await menuClick('Cherry pick commit'));
 await waitModal();
 // The fixture's own untracked file, which git would have carried through the cherry-pick anyway:
@@ -1921,8 +1921,9 @@ const hiddenKeyName = `gitclient.hidden.${await ev(`localStorage.getItem('gitcli
 // the checked-out branch (GC-094) — and it says it per ref rather than as a total.
 const hiddenMarks = () => ev(`document.querySelectorAll('.left-panel .ref-row [aria-label=\"Show in graph\"]').length`);
 const graphRows = () => ev(`document.querySelectorAll('.graph-row').length`);
-// The WIP row is a .graph-row too, and it is not a commit: the git comparison needs the rest.
-const commitRows = () => ev(`document.querySelectorAll('.graph-row:not(.wip)').length`);
+// The WIP row is a .graph-row too, and so is a stash row (GC-170); neither is a commit, and the
+// git comparison below counts commits.
+const commitRows = () => ev(`document.querySelectorAll('.graph-row:not(.wip):not(.stash-row)').length`);
 const chipNames = () => ev(`[...document.querySelectorAll('.graph-row .col-ref .ref-chip')].map(c => c.textContent.trim()).join(' | ')`);
 const hasWipCommit = () => ev(`[...document.querySelectorAll('.graph-row .summary')].some(x => x.textContent.trim() === 'Work on wip branch')`);
 
@@ -2747,6 +2748,42 @@ const ages = await ev(`[...document.querySelectorAll('.left-panel .ref-row .row-
 check('a stash made a moment ago says so on its row', ages === 'just now | just now', ages);
 const stashTitle = await ev(`[...document.querySelectorAll('.left-panel .ref-row')].find(x => x.textContent.includes('older stash'))?.title.replace(String.fromCharCode(10), ' | ') ?? 'no row'`);
 check('and the exact instant is on the row title beside the message', /older stash \| \d\d\/\d\d\/\d{4}, \d\d:\d\d:\d\d$/.test(stashTitle), stashTitle);
+
+
+// GC-170: those two stashes are also two rows in the graph, above the commit they were taken
+// from. The chip GC-140 drew on that commit is gone, and the message — a tooltip until now — is
+// in the column messages are read in.
+await waitFor(`document.querySelectorAll('.graph-row.stash-row').length === 2`, 'both stash rows to draw in the graph');
+const stashRows = await ev(
+  `JSON.stringify([...document.querySelectorAll('.graph-row.stash-row')].map(r => ({ msg: r.querySelector('.summary')?.textContent ?? null, title: r.querySelector('.col-msg')?.title.split(String.fromCharCode(10))[0] ?? null, dashed: !!r.querySelector('circle[stroke-dasharray]') })))`,
+);
+const drawnStashes = JSON.parse(stashRows);
+check(
+  'each stash is a row whose message column reads its own message, prefix stripped',
+  drawnStashes.length === 2 && drawnStashes[0].msg === 'newer stash' && drawnStashes[1].msg === 'older stash',
+  stashRows,
+);
+check('in git stash list order, newest first', drawnStashes[0].title === 'stash@{0}: On main: newer stash' && drawnStashes[1].title === 'stash@{1}: On main: older stash', stashRows);
+check('the node is drawn with a dashed outline', drawnStashes.every((r) => r.dashed), stashRows);
+check('and no marker is left in any commit s ref cell', (await ev(`document.querySelectorAll('.stash-chip').length`)) === 0, 'stash chips');
+// Directly above the commit they were taken from, which is main's tip and the row under them.
+const stashOrder = await ev(
+  `(() => { const rows = [...document.querySelectorAll('.graph-row')]; const i = rows.findIndex(r => r.classList.contains('stash-row')); const after = rows[i + 2]; return JSON.stringify({ i, both: rows[i + 1]?.classList.contains('stash-row') ?? false, next: after?.querySelector('.summary')?.textContent ?? null }); })()`,
+);
+const order = JSON.parse(stashOrder);
+check('the two rows sit together, immediately above the commit that carries them', order.both === true && order.next === git(['log', '-1', '--format=%s', 'main']), stashOrder);
+await shot('19-stash-rows.png');
+
+// Selecting one shows it in the detail panel, which the marker could never do.
+log(await liveClick('the newest stash row', `(() => { const r = document.querySelector('.graph-row.stash-row'); if (!r) return 'MISS no stash row'; r.click(); return 'selected the stash row'; })()`));
+await waitFor(`/^stash@/.test(document.querySelector('.detail-head .commit-id')?.textContent ?? '')`, 'the stash to reach the detail panel');
+const stashPanel = await ev(
+  `JSON.stringify({ head: document.querySelector('.detail-head .commit-id')?.textContent.replace(/\s+/g, ' ') ?? null, msg: document.querySelector('.detail-body .message-box h2')?.textContent ?? null, when: document.querySelector('.detail-body .author .when')?.textContent ?? null, parent: document.querySelector('.detail-body .parents')?.textContent ?? null, selected: document.querySelectorAll('.graph-row.stash-row.selected').length })`,
+);
+const panel = JSON.parse(stashPanel);
+check('the panel names the stash and shows its whole message, prefix and all', /^stash@\{0\}:/.test(panel.head ?? '') && panel.msg === 'On main: newer stash', stashPanel);
+check('with its age and the commit it was taken from', panel.when === 'stashed just now' && (panel.parent ?? '').startsWith('taken from: ' + git(['rev-parse', '--short=7', 'main'])), stashPanel);
+check('and the row takes the same selected treatment a commit row does', panel.selected === 1, stashPanel);
 
 log(await contextMenuOn('.left-panel .ref-row', 'older stash'));
 const stashMenu = await menuList();

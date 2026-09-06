@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
-import type { Commit, CommitFile, FileChangeKind, GitRef, RepoStatus, StatusEntry } from '@shared/types';
+import type { Commit, CommitFile, FileChangeKind, GitRef, RepoStatus, Stash, StatusEntry } from '@shared/types';
 import type { CommitDraft } from '../App';
 import type { FileViewSource } from '../diff/DiffView';
 // The sentinel for the working-directory row: the commit view's banner selects it (GC-045).
@@ -44,6 +44,8 @@ export interface StagingActions {
 interface Props {
   repo: string;
   commit: Commit | null; // null when the WIP row is selected
+  /** The stash whose row is selected, which is neither a commit nor the working directory (GC-170). */
+  stash: Stash | null;
   headCommit: Commit | null;
   status: RepoStatus | null;
   openFile: FileViewSource | null;
@@ -103,7 +105,7 @@ function FileRow({ path, origPath, kind, active, onClick, onContextMenu, childre
 const isActive = (open: FileViewSource | null, path: string, staged?: boolean): boolean =>
   !!open && open.path === path && (open.source === 'commit' || staged === undefined || open.staged === staged);
 
-function StagingView({ status, headCommit, openFile, actions, focusSummary, draft, onDraft, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'repo' | 'onSelectSha' | 'resize'>): JSX.Element {
+function StagingView({ status, headCommit, openFile, actions, focusSummary, draft, onDraft, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'stash' | 'repo' | 'onSelectSha' | 'resize'>): JSX.Element {
   const ui = useUi();
   const prefs = usePrefs();
   const entries = status?.entries ?? [];
@@ -465,13 +467,113 @@ function CommitView({
   );
 }
 
+/**
+ * What a selected stash row shows (GC-170). The commit view is the shape it copies, because a
+ * stash *is* a commit — its files load through the same `commit:files` call on its own sha — and
+ * because a reader arriving from the graph should not have to learn a second layout.
+ *
+ * The three things it exists to say are the ones the marker it replaces could only say in a
+ * tooltip: which stash this is, what its message is, and how long it has been sitting there. The
+ * message is the whole, untouched one git stored, prefix included: the graph row strips that for
+ * width, and this is where the full text belongs.
+ */
+function StashView({
+  repo,
+  stash,
+  openFile,
+  onSelectSha,
+  onOpenFile,
+  onFileMenu,
+}: Pick<Props, 'repo' | 'openFile' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu'> & { stash: Stash }): JSX.Element {
+  const [files, setFiles] = useState<CommitFile[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFiles(null);
+    setError(null);
+    window.api.getCommitFiles(repo, stash.sha).then(
+      (f) => !cancelled && setFiles(f),
+      (e) => !cancelled && setError(e instanceof Error ? e.message : String(e)),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [repo, stash.sha]);
+
+  return (
+    <>
+      <div className="detail-head">
+        <span className="commit-id">
+          stash@{'{'}
+          {stash.index}
+          {'}'}:{' '}
+          <span className="sha" title="Copy full sha" onClick={() => void navigator.clipboard.writeText(stash.sha)}>
+            {stash.sha.slice(0, 7)}
+          </span>
+        </span>
+      </div>
+      <div className="detail-body">
+        <div className="message-box">
+          <h2>{stash.message}</h2>
+        </div>
+        <div className="author">
+          <div />
+          <div>
+            <div className="name">stashed changes</div>
+            {/* The distance, as every other timestamp in this panel reads it (GC-135). */}
+            <div className="when" title={formatDateTimeSeconds(stash.date)}>
+              stashed {relativeTime(stash.date)}
+            </div>
+          </div>
+          <div className="parents">
+            {stash.parent ? (
+              <>
+                {'taken from: '}
+                <b onClick={() => onSelectSha(stash.parent)}>{stash.parent.slice(0, 7)}</b>
+              </>
+            ) : (
+              'taken on an unborn branch'
+            )}
+          </div>
+        </div>
+        {error && <div className="err-box">{error}</div>}
+        <div className="file-list">
+          {files !== null && (
+            <div className="group-head">
+              <span>
+                {files.length} file{files.length === 1 ? '' : 's'} stashed
+              </span>
+            </div>
+          )}
+          {files === null && !error && <div style={{ color: 'var(--text-dim)', fontSize: 'var(--fs-sm)' }}>Loading files…</div>}
+          {files?.map((f) => (
+            <FileRow
+              key={f.path}
+              path={f.path}
+              origPath={f.origPath}
+              kind={f.kind}
+              active={isActive(openFile, f.path)}
+              onClick={() => onOpenFile({ source: 'commit', sha: stash.sha, path: f.path, kind: f.kind })}
+              onContextMenu={(ev) => onFileMenu(ev, { source: 'commit', file: f })}
+            />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function DetailPanel(props: Props): JSX.Element {
-  const { commit, resize, ...rest } = props;
+  const { commit, stash, resize, ...rest } = props;
   return (
     <aside className="detail-panel">
       {/* Absolutely positioned on the panel's left edge, so it takes no width of its own. */}
       <div className="panel-resize left" role="separator" aria-orientation="vertical" title="Drag to resize the panel, double-click to reset" {...resize} />
-      {commit ? <CommitView {...rest} commit={commit} /> : <StagingView {...rest} />}
+      {/* A stash row's selection is neither a commit nor the working directory, and is asked
+          about first: its sha is not in the loaded commits, so without this the panel would fall
+          through to the staging view and say nothing about what was selected (GC-170). */}
+      {stash ? <StashView {...rest} stash={stash} /> : commit ? <CommitView {...rest} commit={commit} /> : <StagingView {...rest} />}
     </aside>
   );
 }

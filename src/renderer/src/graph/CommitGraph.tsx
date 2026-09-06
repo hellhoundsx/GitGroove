@@ -84,23 +84,25 @@ const REF_COL_MAX = 400;
 const REF_COL_PAD = 3; // `.graph-row .col-ref` padding-left
 const REF_COL_GAP = 4; // `.graph-row .col-ref` gap, between every adjacent pair
 const MORE_CHIP_W = 26; // `.ref-chip.more`, the `+N`
-const STASH_CHIP_W = 20; // `.stash-chip`
 const REF_LINE_MIN = 4; // `.ref-line` min-width; it grows, but this is all the chip may count on
 /**
  * How much room a primary chip is drawn at, given the column's width and what else is on the row
  * (GC-156). GC-071 had this as the constant `width - 41` — the `+N` and the line, and nothing
- * else — which was every sibling there was until GC-140 put a stash marker in the same cell. The
- * marker is 20px plus a gap and the arithmetic never saw it, so above `CHIP_CLOUD_MIN` the cloud
- * was kept and the *name* paid for the marker instead: measured at a fitted 134px column, `main`
- * was given 27px for a 29px string and rendered as `m…`.
+ * else — and that was every sibling there was until GC-140 put a stash marker in the same cell,
+ * at which point the arithmetic was 24px short and the *name* paid for the marker: measured at a
+ * fitted 134px column, `main` was given 27px for a 29px string and rendered as `m…`.
  *
- * Pure and exported, so the measurement lives in a test rather than only in this comment. Two
- * stashes on one commit, or any future non-ref marker, are furniture on the same terms.
+ * The marker is gone again — a stash is a row of its own now (GC-170) — so the count is back to
+ * the two siblings it started with. It stays stated as the chip's **own** room rather than as
+ * the column's width, which is the part of GC-156 that was right whatever is in the cell: the
+ * next non-ref marker in there is furniture on these terms and joins this sum, rather than being
+ * paid for out of the name.
+ *
+ * Pure and exported, so the measurement lives in a test rather than only in this comment.
  */
-export function chipRoom(refColW: number, more: boolean, stashes: number): number {
+export function chipRoom(refColW: number, more: boolean): number {
   const after: number[] = [];
   if (more) after.push(MORE_CHIP_W);
-  for (let i = 0; i < stashes; i++) after.push(STASH_CHIP_W);
   after.push(REF_LINE_MIN);
   return refColW - after.reduce((a, b) => a + b, REF_COL_PAD) - REF_COL_GAP * after.length;
 }
@@ -115,10 +117,9 @@ export function chipRoom(refColW: number, more: boolean, stashes: number): numbe
  * had taken their 41: a round number above the 71 the cloud itself needs, so the marker comes
  * back exactly when there is room for it *and* the whole name.
  *
- * Stated as the chip's own room rather than as the column's width, because those two stopped
- * being the same number the moment a row could carry a marker the row above it does not
- * (GC-156). A row with a stash on it now drops its cloud at a wider column than one without —
- * which is GC-071's rule applied to a corrected figure, not a change to it.
+ * Compared against the chip's own room rather than against the column's width, which is what
+ * GC-156 settled and what survives a row's furniture changing: every row in a column now has the
+ * same siblings again, and the threshold does not have to move for that (GC-170).
  *
  * The name is the identity of the ref; the cloud only repeats what the chip already implies by
  * absorbing its upstream, and the title still says it in words. So the cloud is what gives way.
@@ -143,19 +144,76 @@ const MAX_CHIPS = 1;
    when the commit view started drawing the same chips (GC-087). */
 
 /**
+ * One row of the graph as it is actually drawn (GC-170). Rows stopped being the commits one to
+ * one when a stash became a row of its own, so the list is built once and everything that counts
+ * rows — the virtualiser, the scroll height, the selection lookup — reads it rather than adding
+ * the WIP row's offset to a commit's index and hoping every site agrees.
+ *
+ * `at` and `on` index the laid-out commits, which the lane layout is still built from alone: a
+ * stash borrows the lane of the commit it was taken from and `lanes.ts` never sees one.
+ */
+export type GraphRow = { kind: 'wip'; sha: string } | { kind: 'stash'; sha: string; stash: Stash; on: number } | { kind: 'commit'; sha: string; at: number };
+
+/**
+ * The rows to draw: the working-directory row when there is one, then every commit with the
+ * stashes taken from it immediately above it (GC-170).
+ *
+ * Above, because a stash is younger than the commit it was taken from — that is the position
+ * GitKraken draws it in, and the position the lane line running down into the tip only makes
+ * sense at. Two stashes on one commit keep `git stash list`'s order, so `stash@{0}` is the
+ * topmost. A stash whose parent is not in the loaded range is never looked up here and so draws
+ * nothing, exactly as its marker did.
+ */
+export function displayRows(commits: Commit[], hasWip: boolean, byParent: Map<string, Stash[]>): GraphRow[] {
+  const rows: GraphRow[] = hasWip ? [{ kind: 'wip', sha: WIP }] : [];
+  commits.forEach((c, at) => {
+    for (const stash of byParent.get(c.sha) ?? []) rows.push({ kind: 'stash', sha: stash.sha, stash, on: at });
+    rows.push({ kind: 'commit', sha: c.sha, at });
+  });
+  return rows;
+}
+
+/**
  * Which displayed row a selection sits on, or -1 for one that is not on screen (GC-141).
  *
- * The WIP row shifts every commit down by one, and adding that offset to a `findIndex` that
- * answered -1 gave row 0 — so a selection the loaded range does not hold scrolled the graph to
- * the WIP row instead of leaving it where it was. "Not found" is therefore settled before the
- * offset, not after it. Reachable today from a commit's parent link, and the ordinary case now
- * that a hidden branch's row in the left panel is clickable.
+ * It used to add the WIP row's offset to a `findIndex` over the commits, and -1 plus that offset
+ * came to 0 — so a selection the loaded range does not hold scrolled the graph to the WIP row
+ * instead of leaving it where it was. Asked of the rows themselves (GC-170) there is no offset to
+ * get wrong: every row carries the sha it stands for, the WIP row included, and a stash row is
+ * found by the same lookup as a commit's.
  */
-export function rowIndexOf(commits: Commit[], selected: string | null, hasWip: boolean): number {
-  if (selected === null) return -1;
-  if (selected === WIP) return hasWip ? 0 : -1;
-  const at = commits.findIndex((c) => c.sha === selected);
-  return at < 0 ? -1 : at + (hasWip ? 1 : 0);
+export function rowIndexOf(rows: GraphRow[], selected: string | null): number {
+  return selected === null ? -1 : rows.findIndex((r) => r.sha === selected);
+}
+
+/**
+ * A stash's message with git's own prefix off the front, for display only (GC-170).
+ *
+ * `git stash` writes the reflog subject as `On <branch>: <message>`, or `WIP on <branch>: <sha>
+ * <subject>` when it was given no message. The branch is already named by the lane the row sits
+ * in, so the prefix costs the message column its width and says nothing — GitKraken drops it too.
+ * Never stripped in the `title`, and never in what `stashRename` stores: a ref name cannot hold a
+ * colon, so the first one is always the end of the prefix.
+ */
+export function stashMessageText(message: string): string {
+  return message.replace(/^(WIP on|On) [^:]+: /, '');
+}
+
+/**
+ * Whether the "keep the selected row visible" pass should move the graph at all (GC-172).
+ *
+ * `revealed` is the selection that pass has already answered for — the last one it scrolled to,
+ * or the one a restored offset was taken with; `undefined` is a graph that has answered for none.
+ * The pass exists for a selection the user has just made: a keyboard step, a parent link, a ref
+ * row. It is not for a new array of the same commits, and that is the whole of the bug it fixes —
+ * `commits` sits in its dependencies for the row lookup, so a reload, a page append or the
+ * refresh a tab switch runs underneath all re-ran it with the selection unchanged, and with the
+ * working-directory row selected, which is what a repository opens on, that row is 0. A graph
+ * scrolled anywhere was pulled back to the top, which is why GC-016's parked offset never
+ * survived the switch that restored it.
+ */
+export function shouldRevealSelection(revealed: string | null | undefined, selected: string | null): boolean {
+  return selected !== null && revealed !== selected;
 }
 
 /**
@@ -308,10 +366,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   // stay a mount effect: the number changes under it as the graph is scrolled, and re-running on
   // that would put the graph back where it started every time (GC-016).
   const initialTop = useRef(scrollTop);
-  // Set by the restore below and read by the "keep the selected row visible" effect further down,
-  // which runs in the same commit and would otherwise pull a restored position back to the
-  // selected row — a tab left scrolled away from its selection came back at the selection.
-  const restored = useRef(false);
+  // The selection the graph has already been scrolled to — read by the "keep the selected row
+  // visible" effect further down through `shouldRevealSelection`, so that pass acts on a change
+  // of selection and on nothing else (GC-172).
+  const revealed = useRef<string | null | undefined>(undefined);
   useLayoutEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
@@ -319,7 +377,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     // than at the top of the history and no frame is painted at the wrong one (GC-016).
     if (initialTop.current > 0) {
       el.scrollTop = initialTop.current;
-      restored.current = true;
+      // The restored offset is the answer for the selection the tab was parked with, so that
+      // selection counts as already revealed and the pass below leaves the position alone. This
+      // is a mount effect, so `selected` here is the selection the restore was made with.
+      revealed.current = selected;
     }
     const update = (): void => {
       setViewport({ top: el.scrollTop, height: el.clientHeight });
@@ -432,7 +493,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
 
   // ---- virtualisation -----------------------------------------------------
   const hasWip = !!status;
-  const total = layout.rows.length + (hasWip ? 1 : 0);
+  // The rows as drawn, which is the commits plus the working-directory row plus a row per stash
+  // (GC-170). Everything below counts these rather than doing the offset arithmetic itself.
+  const rowsList = useMemo(() => displayRows(commits, hasWip, stashesOn), [commits, hasWip, stashesOn]);
+  const total = rowsList.length;
   const first = Math.max(0, Math.floor(viewport.top / ROW_H) - OVERSCAN);
   const last = Math.min(total, Math.ceil((viewport.top + viewport.height) / ROW_H) + OVERSCAN);
   // The "Loading more" row sits below the last commit while a page is in flight, so the scrollable
@@ -452,18 +516,18 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   useEffect(() => {
     const el = bodyRef.current;
     if (!el || selected === null) return;
-    // A restored position is the one being asked for, so it survives this pass: the selection was
-    // made before the tab was left and is not what moved (GC-016).
-    if (restored.current) {
-      restored.current = false;
-      return;
-    }
-    const index = rowIndexOf(commits, selected, hasWip);
+    // Only when the selection is what moved (GC-172). `commits` is in the dependencies for the
+    // row lookup, not as a reason to scroll.
+    if (!shouldRevealSelection(revealed.current, selected)) return;
+    // Marked before the lookup, not after it: a selection the loaded range does not hold moves
+    // nothing now and must not be scrolled to when a later page happens to bring it in (GC-141).
+    revealed.current = selected;
+    const index = rowIndexOf(rowsList, selected);
     if (index < 0) return;
     const top = index * ROW_H;
     if (top < el.scrollTop) el.scrollTop = top;
     else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
-  }, [selected, commits, hasWip]);
+  }, [selected, rowsList]);
 
   // ---- folded refs (+N) ---------------------------------------------------
   // The dropdown hangs below the chip inside `.graph-body`, which scrolls, so a row near the
@@ -567,32 +631,78 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   };
 
   /**
-   * A stash on the commit it was taken from (GC-140). Deliberately not a `.ref-chip`: it stands
-   * for no `GitRef`, so none of the chip rules — the drag attributes, the grow-to-full-name
-   * hover, the fold — may reach it, and it is `flex: none` so it keeps its place while the chip
-   * beside it gives way. Same two gestures as the left panel's stash row, from the same menu.
+   * A stash's own row, directly above the commit it was taken from (GC-170).
+   *
+   * GC-140 drew it as a 20x20 marker in that commit's ref cell, where the message — the only
+   * thing that says which stash this is — was a tooltip and nothing else, and the 20px came out
+   * of the primary chip's name (GC-156). A row costs the ref column nothing and puts the message
+   * in the column messages are read in. It is a real row: selectable, with the same two gestures
+   * the marker and the left panel's row already offered, from the same menu.
    */
-  const renderStash = (s: Stash): JSX.Element => (
-    <span
-      key={s.sha}
-      className="stash-chip"
-      title={`stash@{${s.index}}: ${s.message}\nDouble-click to apply, right-click for actions`}
-      onContextMenu={(e) => {
-        e.stopPropagation();
-        onStashMenu(e, s);
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onStashActivate(s);
-      }}
-    >
-      <Icon of={Archive} size={11} />
-    </span>
-  );
+  /**
+   * What a stash row draws of the dashed WIP-to-HEAD run (GC-170). A stash sits above the commit
+   * it was taken from, and when that commit is HEAD — the ordinary case — the row lands inside
+   * the run, so it has to carry it or the dash breaks in the one place a user is looking at both.
+   * The rule is `wipDashFor`'s, asked of the parent row: the run passes every row above HEAD's.
+   */
+  const stashDashFor = (parent: (typeof layout.rows)[number], on: number): { lane: number; toNode: boolean } | undefined => {
+    if (!hasWip || !headRow) return undefined;
+    const dash = wipDashFor(parent, on, headRowIndex, headRow.lane, headOwnsLane);
+    if (!dash) return undefined;
+    return { lane: headRow.lane, toNode: headRow.lane === parent.lane };
+  };
+
+  const renderStashRow = (s: Stash, on: number, index: number): JSX.Element | null => {
+    const parent = layout.rows[on];
+    if (!parent) return null;
+    const color = laneColor(parent.color);
+    return (
+      <div
+        key={s.sha}
+        className={`graph-row stash-row ${selected === s.sha ? 'selected' : ''} ${filtering ? 'unmatched' : ''}`}
+        style={{ top: index * ROW_H }}
+        onClick={() => onSelect(s.sha)}
+        onContextMenu={(e) => onStashMenu(e, s)}
+        onDoubleClick={() => onStashActivate(s)}
+      >
+        <div className="col-ref" />
+        <div className="col-graph" style={{ width: graphWidth }}>
+          {/* The lane is the parent's, and what passes this row is what passes the parent from
+              above, so no line appears to break where a stash is inserted (GC-170). */}
+          <GraphCell
+            row={null}
+            width={graphWidth}
+            stash={{ lane: parent.lane, color: parent.color, through: parent.through, above: parent.hasChildAbove, incoming: parent.incoming }}
+            stashDash={stashDashFor(parent, on)}
+          />
+        </div>
+        {/* The whole, untouched message on the title; git's `On <branch>: ` prefix off the line,
+            since the branch is already named by the lane this row sits in (GC-170). */}
+        <div className="col-msg" title={`stash@{${s.index}}: ${s.message}\nDouble-click to apply, right-click for actions`}>
+          <span className="strip" style={{ background: color }} />
+          <span className="stash-tag">
+            <Icon of={Archive} size={11} /> stash
+          </span>
+          <span className="summary">{stashMessageText(s.message)}</span>
+        </div>
+        {/* A stash has no author of its own in the snapshot; the date and the sha it does have. */}
+        {cols.author && <div className="col-author" />}
+        {cols.date && (
+          <div className="col-date" title={s.date}>
+            {formatDateTime(s.date)}
+          </div>
+        )}
+        {cols.sha && <div className="col-sha">{s.sha.slice(0, 7)}</div>}
+      </div>
+    );
+  };
 
   const renderRow = (index: number): JSX.Element | null => {
     const style = { top: index * ROW_H };
-    if (hasWip && index === 0) {
+    const entry = rowsList[index];
+    if (!entry) return null;
+    if (entry.kind === 'stash') return renderStashRow(entry.stash, entry.on, index);
+    if (entry.kind === 'wip') {
       return (
         <div key="wip" className={`graph-row wip ${selected === WIP ? 'selected' : ''} ${filtering ? 'unmatched' : ''}`} style={style} onClick={() => onSelect(WIP)} onContextMenu={onWipMenu}>
           <div className="col-ref" />
@@ -635,19 +745,16 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
         </div>
       );
     }
-    const i = hasWip ? index - 1 : index;
+    const i = entry.at;
     const row = layout.rows[i];
     const c = commits[i];
     if (!row || !c) return null;
     const rowRefs = refsBySha.get(c.sha) ?? [];
     const chips = chipsFor(rowRefs);
-    const rowStashes = stashesOn.get(c.sha) ?? [];
-    // What the one chip in the row is actually drawn at: the column less every sibling beside it,
-    // the stash markers included (GC-156).
-    const room = chipRoom(refColApplied, chips.length > MAX_CHIPS, rowStashes.length);
-    // The line out of the ref column and the connector into the node are the same join, so a row
-    // carrying only a stash marker gets both rather than a marker floating on its own (GC-140).
-    const joined = rowRefs.length > 0 || rowStashes.length > 0;
+    // What the one chip in the row is actually drawn at: the column less every sibling beside it
+    // (GC-156), which is the `+N` and the line again now that a stash is a row (GC-170).
+    const room = chipRoom(refColApplied, chips.length > MAX_CHIPS);
+    const joined = rowRefs.length > 0;
     const color = laneColor(row.color);
     const wipDash = hasWip && headRow ? wipDashFor(row, i, headRowIndex, headRow.lane, headOwnsLane) : null;
     return (
@@ -681,9 +788,6 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
               </span>
             </>
           )}
-          {/* after the chips and outside the fold: a stash is not a ref, so it never spends the
-              row's one chip slot and never changes the `+N` count (GC-140) */}
-          {rowStashes.map(renderStash)}
           {joined && <span className="ref-line" style={{ background: color }} />}
         </div>
         <div className="col-graph" style={{ width: graphWidth }}>
