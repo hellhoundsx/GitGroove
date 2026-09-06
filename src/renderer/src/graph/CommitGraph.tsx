@@ -429,7 +429,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     const style = { top: index * ROW_H };
     if (hasWip && index === 0) {
       return (
-        <div key="wip" className={`graph-row wip ${selected === WIP ? 'selected' : ''} ${needle === '' ? '' : 'unmatched'}`} style={style} onClick={() => onSelect(WIP)} onContextMenu={onWipMenu}>
+        <div key="wip" className={`graph-row wip ${selected === WIP ? 'selected' : ''} ${filtering ? 'unmatched' : ''}`} style={style} onClick={() => onSelect(WIP)} onContextMenu={onWipMenu}>
           <div className="col-ref" />
           <div className="col-graph" style={{ width: graphWidth }}>
             <GraphCell row={null} width={graphWidth} wip={wipLane} />
@@ -483,7 +483,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
       else if (i === headRowIndex && !row.hasChildAbove) wipDash = 'toNode';
     }
     return (
-      <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''} ${needle === '' ? '' : matchSet.has(c.sha) ? 'match' : 'unmatched'}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
+      <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''} ${!filtering ? '' : matchSet.has(c.sha) ? 'match' : 'unmatched'}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
         <div className="col-ref" onMouseEnter={(e) => onMoreEnter(e, c.sha)} onMouseLeave={() => setMoreUp(null)}>
           {chips.slice(0, MAX_CHIPS).map((chip) => renderChip(chip, color, c))}
           {chips.length > MAX_CHIPS && (

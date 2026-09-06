@@ -260,6 +260,19 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
 `matches('<id>', e)` call, never a bare `e.key === …`. `CommitGraph.tsx` imports it as
 `isShortcut`, because `matches` is the search-results array in that file.
 
+**Whether a binding fires from inside a text field is the table's answer too** (GC-033): the window
+handler's `hit(id)` is `matches(id, e) && (firesWhileTyping(id) || !isEditable(e.target))`, so
+`Shortcut.whileTyping` — carried since GC-010 and read by nothing — is what decides it, rather than
+one `isEditable` check placed halfway down the ladder. Ctrl+F and Ctrl+Shift+M are the two that
+carry it: both are how a field is *reached*. The body-scope bindings are Ctrl+B (branch at HEAD),
+Ctrl+L (fetch), Ctrl+J / Ctrl+K (the two panels), Ctrl+Alt+F (the ref filter), Ctrl+Shift+S /
+Ctrl+Shift+U (stage and unstage all) and Ctrl+Shift+M; the four that run git follow the toolbar's
+own disabled states. Ctrl+K's `detailCollapsed` hides the detail panel outright and `select()`
+brings it back, and the two focus bindings reach their field through a **tick** prop
+(`focusFilter`, `focusSummary`) rather than a boolean, the shape `searchTick` already used, so
+asking twice focuses twice. A hidden detail panel goes into `fitPanels` as a zero-width panel with
+a zero floor, exactly as the collapsed left rail does.
+
 ### UI layer (`ui/`)
 
 `useUi()` gives `openMenu(at, items)`, `prompt(options)`, `confirm(options)`,
@@ -420,7 +433,16 @@ Commit search matches client-side on summary, body, author name, email and sha p
 rows get `.match`, every other `.unmatched` (0.3 opacity) — GitKraken dims rather than hides, so
 the graph stays continuous. The position in the results is derived from the current selection, not
 from state of its own, and the bar's `{ open, tick, query }` lives in `App.tsx` because
-`CommitGraph` unmounts whenever a file view opens; only `closeSearch` clears it. The ref column's
+`CommitGraph` unmounts whenever a file view opens; only `closeSearch` clears it.
+**The author chip beside the field is the other half of the filter** (GC-027): `authorsOf` lists
+the authors of the loaded commits, deduplicated on the lowercased email and most commits first, and
+picking one narrows the matches to that author. Both halves must hold, and with a chip set the
+term matches the message and the sha **only** — the author fields drop out of `commitMatches`,
+because a name that also appears in messages is exactly what the plain field could not separate.
+One state decides what is filtered at all (`filtering = needle !== '' || author !== null`): the
+readout, the jump-to-first-match effect and the row classes all read it, so a chip on its own dims
+the graph the way a query does. The chip is `CommitGraph`'s own state rather than `App`'s, so
+unlike the query it does not survive a file view (GC-137). The ref column's
 width is written as `--ref-col-w` on `.graph-panel` — `fitRefCol`'s answer, not the stored number
 (GC-110, see the UI layer) — and its 4px `.col-resize` handle is absolutely positioned on the
 column boundary so dragging reflows nothing.
@@ -487,7 +509,12 @@ view as soon as its path leaves the status list.
 
 Staging view (operation banner with Abort, Conflicted / Unstaged / Staged groups, commit form with
 amend and the 72-character counter) or commit view (sha, refs, message, author, parent links, file
-list). Every file row's context menu comes from `fileMenuItems`, whose Discard uses
+list). **The commit view keeps the working directory in sight** (GC-045): with `status.entries`
+non-empty a `.banner.info` above the message box counts them — the staging header's own number,
+conflicted entries included — and its "View changes" button selects the `WIP` row. It is the panel's
+second kind of banner, so a reader of `.banner` has to say which one it means; the e2e suite's
+`state()` reads `.banner:not(.info)`, because the informational one is true of nearly every moment
+of a run. Every file row's context menu comes from `fileMenuItems`, whose Discard uses
 `discardFileConfirm` — the same wording the row's `✕` button uses. An action that does not apply is
 **absent rather than disabled**; Discard is offered only in the unstaged group; and **both shell
 actions are disabled together on a row whose file is not in the working tree**, because
@@ -602,7 +629,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-184 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+190 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -611,8 +638,8 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 34 steps, 206 assertions, ~32s. It ends with
-`total: 32.5s | git: 319 calls, 8.4s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 36 steps, 228 assertions, ~36s. It ends with
+`total: 37.0s | git: 335 calls, 9.1s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -653,9 +680,15 @@ here. Rules a new step must respect:
   (GC-130). `waitDiff` and `waitSplitDiff` carry `LIVE_DIFF`, which refuses a `.diff-body.stale` —
   `DiffView` disables every hunk button while a reload it has not confirmed is in flight, and the
   watcher raises that 300ms behind the previous step's index write, so the very same hunks sit on
-  screen with nothing on them clickable. `hunkAction` then polls its own atomic find-check-click
-  rather than returning `DISABLED` into a `log()` that asserts nothing: a helper that gives up in
-  silence turns into a wait failing five seconds later, somewhere unrelated.
+  screen with nothing on them clickable.
+- **Every click goes through `liveClick(what, expression, max)`** (GC-130, GC-132), which is the
+  atomic find-check-click that used to live in `hunkAction` alone. The snippet it evaluates answers
+  a message saying what it did, `MISS …` when the target is not there, or `DISABLED …` when it is
+  there but not live; only the last is polled out, and both failures end in a `check()` on the line
+  that produced them. Nothing may hand a "no such control" or "disabled" string to a bare `log()`,
+  which prints and asserts nothing — the step then carried on and failed several waits later at a
+  line with nothing to do with the miss. A new helper joins `liveClick` rather than writing its own
+  `ev()` with a silent miss in it.
 - **`act()` covers one `run()`, not two.** A menu action that runs a second one after the first —
   a branch delete that also deletes the copy on its remote (GC-112) — satisfies `act` on the first
   reload while the second is still going. `waitGitFor` polls the git side, which is where that
@@ -741,8 +774,10 @@ identity, the split layout a render of what is already loaded, a hunk patch buil
 (Diff); the hidden set applied to a path's first load
 (Graph); the lane colours interleaved rather than ramped (Graph); every colour a token, the
 theme resolved in `prefs.ts` (Styling, Preferences); a failing e2e git call throwing, its Electron
-stopped on every exit path, and a wait before a click proving the control is live rather than only
-the content right (Testing);
+stopped on every exit path, a wait before a click proving the control is live rather than only
+the content right, and every click going through `liveClick` so a missing or dead control fails
+where it happened (Testing); one rule for which shortcuts fire while typing, read off the table's
+own `whileTyping` (App state);
 stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).
 

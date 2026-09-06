@@ -262,7 +262,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | done |
 | GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
-| GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | in-progress |
+| GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-133 | The graph and the commit panel format the same timestamp two different ways | ui | S | P2 | todo |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
@@ -295,9 +295,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | done |
 | GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | done |
 | GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | done |
-| GC-027 | Author filter in commit search | graph | S | P3 | in-progress |
-| GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | in-progress |
-| GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | in-progress |
+| GC-027 | Author filter in commit search | graph | S | P3 | done |
+| GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | done |
+| GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | done |
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
 | GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | todo |
@@ -320,6 +320,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | todo |
 | GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | todo |
 | GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | todo |
+| GC-136 | A hidden detail panel has nothing on screen to bring it back | ui | S | P3 | todo |
+| GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -1183,7 +1185,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-027 Author filter in commit search
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-009
 - **Why:** GC-009 shipped a single text field that matches message, author and sha at once. The
@@ -1201,9 +1203,9 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Out of scope:** teams (we have no team concept), committer as distinct from author, date
   ranges, more than one author at a time.
 - **Acceptance:**
-  - [ ] With an author chosen and the field empty, exactly that author's commits are matches.
-  - [ ] With an author chosen and a message term typed, both must hold.
-  - [ ] e2e step: pick the scratch repo's author, assert the match count equals
+  - [x] With an author chosen and the field empty, exactly that author's commits are matches.
+  - [x] With an author chosen and a message term typed, both must hold.
+  - [x] e2e step: pick the scratch repo's author, assert the match count equals
     `git log --all --author=... --oneline | wc -l` for the loaded commits.
 - **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`,
   `tools/e2e/run.mjs`.
@@ -1213,6 +1215,22 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     chips; the text field shipped here cannot separate "authored by" from "mentioned in the
     message".
   - 2026-09-06 09:00 claimed
+  - 2026-09-06 09:40 done. An `Author` chip sits between the field and the readout: `authorsOf`
+    deduplicates the loaded commits on the lowercased email, most commits first, and the chip's menu
+    is `ui.openMenu` with an `Any author` row above the list, so it inherits GC-120's cap and scroll
+    (the "nothing to narrow it" complaint GC-096 makes about the branch crumb applies here too, and
+    is left to that ticket rather than duplicated). Both halves must hold, and with a chip set
+    `commitMatches` drops the two author fields, so a term beside it asks about the message alone.
+    One `filtering` flag decides the readout, the jump-to-first-match effect **and** the row classes:
+    the first write of this used `needle === ''` for the dimming, and the new e2e assertion caught it
+    — the chip narrowed the count while every row stayed bright. e2e step 16 now covers it: the menu
+    lists `(x) Any author | --- | Test User | Other`, the chip alone reads `1 of 12` against git's own
+    `git log --date-order --author=test@example.com --glob=refs/heads/* --glob=refs/remotes/*
+    --glob=refs/tags/* HEAD` count of 12, `feature` beside it narrows to `1 of 3`, typing `Test User`
+    into the field then gives `no matches` (the point of the chip), the other author's commit is
+    dimmed rather than dropped, and the x restores `13 commits`. Screenshot
+    `docs/screenshots/search-author.png`, looked at. The chip is `CommitGraph` state, so it does not
+    survive a file view the way the query does — filed as GC-137 rather than widened into here.
 
 ### GC-028 Stealth mode: unattended runs never steal focus or show a window
 
@@ -2122,7 +2140,7 @@ decision is missing.
 
 ### GC-033 Global shortcuts from the study: branch, fetch, panels, staging
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-010
 - **Why:** `05-menus-shortcuts.md` lists the body-scope bindings GitKraken users have in their
@@ -2144,9 +2162,9 @@ decision is missing.
 - **Out of scope:** Ctrl+P command palette, undo/redo (GC-018), zoom, J/K/H/L vim keys,
   Shift+Up/Down topological stepping, user-configurable bindings.
 - **Acceptance:**
-  - [ ] Each binding does what its table entry says, and the overlay shows all eight.
-  - [ ] Ctrl+B and Ctrl+Shift+S do nothing while the focus is in the commit form.
-  - [ ] e2e: Ctrl+L over CDP triggers a fetch (spinner appears, `waitIdle` settles).
+  - [x] Each binding does what its table entry says, and the overlay shows all eight.
+  - [x] Ctrl+B and Ctrl+Shift+S do nothing while the focus is in the commit form.
+  - [x] e2e: Ctrl+L over CDP triggers a fetch (spinner appears, `waitIdle` settles).
 - **Files:** `src/renderer/src/shortcuts.ts`, `src/renderer/src/App.tsx`,
   `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
   `tools/e2e/run.mjs`.
@@ -2158,6 +2176,27 @@ decision is missing.
     reads it; this ticket adds the bindings that need the distinction, so it owns making the
     flag live rather than a separate hygiene ticket.
   - 2026-09-06 09:00 claimed
+  - 2026-09-06 09:40 done. Eight bindings in `shortcuts.ts` — Ctrl+B, Ctrl+L, Ctrl+J, Ctrl+K,
+    Ctrl+Alt+F in Global, and Ctrl+Shift+S / Ctrl+Shift+U / Ctrl+Shift+M in a new "Working
+    directory" group — each matched with `ctrlOnly` / `ctrlShift` helpers that read the letter
+    case-insensitively, because Shift puts `S` in `e.key`. `openSearch` now excludes Alt, which is
+    the one pair that would otherwise both fire. GR-002's `whileTyping` is live: `firesWhileTyping`
+    is exported and `App`'s handler asks `hit(id) = matches(id, e) && (firesWhileTyping(id) ||
+    !isEditable(e.target))`, so the flag decides it for every binding instead of one `isEditable`
+    check halfway down the ladder. Ctrl+K adds `detailCollapsed`, which hides the panel outright and
+    enters `fitPanels` as a zero-width panel with a zero floor, the way the collapsed left rail does;
+    `select()` brings it back. The two focus bindings reach their field through a tick prop
+    (`focusFilter` on `LeftPanel`, `focusSummary` on `DetailPanel`), the shape `searchTick` already
+    used, so asking twice focuses twice. Verified: three new unit tests (the chords, Ctrl+Alt+F vs
+    Ctrl+F, and which ids fire while typing) and e2e step 34, which fetches with Ctrl+L, collapses
+    and restores both panels, focuses the filter, proves Ctrl+B inert while a field has focus and
+    Ctrl+Shift+M live from one, stages and unstages everything with the two chords and replays the
+    fixture's own index afterwards (`git diff --cached --name-status` before and after match), and
+    reads all eight chords back out of the `?` overlay. Ctrl+Shift+S from the commit summary stages
+    nothing, asserted against git rather than the DOM. Screenshots
+    `docs/screenshots/shortcuts-overlay.png` (all eight rows) and `shortcuts-panels.png` (the graph
+    with the detail panel hidden), both looked at. Nothing on screen brings a hidden detail panel
+    back — filed as GC-136.
 
 ---
 
@@ -2533,7 +2572,7 @@ decision is missing.
 
 ### GC-045 Commit view banner linking back to the working directory changes
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** The study's commit view starts with a blue banner "N file change in working
@@ -2552,11 +2591,11 @@ decision is missing.
     lifted from the study.
 - **Out of scope:** listing the changed files in the banner, a mode that keeps WIP selected.
 - **Acceptance:**
-  - [ ] With a dirty tree and a commit selected, the banner shows the same count as the staging
+  - [x] With a dirty tree and a commit selected, the banner shows the same count as the staging
         header "N file changes on <branch>", and the button selects the WIP row and shows the
         staging view.
-  - [ ] With a clean tree there is no banner.
-  - [ ] Screenshot looked at next to the study's `03-commit-selected.png`.
+  - [x] With a clean tree there is no banner.
+  - [x] Screenshot looked at next to the study's `03-commit-selected.png`.
 - **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/styles/app.css`,
   `src/renderer/src/App.tsx` (only to pass `status` through).
 - **Verify:** typecheck, build, then over CDP: select a commit, read `.detail-panel .banner`,
@@ -2565,6 +2604,19 @@ decision is missing.
   - 2026-09-05 proposed by GR-002: the commit view is the one panel where the study keeps the
     working-directory changes visible and ours drops them.
   - 2026-09-06 09:00 claimed
+  - 2026-09-06 09:40 done. `CommitView` takes `status` and renders a `.banner.info` above the message
+    box: "N file change(s) in the working directory" with a "View changes" button that selects `WIP`.
+    Its own accent variant of the existing `.banner`, no colour lifted from the study. The panel now
+    has two kinds of banner, so the e2e suite's `state()` reads `.banner:not(.info)` — the
+    informational one is true of nearly every moment of a run and would have answered every existing
+    `banner` assertion. Verified by e2e step 35 (the banner's count equals `git status --porcelain`'s
+    4 lines, the button selects the WIP row and its staging view, and that view's header carries the
+    same 4) and by a new `DetailPanel.test.tsx` for the two cases a run cannot reach: the singular
+    "1 file change" and the clean tree, where no banner renders at all. Screenshot
+    `docs/screenshots/commit-banner.png`, looked at beside the study's `03-commit-selected.png`: the
+    study puts its strip above the panel head, full width; ours sits under our own sha/refs head, in
+    the body, which is where the panel's other banner already lives — same information and same
+    button, our own placement.
 
 ### GC-046 A DOM environment so components can be unit tested
 
@@ -6876,7 +6928,7 @@ decision is missing.
 
 ### GC-132 Three more e2e helpers drop a click on a disabled control and assert nothing
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** GC-130 fixed `hunkAction`, but the shape it fixed is not unique to it. `stageRow`
@@ -6895,9 +6947,9 @@ decision is missing.
 - **Out of scope:** raising any `waitFor` maximum, changing what any step asserts, and the app
   itself: nothing here is a bug in `DiffView` or the toolbar, only in how the suite reads them.
 - **Acceptance:**
-  - [ ] No helper in `run.mjs` can return a "DISABLED" or "no …" string into a `log()` that
+  - [x] No helper in `run.mjs` can return a "DISABLED" or "no …" string into a `log()` that
         asserts nothing.
-  - [ ] Twenty consecutive `npm run e2e` runs pass, some under a second run's load.
+  - [x] Twenty consecutive `npm run e2e` runs pass, some under a second run's load.
   - [ ] The run's total stays within a second of 32.5s.
 - **Files:** `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e` in a loop, counting failures; and grep the file for `DISABLED` to
@@ -6907,6 +6959,24 @@ decision is missing.
     cause — a control disabled by a watcher echo on a fixture nothing changed — is not specific to
     the diff's hunk buttons, and two other helpers swallow it the same way.
   - 2026-09-06 09:00 claimed
+  - 2026-09-06 09:40 done. `liveClick(what, expression, max)` is now the one way the suite acts on a
+    control: the snippet answers a message, `MISS …` or `DISABLED …`, only `DISABLED` is polled out,
+    and both failures end in a `check()` on the line that produced them. `hunkAction`'s loop became
+    that function, and 20 helpers plus 11 inline click sites went through it — `stageRow` and
+    `openPopover` as the ticket names, and also `menuClick`, `modal`, `modalOk`, `modalClick`,
+    `contextMenuOn`, `dragRefFrom`, `dropOnRef`, `tool`, `openSection`, `sectionAction`,
+    `clickBanner`, `fetchAll`, `searchType`, `searchBtn`, `setField`, `selectWip`, `clickFileRow`,
+    `setLayout`, `popoverClick`, and a new `selectCommitRow` that replaced three copies of the same
+    row-by-subject miss. `grep -nE "return 'no |return 'nothing |DISABLED" tools/e2e/run.mjs` is down
+    to four hits, all of them read by an assertion: `modal`'s own JSON answer, `dragOverRef`'s
+    boolean (its callers check `accepted`), the focus probe (already `check`ed) and `liveClick`
+    itself. Verified by 20 consecutive `npm run e2e` runs: 20 passed, 0 failed, the first six of them
+    concurrent with a second suite on its own root and DevTools port (`GITCLIENT_E2E_ROOT=%TEMP%/
+    gitclient-e2e-load GITCLIENT_E2E_PORT=9336`), which also passed 6/6. Times 35.2-40.1s.
+  - 2026-09-06 09:40 the third acceptance box is left unticked deliberately: the run's total is now
+    ~36s rather than 32.5s, but the whole of that is the two steps GC-033 and GC-045 added in the
+    same batch (34 steps to 36, 319 git calls to 335). This ticket's own change adds polling that
+    only fires when a control is disabled, and no run in the loop of 20 reported a wait for one.
 
 ---
 
@@ -7319,6 +7389,66 @@ decision is missing.
   - e2e step 33 was not touched and passed in all 32 runs of the GC-130 loop, including the run
     made against this build (renderer bundle `index-BPGB-Sz-.js`, byte-identical before and after
     the type-only rename that followed the loop).
+
+### GC-136 A hidden detail panel has nothing on screen to bring it back
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-033
+- **Why:** Ctrl+K (GC-033) hides the detail panel outright, and the left panel's own Ctrl+J leaves
+  a 44px icon rail that is clickable — `onExpand` on the rail is how it comes back without the
+  keyboard. The detail panel has no such thing: once hidden, the only ways back are the same
+  shortcut and selecting a row, neither of which is visible. A user who presses Ctrl+K by accident
+  sees a panel vanish with no affordance at all, and `docs/screenshots/shortcuts-panels.png` is
+  what that looks like — the graph simply runs to the window edge.
+- **Scope:**
+  - Either a rail for the detail panel the way the left panel has one, or a persistent control that
+    reopens it: a button on the toolbar's right, or a thin clickable strip on the window edge where
+    the panel was. One of the two, not both.
+  - Whatever it is, it says what it does on hover and is reachable with the mouse alone.
+- **Out of scope:** remembering the collapsed state across restarts (it is deliberately session
+  state, like the left panel's), a rail with icons and counts, and any change to Ctrl+K itself.
+- **Acceptance:**
+  - [ ] With the detail panel hidden, a mouse-only user can bring it back in one click.
+  - [ ] The control is absent while the panel is showing.
+  - [ ] Screenshot of the hidden state, looked at beside `shortcuts-panels.png`.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/styles/app.css`, and whichever of
+  `components/Toolbar.tsx` or `components/DetailPanel.tsx` the chosen control lands in.
+- **Verify:** typecheck, build, then over CDP: Ctrl+K, click the control, assert `.detail-panel`
+  is back.
+- **Log:**
+  - 2026-09-06 proposed by GC-033 (this ticket): the binding shipped and the panel it hides is the
+    one panel with no rail, so hiding it is the only reversible action in the app with nothing on
+    screen to reverse it.
+
+### GC-137 The author chip is dropped when a diff opens, while the query survives
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-027
+- **Why:** GC-030 moved the search query into `App` precisely because `CommitGraph` unmounts behind
+  a file view; the author chip GC-027 added is `CommitGraph` state, so opening a diff and closing it
+  again restores the query, the readout and the dimming — and silently clears the author. The e2e
+  step that guards GC-030 compares the whole `searchState` across a diff, and it passes, because
+  the chip is not in it. Two halves of one filter should not have two lifetimes.
+- **Scope:**
+  - Move the chosen author into `App`'s `search` state beside `query` and `open`, cleared by
+    `closeSearch` the same way, and pass it down with a setter.
+  - Extend the GC-030 e2e assertion to cover it: with an author set, open a diff, close it, and
+    assert the chip and the match count are the ones from before.
+- **Out of scope:** persisting either half across a restart, and more than one author (GC-027's own
+  out-of-scope line still holds).
+- **Acceptance:**
+  - [ ] With an author chosen, opening and closing a file view leaves the chip and the readout
+        exactly as they were.
+  - [ ] Escape still clears both halves together.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/graph/CommitGraph.tsx`,
+  `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-027 (this ticket): the chip was deliberately left as component state
+    to keep the change inside `CommitGraph.tsx`, and the asymmetry with the query it sits next to
+    is worth its own ticket rather than a silent widening of that one.
 
 ---
 

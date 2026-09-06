@@ -1198,6 +1198,10 @@ const authored = git(['log', '--date-order', '--author=test@example.com', '--for
   .filter(Boolean).length;
 check('an author with an empty field matches exactly that author, as git counts them', /of (\d+)$/.exec(byAuthor)?.[1] === String(authored), `${byAuthor} | git says ${authored} | unfiltered ${unfiltered}`);
 check('the chip says who it is filtering by', (await ev(`document.querySelector('.graph-search .search-author.set .author-name')?.textContent ?? null`)) === 'Test User', byAuthor);
+// the chip dims rather than hides, exactly as the text search does: the other author's commit is
+// still a row, still in its lane, and still reachable
+const dimmedByAuthor = JSON.parse(await searchStateAtTop());
+check("a commit by anyone else is dimmed rather than dropped", dimmedByAuthor.dimmed >= 1 && dimmedByAuthor.matches >= 1, JSON.stringify(dimmedByAuthor));
 await shot('search-author.png');
 
 log(await searchType('feature'));
@@ -2318,6 +2322,12 @@ check('Ctrl+B does nothing while a text field has focus', (await ev(`!document.q
 await chord('m', { shift: true });
 await waitFor(`document.activeElement?.closest?.('.commit-form') !== null && document.activeElement?.tagName === 'INPUT'`, 'Ctrl+Shift+M to focus the commit summary');
 check('Ctrl+Shift+M selects the working directory and focuses the summary, from inside another field', (await ev(`!!document.querySelector('.graph-row.wip.selected')`)) === true, await activeEl());
+// and from that field, the staging chord is inert: `whileTyping` is false for it, so the handler
+// stops at the same editable check every other body-scope binding does
+const stagedInForm = git(['diff', '--cached', '--name-status']);
+await chord('s', { shift: true });
+await sleep(300); // an action that must not run has nothing to wait for; only its absence is the answer
+check('Ctrl+Shift+S stages nothing while the commit summary has focus', git(['diff', '--cached', '--name-status']) === stagedInForm, `${git(['diff', '--cached', '--name-status']).replace(/\n/g, ' ')} | was ${stagedInForm.replace(/\n/g, ' ')}`);
 
 log(await blur());
 await chord('b');
@@ -2350,8 +2360,9 @@ log(await blur());
 await questionMark();
 await waitFor(`!!document.querySelector('.modal.shortcuts')`, 'the shortcuts overlay');
 const listed = await ev(`[...document.querySelectorAll('.modal.shortcuts .shortcut-row')].map(r => r.querySelector('.shortcut-keys')?.textContent.trim()).join(' | ')`);
-const eight = ['Ctrl+B', 'Ctrl+L', 'Ctrl+J', 'Ctrl+K', 'Ctrl+Alt+F', 'Ctrl+Shift+S', 'Ctrl+Shift+U', 'Ctrl+Shift+M'];
-check('the overlay documents all eight new bindings', eight.every((k) => String(listed).includes(k)), String(listed));
+// each chord is rendered as separate key caps, so a row's text carries no separators of its own
+const eight = ['Ctrl+B', 'Ctrl+L', 'Ctrl+J', 'Ctrl+K', 'Ctrl+Alt+F', 'Ctrl+Shift+S', 'Ctrl+Shift+U', 'Ctrl+Shift+M'].map((k) => k.split('+').join(''));
+check('the overlay documents all eight new bindings', eight.every((k) => String(listed).split(' | ').includes(k)), String(listed));
 await shot('shortcuts-overlay.png');
 await escape();
 await waitFor(`!document.querySelector('.modal.shortcuts')`, 'the overlay to close');
@@ -2361,13 +2372,17 @@ step(35, 'the commit view says what is waiting in the working directory, and get
 // them entirely, and getting back meant finding row 0 again.
 log(await selectCommitRow(DELETED_COMMIT));
 await waitFor(`!!document.querySelector('.detail-panel .banner.info')`, "the commit view's working-directory banner");
-const pendingCount = status().split('\n').filter(Boolean).length;
-const bannerText = await ev(`document.querySelector('.detail-panel .banner.info')?.innerText.replace(/\\s+/g, ' ') ?? null`);
-check('the banner counts the same changes the staging header does', String(bannerText).startsWith(`${pendingCount} file changes in the working directory`), `${bannerText} | git says ${pendingCount}`);
+const bannerText = String(await ev(`document.querySelector('.detail-panel .banner.info')?.innerText.replace(/\\s+/g, ' ') ?? null`));
+const bannerCount = /^(\d+) file change/.exec(bannerText)?.[1] ?? null;
+// git's own count of the rows the status list draws: one line per path, the untracked one included
+const porcelain = git(['status', '--porcelain']).split('\n').filter(Boolean).length;
+check('the banner counts the working directory the way git does', bannerCount === String(porcelain), `${bannerText} | git says ${porcelain}`);
 await shot('commit-banner.png');
 log(await liveClick('the View changes button', `(() => { const b = [...document.querySelectorAll('.detail-panel .banner.info button')][0]; if (!b) return 'MISS no View changes button'; b.click(); return 'clicked ' + b.innerText; })()`));
 await waitFor(`!!document.querySelector('.graph-row.wip.selected') && !!document.querySelector('.detail-panel .commit-form')`, 'the WIP row to be selected and the staging view to be showing');
-check('View changes selects the working-directory row and its staging view', (await ev(`!document.querySelector('.detail-panel .banner.info')`)) === true, JSON.stringify(await state()));
+const staging = await state();
+check('View changes selects the working-directory row and its staging view', (await ev(`!document.querySelector('.detail-panel .banner.info')`)) === true, JSON.stringify(staging));
+check('and the banner was counting exactly what that view counts', String(staging.detailHead).startsWith(`${bannerCount} file change`), `${staging.detailHead} | the banner said ${bannerCount}`);
 
 step(36, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
