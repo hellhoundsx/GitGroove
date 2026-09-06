@@ -258,6 +258,54 @@ const contextMenuOn = async (selector, text) => {
   await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, `the context menu on ${text ?? selector}`);
   return opened;
 };
+// ---- dragging a branch onto another (GC-015) ------------------------------------------------------
+/** The chips drawn in the graph rows themselves; the copies inside a folded block are children of .more-list. */
+const CHIP_SEL = '.graph-row .col-ref > .ref-chip';
+/** Local branch rows in the left panel. Nested remote rows are excluded: they draw the branch name
+ *  without its remote, so `origin/feature` and `feature` would both answer to "feature". */
+const ROW_SEL = '.left-panel .ref-row:not(.nested):not(.remote-group):not(.dim)';
+/** The element standing for one ref: a chip carries the name itself, a row carries it in `.row-name`. */
+const refEl = (sel, name) => `[...document.querySelectorAll(${q(sel)})].find(x => ((x.querySelector('.row-name') ?? x).textContent ?? '').trim() === ${q(name)})`;
+/**
+ * An HTML5 branch drag, one CDP round trip per phase. React flushes the state a `dragstart` sets
+ * only on the way back out of the handler, so the `dragover` that reads it has to be a later
+ * evaluation than the `dragstart` that set it: dispatching all three in one go would leave the
+ * target still seeing no drag in flight. The `DataTransfer` is parked on `window` for the same
+ * reason — it is the one object all three phases share. CDP has no gesture of its own for an HTML5
+ * drag between two elements.
+ */
+const dragRefFrom = (name, sel = CHIP_SEL) =>
+  ev(
+    `(() => { const c = ${refEl(sel, name)}; if (!c) return 'nothing named ' + ${q(name)} + ' in ' + ${q(sel)}; if (c.draggable !== true) return 'not draggable: ' + ${q(name)}; window.__e2eDt = new DataTransfer(); c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: window.__e2eDt })); return 'dragstart on ' + ${q(name)} + ' carrying ' + [...window.__e2eDt.types].join(','); })()`,
+  );
+/** Wait for React to have applied the drag: the source's own class is what a target reads to decide
+ *  whether it is droppable, so a dragover before this would run against no drag in flight. */
+const waitDragging = (name, sel = CHIP_SEL) => waitFor(`!!${refEl(sel, name)}?.className.includes('drag-src')`, `${name} to be marked as the drag source`);
+/** Drag over a target and report whether it made itself a drop target — a `preventDefault` on the dragover. */
+const dragOverRef = async (name, sel = CHIP_SEL) => {
+  const accepted = await ev(
+    `(() => { const c = ${refEl(sel, name)}; if (!c) return 'nothing named ' + ${q(name)} + ' in ' + ${q(sel)}; const b = c.getBoundingClientRect(); return !c.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: window.__e2eDt, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 })); })()`,
+  );
+  // The highlight is React state the handler sets, and React schedules a `dragover` update rather
+  // than flushing it inside the handler — it is a continuous event, not a discrete one — so a
+  // single read straight afterwards catches the render that has not happened yet. Poll for it
+  // where it is expected and read once where it is not, and let the second read be the answer
+  // either way: a highlight that never arrives fails the caller's own check rather than this one.
+  const highlighted = `!!${refEl(sel, name)}?.className.includes('drop-over')`;
+  for (let waited = 0; accepted === true && waited < 2000; waited += 50) {
+    if ((await ev(highlighted)) === true) break;
+    await sleep(50);
+  }
+  const over = await ev(highlighted);
+  return JSON.stringify({ accepted, over });
+};
+/** Drop on a target, then end the drag the way the browser does once a drop has been taken. */
+const dropOnRef = (name, sel = CHIP_SEL) =>
+  ev(
+    `(() => { const c = ${refEl(sel, name)}; if (!c) return 'nothing named ' + ${q(name)} + ' in ' + ${q(sel)}; const b = c.getBoundingClientRect(); c.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.__e2eDt, clientX: b.x + b.width / 2, clientY: b.y + b.height / 2 })); c.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: window.__e2eDt })); return 'dropped on ' + ${q(name)}; })()`,
+  );
+/** The heading over the drop menu: a div, not a `.ctx-item`, so `menuList` never picks it up. */
+const menuCaption = () => ev(`document.querySelector('.ctx-menu .ctx-caption')?.textContent ?? null`);
 const tool = (label) =>
   ev(`(() => { const b = [...document.querySelectorAll('.toolbar .tool-btn')].find(x => x.innerText.trim() === ${q(label)}); if (!b) return 'no tool button ' + ${q(label)}; if (b.disabled) return 'DISABLED ' + ${q(label)} + ' (' + b.title + ')'; b.click(); return 'clicked toolbar ' + ${q(label)}; })()`);
 const openSection = (title) => ev(`(() => { const h = [...document.querySelectorAll('.section-head')].find(x => x.textContent.toLowerCase().includes(${q(title.toLowerCase())})); if (!h) return 'no section'; if (!h.classList.contains('open')) (h.querySelector('.section-toggle') ?? h).click(); return 'section open'; })()`);
@@ -1790,7 +1838,81 @@ const hunkFileState = shortOf(HUNK_FILE);
 check('the step leaves both edits unstaged, the way it found them', git(['diff', '--cached', '--', HUNK_FILE]) === '' && hunkFileState === `M ${HUNK_FILE}`, `${hunkFileState} | staged: ${git(['diff', '--cached', '--name-status', '--', HUNK_FILE]).replace(/\n/g, ' ') || 'none'}`);
 log(await act(() => tool('Refresh')));
 
-step(29, 'the run leaves the fixture exactly as it found it');
+step(29, 'drag a branch onto another: the drop menu, and the merge it runs');
+// A branch that diverges from main but carries main's own tree. git cannot fast-forward a sibling,
+// so merging it makes a real merge commit — and because both sides hold the same tree, the merge
+// changes not one file: the fixture's mixed working tree and its staged half come through
+// untouched, and this step's own `reset --soft` is the whole of the clean-up. A source with real
+// changes in it would need the working tree put back too, and `--hard` is exactly what must never
+// run against a fixture whose index is part of what every later run asserts on.
+const mainAtDrop = git(['rev-parse', 'main']);
+const mergesBefore = Number(git(['rev-list', '--count', '--merges', 'HEAD']));
+const stagedBeforeDrop = git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean).join(' ');
+const DROP_SRC = 'drop-source';
+git(['branch', DROP_SRC, git(['commit-tree', `${mainAtDrop}^{tree}`, '-p', `${mainAtDrop}^`, '-m', `Drop source ${stamp}`])]);
+log(await act(() => tool('Refresh')));
+// The rows are virtualised and earlier steps scroll: the source commit is the newest in the log, so
+// the top of the graph is where its chip is.
+await waitFor(
+  `(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return !!${refEl(CHIP_SEL, DROP_SRC)}; })()`,
+  `the ${DROP_SRC} chip to be rendered`,
+);
+
+// A left-panel row dropped on a graph chip: the two surfaces name the same refs, so a drag has to
+// cross between them. Nothing is run here — the menu is read and dismissed.
+await waitNoMenu();
+log(await dragRefFrom('release', ROW_SEL));
+await waitDragging('release', ROW_SEL);
+const overFromRow = JSON.parse(await dragOverRef('main'));
+check('a left-panel row can be dropped on a chip in the graph', overFromRow.accepted === true && overFromRow.over === true, JSON.stringify(overFromRow));
+log(await dropOnRef('main'));
+await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the drop menu from the left panel');
+check('and it offers the same two rows', (await menuList()) === 'Merge release into main | Rebase release onto main', await menuList());
+await escape();
+await waitNoMenu();
+
+// A chip dropped on itself offers nothing, so it never becomes a drop target: no highlight, no
+// menu. `canDropRef` refuses the pair before the dragover would have made the element droppable.
+log(await dragRefFrom(DROP_SRC));
+await waitDragging(DROP_SRC);
+const onItself = JSON.parse(await dragOverRef(DROP_SRC));
+check('a chip dropped on itself is not a drop target at all', onItself.accepted === false && onItself.over === false, JSON.stringify(onItself));
+log(await dropOnRef(DROP_SRC));
+check('so nothing opens', (await ev(`!!document.querySelector('.ctx-menu')`)) === false);
+
+// The real one: the source chip onto main's, then Merge.
+log(await dragRefFrom(DROP_SRC));
+await waitDragging(DROP_SRC);
+const overMain = JSON.parse(await dragOverRef('main'));
+check('main takes the drop and lights up', overMain.accepted === true && overMain.over === true, JSON.stringify(overMain));
+log(await dropOnRef('main'));
+await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the drop menu to open');
+const dropMenu = await menuList();
+check('the drop offers merge and rebase, both ends named by the gesture', dropMenu === `Merge ${DROP_SRC} into main | Rebase ${DROP_SRC} onto main`, dropMenu);
+check('over a caption saying which way the drag went, which is no menu row', (await menuCaption()) === `${DROP_SRC} onto main`, (await menuCaption()) ?? 'none');
+await shot('drag-drop-menu.png');
+log(await menuClick(`Merge ${DROP_SRC} into main`));
+// main is checked out already, so there is no checkout to guard: the fixture's staged half is what
+// stands in the way, and the sequencer guard (GC-090) is the only prompt between click and merge.
+await waitModal();
+check('the staged-index guard is what asks, and it says it is a merge', /refuses to merge/.test(await modalMessage()), await modalMessage());
+log(await act(() => modalOk(), 'stash and merge'));
+const mergesAfter = Number(git(['rev-list', '--count', '--merges', 'HEAD']));
+check('the merge landed as a merge commit on main', mergesAfter === mergesBefore + 1, `${mergesBefore} merge commits before, ${mergesAfter} after`);
+check(
+  'with the branch that was dragged as its second parent',
+  git(['rev-list', '--parents', '-1', 'HEAD']).split(' ').slice(1).join(' ') === `${mainAtDrop} ${git(['rev-parse', DROP_SRC])}`,
+  git(['rev-list', '--parents', '-1', 'HEAD']),
+);
+check('and the guard put the staged half back', git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean).join(' ') === stagedBeforeDrop, status());
+
+// Put the fixture back: the merge changed no file, so moving main off it is all there is to undo.
+git(['reset', '--soft', mainAtDrop]);
+git(['branch', '-D', DROP_SRC]);
+log(await act(() => tool('Refresh')));
+check('the step leaves main where it found it', git(['rev-parse', 'main']) === mainAtDrop && Number(git(['rev-list', '--count', '--merges', 'HEAD'])) === mergesBefore);
+
+step(30, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

@@ -9,6 +9,7 @@ import { initialsOf } from '../ui/avatars';
 import { matches as isShortcut } from '../shortcuts';
 import { usePrefs } from '../prefs';
 import { fitOptCols, fitRefCol, useDragWidth, MIN_MSG_W } from '../ui/useDragWidth';
+import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 
 interface Props {
   commits: Commit[];
@@ -30,6 +31,8 @@ interface Props {
   onWipMenu(e: MouseEvent): void;
   onRefMenu(e: MouseEvent, ref: GitRef): void;
   onRefActivate(ref: GitRef): void;
+  /** Dragging a chip onto another branch, here or in the left panel (GC-015). */
+  refDrag: RefDragHandlers;
   /** No branch is checked out: the graph marks HEAD itself, since no ref carries the check (GC-061). */
   detached: boolean;
   /** The traversal had commits behind the last one loaded, so scrolling near the end asks for more (GC-012). */
@@ -136,11 +139,12 @@ function useLaneLayout(commits: Commit[], pinnedSha: string | null | undefined):
 const laneFree = (row: RowLayout, lane: number): boolean =>
   row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, detached, hasMore, loadingMore, onLoadMore }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, refDrag, detached, hasMore, loadingMore, onLoadMore }: Props): JSX.Element {
   // The optional columns after the message; all off by default (GC-032). What the preference asks
   // for is not always what fits: `fitOptCols` below drops them once the panel is too narrow to
   // draw them and a commit message both (GC-116).
   const wantCols = usePrefs().graphColumns;
+  const drag = useRefDrag(refDrag);
   // A pinned branch owns column 0; with nothing pinned it stays reserved for HEAD's lineage.
   const layout = useLaneLayout(commits, pinnedSha ?? headSha);
   const refsBySha = useMemo(() => {
@@ -331,11 +335,15 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     // menu to act on, so it opens the commit menu instead — "Create branch here…" being what a
     // detached user usually wants (GC-061).
     const synthetic = r.fullName === HEAD_REF;
+    // The synthetic chip stands for no ref, so it is neither a drag source nor a drop target: the
+    // whole gesture is defined on the branch `GitRef` behind a chip (GC-015).
+    const dragAttrs = synthetic ? null : drag.attrs(r);
     return (
     <span
       key={r.fullName}
-      className={`ref-chip ${r.kind} ${r.isHead ? 'head' : ''} ${plain ? 'plain' : ''}`}
-      title={synthetic ? 'Detached HEAD\nRight-click for actions on this commit' : `${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions`}
+      {...(dragAttrs ?? {})}
+      className={`ref-chip ${r.kind} ${r.isHead ? 'head' : ''} ${plain ? 'plain' : ''} ${!synthetic && drag.isSource(r) ? 'drag-src' : ''} ${!synthetic && drag.isOver(r) ? 'drop-over' : ''}`}
+      title={synthetic ? 'Detached HEAD\nRight-click for actions on this commit' : `${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions${dragAttrs?.draggable ? '\nDrag onto another branch to merge or rebase' : ''}`}
       style={plain || r.kind === 'tag' ? undefined : { background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` }}
       onContextMenu={(e) => {
         e.stopPropagation();

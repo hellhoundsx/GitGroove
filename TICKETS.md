@@ -262,7 +262,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | todo |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
-| GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | in-progress |
+| GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | done |
 | GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | done |
@@ -306,6 +306,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
 | GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | todo |
 | GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | todo |
+| GC-122 | The graph does not scroll while a branch is being dragged | graph | S | P3 | todo |
+| GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | todo |
+| GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -948,7 +951,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-015 Drag-and-drop merge and rebase between chips
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** L | **Priority:** P3
 - **Depends on:** GC-004
 - **Why:** GitKraken's signature interaction: drag a branch chip onto another to get a menu of
@@ -960,11 +963,48 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - Reuse the existing merge and rebase actions and the conflict banner.
 - **Out of scope:** dragging commits (cherry-pick by drag), pull requests.
 - **Acceptance:**
-  - [ ] e2e: drop `feature` on `master`, choose merge, assert `git log --merges` gained a commit.
+  - [x] e2e: drop `feature` on `master`, choose merge, assert `git log --merges` gained a commit.
 - **Files:** `CommitGraph.tsx`, `LeftPanel.tsx`, `App.tsx`, `app.css`, `tools/e2e/run.mjs`.
 - **Verify:** e2e, screenshot of the drop menu.
 - **Log:**
   - 2026-09-06 07:07 claimed
+  - 2026-09-06 done. A branch is picked up from either surface — a chip in the graph, a row in the
+    left panel — and dropped on either, because both stand for the same `GitRef`: `ui/refDrag.ts`
+    (new) holds the rules and the handlers, `App` holds the ref in flight, and each surface keeps
+    its own "which target is the pointer over". Only branches take part: a tag names no line of
+    work to merge or rebase, and the synthetic detached-HEAD chip is no ref at all. A pair that
+    offers nothing — a remote dropped on a remote, anything on itself — never gets the
+    `preventDefault` that makes an element a drop target, so it does not highlight and cannot be
+    dropped on, rather than opening a menu with nothing in it: merge needs the target checked out,
+    so the target must be a local branch, and rebase checks the source out, so the source must be
+    one. `canDropRef` is that rule, pure and tested.
+    A drop opens the ordinary context menu at the pointer, captioned `<src> onto <dst>` over
+    "Merge `<src>` into `<dst>`" and "Rebase `<src>` onto `<dst>`" — the branch menu's own two
+    actions with both ends named by the gesture instead of one of them being whatever is checked
+    out. `runOnBranch` is what makes that honest: the branch the action runs on is checked out
+    first through `checkoutRef`, so GC-004's dirty-tree guard and its stash offer come with it, and
+    the action itself goes through `runSequencer`, so GC-090's staged-index guard does; between
+    them git is asked where HEAD is, because a cancelled prompt and a failed checkout both return
+    quietly. The rows that will check something out say so in their hint.
+    Verified: `npm run typecheck`, `npm run build`, `npm test` (179 tests, 17 files — 7 new for
+    `canDropRef`/`canDragRef` and 3 in `CommitGraph.test.tsx` for the chip attributes, the accepted
+    drop and the refused self-drop), and `npm run e2e` — 30 steps, 178 assertions, 27.4s, all
+    passed. New step 29 drives the real gesture over CDP: a left-panel row dropped on a graph chip,
+    a chip dropped on itself refused, then `drop-source` dropped on `main` and merged, asserting
+    the merge commit's two parents and that the guard put the staged half back.
+    The acceptance line asks for `feature` dropped on `master`; the fixture's `feature` is already
+    merged into `main`, so that drop would be "Already up to date" and assert nothing. The step
+    builds `drop-source` instead — a sibling of `main` carrying `main`'s own tree, so the merge is
+    a real merge commit git cannot fast-forward and yet changes no file, which is what lets the
+    step put the fixture back with `reset --soft` alone. `git rev-list --count --merges HEAD` gains
+    exactly one, which is the assertion the line asked for.
+    Screenshots: `docs/screenshots/gc-015-drop-menu.png` (the drop menu, from the e2e run) and
+    `docs/screenshots/gc-015-drag-highlight.png` (mid-drag: the `wip-branch` row dimmed in the left
+    panel, `main`'s chip outlined in the accent in the graph). Both looked at.
+    Left undone, as three tickets rather than scope creep: the graph does not auto-scroll during a
+    drag (GC-122), a ref folded behind `+N` cannot be reached by one because `:hover` does not
+    update mid-drag (GC-123), and the guards `runOnBranch` composes read the snapshot from before
+    its checkout (GC-124, harmless today).
 
 ### GC-016 Multi-tab repositories
 
@@ -6506,6 +6546,90 @@ decision is missing.
     a whole file from a commit.
 
 ---
+
+### GC-122 The graph does not scroll while a branch is being dragged
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-015
+- **Why:** A drag started on a chip can only be dropped on a chip that is already on screen. The
+  rows are virtualised inside `.graph-body`, an `overflow: auto` container, and nothing scrolls it
+  while a drag is in flight: the pointer held at the bottom edge sits there. On the e2e fixture the
+  whole history fits, so the gap does not show; on a real repository the target branch is usually
+  hundreds of rows away and the gesture is simply unavailable. The left panel is the workaround
+  today — every branch is a row there, and a row can be dropped on a chip — but that is a
+  workaround, not the interaction GitKraken has.
+- **Scope:**
+  - Scroll `.graph-body` while a `dragover` is inside a band at its top or bottom edge, at a rate
+    that does not depend on how often the browser fires the event.
+  - Stop on `dragleave`, `drop` and `dragend`, so nothing keeps scrolling after the drag.
+- **Out of scope:** auto-scrolling the left panel (its rows are not virtualised and it is short),
+  and any change to what a drop offers.
+- **Acceptance:**
+  - [ ] With a repository whose graph scrolls, a drag held at the bottom edge brings later rows
+        into view and a chip among them can be dropped on.
+  - [ ] Releasing the drag anywhere leaves the graph still.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/ui/refDrag.ts`.
+- **Verify:** drive a drag over CDP with the graph scrolled to the top and assert `.graph-body`'s
+  `scrollTop` has moved; screenshot.
+- **Log:**
+  - 2026-09-06 proposed by GC-015 (this ticket): the drag it added can only reach what is drawn.
+
+### GC-123 A ref folded behind +N can neither be dragged nor dropped on
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-015
+- **Why:** The ref column shows one chip and folds the rest into `+N` (GC-078); the folded block
+  opens on `:hover` over `.col-ref`. Chromium does not update `:hover` while an HTML5 drag is in
+  flight, so during a drag the block never opens: a folded ref is not reachable as a drop target,
+  and it cannot be picked up either, because opening the block needs a hover the pointer cannot
+  give once a drag has started. On the e2e fixture that is four of the seven refs on `main`'s tip.
+  The left-panel row is the only way to reach them, which is the same workaround GC-122 names.
+- **Scope:**
+  - Keep the folded block open while a drag is in flight over the row it belongs to, so its chips
+    are drop targets like any other.
+- **Out of scope:** changing the fold budget (`MAX_CHIPS` is one deliberately, GC-078), and
+  turning the block into a real popover.
+- **Acceptance:**
+  - [ ] With a drag in flight, hovering a `+N` opens the block and one of its chips takes a drop.
+  - [ ] With no drag in flight the block behaves exactly as it does now.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** an e2e assertion that a chip inside `.more-list` accepts a dragover mid-drag, plus a
+  screenshot of the open block during a drag.
+- **Log:**
+  - 2026-09-06 proposed by GC-015 (this ticket): four of the fixture's seven refs on `main` are
+    unreachable by drag, and the negative case in step 29 had to be built from a chip on itself
+    because no remote chip is ever the visible one.
+
+### GC-124 The staged-changes guard reads the snapshot from before a drop’s checkout
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P3
+- **Depends on:** GC-015
+- **Why:** `runOnBranch` (GC-015) checks a branch out and then calls `runSequencer`, but the
+  `runSequencer` it calls is the one built by the render the drop happened in: the staged list its
+  guard counts is the working tree as it was **before** the checkout. Nothing is wrong today —
+  git carries staged changes across a checkout, and `runCheckout`'s "Stash and check out" pops the
+  stash back — so both paths leave the same index the guard measured. It is a latent trap rather
+  than a bug: the day a checkout path stops restoring the index, the guard will offer to stash
+  nothing and the pop that follows will take an unrelated stash off the list. The same staleness
+  is in `runCheckout` itself, which reads `snapshot` for its at-risk count.
+- **Scope:**
+  - Give `App` a ref mirroring the current snapshot's status, the way `hiddenRef` mirrors the
+    hidden set, and have `runSequencer` and `runCheckout` read it instead of the closure's
+    `snapshot`.
+- **Out of scope:** changing what either guard asks or when it asks it.
+- **Acceptance:**
+  - [ ] A guard invoked after an awaited checkout counts the files that are staged at that moment.
+  - [ ] The existing guard steps in the e2e suite (12 and 29) still pass unchanged.
+- **Files:** `src/renderer/src/App.tsx`.
+- **Verify:** unit or e2e coverage of a drop onto a branch that is not checked out, and the full
+  e2e run.
+- **Log:**
+  - 2026-09-06 proposed by GC-015 (this ticket): found while composing the checkout and the
+    sequencer guard into one gesture.
+
 
 ## Reviews
 

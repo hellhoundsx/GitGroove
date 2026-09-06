@@ -3,6 +3,7 @@ import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, GitBranch, Laptop, Pa
 import type { GitRef, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
 import type { DragHandleProps } from '../ui/useDragWidth';
+import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 
 interface Props {
   refs: GitRef[];
@@ -20,6 +21,8 @@ interface Props {
   onCollapse(): void;
   onRefMenu(e: MouseEvent, ref: GitRef): void;
   onRefActivate(ref: GitRef): void; // double-click: checkout
+  /** Dragging a branch row onto another branch, in this panel or in the graph (GC-015). */
+  refDrag: RefDragHandlers;
   onStashMenu(e: MouseEvent, stash: Stash): void;
   onStashActivate(stash: Stash): void; // double-click: apply
   onRemoteMenu(e: MouseEvent, remote: Remote): void;
@@ -67,6 +70,7 @@ const abText = (r: GitRef): string => {
 
 export function LeftPanel(p: Props): JSX.Element {
   const [filter, setFilter] = useState('');
+  const drag = useRefDrag(p.refDrag);
   const f = filter.trim().toLowerCase();
   const hidden = useMemo(() => new Set(p.hidden), [p.hidden]);
 
@@ -152,10 +156,11 @@ export function LeftPanel(p: Props): JSX.Element {
           {local.map((r) => (
             <div
               key={r.fullName}
-              className={`ref-row ${r.isHead ? 'head' : ''} ${hidden.has(r.fullName) ? 'ref-hidden' : ''}`}
+              className={`ref-row ${r.isHead ? 'head' : ''} ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
               title={`${r.upstream ? `${r.name} tracks ${r.upstream}` : r.name}${r.name === p.pinnedName ? '\npinned to the left column' : ''}`}
               onContextMenu={(e) => p.onRefMenu(e, r)}
               onDoubleClick={() => p.onRefActivate(r)}
+              {...drag.attrs(r)}
             >
               <Icon of={r.isHead ? Check : GitBranch} size={12} className="row-icon" />
               <span className="row-name">{r.name}</span>
@@ -187,9 +192,10 @@ export function LeftPanel(p: Props): JSX.Element {
                 {list.map((r) => (
                   <div
                     key={r.fullName}
-                    className={`ref-row nested ${hidden.has(r.fullName) ? 'ref-hidden' : ''}`}
+                    className={`ref-row nested ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
                     onContextMenu={(e) => p.onRefMenu(e, r)}
                     onDoubleClick={() => p.onRefActivate(r)}
+                    {...drag.attrs(r)}
                   >
                     <Icon of={GitBranch} size={12} className="row-icon" />
                     <span className="row-name">{r.name.slice(remoteName.length + 1)}</span>

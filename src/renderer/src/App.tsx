@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type JSX, type MouseEvent } from 'react';
 import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { defaultRemote } from '@shared/remotes';
 import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type PanelFit } from './ui/useDragWidth';
@@ -16,6 +16,7 @@ import { matches } from './shortcuts';
 import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
 import type { MenuAnchor } from './ui/UiContext';
+import { canDropRef, type RefDragHandlers } from './ui/refDrag';
 
 const LAST_REPO_KEY = 'gitclient.lastRepo';
 /** Remembered state like `gitclient.lastRepo`, not a preference: the list of paths, newest first (GC-044). */
@@ -152,6 +153,9 @@ export function App(): JSX.Element {
   const [pullOpen, setPullOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false); // the second toolbar popover (GC-057)
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
+  // The branch being dragged, and where it came from is irrelevant: a chip and a left-panel row
+  // stand for the same ref, so the state that both surfaces read lives here (GC-015).
+  const [dragRef, setDragRef] = useState<GitRef | null>(null);
   // Refs kept out of the graph (GC-073). The ref mirrors the state because `load()` needs the set
   // as it stands at the moment it spawns `git log`, without every callback that loads a repository
   // having to be rebuilt each time the set changes.
@@ -746,6 +750,32 @@ export function App(): JSX.Element {
     [repo, runCheckout],
   );
 
+  /**
+   * The part of a drag-and-drop action that has to happen on a particular branch (GC-015): a
+   * merge runs on the branch being merged into and a rebase on the branch being rebased, and the
+   * gesture names those rather than leaving them to be whatever is checked out. So the checkout
+   * comes first, through `checkoutRef`, which brings the dirty-tree guard and its stash offer
+   * with it (GC-004), and the action itself through `runSequencer`, which brings the staged-index
+   * guard (GC-090). Two operations on the status bar rather than one: nesting `run()` inside
+   * `run()` would take two busy tokens and reload the snapshot twice for a single drop.
+   *
+   * git is asked where HEAD is between them rather than the snapshot being read, because a
+   * cancelled prompt and a failed checkout both return quietly and neither must be followed by a
+   * merge onto the branch the user was already on.
+   */
+  const runOnBranch = useCallback(
+    async (branch: GitRef, what: string, label: string, action: () => Promise<unknown>): Promise<void> => {
+      if (!repo) return;
+      if (!branch.isHead) {
+        await checkoutRef(branch);
+        const after = await window.api.getStatus(repo).catch(() => null);
+        if (after?.branch !== branch.name) return;
+      }
+      await runSequencer(what, label, action);
+    },
+    [checkoutRef, repo, runSequencer],
+  );
+
   const createBranchAt = useCallback(
     async (startPoint: string, startLabel: string) => {
       const r = await ui.prompt({ title: 'Create branch', message: `From ${startLabel}`, label: 'Branch name', placeholder: 'feature/name', checkbox: { label: 'Checkout after creating', defaultChecked: true }, okLabel: 'Create' });
@@ -964,6 +994,55 @@ export function App(): JSX.Element {
       return items;
     },
     [checkoutRef, createBranchAt, currentBranch, deleteBranch, pinBranch, pinned, repo, run, runSequencer, snapshot, ui, visibilityItems],
+  );
+
+  /**
+   * What a branch dropped on another branch offers (GC-015). The two rows are the branch menu's
+   * own Merge and Rebase, with both ends named by the gesture instead of one of them being HEAD:
+   * the drag says which branch, so the row can promise a checkout rather than silently acting on
+   * whatever happens to be checked out. `canDropRef` has already refused a pair that would leave
+   * this list empty, so the caption always heads at least one row.
+   */
+  const dropMenuItems = useCallback(
+    (src: GitRef, dst: GitRef): MenuItem[] => {
+      const items: MenuItem[] = [{ label: `${src.name} onto ${dst.name}`, caption: true }];
+      if (dst.kind === 'head') {
+        items.push({
+          label: `Merge ${src.name} into ${dst.name}`,
+          hint: dst.isHead ? undefined : `checks out ${dst.name}`,
+          onClick: () => void runOnBranch(dst, 'merge', `Merging ${src.name} into ${dst.name}`, () => window.api.merge(repo!, src.name)),
+        });
+      }
+      if (src.kind === 'head') {
+        items.push({
+          label: `Rebase ${src.name} onto ${dst.name}`,
+          hint: src.isHead ? undefined : `checks out ${src.name}`,
+          onClick: () => void runOnBranch(src, 'rebase', `Rebasing ${src.name} onto ${dst.name}`, () => window.api.rebase(repo!, dst.name)),
+        });
+      }
+      return items;
+    },
+    [repo, runOnBranch],
+  );
+
+  /**
+   * The drag itself, shared by the graph and the left panel so a chip can be dropped on a row and
+   * a row on a chip (GC-015). The drop is checked again here: `dragover` decided it from the same
+   * predicate, but a drop that arrives without a source — a page reloaded mid-drag, something
+   * dragged in from outside — must open nothing.
+   */
+  const refDrag = useMemo<RefDragHandlers>(
+    () => ({
+      dragging: dragRef,
+      onDragStart: setDragRef,
+      onDragEnd: () => setDragRef(null),
+      onDrop: (e: DragEvent, dst: GitRef) => {
+        setDragRef(null);
+        if (!dragRef || !canDropRef(dragRef, dst)) return;
+        ui.openMenu(e, dropMenuItems(dragRef, dst));
+      },
+    }),
+    [dragRef, dropMenuItems, ui],
   );
 
   const commitMenuItems = useCallback(
@@ -1330,6 +1409,7 @@ export function App(): JSX.Element {
               onCollapse={() => setLeftCollapsed(true)}
               onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
               onRefActivate={(r) => void checkoutRef(r)}
+              refDrag={refDrag}
               onStashMenu={(e, s) => onMenu(e, stashMenuItems(s))}
               onStashActivate={(s) => void run('Applying stash', () => window.api.stashApply(repo, s.index))}
               onRemoteMenu={(e, rem) => onMenu(e, remoteMenuItems(rem))}
@@ -1365,6 +1445,7 @@ export function App(): JSX.Element {
                 onWipMenu={(e) => onMenu(e, wipMenuItems())}
                 onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
                 onRefActivate={(r) => void checkoutRef(r)}
+                refDrag={refDrag}
                 detached={!snapshot.info.branch}
                 hasMore={hasMore}
                 loadingMore={loadingMore}

@@ -222,6 +222,13 @@ unsubscribe.
   stopped mid-operation**: a pop runs `git reset`, which deletes `CHERRY_PICK_HEAD`, so putting the
   index back would quietly clear the state the banner and Abort exist for; the error then says which
   stash holds the changes.
+- **A drop composes the two: `runOnBranch(branch, what, label, action)`** (GC-015). The merge
+  and rebase a drag offers name the branch they run on rather than taking whatever is checked
+  out, so that branch is checked out first through `checkoutRef` — GC-004’s guard and its stash
+  offer come with it — and the action goes through `runSequencer` for GC-090’s. Two operations
+  on the status bar, not one: nesting `run()` in `run()` would take two busy tokens and reload
+  twice. Between them git is asked where HEAD is, because a cancelled prompt and a failed
+  checkout both return quietly and neither may be followed by a merge on the wrong branch.
 - Menus come from `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`,
   `remoteMenuItems` and `fileMenuItems`; `tipCommitActions(sha)` is the shared source for the
   commit actions the branch and commit menus both carry, so their wording cannot drift.
@@ -309,6 +316,15 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
   never re-examined after `fitRefCol` has run against the survivors, and that order is the whole of
   why it is stable — a ref column allowed to grow back into the space a dropped column left would
   drop the next column, and the next.
+- **Dragging a branch onto another is one module, `ui/refDrag.ts`** (GC-015). A chip in the
+  graph and a row in the left panel stand for the same `GitRef`, and a drag crosses between
+  them in either direction, so what may be picked up, what may be dropped on what and the HTML5
+  handlers that say so live in one place; `App` holds the ref in flight, because both surfaces
+  read it, and each surface keeps its own "which target is the pointer over". Only branches take
+  part. **A pair that offers no action never becomes a drop target**: `canDropRef` refuses it,
+  so the `dragover` does not `preventDefault`, and no highlight and no drop follow — merge needs
+  the target checked out, so the target must be a local branch, and rebase checks the source
+  out, so the source must be one. That is what keeps a drop from ever opening an empty menu.
 
 ### Graph (`graph/`)
 
@@ -543,7 +559,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-169 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+179 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -552,8 +568,8 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 29 steps, 167 assertions, ~26s. It ends with
-`total: 26.2s | git: 252 calls, 6.5s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 30 steps, 178 assertions, ~27s. It ends with
+`total: 27.4s | git: 267 calls, 6.8s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -648,8 +664,9 @@ and this file only where a convention, a command or an invariant above changed.
 
 Design decisions that must not be quietly undone, and where each is explained above: date order in
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
-one layer, one shortcut table, every confirmation on the modal, the busy token every writer of
-`busy` takes (App state, UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
+one layer, a drop that opens no empty menu and checks out the branch it acts on, one shortcut
+table, every confirmation on the modal, the busy token every writer of `busy` takes (App state,
+UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
 message column keeping `MIN_MSG_W` while the ref column gives way, the optional columns giving way
 after it, and only the applied widths ever clamped — on the drag path as well as the resize one, a
 drag starting from the drawn width and persisting only what the pointer reached (UI layer); a page continuing the previous range's `LaneState`,

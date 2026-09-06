@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import type { Commit, GitRef } from '@shared/types';
+import type { RefDragHandlers } from '../ui/refDrag';
 import { CommitGraph } from './CommitGraph';
 import { DEFAULT_PREFS, setPrefs } from '../prefs';
 
@@ -58,6 +59,9 @@ const refs: GitRef[] = [
   ...['v1', 'v2', 'v3', 'v4', 'v5'].map((name): GitRef => ({ name, fullName: `refs/tags/${name}`, kind: 'tag', sha: commit.sha, isHead: false })),
 ];
 
+/** A drag nobody is watching: the flip cases below say nothing about GC-015. */
+const noDrag: RefDragHandlers = { dragging: null, onDragStart: () => {}, onDragEnd: () => {}, onDrop: () => {} };
+
 type Rect = { top: number; bottom: number; height: number };
 
 /** jsdom returns an all-zero rect for everything, so the geometry has to be supplied by hand. */
@@ -93,6 +97,7 @@ function flipsUp(body: Rect, chipRect: Rect, listHeight: number): boolean {
       onWipMenu={() => {}}
       onRefMenu={() => {}}
       onRefActivate={() => {}}
+      refDrag={noDrag}
       detached={false}
       hasMore={false}
       loadingMore={false}
@@ -135,5 +140,118 @@ describe('CommitGraph folded-refs dropdown (GC-022)', () => {
     expect(flipsUp(BODY, { top: 100, bottom: 120, height: 20 }, 500)).toBe(false); // 280 below vs 100 above
     cleanup();
     expect(flipsUp(BODY, { top: 300, bottom: 320, height: 20 }, 500)).toBe(true); // 80 below vs 300 above
+  });
+});
+
+// ---- GC-015: dragging a chip onto another branch -------------------------------------------
+
+/** Two commits, each carrying one local branch, so both chips are drag sources and drop targets. */
+const dragCommits: Commit[] = [
+  { ...commit, sha: 'b'.repeat(40), summary: 'tip of feature' },
+  { ...commit, sha: 'c'.repeat(40), summary: 'tip of main' },
+];
+const dragRefs: GitRef[] = [
+  { name: 'feature', fullName: 'refs/heads/feature', kind: 'head', sha: dragCommits[0]!.sha, isHead: false },
+  { name: 'main', fullName: 'refs/heads/main', kind: 'head', sha: dragCommits[1]!.sha, isHead: true },
+];
+
+/**
+ * `dataTransfer` does not exist in jsdom, so the drag carries a stub of the three members the
+ * handlers touch: `setData` on the way out, `types` for the target's "is this one of ours" test,
+ * and `dropEffect`, which the target writes.
+ */
+function dataTransfer(types: string[] = []): { setData(t: string, v: string): void; types: string[]; dropEffect: string; effectAllowed: string } {
+  const stub = {
+    types: [...types],
+    dropEffect: 'none',
+    effectAllowed: 'none',
+    setData(t: string): void {
+      stub.types.push(t);
+    },
+  };
+  return stub;
+}
+
+function renderDrag(dragging: GitRef | null, dropped: { src: GitRef | null; dst: GitRef | null }): HTMLElement {
+  const refDrag: RefDragHandlers = {
+    dragging,
+    onDragStart: (r) => {
+      dropped.src = r;
+    },
+    onDragEnd: () => {},
+    onDrop: (_e, dst) => {
+      dropped.dst = dst;
+    },
+  };
+  const { container } = render(
+    <CommitGraph
+      commits={dragCommits}
+      refs={dragRefs}
+      status={null}
+      headSha={dragCommits[1]!.sha}
+      pinnedSha={null}
+      pinnedName={null}
+      selected={null}
+      searchOpen={false}
+      searchTick={0}
+      searchQuery=""
+      onSearchQuery={() => {}}
+      onCloseSearch={() => {}}
+      onSelect={() => {}}
+      onCommitMenu={() => {}}
+      onWipMenu={() => {}}
+      onRefMenu={() => {}}
+      onRefActivate={() => {}}
+      refDrag={refDrag}
+      detached={false}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+  return container as HTMLElement;
+}
+
+/** The chip carrying `name`, from the row itself rather than from a folded block. */
+const chipFor = (c: HTMLElement, name: string): HTMLElement => {
+  const el = [...c.querySelectorAll<HTMLElement>('.graph-row .col-ref > .ref-chip')].find((x) => x.textContent === name);
+  if (!el) throw new Error(`no chip for ${name}`);
+  return el;
+};
+
+describe('CommitGraph branch drag and drop (GC-015)', () => {
+  it('makes a branch chip draggable and hands the ref to App', () => {
+    const dropped = { src: null as GitRef | null, dst: null as GitRef | null };
+    const c = renderDrag(null, dropped);
+    const feature = chipFor(c, 'feature');
+    expect(feature.getAttribute('draggable')).toBe('true');
+    fireEvent.dragStart(feature, { dataTransfer: dataTransfer() });
+    expect(dropped.src?.name).toBe('feature');
+  });
+
+  it('accepts a drop on another branch and reports the target', () => {
+    const dropped = { src: null as GitRef | null, dst: null as GitRef | null };
+    // `feature` is already in flight, which is the state App holds between dragstart and drop.
+    const c = renderDrag(dragRefs[0]!, dropped);
+    const main = chipFor(c, 'main');
+    const dt = dataTransfer(['application/x-gitclient-ref']);
+    // `fireEvent` returns false when the handler called `preventDefault`, which is the only thing
+    // that makes an element a drop target at all.
+    expect(fireEvent.dragOver(main, { dataTransfer: dt })).toBe(false);
+    expect(main.className).toContain('drop-over');
+    fireEvent.drop(main, { dataTransfer: dt });
+    expect(dropped.dst?.name).toBe('main');
+  });
+
+  it('refuses a drop on the chip the drag started from', () => {
+    const dropped = { src: null as GitRef | null, dst: null as GitRef | null };
+    const c = renderDrag(dragRefs[0]!, dropped);
+    const feature = chipFor(c, 'feature');
+    expect(feature.className).toContain('drag-src');
+    const dt = dataTransfer(['application/x-gitclient-ref']);
+    expect(fireEvent.dragOver(feature, { dataTransfer: dt })).toBe(true); // no preventDefault: not a target
+    expect(feature.className).not.toContain('drop-over');
+    fireEvent.drop(feature, { dataTransfer: dt });
+    expect(dropped.dst).toBe(null);
   });
 });

@@ -827,6 +827,26 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Dragging a branch onto another to merge or rebase it (GC-015). One pair of rules for both
+   surfaces, because a chip and a left-panel row stand for the same ref and a drag crosses
+   between them: the ref being carried dims, and the target under the pointer takes the accent
+   outline. Only a pair that offers an action ever gets the class — `canDropRef` decides that
+   before the dragover preventDefault that makes an element a target at all — so the outline is
+   the whole of the feedback saying a drop here will do something. `outline`, not `border`:
+   a border would resize the chip and shift the name under the pointer. */
+.ref-chip.drag-src,
+.ref-row.drag-src {
+  opacity: 0.45;
+}
+.ref-chip.drop-over,
+.ref-row.drop-over {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: var(--radius-sm);
+}
+.ref-row.drop-over {
+  background: var(--accent-hover);
+}
 .ref-line {
   flex: 1;
   min-width: 4px;
