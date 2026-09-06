@@ -63,6 +63,10 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   const text = current?.text ?? null;
   const error = current?.error ?? actionError;
   const loading = current === null;
+  // A load that rejected: the body has nothing to render and none of the three branches below
+  // match, so without this the panel is simply blank (GC-083). An action error is not this —
+  // it leaves the diff on screen and only the sub-header reports it.
+  const loadError = current !== null && current.text === null ? current.error : null;
   /** Content for this view is on screen, but a newer load of it has not landed yet. */
   const stale = current !== null && current.key !== viewKey;
 
@@ -205,6 +209,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
       </div>
       <div className={`diff-body${stale ? ' stale' : ''}`}>
         {loading && !error && <div className="diff-empty">Loading diff…</div>}
+        {loadError !== null && <div className="diff-empty">{loadError}</div>}
         {text !== null && !file && <div className="diff-empty">No textual changes.</div>}
         {file?.binary && <div className="diff-empty">Binary file.</div>}
         {file &&

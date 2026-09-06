@@ -1325,6 +1325,8 @@ textarea:focus {
 .diff-empty {
   color: var(--text-dim);
   padding: var(--sp-4);
+  /* git's own message goes here when a load fails (GC-083), and stderr comes with its newlines. */
+  white-space: pre-wrap;
 }
 .hunk {
   margin-bottom: var(--sp-3);
