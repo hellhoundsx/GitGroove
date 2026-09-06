@@ -264,7 +264,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
 | GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
-| GC-133 | The graph and the commit panel format the same timestamp two different ways | ui | S | P2 | todo |
+| GC-133 | The graph and the commit panel format the same timestamp two different ways | ui | S | P2 | in-progress |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
 | GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
 | GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | done |
@@ -298,8 +298,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-027 | Author filter in commit search | graph | S | P3 | done |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | done |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | done |
-| GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
-| GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
+| GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | in-progress |
+| GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | in-progress |
 | GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | todo |
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
 | GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
@@ -2919,7 +2919,7 @@ decision is missing.
 
 ### GC-051 Left panel folders for slash-separated branch names
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P3
 - **Depends on:** none
 - **Why:** The study's expanded left panel folds branch names on their slashes: "Branch names
@@ -2957,10 +2957,11 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-003: the study folds slash-separated names into folders and ours lists
     them flat; catena-feed's remote already carries a `feat/` name and real repositories carry many.
+  - 2026-09-06 09:46 claimed
 
 ### GC-052 Diff view: next and previous hunk, ignore whitespace, word wrap
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** M | **Priority:** P3
 - **Depends on:** GC-007
 - **Why:** The study's file view toolbar has previous/next change arrows, an ignore-whitespace
@@ -3005,6 +3006,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-003: the study's file view toolbar has three small controls that need
     no new view mode, and ours has none of them; long lines currently scroll the whole diff body.
+  - 2026-09-06 09:46 claimed
 
 ### GC-053 e2e waits on the DOM instead of fixed sleeps
 
@@ -7020,7 +7022,7 @@ decision is missing.
 
 ### GC-133 The graph and the commit panel format the same timestamp two different ways
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** Two file-local helpers format `authorDate`, and they disagree by design. `localDateTime`
@@ -7064,6 +7066,7 @@ decision is missing.
   - 2026-09-06 proposed by GR-015: from the code-review pass, confirmed in the running app — the
     graph deliberately refused `toLocaleString` and the panel calls it, and only this machine's
     `en-GB` hides the difference.
+  - 2026-09-06 09:46 claimed
 
 ---
 
