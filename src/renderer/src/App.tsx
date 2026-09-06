@@ -1160,8 +1160,13 @@ export function App(): JSX.Element {
     (sha: string) => {
       const short = sha.slice(0, 7);
       const target = currentBranch ?? 'HEAD';
-      const resetItem = (mode: 'soft' | 'mixed' | 'hard', hint: string): MenuItem => ({
-        label: `Reset ${target} to ${short}: ${mode}`,
+      // The target is said once, in a caption, and the three rows are then just the modes (GC-074).
+      // Repeating `Reset <branch> to <sha>` on every row made the middle one 7px too wide for the
+      // menu's 420px cap, and whichever of the label and the hint was allowed to win, the other was
+      // the one cut — the row simply did not fit. The study's Reset is one entry over a three-row
+      // submenu, so the branch and the sha are said once there too.
+      const resetItem = (mode: 'soft' | 'mixed' | 'hard', label: string, hint: string): MenuItem => ({
+        label,
         hint,
         danger: mode === 'hard',
         onClick: async () => {
@@ -1172,7 +1177,12 @@ export function App(): JSX.Element {
       return {
         cherryPick: { label: 'Cherry pick commit', disabled: !currentBranch, onClick: () => runSequencer('cherry-pick', `Cherry-picking ${short}`, () => window.api.cherryPick(repo!, sha)) } as MenuItem,
         revert: { label: 'Revert commit', disabled: !currentBranch, onClick: () => runSequencer('revert', `Reverting ${short}`, () => window.api.revert(repo!, sha)) } as MenuItem,
-        resets: [resetItem('soft', 'keep all changes staged'), resetItem('mixed', 'keep changes in the working directory'), resetItem('hard', 'discard all changes')],
+        resets: [
+          { label: `Reset ${target} to ${short}`, caption: true } as MenuItem,
+          resetItem('soft', 'Soft', 'keep all changes staged'),
+          resetItem('mixed', 'Mixed', 'keep changes in the working directory'),
+          resetItem('hard', 'Hard', 'discard all changes'),
+        ],
         createTag: { label: 'Create tag here…', onClick: () => createTagAt(sha) } as MenuItem,
         copySha: { label: 'Copy commit sha', onClick: () => void navigator.clipboard.writeText(sha) } as MenuItem,
       };
@@ -1410,34 +1420,27 @@ export function App(): JSX.Element {
   const commitMenuItems = useCallback(
     (c: Commit): MenuItem[] => {
       const short = c.sha.slice(0, 7);
-      const target = currentBranch ?? 'HEAD';
-      const resetItem = (mode: 'soft' | 'mixed' | 'hard', hint: string): MenuItem => ({
-        label: `Reset ${target} to ${short}: ${mode}`,
-        hint,
-        danger: mode === 'hard',
-        onClick: async () => {
-          if (mode === 'hard' && !(await ui.confirm({ title: `Hard reset ${target} to ${short}?`, message: 'All uncommitted changes will be lost.', okLabel: 'Reset', danger: true }))) return;
-          await run(`Resetting (${mode})`, () => window.api.reset(repo!, mode, c.sha));
-        },
-      });
+      // The shared source for everything both menus offer on a commit, so the wording, the guards
+      // and the hard-reset confirmation cannot drift between them (GC-049). This menu used to carry
+      // its own copy of all five, which is exactly the drift that source exists to prevent — and it
+      // is why GC-074's reset group had to be changed in one place rather than two.
+      const tip = tipCommitActions(c.sha);
       return [
         { label: 'Checkout this commit (detached)', onClick: () => runCheckout(short, () => window.api.checkout(repo!, c.sha, { detach: true })) },
         { separator: true },
         { label: 'Create branch here…', onClick: () => createBranchAt(c.sha, `commit ${short}`) },
-        { label: 'Create tag here…', onClick: () => createTagAt(c.sha) },
+        tip.createTag,
         { separator: true },
-        { label: 'Cherry pick commit', disabled: !currentBranch, onClick: () => runSequencer('cherry-pick', `Cherry-picking ${short}`, () => window.api.cherryPick(repo!, c.sha)) },
-        { label: 'Revert commit', disabled: !currentBranch, onClick: () => runSequencer('revert', `Reverting ${short}`, () => window.api.revert(repo!, c.sha)) },
+        tip.cherryPick,
+        tip.revert,
         { separator: true },
-        resetItem('soft', 'keep all changes staged'),
-        resetItem('mixed', 'keep changes in the working directory'),
-        resetItem('hard', 'discard all changes'),
+        ...tip.resets,
         { separator: true },
-        { label: 'Copy commit sha', onClick: () => void navigator.clipboard.writeText(c.sha) },
+        tip.copySha,
         { label: 'Copy commit summary', onClick: () => void navigator.clipboard.writeText(c.summary) },
       ];
     },
-    [createBranchAt, createTagAt, currentBranch, repo, run, runCheckout, runSequencer, ui],
+    [createBranchAt, repo, runCheckout, tipCommitActions],
   );
 
   const stashChanges = useCallback(async () => {

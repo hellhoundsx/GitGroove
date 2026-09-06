@@ -1714,10 +1714,12 @@ log(branchMenu);
 check(
   'the branch menu carries the tip-commit group',
   ['Cherry pick commit', 'Revert commit', 'Create tag here', 'Copy commit sha'].every((l) => branchMenu.includes(l)) &&
-    ['soft', 'mixed', 'hard'].every((m) => branchMenu.includes(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}: ${m}`)),
+    // The target is said once, in the caption over the three modes (GC-074).
+    branchMenu.includes(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}`) &&
+    ['Soft', 'Mixed', 'Hard'].every((m) => branchMenu.includes(m)),
   branchMenu,
 );
-log(await act(() => menuClick(`Reset ${currentBefore} to ${resetTarget.slice(0, 7)}: mixed`)));
+log(await act(() => menuClick('Mixed')));
 check(
   'the mixed reset moved the checked-out branch onto the other branch tip',
   git(['rev-parse', 'HEAD']) === resetTarget && git(['branch', '--show-current']) === currentBefore,
