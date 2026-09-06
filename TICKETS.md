@@ -244,10 +244,10 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | done |
 | GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | done |
 | GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | done |
-| GC-099 | Opening a repository with hidden refs loads the graph twice and flashes the hidden branches | graph | S | P1 | todo |
-| GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | todo |
-| GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
-| GC-013 | Light theme | ui | M | P3 | todo |
+| GC-099 | Opening a repository with hidden refs loads the graph twice and flashes the hidden branches | graph | S | P1 | in-progress |
+| GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | in-progress |
+| GC-012 | Lazy loading past 2000 commits | graph | M | P3 | in-progress |
+| GC-013 | Light theme | ui | M | P3 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -782,7 +782,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-012 Lazy loading past 2000 commits
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P3
 - **Depends on:** GC-002
 - **Why:** `MAX_COMMITS = 2000` truncates large repositories (catena-feed) with no indication.
@@ -799,10 +799,11 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Files:** `src/main/git.ts`, `ipc.ts`, `App.tsx`, `lanes.ts`, `CommitGraph.tsx`.
 - **Verify:** `npm test`, screenshot at the page boundary.
 - **Log:**
+  - 2026-09-06 04:26 claimed
 
 ### GC-013 Light theme
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P3
 - **Depends on:** GC-007
 - **Why:** Everything is dark-only. Tokens already centralise colours, so a light palette is a
@@ -819,6 +820,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Files:** `tokens.css`, `app.css`, `prefs.ts`, `src/main/index.ts`, `ipc.ts`.
 - **Verify:** build, screenshots.
 - **Log:**
+  - 2026-09-06 04:26 claimed
 
 ### GC-014 Side-by-side diff
 
@@ -4857,7 +4859,7 @@ decision is missing.
 
 ### GC-098 A failed git call in the e2e suite is silent, so a lost race reads as a UI bug
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `run.mjs`'s `git()` helper returns `GIT-ERROR: <stderr>` as a **string** when a command
@@ -4895,6 +4897,7 @@ decision is missing.
   - 2026-09-06 proposed by GC-090 (this ticket): one run in six failed this way while verifying the
     batch; the next five passed unchanged. What made it expensive was not the flake but that the
     suite reported everything except what went wrong.
+  - 2026-09-06 04:26 claimed
 
 
 
@@ -4904,7 +4907,7 @@ decision is missing.
 
 ### GC-099 Opening a repository with hidden refs loads the graph twice and flashes the hidden branches
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** GC-073's hidden set is applied from an effect that runs *after* the first snapshot has
@@ -4953,6 +4956,7 @@ decision is missing.
     snapshot rendered). Not GC-068, which is about a *late* watcher reload overwriting a fresher
     snapshot and explicitly puts "coalescing two loads into one" out of scope; this is the cold-open
     path never having the set in the first place.
+  - 2026-09-06 04:26 claimed
 
 ### GC-100 A branch can only be brought up to its upstream by checking it out first
 
