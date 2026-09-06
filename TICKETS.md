@@ -251,7 +251,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
 | GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | done |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
-| GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | todo |
+| GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -274,9 +274,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | done |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | todo |
-| GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
-| GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | todo |
+| GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | in-progress |
+| GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | in-progress |
+| GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | in-progress |
 | GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
@@ -1941,7 +1941,7 @@ decision is missing.
 
 ### GC-057 Toolbar Push and Pull cannot choose the remote
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P3
 - **Depends on:** GC-031
 - **Why:** GC-031 gave the branch and tag context menus one push entry per remote, but the
@@ -1976,6 +1976,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-031 (this ticket): GC-031 fixed the context menus and left the
     toolbar with one hard-coded remote for push and no remote at all for pull.
+  - 2026-09-06 06:15 claimed
 
 ### GC-032 Optional Author, Date and SHA columns in the graph
 
@@ -5247,7 +5248,7 @@ decision is missing.
 
 ### GC-100 A branch can only be brought up to its upstream by checking it out first
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** M | **Priority:** P3
 - **Depends on:** none
 - **Why:** `06-feature-inventory.md`'s Branch row lists "Fast-forward X to Y" and "Set upstream" as
@@ -5306,6 +5307,7 @@ decision is missing.
     Branch row against the board. Both actions were named as gaps by GR-009 and neither had a
     ticket; GC-049 deferred Fast-forward by name. They are bundled because they are one menu group,
     one file each side, and one fixture change — splitting them would pay the fixture cost twice.
+  - 2026-09-06 06:15 claimed
 
 ### GC-101 Checkboxes and the Preferences dropdown are unstyled OS controls
 
@@ -5648,7 +5650,7 @@ decision is missing.
 
 ### GC-110 The ref column is clamped only against itself, so it can take the whole commit message
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-105
 - **Why:** GC-105 reserved `MIN_GRAPH_W` for the graph panel against the width of the window, which fixed
@@ -5694,6 +5696,7 @@ decision is missing.
   - 2026-09-06 06:25 proposed by GC-105 (this ticket): measuring the panels against the window made it
     obvious the same question had never been asked one level in, and the 900px measurement above was
     taken with GC-105's fix already in place — it does not fix this and was never meant to.
+  - 2026-09-06 06:15 claimed
 
 ---
 
@@ -5790,7 +5793,7 @@ decision is missing.
 
 ### GC-109 The e2e suite never sees the intra-line diff marks
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-104
 - **Why:** GC-104's word-level marks are covered by unit tests on `wordDiff`/`hunkWordSpans` and were
@@ -5813,6 +5816,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-104 (this ticket): the marks were verified by hand over CDP because the
     suite has nowhere that looks at them, and the step that would is already open on the right file.
+  - 2026-09-06 06:15 claimed
 
 ---
 
