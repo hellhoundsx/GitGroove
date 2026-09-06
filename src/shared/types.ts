@@ -239,6 +239,7 @@ export interface GitApi {
   stashApply(repo: string, index: number): Promise<void>;
   stashPop(repo: string, index: number): Promise<void>;
   stashDrop(repo: string, index: number): Promise<void>;
+  stashRename(repo: string, index: number, message: string): Promise<void>;
 }
 
 /**

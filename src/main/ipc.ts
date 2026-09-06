@@ -245,6 +245,7 @@ export function registerIpc(): void {
   ipcMain.handle('stash:apply', (_e, repo: unknown, index: unknown) => git.stashApply(repoOf(repo), int(index, 'Stash index')).then(() => undefined));
   ipcMain.handle('stash:pop', (_e, repo: unknown, index: unknown) => git.stashPop(repoOf(repo), int(index, 'Stash index')).then(() => undefined));
   ipcMain.handle('stash:drop', (_e, repo: unknown, index: unknown) => git.stashDrop(repoOf(repo), int(index, 'Stash index')).then(() => undefined));
+  ipcMain.handle('stash:rename', (_e, repo: unknown, index: unknown, message: unknown) => git.stashRename(repoOf(repo), int(index, 'Stash index'), str(message, 'A stash message')));
 
   // opening a file in the OS (GC-043): Electron's own `shell`, no git anywhere in it, which is why
   // these two live here and not in git.ts.

@@ -62,6 +62,7 @@ const api: GitApi = {
   stashApply: call('stash:apply'),
   stashPop: call('stash:pop'),
   stashDrop: call('stash:drop'),
+  stashRename: call('stash:rename'),
 };
 
 // Handing a file to the OS is not git, so it gets its own bridge rather than another section of

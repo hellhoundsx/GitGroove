@@ -1477,14 +1477,33 @@ export function App(): JSX.Element {
     if (r) await run('Stashing', () => window.api.stashSave(repo!, { message: r.value, includeUntracked: r.checked }));
   }, [currentBranch, repo, run, ui]);
 
+  const editStashMessage = useCallback(
+    async (s: Stash) => {
+      const r = await ui.prompt({
+        title: 'Edit stash message',
+        message: 'The stash keeps its changes, and moves to the top of the list.',
+        label: 'Message',
+        defaultValue: s.message,
+        okLabel: 'Save',
+      });
+      if (r) await run('Renaming stash', () => window.api.stashRename(repo!, s.index, r.value));
+    },
+    [repo, run, ui],
+  );
+
   const stashMenuItems = useCallback(
     (s: Stash): MenuItem[] => [
       { label: 'Apply stash', onClick: () => run('Applying stash', () => window.api.stashApply(repo!, s.index)) },
       { label: 'Pop stash', hint: 'apply and drop', onClick: () => run('Popping stash', () => window.api.stashPop(repo!, s.index)) },
+      // The default is the reflog subject the list already shows, and what is typed replaces it
+      // whole — `git stash store -m` sets the subject exactly, so an edited entry loses git's own
+      // `On <branch>:` prefix unless the user keeps it. The message names the move to the top,
+      // which is the store's doing and not something the user asked for (GC-129).
+      { label: 'Edit message…', onClick: () => void editStashMessage(s) },
       { separator: true },
       { label: 'Drop stash', danger: true, onClick: async () => (await ui.confirm({ title: 'Drop this stash?', message: s.message, okLabel: 'Drop', danger: true })) && run('Dropping stash', () => window.api.stashDrop(repo!, s.index)) },
     ],
-    [repo, run, ui],
+    [editStashMessage, repo, run, ui],
   );
 
   const wipMenuItems = useCallback(

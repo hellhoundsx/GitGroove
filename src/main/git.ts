@@ -617,6 +617,21 @@ export const stashApply = (cwd: string, index: number): Promise<string> => resto
 export const stashPop = (cwd: string, index: number): Promise<string> => restoreStash(cwd, 'pop', index);
 export const stashDrop = (cwd: string, index: number): Promise<string> => runGit(cwd, ['stash', 'drop', '-q', `stash@{${index}}`]);
 
+/**
+ * Edit a stash's message. git has no command for it, so the entry is stored again under the new
+ * message and the old one dropped (GC-129). The order is the whole of it: the sha is read first,
+ * because the drop is what makes it unreachable; the drop runs only once the store has succeeded,
+ * or a failure loses the stash outright; and the drop targets `index + 1`, because `git stash
+ * store` prepends a reflog entry and every stash already in the list shifts down one — dropping
+ * `index` would throw away the neighbour that moved into it and keep the old message as well as
+ * the new. The re-stored entry therefore lands at `stash@{0}`, which is what the dialog says.
+ */
+export async function stashRename(cwd: string, index: number, message: string): Promise<void> {
+  const sha = (await runGit(cwd, ['rev-parse', `stash@{${index}}`])).trim();
+  await runGit(cwd, ['stash', 'store', '-m', message, sha]);
+  await runGit(cwd, ['stash', 'drop', '-q', `stash@{${index + 1}}`]);
+}
+
 // ---------------------------------------------------------------------------
 // Branches, tags, history
 // ---------------------------------------------------------------------------
