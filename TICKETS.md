@@ -370,12 +370,12 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | done |
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | done |
 | GC-161 | The checkout guard stashes untracked files without saying so, now that its neighbour does | ui | S | P3 | done |
-| GC-129 | A stash message cannot be edited once the stash is made | actions | S | P3 | todo |
-| GC-134 | remoteCopyOf is inline and untested, and its comment justifies a state git forbids | tests | S | P3 | todo |
-| GC-135 | Nothing says how long ago anything happened, and the stash date is fetched and thrown away | ui | M | P3 | todo |
-| GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | todo |
-| GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | todo |
-| GC-122 | The graph does not scroll while a branch is being dragged | graph | S | P3 | todo |
+| GC-129 | A stash message cannot be edited once the stash is made | actions | S | P3 | in-progress |
+| GC-134 | remoteCopyOf is inline and untested, and its comment justifies a state git forbids | tests | S | P3 | in-progress |
+| GC-135 | Nothing says how long ago anything happened, and the stash date is fetched and thrown away | ui | M | P3 | in-progress |
+| GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | in-progress |
+| GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | in-progress |
+| GC-122 | The graph does not scroll while a branch is being dragged | graph | S | P3 | in-progress |
 | GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | todo |
 | GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | todo |
 | GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | todo |
@@ -446,7 +446,7 @@ decision is missing.
 
 ### GC-102 The window is built dark whatever the theme is, so a light start flashes and keeps dark controls
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-013
 - **Why:** GC-013 gave the app a light theme, and the renderer repaints the OS window controls
@@ -479,6 +479,7 @@ decision is missing.
   - 2026-09-06 05:00 proposed by GC-013 (this ticket): the light theme is complete inside the
     renderer, but `createWindow` has two hard-coded dark literals it cannot see past. Noticed while
     taking the both-themes screenshots the ticket's acceptance asks for.
+  - 2026-09-06 13:25 claimed
 
 ---
 
@@ -591,7 +592,7 @@ decision is missing.
 
 ### GC-117 A graph column switched on in Preferences can be silently absent
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-116
 - **Why:** GC-116 made the AUTHOR / DATE / SHA columns the last thing to give way: once the ref
@@ -622,12 +623,13 @@ decision is missing.
   - 2026-09-06 08:55 proposed by GC-116 (this ticket): measured while confirming GC-116's own
     acceptance — at 900 all three columns are gone from the graph and all three are still checked in
     the dialog.
+  - 2026-09-06 13:25 claimed
 
 ---
 
 ### GC-122 The graph does not scroll while a branch is being dragged
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-015
 - **Why:** A drag started on a chip can only be dropped on a chip that is already on screen. The
@@ -652,6 +654,7 @@ decision is missing.
   `scrollTop` has moved; screenshot.
 - **Log:**
   - 2026-09-06 proposed by GC-015 (this ticket): the drag it added can only reach what is drawn.
+  - 2026-09-06 13:25 claimed
 
 ---
 
@@ -817,7 +820,7 @@ decision is missing.
 
 ### GC-129 A stash message cannot be edited once the stash is made
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `stashMenuItems` offers Apply, Pop and Drop. The study's Stash row lists Apply, Pop,
@@ -850,12 +853,13 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-014: from the what's-next pass; the last unshipped entry on the
     study's Stash row, and small enough to ride along in a batch of P3s.
+  - 2026-09-06 13:25 claimed
 
 ---
 
 ### GC-134 remoteCopyOf is inline and untested, and its comment justifies a state git forbids
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-112
 - **Why:** GC-112's `remoteCopyOf` (`src/renderer/src/App.tsx:815`) answers "where else does this
@@ -900,12 +904,13 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-015: from the code-review pass; the convention the rest of the
     codebase follows, plus a justification checked against git and found false.
+  - 2026-09-06 13:25 claimed
 
 ---
 
 ### GC-135 Nothing says how long ago anything happened, and the stash date is fetched and thrown away
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P3
 - **Depends on:** GC-133
 - **Why:** `grep -rn "ago" src/renderer/src` finds nothing: every timestamp in this app is an
@@ -951,6 +956,7 @@ decision is missing.
     list are clipped, neither overlapping. A relative form is materially shorter, so this ticket is
     where that row stops being cramped at the minimum; GC-157 only stopped it being cramped at the
     default. No separate ticket filed.
+  - 2026-09-06 13:25 claimed
 
 ---
 
