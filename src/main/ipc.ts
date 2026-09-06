@@ -1,6 +1,6 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { existsSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import type {
   ApplyPatchOptions,
   CheckoutOptions,
@@ -72,6 +72,43 @@ function applyTitleBarOverlay(win: BrowserWindow, theme: ResolvedTheme): void {
 /** The two themes the window controls can be painted for, validated like every other enum (GC-013). */
 const THEMES: readonly ResolvedTheme[] = ['dark', 'light'];
 
+/**
+ * `--bg-app` from each palette, for the same reason the overlay pairs are here: the window is
+ * painted before any renderer exists to ask (GC-102). The dark value used to be a `#1b1d22` of its
+ * own in `index.ts`, one shade off the token it was standing in for.
+ */
+export const WINDOW_BACKGROUND: Record<ResolvedTheme, string> = { dark: '#1c1e23', light: '#f1f2f5' };
+
+/**
+ * The theme setting itself lives in the renderer's `localStorage` — `prefs.ts` resolves `system`
+ * there and reports the answer over `window:theme` (GC-013) — so the main process has no way to
+ * know it at `createWindow` time and built every window dark, whatever the theme (GC-102). It gets
+ * its own copy: one small file under the profile's `userData`, which is per Electron profile, so a
+ * launcher run on its own port cannot change what Ricardo's window opens as (GC-060).
+ *
+ * Read lazily rather than at module scope, because `index.ts` applies `GITCLIENT_USER_DATA` with
+ * `app.setPath` after this module has been imported.
+ */
+const themeFile = (): string => join(app.getPath('userData'), 'window-theme.json');
+
+/** What to build the next window with. A first-ever start has nothing remembered, and stays dark. */
+export function rememberedTheme(): ResolvedTheme {
+  try {
+    const raw = JSON.parse(readFileSync(themeFile(), 'utf8')) as { theme?: unknown };
+    return (THEMES as readonly string[]).includes(raw.theme as string) ? (raw.theme as ResolvedTheme) : 'dark';
+  } catch {
+    return 'dark'; // no file yet, or one edited into something that is not a theme
+  }
+}
+
+function rememberTheme(theme: ResolvedTheme): void {
+  try {
+    writeFileSync(themeFile(), JSON.stringify({ theme }));
+  } catch {
+    /* a profile we cannot write to only costs the next start its first frame */
+  }
+}
+
 /** The three patterns the row menu can write, validated like every other enum argument (GC-093). */
 const IGNORE_KINDS: readonly IgnoreKind[] = ['file', 'extension', 'folder'];
 
@@ -129,8 +166,12 @@ export function registerIpc(): void {
   // The one channel that touches neither git nor the file system: the window controls Windows
   // draws for us, repainted for the theme the renderer resolved (GC-013).
   ipcMain.handle('window:theme', (event, theme: unknown) => {
+    const resolved = oneOf(theme, THEMES, 'A theme');
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) applyTitleBarOverlay(win, oneOf(theme, THEMES, 'A theme'));
+    if (win) applyTitleBarOverlay(win, resolved);
+    // Remembered whether or not there is a window to repaint: what the next start is built with
+    // is the point, and this is the only moment the main process is ever told (GC-102).
+    rememberTheme(resolved);
   });
   // The watcher pushes on `repo:changed`; this is only the renderer saying what to watch (GC-011).
   ipcMain.handle('repo:watch', (event, repo: unknown) => {

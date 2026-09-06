@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
-import { registerIpc, TITLE_BAR_OVERLAY } from './ipc';
+import { registerIpc, rememberedTheme, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND } from './ipc';
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL;
 
@@ -20,6 +20,10 @@ const isStealth = process.env.GITCLIENT_STEALTH === '1';
 if (process.env.GITCLIENT_USER_DATA) app.setPath('userData', process.env.GITCLIENT_USER_DATA);
 
 function createWindow(): BrowserWindow {
+  // What the last renderer on this profile resolved (GC-102). The setting lives in the renderer's
+  // `localStorage`, which does not exist yet, so the window is built from the main process's own
+  // copy and the renderer's first `applyTheme()` then confirms it rather than correcting it.
+  const theme = rememberedTheme();
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -27,11 +31,10 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     ...(isStealth ? { skipTaskbar: true, focusable: false, paintWhenInitiallyHidden: true } : {}),
-    backgroundColor: '#1b1d22',
+    backgroundColor: WINDOW_BACKGROUND[theme],
     // Frameless with the OS window controls overlaid, so the renderer draws its own tabs bar.
     titleBarStyle: 'hidden',
-    // The window opens dark; the renderer repaints it as soon as it knows the theme (GC-013).
-    titleBarOverlay: TITLE_BAR_OVERLAY.dark,
+    titleBarOverlay: TITLE_BAR_OVERLAY[theme],
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
