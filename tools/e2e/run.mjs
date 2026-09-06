@@ -1634,7 +1634,9 @@ await ctrlEnter();
 // the form clears itself only after `actions.commit` resolves, and the staged group empties with the
 // reload behind it, so both together are a strictly later moment than the key press (GC-053)
 await waitFor(
-  `[...document.querySelectorAll('.detail-panel .file-list .group-head span')].some(h => (h.textContent ?? '').toLowerCase().startsWith('staged files (0)')) && document.querySelector('.commit-form .summary-wrap input')?.value === ''`,
+  // The count is its own `.count` beside the title since GC-196, so the group is found by its
+  // title and the number read off the element that holds it, rather than out of one label string.
+  `[...document.querySelectorAll('.detail-panel .file-list .group-head')].some(h => (h.querySelector('.group-toggle span')?.textContent ?? '').toLowerCase() === 'staged files' && h.querySelector('.count')?.textContent === '0') && document.querySelector('.commit-form .summary-wrap input')?.value === ''`,
   'the staged group to empty and the commit form to clear',
   15000,
 );

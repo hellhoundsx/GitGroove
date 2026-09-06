@@ -766,3 +766,69 @@ describe('a hidden detail panel has something on screen to bring it back (GC-136
     expect(document.querySelector('.detail-reveal')).toBeNull();
   });
 });
+
+// GC-202: which failures get the details dialog, and which line the bar draws. GC-169 built the
+// dialog for credential refusals alone, so every other multi-line failure kept its explanation in
+// a `title` with nothing on screen saying there was more to read.
+describe('a failure with more to say than the bar can hold (GC-202)', () => {
+  /** Stage all, and fail it with `message` the way Electron delivers a rejected handler. */
+  async function failStaging(message: string): Promise<void> {
+    (window.api as unknown as { stageAll: () => Promise<void> }).stageAll = () => Promise.reject(new Error(`Error invoking remote method 'workdir:stageAll': ${message}`));
+    await mount();
+    await settle(() => fireEvent.click(screen.getByText('Stage all changes')));
+    // `run()` reloads after the failure and re-applies the error over it.
+    await settle(() => statuses[0]?.resolve(status(UNSTAGED)));
+  }
+
+  const drawn = (): string => document.querySelector('.statusbar .err .line')?.textContent?.trim() ?? '';
+
+  const REJECTED = [
+    'GitError: To C:/tmp/origin.git',
+    ' ! [rejected]        main -> main (non-fast-forward)',
+    "error: failed to push some refs to 'C:/tmp/origin.git'",
+    "hint: use 'git pull' before pushing again.",
+  ].join('\n');
+
+  it('draws the rejection and offers the rest, without opening anything by itself', async () => {
+    await failStaging(REJECTED);
+
+    expect(drawn()).toContain('(non-fast-forward)');
+    expect(drawn()).not.toContain('failed to push some refs');
+    // The action is over and the user may know why, so the dialog is offered, not raised.
+    expect(document.querySelector('.modal.error-details')).toBeNull();
+    expect(screen.getByText('Details')).toBeTruthy();
+
+    await settle(() => fireEvent.click(document.querySelector('.statusbar .err') as HTMLElement));
+    const modal = document.querySelector('.modal.error-details');
+    expect(modal).not.toBeNull();
+    // The whole of git's message, hints included — the lines a one-line bar was dropping.
+    expect(modal?.querySelector('.error-details-text')?.textContent).toContain("hint: use 'git pull' before pushing again.");
+    // Not an auth failure, so neither the title nor the credential note claims it is.
+    expect(modal?.querySelector('h3')?.textContent).toBe('The command failed');
+    expect(modal?.querySelector('.modal-note')).toBeNull();
+  });
+
+  it('leaves a credential refusal exactly as GC-169 left it', async () => {
+    await failStaging(['GitAuthError: Push to origin (https://example.test/r.git) was refused', 'remote: Please re-authorise your token for SSO.', "fatal: unable to access 'https://example.test/r.git/': 403"].join('\n'));
+
+    // The summary the main process composed, not the `fatal:` line `headline` would otherwise pick.
+    expect(drawn()).toContain('Push to origin (https://example.test/r.git) was refused');
+    // And it raises itself, because the user has to go and re-authorise something.
+    const modal = document.querySelector('.modal.error-details');
+    expect(modal).not.toBeNull();
+    expect(modal?.querySelector('h3')?.textContent).toBe('Authentication failed');
+    expect(modal?.querySelector('.modal-note')).not.toBeNull();
+    expect(modal?.querySelector('.error-details-text')?.textContent).toContain('remote: Please re-authorise');
+  });
+
+  it('leaves a one-line failure as it always was: one line, and a click dismisses it', async () => {
+    await failStaging("GitError: error: pathspec 'nope' did not match any file(s) known to git");
+
+    expect(drawn()).toContain("pathspec 'nope' did not match");
+    expect(document.querySelector('.statusbar .err .more')).toBeNull();
+    expect(document.querySelector('.statusbar .err')?.className).not.toContain('has-details');
+
+    await settle(() => fireEvent.click(document.querySelector('.statusbar .err') as HTMLElement));
+    expect(document.querySelector('.statusbar .err')).toBeNull();
+  });
+});

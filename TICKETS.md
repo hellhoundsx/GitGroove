@@ -262,20 +262,15 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-202 | A rejected push draws the least useful line git wrote and hides the four that explain it | ui | S | P1 | in-progress |
-| GC-200 | The lane band's flat edge and the node's arc leave a crescent of untinted row between them | ui | S | P2 | in-progress |
 | GC-203 | `--force-with-lease` is implemented, typed and validated, and no call site can reach it | actions | S | P2 | todo |
-| GC-197 | The staging view's two file lists cannot be collapsed, so Staged is unreachable past 20 files | ui | S | P2 | in-progress |
-| GC-196 | The detail panel's second design pass: an audit against the study before anything changes | ui | M | P2 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-178 | A selected stash says what it is and offers nothing to do with it | ui | S | P3 | in-progress |
-| GC-183 | The graph row's own change readout is the text glyphs GC-143 took out of the panel | ui | S | P3 | in-progress |
 | GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | todo |
 | GC-198 | `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk | infra | S | P3 | todo |
 | GC-199 | A stash row carries five things at a 220px panel and the message gets 48px of them | ui | S | P3 | todo |
 | GC-201 | The lane band is a flat wash where it should read as light coming off the lane | ui | S | P3 | todo |
 | GC-204 | Blame: the file view's third mode, and the last Build row of the study's file panel | diff | M | P3 | todo |
 | GC-205 | The staging view's bottom section keeps its place now, but still cannot be resized | ui | S | P3 | todo |
+| GC-207 | The staging view's two file lists take an equal share of the panel whatever each holds | ui | S | P3 | todo |
 | GC-206 | The detail panel draws every file row, and it is now the box that scrolls | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -406,75 +401,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
-### GC-178 A selected stash says what it is and offers nothing to do with it
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-170
-- **Why:** GC-170's stash row is selectable, and selecting it draws a stash view in the detail
-  panel: the message, its age, the commit it came from and the files it holds. Every other thing
-  the panel can show offers something to do with it — the staging view commits, the commit view
-  restores a file from a commit — and this one offers nothing at all. Applying, popping or dropping
-  the stash the panel is showing means going back to the row and using its context menu, which is
-  the gesture the panel exists to save. `stashMenuItems` already carries the four actions and
-  `App` already hands the graph two stash handlers, so the panel is the one surface that has the
-  stash and not the actions.
-- **Scope:**
-  - The stash view's header gets the actions `stashMenuItems` offers, as buttons or as one menu:
-    Apply, Pop, Edit message, Drop. Wording and confirmation come from that one source, so a stash
-    dropped from here asks exactly what dropping it from the left panel asks.
-  - Whatever runs them goes through `App`'s `run()`, like every other git action.
-- **Out of scope:** the graph row's own gestures (GC-170 settled them), the left panel's row
-  (GC-150, GC-171), and any new stash operation — this is the existing four in a second place.
-- **Acceptance:**
-  - [ ] The stash view offers Apply, Pop, Edit message and Drop, from `stashMenuItems`.
-  - [ ] Dropping from here asks the same question dropping from the left panel asks.
-  - [ ] After an action the panel goes back to what the selection then is, rather than showing a
-        stash that no longer exists.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/App.tsx`,
-  `src/renderer/src/styles/app.css`.
-- **Verify:** `npm test`, build, launch on the scratch repository, take a stash, select its row and
-  drop it from the panel; assert against `git stash list`.
-- **Log:**
-  - 2026-09-06 proposed by GC-170 (this ticket): the stash view it added is the only thing the
-    detail panel can show that offers no action on what it is showing.
-  - 2026-09-06 19:43 claimed
-
----
-
-### GC-183 The graph row's own change readout is the text glyphs GC-143 took out of the panel
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-143
-- **Why:** GC-143 replaced the detail panel's literal `+`, `✎`, `−` and `→` with `FileKindIcon`,
-  so a modified file is the same mark in the readout and in the file row beneath it. The graph's
-  WIP row draws a third rendering of the same three states and was deliberately out of that
-  ticket's scope: `.graph-row .col-msg .readout` is `<span class="add">+ 1</span>`,
-  `<span class="mod">✎ 3</span>`, `<span class="del">− 1</span>` — measured on the fixture's WIP
-  row, which is the row a user looks at most. Its classes are `add`/`mod`/`del` rather than
-  `kind-*`, so it does not even share the panel's colour rule, and `✎` is a font glyph whose
-  weight and shape are whatever Open Sans has, next to a lucide pencil eight pixels away.
-- **Scope:**
-  - The three counts render `FileKindIcon` for their kind, as the detail panel's readout does.
-  - The classes become the `kind-*` the tokens are keyed by, so one rule colours both surfaces.
-  - It is a 22px row in a virtualised list, so check the icons do not change the row's height.
-- **Out of scope:** the WIP row's other contents, and the counts themselves.
-- **Acceptance:**
-  - [ ] The WIP row's readout draws the same mark for a kind that the detail panel draws.
-  - [ ] No text glyph is left in any readout: `grep -n '✎' src/renderer/src` prints nothing.
-  - [ ] The graph row is still 28px and the WIP row still lines up with the rows under it.
-- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
-- **Verify:** `npm test`, build, launch on the scratch repository and zoom on the WIP row.
-- **Log:**
-  - 2026-09-06 proposed by GC-143 (this ticket): found while replacing the panel's glyphs. The
-    ticket named the panel's two renderings and fixed both; this is the third, one surface over,
-    and it was put out of scope rather than missed.
-  - 2026-09-06 19:43 claimed
-
----
-
 ### GC-184 The folded +N block cannot be opened by any driver, so nothing covers it end to end
 
 - **Status:** todo
@@ -513,181 +439,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
     through `.more-drag` instead, which is what showed the gap.
 
 ---
-
-### GC-196 The detail panel's second design pass: an audit against the study before anything changes
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** M | **Priority:** P2
-- **Depends on:** GC-191, GC-192
-- **Why:** GC-142 gave the panel its boundary treatment and GC-143 its file-kind marks, and both
-  landed, but Ricardo's reading of the result is that it still does not look finished. He asked
-  for the panel to be gone over **as a whole** against GitKraken's, with what is wrong written
-  down before anything is changed — which is the opposite order from the four defects that came
-  out of the same look and are already tickets of their own (GC-191, GC-192, and the group heads
-  in GC-197).
-  What is left after those three is the part no single measurement settles: spacing, the type
-  scale, the file rows and their hover actions, the group heads' weight, and the commit form's
-  own composition. `docs/reference/gitkraken/04-panels.md` describes both views in order — the
-  36px header bar, the controls row with its Path | Tree toggle, the two lists with their action
-  buttons and per-row hover button, and the bottom section's tabs, amend checkbox, message box
-  with counter, description, commit options and primary button whose **label states what it will
-  do** ("Commit changes to N files") — and it is specific enough to audit against line by line.
-  This ticket exists because a pass done as a list of small edits is how a panel ends up looking
-  assembled rather than designed, and because the finding list is what Ricardo asked for first.
-- **Scope:**
-  - **First, and before any edit:** a written audit in this ticket's Log — one line per finding,
-    each naming the surface, what the study says, what ours does, and a measurement or a
-    screenshot reference. Cover, at minimum: the header bar and its buttons; the group heads'
-    weight and their action buttons; a file row's height, type scale and hover actions in both
-    views; the commit form's field sizes, the amend row, the counter and the primary button's
-    label; the commit view's author block, its change readout and its ref chips; and the vertical
-    rhythm between the panel's sections.
-  - Then the changes the audit names, each traceable to one of its lines. A finding worth its own
-    ticket — anything L-shaped, or any behaviour rather than appearance — is filed as one and
-    named in the Log instead of being done here.
-  - Screenshots of both views before and after, at the default panel width and at 300px, in
-    `docs/screenshots/`.
-  - Every colour and metric a token in `tokens.css` (`CLAUDE.md`, Styling).
-- **Out of scope:** the panel's vertical composition (GC-191), the file rows' path layout
-  (GC-192), collapsible group heads (GC-197), the graph row's own readout (GC-183), and the
-  features the study lists that we have not built — the Path | Tree toggle, the Stash and Cloud
-  Patch tabs, commit options, and anything AI.
-- **Acceptance:**
-  - [ ] The Log holds the written audit, and it was written before the first code change in this
-        ticket's commits — visible in the commit order.
-  - [ ] Every change made is traceable to one line of that audit; anything in the audit that was
-        **not** done says why, or names the ticket that will.
-  - [ ] Both views screenshotted before and after, at two panel widths, and looked at.
-  - [ ] `npm test` and `npm run typecheck` pass; no `rgba()` or hex added to `app.css`.
-  - [ ] Nothing GC-191, GC-192 or GC-197 owns was changed here.
-- **Files:** `src/renderer/src/components/DetailPanel.tsx`,
-  `src/renderer/src/styles/app.css`, `src/renderer/src/styles/tokens.css`
-- **Verify:** build, launch on a repository with a mixed working tree and a multi-file commit,
-  screenshot both views at 400px and 300px panel widths, and read the panel's measured metrics
-  back over CDP for the numbers the audit cites.
-- **Log:**
-  - 2026-09-06 proposed by GR-024, from Ricardo's inbox: the panel still does not read as
-    finished after GC-142 and GC-143, and the four defects the same look produced are carved off
-    as GC-191, GC-192 and GC-197 so this one is the judgement call that is left — with the
-    finding list as its first deliverable, which is what Ricardo asked for.
-  - 2026-09-06 19:43 claimed
-  - 2026-09-06 20:05 **the audit**, written before any change this ticket makes, from the built app
-    on the scratch repository at panel widths 400 and 300 — `docs/screenshots/gc196-{staging,commit}-before-{400,300}.png`
-    — with every number read back over CDP. One line per finding: surface, what `04-panels.md`
-    says, what ours does, the measurement, and the verdict.
-    - **Staging header, centring.** Study line 66: "centred 'N file change(s) on <branch chip>'".
-      Ours is `justify-content: space-between` over three children — a 24px trash button, the
-      label, and an **empty `<span/>`** standing where GitKraken's AI button is. An empty item is
-      0px, so the slack is split around 24px on one side and 0 on the other and the label's centre
-      lands 12px — exactly half the button — right of the head's: measured head centre 1200.5,
-      label centre 1212.5 at 400px, and 1250.5 / 1262.5 at 300px, so the error is the button's
-      half-width at every width. **Fix here.**
-    - **Staging header, the branch.** Study says the branch is a chip; ours is `on **main**` in
-      bold text. **Not done here**: the head already draws real chips in the commit view, and
-      making this one a `RefChip` is a behaviour question (does it take the ref menu?) rather than
-      a spacing one. Left, with no ticket — it is one word of styling and reads correctly today.
-    - **Group heads, weight.** Ours is 14px at weight **400** on `--bg-panel` over the body's
-      `--bg-app` (measured rgb(39,42,49) on rgb(28,30,35), so GC-142's band does exist and reads).
-      The weight does not: at 400 it is body text one size up rather than a heading, and every
-      other heading in the app — the left panel's section heads — is bold. **Fix here.**
-    - **Group heads, the count.** Ours is inside the label string, `Unstaged Files (3)`, where the
-      left panel's section head has the count as its own right-aligned element. Same kind of thing,
-      two renderings. **Fix here**, taking the left panel's shape.
-    - **Group heads, the action button.** One per head, `Stage all changes` / `Unstage all`, which
-      is the study's own pair, and the commit view's head carries none because there is nothing to
-      stage in a commit. **Correct as it is.**
-    - **File rows.** 26px, 12px type, `0 8px` padding, 8px gap, and the actions are `display: none`
-      until `:hover` — measured `none` on an unhovered row. That is the study's line 70 exactly.
-      **Correct as it is.**
-    - **The two lists' share.** Both are `flex: 1 1 auto`, so they take an **equal** share whatever
-      they hold: measured at 400px, Unstaged 260px for 112px of content and Staged 247px for 86px,
-      309px of the 756px body — 41% — ruled empty under five rows. The study has the lists sharing
-      the vertical space, so filling the panel is right; sharing it *equally* is not, and the app's
-      own answer is one panel over (`fitSections`, GC-153: what each asks for, then level by
-      level). **Not done here**: it is behaviour, not appearance, and M-shaped. Filed as GC-207.
-    - **Commit form.** Summary input 38px, description 70px, 8px gaps, 201px in total, and the
-      primary button already reads `Commit changes to N files` when it can commit and
-      `Stage changes to commit` / `Enter a summary to commit` when it cannot — which is the
-      study's line 79 requirement, met. The study's own section is ~275px and **resizable**; ours
-      is fixed. **Not done here**: GC-205 owns the resize.
-    - **Commit view, the author block at 300px.** `parent: 7774cac` is given a **46px** column for
-      49px of wrapped text and comes out 2.5 lines and 40px tall inside a 53px block, with the sha
-      cut at the panel's edge (`gc196-commit-before-300.png`). GC-157 made the parents column the
-      one that gives way; the measurement says it gives way past legibility while the date, which
-      can ellipsise, keeps 165px and wants exactly 165 — so there is nothing to take from it
-      either. At 300px the row simply does not hold three things. **Fix here**, by letting the
-      parents fall to a line of its own instead of being crushed on this one.
-    - **Commit view, the ref chips.** Two chips, 92.3 and 126.4px, right edge 1388 against a
-      content edge of 1388: overflow **0** at both widths, wrapping to a second line at 300px and
-      growing the head to 57px, which is what GC-087 designed. **Correct as it is.**
-    - **Commit view, the change readout.** `1 added`, one `svg.kind` mark, the same one the file
-      row below it draws (GC-143). **Correct as it is.**
-    - **Vertical rhythm.** `.detail-body` gap 12px, and each section 1px rule plus 12px
-      padding-top, so between two sections it is 12px, rule, 12px — symmetric, and the cards carry
-      their own border. **Correct as it is.**
-    - **Type scale.** Head bar 12px, group heads 14px, rows 12px, readout 12px: the panel's own
-      title is the smallest text in it while a list's heading is the largest. **Considered and
-      left**: the head bar is chrome and the group heads are content, so a content heading
-      outranking a chrome label is defensible, and moving either moves a metric three surfaces
-      share. Recorded here so the next pass does not have to measure it again.
-
----
-
-### GC-197 The staging view's two file lists cannot be collapsed, so Staged is unreachable past 20 files
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P2
-- **Depends on:** GC-191
-- **Why:** `docs/reference/gitkraken/04-panels.md` line 62 describes the staging view as "two
-  **collapsible** lists sharing the vertical space". Ours are two `.file-list` blocks whose
-  `.group-head` carries a count and a Stage-all / Unstage-all button and nothing that closes it.
-  Measured on 2026-09-06 with 29 unstaged files and 0 staged: the Unstaged list rendered 788px and
-  the Staged head sat below it, so reaching the group you are staging **into** means scrolling
-  past every row of the group you are staging **from**. The same is true in reverse while
-  unstaging a large change.
-  The app already has the answer one panel over: GC-153 gave the left panel four sections that
-  share its height under heads that never scroll away, with the closed set remembered and
-  `fitSections` deciding the share, and GC-139 established the shape for remembering which groups
-  are closed per repository. This is that pattern applied to the two lists whose counts already
-  read like section heads. GC-191 is a dependency because it decides which block in
-  `.detail-body` scrolls, and a collapse that fights a crushed message box would be measured
-  against the wrong layout.
-- **Scope:**
-  - Each group head toggles its list, with a chevron on the head like the left panel's sections,
-    and the head's count and action button unaffected by the state.
-  - A closed group is its head and nothing more, and the open group takes the room it releases.
-  - Collapsing is state, not a preference: it goes on its own `gitclient.*` key, per repository
-    like `gitclient.folded.<repoPath>` (GC-139), or is session-only — say which and why. Either
-    way a group that has entries and was never touched starts **open**.
-  - A group that becomes empty must not leave a stale closed state that hides the rows when it
-    fills again.
-  - The Conflicted group (GC-181) takes the same treatment, since it is a third group in the same
-    column.
-- **Out of scope:** dragging the boundary between the two lists (the left panel's
-  `useBoundaryDrag` is a bigger ask and can be its own ticket), the commit view's single file
-  list, and everything GC-191 and GC-196 own.
-- **Acceptance:**
-  - [ ] Clicking the Unstaged head closes it, and the Staged head moves up to take its place —
-        measured with 29 unstaged entries.
-  - [ ] With one group closed, the other's rows are visible without scrolling at the counts where
-        both together would not fit.
-  - [ ] A group with entries that has never been toggled renders open.
-  - [ ] Whichever persistence is chosen survives — or deliberately does not survive — a reload, as
-        stated in the Log, and is covered by a unit test if it is stored.
-  - [ ] The Conflicted group behaves the same way.
-- **Files:** `src/renderer/src/components/DetailPanel.tsx`,
-  `src/renderer/src/styles/app.css`, possibly `src/renderer/src/App.tsx`
-- **Verify:** build, launch on a repository with about thirty changed files across all three
-  staging states, and drive the two heads over CDP, reading back each list's rect and
-  `.detail-body`'s `scrollHeight` versus `clientHeight` in each state.
-- **Log:**
-  - 2026-09-06 proposed by GR-024: the study calls these lists collapsible and ours are not, and
-    with 29 unstaged files the Unstaged list measured 788px, putting the Staged head — the group
-    you are staging into — below the fold.
-  - 2026-09-06 19:43 claimed
-
----
-
 
 ### GC-198 `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk
 
@@ -777,63 +528,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
-### GC-200 The lane band's flat edge and the node's arc leave a crescent of untinted row between them
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P2
-- **Depends on:** none
-- **Why:** GC-186 put the band right of the node on every row, which is the study's own shape
-  (`03-graph.md` line 45), and it reads as the lane. Where it fails is at the one pixel the two are
-  supposed to meet. `Band` in `GraphCell.tsx` draws `rect x={x + NODE / 2 - 1}` — a **flat** left
-  edge at the node's drawn radius — with `height={BAND_H}` = 22, while the node is a 20px circle
-  whose stroke reaches r = 10. Measured in the running app on 2026-09-06: a commit row's node is
-  `cx 18, r 9` and its band is `x 27, y 3, w 49, h 22`. At x = 27 the circle's outer boundary spans
-  only ±sqrt(10² − 9²) = ±4.36px of the row, so between y 3 and y 9.6, and again between y 18.4 and
-  y 25, the band's square corner stands clear of the arc with the row's own background showing
-  through. Two crescents, one above the meeting point and one below. A **taller** band makes them
-  bigger, not smaller, which is why this cannot be tuned away with `BAND_H`.
-  Zoomed captures at 10x are in `%TEMP%/gitclient-review/GR-025/`: `03-commit-node-zoom.png` is a
-  filled commit node and `02-node-zoom.png` the dashed WIP node, where the wedges are widest
-  because that circle is unfilled against the selected row's accent wash.
-  The study points at a fix as well as the defect: the same line records "a wider app-background
-  **mask** hides lines behind the node", so GitKraken treats the node's neighbourhood as its own
-  region rather than butting a rectangle against a circle.
-- **Scope:**
-  - Make the band and the node meet with nothing showing between them. The straightforward option,
-    since `Band` is already drawn **first** in all three cell kinds and every line and node paints
-    over it, is to start the rect at the node's **centre** (`x`) rather than at `x + NODE / 2 - 1`
-    and let the circle cover what it overlaps. Any answer is fine as long as the acceptance below
-    holds; say in the comment which was chosen and why.
-  - Check all three cell kinds. The commit node is filled (`--bg-panel-raised`); the stash and WIP
-    nodes are filled too (`--bg-panel` / `--bg-app`) but stroked **dashed**, so a band running under
-    them must not show through the gaps in the dash as a tinted ring — read the pixels, do not
-    assume.
-  - A `GraphCell` test pinning the band's geometry against the node's, so the relationship is a
-    number rather than a screenshot.
-- **Out of scope:** the band's paint, which is GC-201; its height, its tint and whether it is drawn
-  at all, all of which GC-186 settled; the chip connector left of the node (GC-186), which is a
-  separate 2px line; and the selected row's accent wash.
-- **Acceptance:**
-  - [ ] On a commit row, a stash row and the WIP row, no row-background pixel lies between the
-        node's outer edge and the band, at any y the band covers — read back over CDP or asserted
-        in a unit test, not eyeballed.
-  - [ ] A dashed node (stash, WIP) shows no band through the gaps in its stroke.
-  - [ ] Every line and node still paints over the band: GC-186's "drawn first" property is
-        unchanged in all three cell kinds.
-  - [ ] `npm run typecheck` and `npm test` pass; no colour added to a stylesheet.
-- **Files:** `src/renderer/src/graph/GraphCell.tsx`,
-  `src/renderer/src/graph/GraphCell.test.tsx` (or the nearest existing home)
-- **Verify:** build, launch through `tools/launch-app.mjs`, and capture `Page.captureScreenshot`
-  clips at `scale: 10` around a commit node, a stash node and the WIP node, before and after, and
-  look at all six.
-- **Log:**
-  - 2026-09-06 proposed by GR-025, from Ricardo's inbox: the band butts a square corner against a
-    circle, so at the measured `cx 18, r 9` / `x 27, h 22` the two touch at exactly one point and
-    leave about 6.6px of untinted row above and below it.
-  - 2026-09-06 19:43 claimed
-
----
-
 ### GC-201 The lane band is a flat wash where it should read as light coming off the lane
 
 - **Status:** todo
@@ -879,65 +573,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-025, from Ricardo's inbox: the band landed and reads well, and the
     remaining complaint is that one opacity across the whole cell reads as a printed rectangle
     rather than as light off the lane.
-
----
-
-### GC-202 A rejected push draws the least useful line git wrote and hides the four that explain it
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P1
-- **Depends on:** none
-- **Why:** Reproduced in the running app on 2026-09-06 on the review's own scratch repository, by
-  amending a commit already on `origin` and pressing Push. git wrote seven lines, all of which
-  crossed IPC intact and all of which are sitting on the status bar button's `title`:
-  `! [rejected]        main -> main (non-fast-forward)`, then
-  `error: failed to push some refs to '<url>'`, then four `hint:` lines ending "use 'git pull'
-  before pushing again". What is **drawn** is
-  `error: failed to push some refs to 'C:\Users\...\remote.git'` and nothing else — the one line
-  that names no cause and no remedy, with the path eating most of the width. Screenshot:
-  `%TEMP%/gitclient-review/GR-025/11-push-rejected.png`.
-  Two separate things put it there. `headline()` in `StatusBar.tsx` picks the first line matching
-  `/^(error|fatal):|CONFLICT|failed/i`, and for a push that is the `error:` line rather than the
-  `! [rejected] … (non-fast-forward)` line above it. And GC-169 built exactly the surface this
-  needs — a summary on the bar, the whole of git's message in `AuthErrorDialog`, opened by clicking
-  the summary — but wired `onErrorDetails` to credential failures alone, so every other multi-line
-  failure still dismisses on a click and keeps its explanation in a tooltip. A `title` is not where
-  a remedy belongs: nothing on screen says there is more to read.
-  This is the half of Ricardo's inbox item that stands on its own — it makes **every** push, pull,
-  merge and rebase failure legible, whatever is decided about force pushing in GC-203.
-- **Scope:**
-  - `headline()` picks the line that says *why*. A rejection's reason is on the `! [rejected]`
-    line; keep the existing matches for the cases where they are already right (`fatal:`,
-    `CONFLICT`). Unit-tested against real git output for at least: a non-fast-forward push, a
-    fetch-first rejection, a merge conflict, an auth failure and a single-line error.
-  - The details dialog opens for any failure whose message has more than one line, not only for a
-    credential one: `onErrorDetails` is set whenever there is more to show, and the bar says so — a
-    click must not silently dismiss a message the user has not read all of. Keep GC-169's rule that
-    an ordinary one-line error still dismisses on a click.
-  - `AuthErrorDialog` is the wrong name once it shows more than auth failures; rename it for what it
-    is, or say in the log why it stays.
-  - No change to what `git.ts` sends: the whole message already crosses.
-- **Out of scope:** force pushing (GC-203); the advisory/notice split (GC-091), which is about
-  severity and not about length; and any new IPC.
-- **Acceptance:**
-  - [ ] A push rejected as non-fast-forward draws a line naming the rejection, not "failed to push
-        some refs", asserted on the rendered text.
-  - [ ] The same failure offers the whole of git's message, hints included, in the dialog, reached
-        without hovering anything.
-  - [ ] A one-line failure behaves exactly as it does today: one line, click dismisses.
-  - [ ] A credential failure is unchanged — GC-169's summary line and its dialog both still work.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/renderer/src/components/StatusBar.tsx`,
-  `src/renderer/src/components/StatusBar.test.tsx` (or the nearest existing home),
-  `src/renderer/src/App.tsx`, `src/renderer/src/components/AuthErrorDialog.tsx`,
-  `src/renderer/src/styles/app.css`
-- **Verify:** build, launch through `tools/launch-app.mjs` against a scratch repository whose branch
-  has been amended after pushing, press Push, and read the drawn line and the dialog back over CDP.
-  Never against a real repository.
-- **Log:**
-  - 2026-09-06 proposed by GR-025, from Ricardo's inbox: measured in the app, git's seven lines
-    reach the renderer and sit on a `title` while the bar draws the one line that explains nothing.
-  - 2026-09-06 19:43 claimed
 
 ---
 
@@ -1100,6 +735,50 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-191 (this ticket): its own out-of-scope line names this and files
     nothing, so between GC-191, GC-196 and GC-197 no ticket owns the split the user cannot move.
+
+---
+
+### GC-207 The staging view's two file lists take an equal share of the panel whatever each holds
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-197
+- **Why:** Both `.file-list` blocks are `flex: 1 1 auto` with the same basis, so the space they
+  share is split **equally** rather than by what each is holding. Measured during GC-196's audit at
+  a 400px panel with three unstaged and two staged files: Unstaged was given 260px for 112px of
+  content and Staged 247px for 86px, so 309px of the 756px body — 41% — was ruled empty box under
+  five rows. It goes the other way too: with 32 unstaged and 2 staged, Unstaged got 449px for 32
+  rows while Staged held 57px it could not use, so the group being staged *from* overflowed while
+  the group being staged *into* wasted half of what it had.
+  `docs/reference/gitkraken/04-panels.md` line 62 has the two lists sharing the vertical space, so
+  filling the panel is right and only the split is wrong — and the app already answers this one
+  panel over: `fitSections` (GC-153) gives each section what it asks for, then fills the column
+  level by level, with a floor so a squeezed section keeps rows rather than only its head. GC-197
+  made the imbalance survivable by hand — close the group you are not using — and this is the same
+  question answered without asking the user to.
+- **Scope:**
+  - The two lists (three with Conflicted) share the space by what each is asking for rather than
+    equally, through `fitSections` or the same rule, with `MIN_SECTION_H`'s equivalent as the floor.
+  - A closed group (GC-197) takes no part, exactly as a closed left-panel section does.
+  - The commit form keeps its place at every count, which is GC-191's promise and must not move.
+- **Out of scope:** dragging the boundary between the lists or between the lists and the form
+  (GC-205), virtualising the rows (GC-206), and collapsing (GC-197, done).
+- **Acceptance:**
+  - [ ] With 3 unstaged and 2 staged, neither list is given materially more than its rows need,
+        and the numbers are in this log.
+  - [ ] With ~30 unstaged and 2 staged, Unstaged takes the room Staged cannot use, and Staged keeps
+        its floor.
+  - [ ] `.commit-form` sits at the same place in both cases.
+  - [ ] A unit test for the share, beside the `fitSections` cases.
+- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/ui/useDragWidth.ts`,
+  `src/renderer/src/styles/app.css`
+- **Verify:** build, launch on a repository with about thirty changed files across both states, and
+  read each list's rect and `.detail-body`'s `scrollHeight` versus `clientHeight` back over CDP at
+  both counts.
+- **Log:**
+  - 2026-09-06 proposed by GC-196 (this ticket's batch): its audit measured the equal split as 41%
+    of the body ruled empty at low counts and an overflowing Unstaged list beside an unusable
+    Staged one at high counts, and named it as the one finding worth its own ticket.
 
 ---
 

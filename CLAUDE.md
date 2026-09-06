@@ -418,16 +418,25 @@ under it the moment git answers with its canonical form.
   and `ADVISORY` (`GitAdvisory`, in `shared/types.ts`) is the one word both processes agree on —
   the same name `msg()` already had to strip off the front. A new advisory outcome means passing
   `true` as `GitError`'s fifth argument and nothing else.
-- **A credential refusal is a failure with more to say than a status bar can hold** (GC-169), and
-  it rides on the name the same way: `AUTH_FAILURE` (`GitAuthError`), `GitError`'s sixth argument,
-  which `msg()` strips like the other two. The message under it is a summary line naming the remote
-  and its URL followed by **the whole of what git wrote**, because `headline()` picks the `fatal:`
-  line and that is the one saying 403 and nothing else — the `remote:` lines telling the user to
-  re-authorise are what a one-line bar was dropping. `App` splits the two at the first newline:
-  the summary goes in the bar and `AuthErrorDialog` gets the rest, opening straight away and again
-  whenever the summary is clicked (`onErrorDetails`, which is set only for this kind, so an
-  ordinary error's line still dismisses on a click). `authFailure` is cleared by the next `run()`,
-  so the bar can never offer to reopen a dialog about something else.
+- **Any failure git wrote more than one line about has more to say than a status bar can hold**
+  (GC-169, GC-202), and the dialog is `ErrorDetailsDialog` — named for that rather than for the
+  credential refusal it was built for. `failureParts` in `App.tsx` answers `null` for a one-line
+  failure, which is what leaves that case exactly as it always was: one line, and a click
+  dismisses. For anything longer, `onErrorDetails` is set, the bar draws a `Details` mark beside
+  the headline because a `title` is not an announcement, and the dialog holds git's message
+  **entire** — a rejected push's four `hint:` lines as much as an SSO refusal's `remote:` ones.
+  A credential refusal keeps its two extra properties and nothing else: it rides on the name the
+  way an advisory does (`AUTH_FAILURE` / `GitAuthError`, `GitError`'s sixth argument, stripped by
+  `msg()` like the other two), so its bar line is the **summary the main process composed** rather
+  than `headline()`'s pick, and it is the one kind that opens the dialog by itself, because the
+  user has to go and re-authorise something. `failureDetails` is cleared by the next `run()`, so
+  the bar can never offer to reopen a dialog about something else.
+- **The line the bar draws is the one that says why** (GC-202). `headline()` in `StatusBar.tsx`
+  tries `HEADLINE_PATTERNS` one at a time over every line — the `! [rejected]` line first, whose
+  parenthesis holds the reason, then `CONFLICT`, then `fatal:`, then `error:`, then `failed` — so
+  the choice is by priority and not by which pattern git happened to print first. One pattern
+  holding every alternative matched in document order and drew `error: failed to push some refs to
+  '<url>'`, which names no cause and no remedy and spends the bar's width on a path.
 - **Only the commands that reach a remote may ask for a credential** (GC-169). `RunOptions.prompt`
   is what `runGit` reads for `GIT_TERMINAL_PROMPT`, and only `runRemote` sets it: everything else
   keeps `'0'`, because an unattended `git status` must never sit on a prompt. Such a child is
@@ -773,7 +782,13 @@ opens.
 
 The band is `Band` in `GraphCell.tsx`, drawn **first** in every one of the three cell kinds
 (commit, stash, WIP) so every line and node paints over it: 22px, `.col-msg`'s own height, from the
-node's right edge to the cell's own, at `BAND_TINT` (10%) of the lane colour. On **every** row, not
+node's **centre** to the cell's own edge, at `BAND_TINT` (10%) of the lane colour. From the centre
+because a square corner cannot meet a circle (GC-200): butted against the node's drawn radius the
+two touched at one point and left about 6.6px of untinted row above and below it, two crescents a
+taller band only makes larger. Run under the node and the circle covers what it overlaps, which is
+`03-graph.md` line 45's own "mask" — and the two **dashed** nodes therefore carry a `NodeMask`,
+their own fill taken out to the stroke's outer edge, or the band reads through the gaps in the dash
+as a tinted ring. A solid node needs none: its stroke has no gaps. On **every** row, not
 only the selected and WIP ones the study first recorded — Ricardo's own capture of `catena-feed`
 has it throughout, and a band on some rows only reads as a property of *those commits* rather than
 of the row's lane. 10% because a tint chosen for four rows in nine is a stripe on all nine, and
@@ -1079,8 +1094,33 @@ above it. The marks are 12px, where the app's 1.75 stroke is a hairline, so they
 their own; the pencil is filled instead, because its meaning is the silhouette and a heavier
 outline of the same shape is only a fatter outline. Both are props on the one `Icon` — `weight`
 and `filled`, the latter `fill: currentColor` on the lucide glyph — rather than a second icon
-component: there is one place the app's stroke weight is decided and it stays that way. The
-graph row's own readout is still text and is GC-183.
+component: there is one place the app's stroke weight is decided and it stays that way. **The
+graph's WIP row is the third surface and now the same one** (GC-183): its three counts draw
+`FileKindIcon` under the `kind-*` classes the tokens are keyed by, so the one rule colours the row
+and the panel alike and `app.css` no longer carries a second `.add`/`.mod`/`.del` set for it.
+
+**The staging view's three groups collapse, and a closed one is its head alone** (GC-197). The head
+is a toggle carrying the left panel's own chevron; a closed `.file-list` is `flex: none`, so the
+open group takes the room it releases — measured with 32 unstaged files, the Staged head rose from
+y 591 to 176. The open set is stored on **`gitclient.stagingGroups`**, global rather than per
+repository for GC-177's reason (the same three groups in every repository), holding only the groups
+the user has actually toggled so an untouched one starts open, and pruned of any group that is
+currently empty, or a close made while a group had rows would hide them when it filled again. It is
+`localStorage` read at mount rather than `App` state on purpose: this panel unmounts behind a file
+view and on every tab switch, which is exactly when the arrangement is in use (GC-148). What each
+open group is *given* is still an equal share, which is GC-207.
+
+**The stash view offers what can be done with the stash it is showing** (GC-178): the four rows
+`stashMenuItems` returns, rendered from that list rather than reimplemented, so a stash dropped
+from the panel asks precisely what dropping it from the left panel asks. It needs no guard against
+showing a stash that no longer exists — `selectedStash` is derived from the snapshot, so the panel
+falls back to whatever the selection then is.
+
+**The staging head's title is centred against the head, not against what is left of it** (GC-196):
+`.head-balance` is the trash button's own width mirrored on the other side. The `span` that used to
+close that row had no width but still took the head's gap, which put the title 12px off; a margin
+compensating for the button alone left 4px, the gap's half. An element the same size as the thing
+it mirrors cannot drift that way.
 
 **The file list is the block that gives way; nothing above or below it moves** (GC-191). A flex
 item whose `overflow` is anything but `visible` has an automatic minimum size of **zero**, so
@@ -1115,18 +1155,17 @@ either a **card**, which carries its own border — the message box, a banner, a
 `.readout`, `.file-list` and `.commit-form`, with `:first-child` taking neither. A file list's
 `.group-head` is a band rather than a second hairline, which is what makes Unstaged and Staged read
 as two groups, and the commit view's file list carries the same head so a file list is one thing in
-both views. `.author` is a three-column grid — avatar, identity, parents — so the parents list has
-a place of its own and the authored date ellipsises rather than being wrapped into. **The middle
-column carries a floor and the parents column is the one that gives way** (GC-157): with the
-parents column `auto` it was sized to its content and never shrank, so the flexible middle absorbed
-the whole shortfall and a two-parent commit clipped the date at the *default* 400px panel rather
-than at the 300px minimum. It is now `minmax(min(60%, var(--author-when-w)), 1fr)` against
-`minmax(0, auto)`, and `.parents` carries `max-width: 100%` — `justify-self: end` makes it
-shrink-to-fit and `fit-content` floors at its own min-content whatever the track is, so without the
-cap a 31px track still drew a 52px box that reached back over the date. `--author-when-w` (180px)
-is a measured metric in `tokens.css`: the authored line wants 172px in the one format GC-133
-settled, and the 60% is what lets the floor yield at the panel's minimum instead of cutting the
-parents column to four characters. **The authored line reads the distance, not the instant**
+both views. **`.author` is a wrapping flex row — avatar, identity, parents — and the parents take a
+line of their own rather than being crushed on this one** (GC-142, GC-157, GC-196). It was a
+three-column grid whose parents column gave way, which fixed GC-157's overlap and then went one
+step too far: measured at the panel's 300px minimum, the date's floor resolved to 165px and it
+wanted exactly 165, leaving `parent: 7774cac` a 46px column for 49px of text — 2.5 lines, 40px tall
+in a 53px block, with the sha cut at the panel's edge. Neither could yield to the other because at
+that width the row does not hold three things at all. So the identity is the one flexible item,
+carrying `--author-when-w` as its basis, `.parents` is `flex: none` held right by `margin-left:
+auto`, and the wrap is what happens when even that basis cannot be met: nothing is clipped at any
+width, which the grid could not promise. `--author-when-w` (180px) is a measured metric in
+`tokens.css` — the authored line wants 172px in the one format GC-133 settled. **The authored line reads the distance, not the instant**
 (GC-135): `relativeTime(iso, now)` in `time.ts` beside the two absolute formatters, with the
 absolute string on the line's `title`. `now` is injected so the boundaries are testable rather than
 raced against the clock, a timestamp in the **future** shares the "just now" branch rather than
@@ -1205,6 +1244,7 @@ Remembered **state** deliberately stays on its own keys, never in the blob:
 | `gitclient.detailPanelW` | detail panel width in px (300–720, default 400) |
 | `gitclient.sectionHeights` | the left panel's section heights in px, per section id (GC-153) |
 | `gitclient.sectionOpen` | which of the left panel's sections are open, only the ones toggled (GC-177) |
+| `gitclient.stagingGroups` | which of the staging view's three groups are open, only the ones toggled (GC-197) |
 | `gitclient.pinned.<repoPath>` | the branch pinned to the graph's left column |
 | `gitclient.hidden.<repoPath>` | full names of the refs kept out of the graph |
 | `gitclient.folded.<repoPath>` | the left panel's closed folders, `<section>/<folder path>` (GC-139) |
@@ -1309,7 +1349,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-495 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+521 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
 
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
@@ -1338,7 +1378,7 @@ closed, and a port nobody holds is the fallback.
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
 asserting against git after each step. 42 steps, 314 assertions. It ends with
-`total: 83.5s | git: 386 calls, 23.6s` — measured 2026-09-06, and the clock is worth reading as a
+`total: 80.5s | git: 386 calls, 21.6s` — measured 2026-09-06, and the clock is worth reading as a
 comparison rather than as a constant: the same suite has ended at 45s on an idle machine and takes
 about twice that with another Electron and a build running beside it. The line is
 the run's own clock (GC-080) beside the cost of its own
@@ -1587,6 +1627,12 @@ hover that carries a shape and answers the selected tab as well, a control that 
 drawing a chevron, a modal's horizontal padding on its children so the scrollbar sits at the
 dialog's edge, and the left panel's open set remembered beside its heights (Detail panel, Diff, UI
 layer, Styling, Graph);
+the bar drawing the line that says why rather than the first one matching, every multi-line failure
+offering the whole of git's message with only a credential refusal raising it unasked, the band
+starting at the node's centre with a dashed node masking it, the staging groups collapsing under an
+open set stored where the left panel's is, a stash view offering the stash menu's own rows, the WIP
+row's counts drawn with the panel's file-kind marks, and the author block's parents wrapping rather
+than being crushed (App state, Graph, Detail panel);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control
