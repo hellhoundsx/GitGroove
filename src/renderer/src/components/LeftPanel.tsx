@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
-import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, GitBranch, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react';
+import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, Folder, GitBranch, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
 import type { GitRef, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
 import type { DragHandleProps } from '../ui/useDragWidth';
@@ -63,12 +63,60 @@ function Section({ title, icon, count, defaultOpen = false, actions = [], childr
   );
 }
 
+/**
+ * One node of a section's ref tree (GC-051). `path` is the folder's position inside its section
+ * (`feat`, then `feat/ui`), which is also what the collapsed set is keyed on; `count` is every ref
+ * beneath it at any depth, which is what its row shows — a folder counts refs, never sub-folders.
+ */
+export interface RefFolder {
+  path: string; // '' for the section root, which is never drawn as a row
+  name: string; // the last segment of `path`
+  folders: RefFolder[];
+  leaves: { ref: GitRef; label: string }[];
+  count: number;
+}
+
+/**
+ * Fold a section's refs into folders on the slashes in their names (GC-051), so `feat/a` and
+ * `feat/b` become a `feat` folder with two rows rather than two rows repeating the prefix.
+ *
+ * `label` is the name **relative to the section**, so a remote's branches group without the
+ * remote's own segment: the remote row is already the first level. Order is the order the refs
+ * arrive in — they are sorted before they get here — and a folder takes the position of its first
+ * ref, so nothing jumps around when one is added. A ref cannot collide with a folder of the same
+ * name because git itself refuses to hold `feat` and `feat/a` at once.
+ */
+export function buildRefTree(refs: GitRef[], label: (r: GitRef) => string): RefFolder {
+  const root: RefFolder = { path: '', name: '', folders: [], leaves: [], count: 0 };
+  for (const ref of refs) {
+    const segs = label(ref).split('/').filter((s) => s !== '');
+    if (segs.length === 0) continue; // defensive: a name that is only slashes has no row to draw
+    let node = root;
+    node.count++;
+    for (let i = 0; i < segs.length - 1; i++) {
+      const path = segs.slice(0, i + 1).join('/');
+      let next = node.folders.find((fo) => fo.path === path);
+      if (!next) {
+        next = { path, name: segs[i]!, folders: [], leaves: [], count: 0 };
+        node.folders.push(next);
+      }
+      node = next;
+      node.count++;
+    }
+    node.leaves.push({ ref, label: segs[segs.length - 1]! });
+  }
+  return root;
+}
+
 const abText = (r: GitRef): string => {
   const parts: string[] = [];
   if (r.ahead) parts.push(`↑${r.ahead}`);
   if (r.behind) parts.push(`↓${r.behind}`);
   return parts.join(' ');
 };
+
+/** How a leaf row of one section is drawn: the ref, its name inside its folder, and its depth. */
+type LeafRow = (ref: GitRef, label: string, depth: number) => JSX.Element;
 
 export function LeftPanel(p: Props): JSX.Element {
   const [filter, setFilter] = useState('');
@@ -83,6 +131,15 @@ export function LeftPanel(p: Props): JSX.Element {
   const drag = useRefDrag(p.refDrag);
   const f = filter.trim().toLowerCase();
   const hidden = useMemo(() => new Set(p.hidden), [p.hidden]);
+  // Which folders the user has closed, keyed `<section>/<folder path>` and kept for the session
+  // only (GC-051). Closed rather than open, so a folder that appears later starts expanded.
+  const [closedFolders, setClosedFolders] = useState<ReadonlySet<string>>(new Set());
+  const toggleFolder = (key: string): void =>
+    setClosedFolders((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
 
   const { local, tags, remoteGroups, remoteCount } = useMemo(() => {
     const match = (name: string): boolean => !f || name.toLowerCase().includes(f);
@@ -121,6 +178,88 @@ export function LeftPanel(p: Props): JSX.Element {
         <Icon of={hidden.has(r.fullName) ? EyeOff : Eye} size={12} />
       </button>
     );
+
+  /**
+   * A section's rows: its folders, each with its own rows beneath it, then the refs sitting
+   * directly at this level. A filter forces every folder open — the tree only holds matches by
+   * the time it is built, so a folder that is drawn at all is one holding a match.
+   */
+  const folderRows = (node: RefFolder, section: string, depth: number, leaf: LeafRow): ReactNode => (
+    <>
+      {node.folders.map((fo) => {
+        const key = `${section}/${fo.path}`;
+        const open = f !== '' || !closedFolders.has(key);
+        return (
+          <div key={key}>
+            <div
+              className={`ref-row folder ${open ? 'open' : ''}`}
+              style={{ '--row-depth': depth } as CSSProperties}
+              title={fo.path}
+              onClick={() => toggleFolder(key)}
+            >
+              <Icon of={ChevronRight} size={12} className="chev" />
+              <Icon of={Folder} size={12} className="row-icon" />
+              <span className="row-name">{fo.name}</span>
+              <span className="count">{fo.count}</span>
+            </div>
+            {open && folderRows(fo, section, depth + 1, leaf)}
+          </div>
+        );
+      })}
+      {node.leaves.map((l) => leaf(l.ref, l.label, depth))}
+    </>
+  );
+
+  const localLeaf: LeafRow = (r, label, depth) => (
+    <div
+      key={r.fullName}
+      className={`ref-row ${r.isHead ? 'head' : ''} ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
+      style={{ '--row-depth': depth } as CSSProperties}
+      title={`${r.upstream ? `${r.name} tracks ${r.upstream}` : r.name}${r.name === p.pinnedName ? '\npinned to the left column' : ''}`}
+      onContextMenu={(e) => p.onRefMenu(e, r)}
+      onDoubleClick={() => p.onRefActivate(r)}
+      {...drag.attrs(r)}
+    >
+      <Icon of={r.isHead ? Check : GitBranch} size={12} className="row-icon" />
+      <span className="row-name">{label}</span>
+      {r.name === p.pinnedName && <Icon of={Pin} size={11} className="row-pin" />}
+      <span className="ab">{abText(r)}</span>
+      {eye(r)}
+    </div>
+  );
+
+  const remoteLeaf: LeafRow = (r, label, depth) => (
+    <div
+      key={r.fullName}
+      className={`ref-row nested ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
+      style={{ '--row-depth': depth } as CSSProperties}
+      title={r.name}
+      onContextMenu={(e) => p.onRefMenu(e, r)}
+      onDoubleClick={() => p.onRefActivate(r)}
+      {...drag.attrs(r)}
+    >
+      <Icon of={GitBranch} size={12} className="row-icon" />
+      <span className="row-name">{label}</span>
+      {eye(r)}
+    </div>
+  );
+
+  const tagLeaf: LeafRow = (r, label, depth) => (
+    <div
+      key={r.fullName}
+      className="ref-row"
+      style={{ '--row-depth': depth } as CSSProperties}
+      title={r.name}
+      onContextMenu={(e) => p.onRefMenu(e, r)}
+      onDoubleClick={() => p.onRefActivate(r)}
+    >
+      <Icon of={Tag} size={12} className="row-icon" />
+      <span className="row-name">{label}</span>
+    </div>
+  );
+
+  const localTree = useMemo(() => buildRefTree(local, (r) => r.name), [local]);
+  const tagTree = useMemo(() => buildRefTree(tags, (r) => r.name), [tags]);
 
   const stashes = useMemo(() => p.stashes.filter((s) => !f || s.message.toLowerCase().includes(f)), [p.stashes, f]);
 
@@ -163,22 +302,7 @@ export function LeftPanel(p: Props): JSX.Element {
           defaultOpen
           actions={anyLocalHidden ? [{ icon: Eye, title: 'Show all local branches in the graph', onClick: () => p.onShowAll('head') }] : []}
         >
-          {local.map((r) => (
-            <div
-              key={r.fullName}
-              className={`ref-row ${r.isHead ? 'head' : ''} ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
-              title={`${r.upstream ? `${r.name} tracks ${r.upstream}` : r.name}${r.name === p.pinnedName ? '\npinned to the left column' : ''}`}
-              onContextMenu={(e) => p.onRefMenu(e, r)}
-              onDoubleClick={() => p.onRefActivate(r)}
-              {...drag.attrs(r)}
-            >
-              <Icon of={r.isHead ? Check : GitBranch} size={12} className="row-icon" />
-              <span className="row-name">{r.name}</span>
-              {r.name === p.pinnedName && <Icon of={Pin} size={11} className="row-pin" />}
-              <span className="ab">{abText(r)}</span>
-              {eye(r)}
-            </div>
-          ))}
+          {folderRows(localTree, 'local', 0, localLeaf)}
           {local.length === 0 && <div className="ref-row dim">No local branches</div>}
         </Section>
         <Section
@@ -193,37 +317,23 @@ export function LeftPanel(p: Props): JSX.Element {
         >
           {[...remoteGroups.entries()].map(([remoteName, list]) => {
             const remote = p.remotes.find((r) => r.name === remoteName);
+            // The remote's own row is the first level, so its branches are folded one deeper and
+            // without the remote's segment, which the row above already carries.
+            const tree = buildRefTree(list, (r) => r.name.slice(remoteName.length + 1));
             return (
               <div key={remoteName}>
                 <div className="ref-row remote-group" title={remote?.fetchUrl} onContextMenu={(e) => remote && p.onRemoteMenu(e, remote)}>
                   <Icon of={Cloud} size={12} className="row-icon" />
                   <span className="row-name">{remoteName}</span>
                 </div>
-                {list.map((r) => (
-                  <div
-                    key={r.fullName}
-                    className={`ref-row nested ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
-                    onContextMenu={(e) => p.onRefMenu(e, r)}
-                    onDoubleClick={() => p.onRefActivate(r)}
-                    {...drag.attrs(r)}
-                  >
-                    <Icon of={GitBranch} size={12} className="row-icon" />
-                    <span className="row-name">{r.name.slice(remoteName.length + 1)}</span>
-                    {eye(r)}
-                  </div>
-                ))}
+                {folderRows(tree, `remote:${remoteName}`, 1, remoteLeaf)}
               </div>
             );
           })}
           {remoteGroups.size === 0 && <div className="ref-row dim">No remotes</div>}
         </Section>
         <Section title="Tags" icon={Tag} count={tags.length}>
-          {tags.map((r) => (
-            <div key={r.fullName} className="ref-row" onContextMenu={(e) => p.onRefMenu(e, r)} onDoubleClick={() => p.onRefActivate(r)}>
-              <Icon of={Tag} size={12} className="row-icon" />
-              <span className="row-name">{r.name}</span>
-            </div>
-          ))}
+          {folderRows(tagTree, 'tags', 0, tagLeaf)}
         </Section>
         <Section title="Stashes" icon={Archive} count={stashes.length} defaultOpen={stashes.length > 0}>
           {stashes.map((s) => (

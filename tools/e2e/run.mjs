@@ -296,7 +296,7 @@ const contextMenuOn = async (selector, text) => {
 const CHIP_SEL = '.graph-row .col-ref > .ref-chip';
 /** Local branch rows in the left panel. Nested remote rows are excluded: they draw the branch name
  *  without its remote, so `origin/feature` and `feature` would both answer to "feature". */
-const ROW_SEL = '.left-panel .ref-row:not(.nested):not(.remote-group):not(.dim)';
+const ROW_SEL = '.left-panel .ref-row:not(.nested):not(.remote-group):not(.folder):not(.dim)';
 /** The element standing for one ref: a chip carries the name itself, a row carries it in `.row-name`. */
 const refEl = (sel, name) => `[...document.querySelectorAll(${q(sel)})].find(x => ((x.querySelector('.row-name') ?? x).textContent ?? '').trim() === ${q(name)})`;
 /**
@@ -2384,7 +2384,71 @@ const staging = await state();
 check('View changes selects the working-directory row and its staging view', (await ev(`!document.querySelector('.detail-panel .banner.info')`)) === true, JSON.stringify(staging));
 check('and the banner was counting exactly what that view counts', String(staging.detailHead).startsWith(`${bannerCount} file change`), `${staging.detailHead} | the banner said ${bannerCount}`);
 
-step(36, 'the run leaves the fixture exactly as it found it');
+step(36, 'slash-separated branch names fold into collapsible folders in the left panel');
+// GC-051. Every branch in the fixture is a single segment, so the tree this asserts on has to be
+// made here, with git and behind the app's back, the way step 23 makes the branch it needs. Both
+// are deleted again below, and the prologue's own sweep of branches missing from the baseline
+// takes them if a run dies in between.
+git(['branch', 'feat/alpha', 'main']);
+git(['branch', 'feat/beta', 'main']);
+log(await act(() => tool('Refresh')));
+const LEAF_SEL = '.left-panel .ref-row:not(.folder):not(.remote-group):not(.nested):not(.dim)';
+const FEAT_FOLDER = `[...document.querySelectorAll('.left-panel .ref-row.folder')].find(x => x.querySelector('.row-name')?.textContent === 'feat')`;
+const leafNames = () => ev(`[...document.querySelectorAll(${q(LEAF_SEL)})].map(x => x.querySelector('.row-name')?.textContent ?? '').join(' | ')`);
+const leafDepth = (name) => ev(`[...document.querySelectorAll(${q(LEAF_SEL)})].find(x => x.querySelector('.row-name')?.textContent === ${q(name)})?.style.getPropertyValue('--row-depth') ?? null`);
+const folderState = () =>
+  ev(`(() => { const f = ${FEAT_FOLDER}; return f ? JSON.stringify({ count: f.querySelector('.count')?.textContent, open: f.classList.contains('open'), depth: f.style.getPropertyValue('--row-depth') }) : null; })()`);
+const clickFolder = () =>
+  liveClick('the feat folder row', `(() => { const f = ${FEAT_FOLDER}; if (!f) return 'MISS no feat folder row'; f.click(); return 'clicked the feat folder'; })()`);
+const filterRefs = (text) =>
+  liveClick(`the ref filter, to type ${text}`, `(() => { const i = document.querySelector('.left-panel input.filter'); if (!i) return 'MISS no ref filter'; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, ${q(text)}); i.dispatchEvent(new Event('input', { bubbles: true })); return 'filtered by ' + ${q(text)}; })()`);
+
+await waitFor(`!!${FEAT_FOLDER}`, 'the feat folder row');
+const openFolder = JSON.parse(String(await folderState()));
+check('the two branches fold into one folder row, counting refs and starting open', openFolder.count === '2' && openFolder.open === true, JSON.stringify(openFolder));
+const withFolder = String(await leafNames());
+check('the rows beneath it carry the segment, not the whole name', / alpha | beta /.test(` ${withFolder} `) && !withFolder.includes('feat/'), withFolder);
+check(
+  'a name with no slash is a row at depth 0, one inside a folder is at depth 1',
+  (await leafDepth('main')) === '0' && (await leafDepth('alpha')) === '1',
+  `main=${await leafDepth('main')} alpha=${await leafDepth('alpha')} folder=${openFolder.depth}`,
+);
+const viewingWithFolders = await viewingCount();
+await shot('14-branch-folders.png');
+
+log(await clickFolder());
+await waitFor(`${FEAT_FOLDER} && !${FEAT_FOLDER}.classList.contains('open')`, 'the feat folder to close');
+const closed = String(await leafNames());
+check('collapsing takes its rows with it and leaves the folder', !closed.includes('alpha') && !closed.includes('beta') && (await ev(`!!${FEAT_FOLDER}`)) === true, closed);
+check('"Viewing" still counts refs, not folders', (await viewingCount()) === viewingWithFolders, `${await viewingCount()} / ${viewingWithFolders}`);
+
+// The filter matches the full ref name and forces open every folder holding a match — including
+// the one just closed, which is the case a collapsed set left to itself would hide a match behind.
+log(await filterRefs('feat/beta'));
+await waitFor(`${FEAT_FOLDER}?.classList.contains('open') === true`, 'the filter to force the folder open');
+const filtered = String(await leafNames());
+check('a filter shows only the matching row, inside its folder, open', filtered === 'beta', filtered);
+log(await filterRefs(''));
+await waitFor(`${FEAT_FOLDER} && !${FEAT_FOLDER}.classList.contains('open')`, 'the folder to go back to closed');
+log(await clickFolder());
+await waitFor(`${FEAT_FOLDER}?.classList.contains('open') === true`, 'the feat folder to open again');
+check('clearing the filter restores the list, and the folder is as the user left it', String(await leafNames()) === withFolder, `${await leafNames()} | before: ${withFolder}`);
+
+// The row stands for the whole ref even though it draws one segment: its menu says so.
+log(await contextMenuOn(LEAF_SEL, 'alpha'));
+const leafMenu = await menuList();
+check('a row inside a folder opens the ref menu for its full name', leafMenu.includes('Delete feat/alpha') && leafMenu.includes('Checkout feat/alpha'), leafMenu);
+log(await menuClick('Delete feat/alpha'));
+await waitModal();
+log(await act(() => modalOk()));
+const afterDelete = git(['branch', '--format=%(refname:short)']).split('\n');
+check('and deletes that branch, not the segment', !afterDelete.includes('feat/alpha') && afterDelete.includes('feat/beta'), afterDelete.join(' '));
+git(['branch', '-D', 'feat/beta']);
+log(await act(() => tool('Refresh')));
+await waitFor(`!${FEAT_FOLDER}`, 'the folder row to go with its last branch');
+check('the folder goes when its last ref does', !git(['branch', '--format=%(refname:short)']).includes('feat/'), git(['branch', '--format=%(refname:short)']).replace(/\n/g, ' '));
+
+step(37, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

@@ -454,7 +454,8 @@ input[type='radio']:disabled {
   align-items: center;
   gap: var(--sp-2);
   height: 26px;
-  padding-left: 26px;
+  /* 16px per folder level (GC-051); a row outside a folder is at depth 0 and unchanged. */
+  padding-left: calc(26px + var(--row-depth, 0) * 16px);
   padding-right: var(--sp-2);
   font-size: var(--fs-sm);
   white-space: nowrap;
@@ -474,12 +475,24 @@ input[type='radio']:disabled {
   color: var(--text-dim);
   font-size: var(--fs-xs);
 }
-.ref-row.remote-group {
-  padding-left: 14px;
+.ref-row.remote-group,
+.ref-row.folder {
+  padding-left: calc(14px + var(--row-depth, 0) * 16px);
   color: var(--text-muted);
 }
-.ref-row.nested {
-  padding-left: 40px;
+/* A folder row (GC-051): the chevron turns as it opens, the way a section header's does, and the
+   count is refs beneath it at any depth, never sub-folders. */
+.ref-row.folder .chev {
+  flex: none;
+  transition: transform 0.12s;
+}
+.ref-row.folder.open .chev {
+  transform: rotate(90deg);
+}
+.ref-row.folder .count {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
 }
 .ref-row .row-icon {
   flex: none;
