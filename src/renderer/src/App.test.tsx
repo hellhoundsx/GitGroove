@@ -51,6 +51,8 @@ let loadArgs: { path: string; maxCommits?: number; exclude?: string[] }[] = [];
 let statuses: Deferred<RepoStatus>[] = [];
 /** The watcher subscription `App` registers, so a case can push a `repo:changed` by hand. */
 let repoChanged: ((change: RepoChange) => void) | null = null;
+/** Every branch `checkout` reached git with, so a case can tell a silent checkout from a guarded one (GC-124). */
+let checkouts: string[] = [];
 
 const status = (entries: StatusEntry[]): RepoStatus => ({ branch: 'main', upstream: null, ahead: 0, behind: 0, entries, operation: null });
 
@@ -72,6 +74,7 @@ beforeEach(() => {
   loadArgs = [];
   statuses = [];
   repoChanged = null;
+  checkouts = [];
   // Avatars are gated inside `useGravatar`, so switching them off keeps the render clear of
   // `crypto.subtle` and of any gravatar.com request.
   setPrefs({ avatars: false });
@@ -90,6 +93,9 @@ beforeEach(() => {
       return d.promise;
     },
     stageAll: async () => undefined,
+    checkout: async (_path: string, name: string) => {
+      checkouts.push(name);
+    },
     // The commit view lists a commit's files; every case here is about which commit is selected,
     // not about what it touched (GC-016).
     getCommitFiles: async () => [],
@@ -669,5 +675,59 @@ describe('App parks the commit message with the tab it was written in (GC-148)',
     await settle(() => fireEvent.click(screen.getByTitle('Open repository')));
     await settle(() => loads[loads.length - 1]?.resolve(withCommits('/third-repo', ['third'])));
     expect(summaryField().value).toBe('');
+  });
+});
+
+// GC-124: the dirty-tree guard used to count the working tree as it was when the callback holding
+// it was built. `runOnBranch` awaits a checkout before calling the sequencer's guard, so what the
+// guard measured and what git was about to act on were two different trees. Nothing was wrong
+// while both checkout paths left the same index — it was a trap, not a bug — and the shape of it
+// is reproducible from any menu that outlives a status change: the rows a `ContextMenu` is opened
+// with are captured, so their handlers are the closures from that render.
+describe('the checkout guard counts the tree as it is when it runs (GC-124)', () => {
+  const REFS = [
+    { name: 'main', fullName: 'refs/heads/main', kind: 'head' as const, sha: 'a'.repeat(40), isHead: true },
+    { name: 'feature', fullName: 'refs/heads/feature', kind: 'head' as const, sha: 'b'.repeat(40), isHead: false },
+  ];
+  const withRefs = (entries: StatusEntry[]): RepoSnapshot => ({ ...snapshot(entries), refs: REFS });
+
+  /** Opens the branch menu over a clean tree, then dirties the tree behind it via the watcher. */
+  async function menuThenDirty(): Promise<void> {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withRefs([])));
+    await settle(() => fireEvent.click(screen.getByTitle('Switch branch')));
+    // The rows are captured, so `checkoutRef` in them is this render's closure.
+    await settle(() => repoChanged?.({ repo: REPO, scope: 'tree' }));
+    await settle(() => statuses[0]?.resolve(status(UNSTAGED)));
+    expect(groupCount('Unstaged')).toBe(1);
+  }
+
+  it('asks about a file that appeared after the menu was opened', async () => {
+    await menuThenDirty();
+    await settle(() => fireEvent.click(recentRow('feature')));
+    // The closure's snapshot was clean, so the old guard checked out silently. The ref is not.
+    expect(screen.getByText(/uncommitted changes in 1 file/i)).not.toBeNull();
+    expect(checkouts).toEqual([]);
+  });
+
+  it('stays silent when the file that was there has gone', async () => {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withRefs(UNSTAGED)));
+    await settle(() => fireEvent.click(screen.getByTitle('Switch branch')));
+    // The other direction: the tree the closure holds is dirty and the live one is clean, so the
+    // guard must not ask about a file nobody would be losing.
+    await settle(() => repoChanged?.({ repo: REPO, scope: 'tree' }));
+    await settle(() => statuses[0]?.resolve(status([])));
+    await settle(() => fireEvent.click(recentRow('feature')));
+    expect(document.querySelector('.modal')).toBeNull();
+    expect(checkouts).toEqual(['feature']);
   });
 });

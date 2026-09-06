@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type JSX, type MouseEvent } from 'react';
-import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
+import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, RepoStatus, Stash, StatusEntry } from '@shared/types';
 import { ADVISORY } from '@shared/types';
 import { defaultRemote, remoteCopyOf } from '@shared/remotes';
 import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type OptCols, type PanelFit } from './ui/useDragWidth';
@@ -294,6 +294,18 @@ export function App(): JSX.Element {
   // what stops that callback from being rebuilt on every keystroke in the find bar (GC-016).
   const live = useRef<TabState>({ snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current, draft });
   live.current = { snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current, draft };
+
+  /**
+   * The working tree as the last snapshot to land describes it, mirrored the same way (GC-124).
+   * `runCheckout` and `runSequencer` count what is at risk or staged, and `runOnBranch` composes
+   * them — it checks a branch out and *then* runs the sequencer, so the guard reading the closure's
+   * `snapshot` was counting the tree as it was before that checkout. Nothing is wrong today, since
+   * both checkout paths leave the same index the guard measured; it is the day one of them stops
+   * that this exists for, when the guard would offer to stash nothing and the pop that follows
+   * would take an unrelated stash off the list.
+   */
+  const statusRef = useRef<RepoStatus | null>(snapshot?.status ?? null);
+  statusRef.current = snapshot?.status ?? null;
 
   // The recents list is state here and one JSON blob in localStorage; writing it from an effect
   // keeps the updaters below pure (GC-044).
@@ -1020,7 +1032,9 @@ export function App(): JSX.Element {
       // Untracked files come across a checkout untouched, so a tree holding nothing else is not at
       // risk and must not be asked about (GC-019); the count names the files that are, which is the
       // staging list minus those untracked rows.
-      const entries = snapshot?.status.entries ?? [];
+      // The tree as it is at the moment the guard runs, not as it was when this callback was
+      // built: `runOnBranch` awaits a checkout before it gets here (GC-124).
+      const entries = statusRef.current?.entries ?? [];
       const atRisk = entries.filter((e) => !(e.staged === null && e.unstaged === 'untracked'));
       // …but "Stash and check out" below does pass `includeUntracked`, because an untracked file
       // can be in the way of a checkout even though an untouched one is not at risk. So the count
@@ -1055,7 +1069,7 @@ export function App(): JSX.Element {
       }
       await run(`Checking out ${name}`, doCheckout);
     },
-    [prefs.confirmDirtyCheckout, repo, run, snapshot, ui],
+    [prefs.confirmDirtyCheckout, repo, run, ui],
   );
 
   // git refuses to start a cherry-pick, a revert, a merge or a rebase while anything is staged: it
@@ -1066,7 +1080,9 @@ export function App(): JSX.Element {
   // carries those into the action.
   const runSequencer = useCallback(
     async (what: string, label: string, action: () => Promise<unknown>): Promise<void> => {
-      const staged = (snapshot?.status.entries ?? []).filter((e) => e.staged !== null || e.unstaged === 'conflicted');
+      // Read now rather than closed over, for the same reason: the checkout `runOnBranch` runs
+      // first has already changed the tree this counts (GC-124).
+      const staged = (statusRef.current?.entries ?? []).filter((e) => e.staged !== null || e.unstaged === 'conflicted');
       if (!staged.length) {
         await run(label, action);
         return;
@@ -1103,7 +1119,7 @@ export function App(): JSX.Element {
         await window.api.stashPop(repo!, 0);
       });
     },
-    [repo, run, snapshot, ui],
+    [repo, run, ui],
   );
 
   const checkoutRef = useCallback(
