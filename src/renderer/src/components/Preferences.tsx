@@ -71,50 +71,54 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
     >
       <div className="modal prefs" role="dialog" aria-modal="true" aria-labelledby="prefs-title">
         <h3 id="prefs-title">Preferences</h3>
-        <div className="pref-group">
-          <div className="pref-group-title">Appearance</div>
-          <Row label="Theme" hint="Applies immediately, window controls included.">
-            <select className="pref-select" value={prefs.theme} onChange={(e) => setPrefs({ theme: e.target.value as Theme })}>
-              {THEMES.map((t) => (
-                <option key={t.theme} value={t.theme}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </Row>
-          <Toggle of="avatars" label="Author avatars" hint="Fetches Gravatar images. Off means initials only, and no network requests." />
-          <Toggle of="commitColumnGuide" label="72-character commit summary counter" hint="Counts down the characters left on the summary line." />
-        </div>
-        <div className="pref-group">
-          <div className="pref-group-title">Graph</div>
-          <ColumnToggle of="author" label="Author column" hint="The commit author's name, after the message." />
-          <ColumnToggle of="date" label="Date / time column" hint="The author date, dd/mm/yyyy and the local time." />
-          <ColumnToggle of="sha" label="SHA column" hint="The commit's abbreviated hash." />
-        </div>
-        <div className="pref-group">
-          <div className="pref-group-title">Diff</div>
-          <Row label="Diff layout" hint="The file view's own toggle writes back here, so the last layout used is the one it opens with.">
-            <select className="pref-select" value={prefs.diffView} onChange={(e) => setPrefs({ diffView: e.target.value as DiffViewMode })}>
-              {DIFF_VIEWS.map((v) => (
-                <option key={v.mode} value={v.mode}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-          </Row>
-        </div>
-        <div className="pref-group">
-          <div className="pref-group-title">Behaviour</div>
-          <Row label="Default pull action" hint="What the Pull button does when clicked.">
-            <select className="pref-select" value={prefs.pullMode} onChange={(e) => setPrefs({ pullMode: e.target.value as PullMode })}>
-              {PULL_MODES.map((m) => (
-                <option key={m.mode} value={m.mode}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </Row>
-          <Toggle of="confirmDirtyCheckout" label="Confirm checkout with uncommitted changes" hint="Asks before checking out, and offers to stash the changes." />
+        {/* The groups scroll as one when the window is too short for them; the title and
+            Close keep their place (GC-103). */}
+        <div className="modal-body">
+          <div className="pref-group">
+            <div className="pref-group-title">Appearance</div>
+            <Row label="Theme" hint="Applies immediately, window controls included.">
+              <select className="pref-select" value={prefs.theme} onChange={(e) => setPrefs({ theme: e.target.value as Theme })}>
+                {THEMES.map((t) => (
+                  <option key={t.theme} value={t.theme}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <Toggle of="avatars" label="Author avatars" hint="Fetches Gravatar images. Off means initials only, and no network requests." />
+            <Toggle of="commitColumnGuide" label="72-character commit summary counter" hint="Counts down the characters left on the summary line." />
+          </div>
+          <div className="pref-group">
+            <div className="pref-group-title">Graph</div>
+            <ColumnToggle of="author" label="Author column" hint="The commit author's name, after the message." />
+            <ColumnToggle of="date" label="Date / time column" hint="The author date, dd/mm/yyyy and the local time." />
+            <ColumnToggle of="sha" label="SHA column" hint="The commit's abbreviated hash." />
+          </div>
+          <div className="pref-group">
+            <div className="pref-group-title">Diff</div>
+            <Row label="Diff layout" hint="The file view's own toggle writes back here, so the last layout used is the one it opens with.">
+              <select className="pref-select" value={prefs.diffView} onChange={(e) => setPrefs({ diffView: e.target.value as DiffViewMode })}>
+                {DIFF_VIEWS.map((v) => (
+                  <option key={v.mode} value={v.mode}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+          </div>
+          <div className="pref-group">
+            <div className="pref-group-title">Behaviour</div>
+            <Row label="Default pull action" hint="What the Pull button does when clicked.">
+              <select className="pref-select" value={prefs.pullMode} onChange={(e) => setPrefs({ pullMode: e.target.value as PullMode })}>
+                {PULL_MODES.map((m) => (
+                  <option key={m.mode} value={m.mode}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <Toggle of="confirmDirtyCheckout" label="Confirm checkout with uncommitted changes" hint="Asks before checking out, and offers to stash the changes." />
+          </div>
         </div>
         <div className="modal-buttons">
           <button className="btn primary" autoFocus onClick={onClose}>

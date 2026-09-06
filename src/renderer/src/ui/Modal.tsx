@@ -34,6 +34,7 @@ interface Props {
 export function Modal({ options, onResolve }: Props): JSX.Element {
   const hasInput = options.input !== false;
   const needsValue = hasInput && options.required !== false;
+  const hasBody = Boolean(options.message) || hasInput || Boolean(options.checkbox);
   const [value, setValue] = useState(options.defaultValue ?? '');
   const [checked, setChecked] = useState(options.checkbox?.defaultChecked ?? false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -67,17 +68,23 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
     >
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <h3 id="modal-title">{options.title}</h3>
-        {options.message && <p className="modal-message">{options.message}</p>}
-        {hasInput && (
-          <label className="modal-field">
-            {options.label && <span>{options.label}</span>}
-            <input ref={inputRef} value={value} placeholder={options.placeholder} onChange={(e) => setValue(e.target.value)} spellCheck={false} />
-          </label>
-        )}
-        {options.checkbox && (
-          <label className="modal-check">
-            <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {options.checkbox.label}
-          </label>
+        {/* Only rendered when there is something to put in it: an empty body would still take a
+            gap, and a title-only dialog must look exactly as it did (GC-103). */}
+        {hasBody && (
+          <div className="modal-body">
+            {options.message && <p className="modal-message">{options.message}</p>}
+            {hasInput && (
+              <label className="modal-field">
+                {options.label && <span>{options.label}</span>}
+                <input ref={inputRef} value={value} placeholder={options.placeholder} onChange={(e) => setValue(e.target.value)} spellCheck={false} />
+              </label>
+            )}
+            {options.checkbox && (
+              <label className="modal-check">
+                <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {options.checkbox.label}
+              </label>
+            )}
+          </div>
         )}
         <div className="modal-buttons">
           <button className="btn" onClick={() => onResolve(null)}>

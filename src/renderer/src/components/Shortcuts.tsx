@@ -26,28 +26,30 @@ export function Shortcuts({ onClose }: { onClose(): void }): JSX.Element {
     >
       <div className="modal shortcuts" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
         <h3 id="shortcuts-title">Keyboard shortcuts</h3>
-        <div className="shortcut-groups">
-          {SHORTCUT_GROUPS.map((g) => (
-            <div className="shortcut-group" key={g.title}>
-              <div className="shortcut-group-title">
-                {g.title}
-                {g.hint && <span className="shortcut-group-hint">{g.hint}</span>}
-              </div>
-              {g.items.map((s) => (
-                <div className="shortcut-row" key={s.id}>
-                  <span className="shortcut-keys">
-                    {s.keys.map((chord, i) => (
-                      <span key={chord}>
-                        {i > 0 && <span className="shortcut-or">or</span>}
-                        <Chord chord={chord} />
-                      </span>
-                    ))}
-                  </span>
-                  <span className="shortcut-desc">{s.description}</span>
+        <div className="modal-body">
+          <div className="shortcut-groups">
+            {SHORTCUT_GROUPS.map((g) => (
+              <div className="shortcut-group" key={g.title}>
+                <div className="shortcut-group-title">
+                  {g.title}
+                  {g.hint && <span className="shortcut-group-hint">{g.hint}</span>}
                 </div>
-              ))}
-            </div>
-          ))}
+                {g.items.map((s) => (
+                  <div className="shortcut-row" key={s.id}>
+                    <span className="shortcut-keys">
+                      {s.keys.map((chord, i) => (
+                        <span key={chord}>
+                          {i > 0 && <span className="shortcut-or">or</span>}
+                          <Chord chord={chord} />
+                        </span>
+                      ))}
+                    </span>
+                    <span className="shortcut-desc">{s.description}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
         <div className="modal-buttons">
           <button className="btn primary" autoFocus onClick={onClose}>

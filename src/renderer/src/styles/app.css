@@ -1557,6 +1557,9 @@ textarea:focus {
 .modal {
   width: 440px;
   max-width: calc(100vw - 40px);
+  /* Bounded by the viewport, or a dialog taller than a short window overflows off both ends
+     with nothing to scroll (GC-103). What gives way is `.modal-body`, below. */
+  max-height: calc(100vh - 40px);
   padding: var(--sp-4);
   background: var(--bg-panel-raised);
   border: 1px solid var(--border-strong);
@@ -1564,7 +1567,17 @@ textarea:focus {
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  --modal-gap: var(--sp-3);
+  gap: var(--modal-gap);
+}
+/* The scrolling part: the title above it and the button row below it keep their place. Its
+   gap is the modal's own, so a body that fits is spaced exactly as its children used to be. */
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modal-gap);
+  min-height: 0;
+  overflow-y: auto;
 }
 .modal h3 {
   margin: 0;
@@ -1781,7 +1794,7 @@ img.avatar {
 
 .modal.prefs {
   width: 520px;
-  gap: var(--sp-4);
+  --modal-gap: var(--sp-4);
 }
 .pref-group {
   display: flex;
@@ -1842,14 +1855,14 @@ img.avatar {
 
 .modal.shortcuts {
   width: 560px;
-  gap: var(--sp-4);
+  --modal-gap: var(--sp-4);
 }
+/* No cap of its own any more: `.modal-body` bounds and scrolls every modal the same way
+   (GC-103), and two nested scroll containers would put a scrollbar inside a scrollbar. */
 .shortcut-groups {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
-  max-height: min(60vh, 560px);
-  overflow-y: auto;
 }
 .shortcut-group {
   display: flex;
