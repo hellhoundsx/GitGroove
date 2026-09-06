@@ -47,6 +47,8 @@ const api: GitApi = {
   abortOperation: call('ref:abortOperation'),
   createTag: call('ref:createTag'),
   deleteTag: call('ref:deleteTag'),
+  fastForward: call('ref:fastForward'),
+  setUpstream: call('ref:setUpstream'),
   remoteAdd: call('remote:add'),
   remoteRemove: call('remote:remove'),
   remoteSetUrl: call('remote:setUrl'),

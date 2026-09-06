@@ -680,6 +680,30 @@ export async function pull(cwd: string, mode: PullMode, remote?: string): Promis
   await runGit(cwd, args);
 }
 
+/**
+ * Bring `branch` up to `upstream` without checking it out (GC-100). For a branch that is not
+ * HEAD this is `git fetch . <upstream>:<branch>`: a local fetch refuses anything that is not a
+ * fast-forward, which is exactly the guarantee wanted, and it touches neither the index nor the
+ * working tree. The checked-out branch is the one case that cannot go that way -- git will not
+ * fetch into the ref HEAD points at -- so it gets `git merge --ff-only`, the same promise for the
+ * one ref that has a working tree attached. Either refusal is the `GitError` it already is;
+ * nothing here forces anything.
+ */
+export async function fastForward(cwd: string, branch: string, upstream: string): Promise<void> {
+  const head = (await runGit(cwd, ['symbolic-ref', '--short', '-q', 'HEAD'], { okCodes: [0, 1] })).trim();
+  if (head === branch) await runGit(cwd, ['merge', '--ff-only', upstream]);
+  else await runGit(cwd, ['fetch', '.', `${upstream}:${branch}`]);
+}
+
+/**
+ * Point `branch` at `upstream`, or clear its upstream when `upstream` is null (GC-100). Until
+ * now a local branch could only get one as a side effect of being pushed with `-u`, which is no
+ * use for a remote branch that already exists.
+ */
+export async function setUpstream(cwd: string, branch: string, upstream: string | null): Promise<void> {
+  await runGit(cwd, upstream ? ['branch', `--set-upstream-to=${upstream}`, branch] : ['branch', '--unset-upstream', branch]);
+}
+
 export async function push(cwd: string, req: PushRequest): Promise<void> {
   const args = ['push'];
   if (req.force) args.push('--force-with-lease');

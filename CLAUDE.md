@@ -135,6 +135,11 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   `--glob` is what matches them against the *full* ref name — `--branches`/`--tags` match relative
   to their own namespace and would exclude nothing. A commit reachable from an included ref keeps
   its row; HEAD is a revision, so it is never excluded.
+- **`fastForward(cwd, branch, upstream)` picks its command by whether the branch is HEAD** (GC-100):
+  `git fetch . <upstream>:<branch>` for one that is not, because a local fetch refuses anything but
+  a fast-forward and touches neither index nor working tree, and `git merge --ff-only` for the one
+  that is, since git will not fetch into the ref HEAD points at. `setUpstream(cwd, branch, upstream
+  | null)` is `--set-upstream-to` or `--unset-upstream`.
 - **`stashApply` and `stashPop` pass `--index`**, or what was staged when the stash was made comes
   back unstaged and is gone. `--index` fails two ways that need opposite handling (GC-092), so
   `restoreStashWith` reads `git status --porcelain` either side of the attempt rather than trusting
@@ -142,6 +147,9 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   conflicting pop — and git's own error propagates untouched; only an unchanged status means it
   refused before touching anything, and then the plain form is retried and the result **rejected**,
   because the working directory came back and the staging did not.
+- **`pull(cwd, mode, remote?)` names the branch whenever it names a remote** (GC-057): `git pull
+  <remote>` with no refspec still merges `branch.<name>.merge`, which is the upstream the caller
+  asked to bypass, so a named remote becomes `git pull <flag> <remote> <branch>`.
 - **A push with no remote named uses `defaultRemote(remotes)`** (`origin`, else the first remote).
   `src/shared/` is the only place code is shared both ways, so a menu label cannot promise a
   different remote from the one the push uses.
@@ -216,7 +224,8 @@ unsubscribe.
   commit actions the branch and commit menus both carry, so their wording cannot drift.
 
 **Escape closes exactly one layer**, decided in one place: `App.tsx` computes `layerOpen` from
-every open layer, and while one is up its window handler closes the topmost and swallows every
+every open layer — including **both** toolbar popovers, Pull's and Push's (GC-057) — and while
+one is up its window handler closes the topmost and swallows every
 other window-level shortcut. With no layer, Escape closes the file view first, then the search bar.
 That handler runs in the **capture phase** and calls `stopPropagation()` on the key it consumes, so
 no React handler underneath sees it. No layer handles Escape itself, and **no `window` keydown
@@ -269,6 +278,15 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
   resize, and `limit` — as far as a drag may go given the other panel — bounds the drag alone, never
   the width restored at mount or the double-click reset. A collapsed left panel is a fixed 44px rail
   that ignores its variable, so `App` passes it in as a zero-width panel with a zero floor.
+- **And the same question one level in, for the ref column** (GC-110). `fitRefCol(stored, panelW,
+  rest, min)` is `fitPanels` inside the graph panel: `MIN_MSG_W` (200) is what the commit message
+  keeps, `rest` is everything a row spends outside those two columns — the lanes, plus any optional
+  column that is on, since those are `flex: none` and take their width from the message too — and
+  the panel is measured rather than assumed, off the same `ResizeObserver` on `.graph-body` that
+  virtualises the rows (its client width is the box the rows are laid out in, so the scrollbar is
+  out by construction). Same promise as the panels: only `--ref-col-w` is reduced, `gitclient.refColW`
+  is never touched, and `limit` bounds the drag alone. A `panelW` of 0 means not measured yet and
+  applies the stored width unchanged, rather than snapping to the minimum for one frame.
 
 ### Graph (`graph/`)
 
@@ -319,8 +337,10 @@ second so its marker survives the fold. With **no branch checked out** a synthet
 built in the renderer from `headSha`; `getRefs` and `GitRef` never see it, so it opens
 `commitMenuItems` rather than the ref menu and ignores double-click.
 
-Optional AUTHOR / DATE / TIME / SHA columns come from `prefs.graphColumns`, off by default, fixed
-at 140/150/80px with `flex: none` so the message column absorbs the remainder. In that column the
+Three optional columns — AUTHOR, DATE / TIME and SHA — come from `prefs.graphColumns`, off by
+default, fixed at 140/150/80px with `flex: none` so the message column absorbs the remainder;
+`OPT_COL_W` in `CommitGraph.tsx` mirrors those three widths, because `fitRefCol` has to know what
+they take before it can leave the message its own minimum (GC-110). In that column the
 **summary wins**: the body preview sits in a `.body-wrap` with `flex: 1 1 0` and
 `container-type: inline-size`, so it only gets space the summary did not need, and a
 `@container (max-width: 40px)` rule drops it rather than leaving a lone ellipsis.
@@ -330,8 +350,9 @@ rows get `.match`, every other `.unmatched` (0.3 opacity) — GitKraken dims rat
 the graph stays continuous. The position in the results is derived from the current selection, not
 from state of its own, and the bar's `{ open, tick, query }` lives in `App.tsx` because
 `CommitGraph` unmounts whenever a file view opens; only `closeSearch` clears it. The ref column's
-width is written as `--ref-col-w` on `.graph-panel`, its 4px `.col-resize` handle absolutely
-positioned on the column boundary so dragging reflows nothing.
+width is written as `--ref-col-w` on `.graph-panel` — `fitRefCol`'s answer, not the stored number
+(GC-110, see the UI layer) — and its 4px `.col-resize` handle is absolutely positioned on the
+column boundary so dragging reflows nothing.
 
 **Hiding branches.** A per-repository hidden set (`gitclient.hidden.<repoPath>`, full ref names)
 reaches `loadRepo(path, max, exclude)`. **One action hides exactly one ref**: hiding a local branch
@@ -601,8 +622,9 @@ and this file only where a convention, a command or an invariant above changed.
 Design decisions that must not be quietly undone, and where each is explained above: date order in
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
 one layer, one shortcut table, every confirmation on the modal, the busy token every writer of
-`busy` takes (App state, UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, and
-only the applied widths ever clamped (UI layer); a page continuing the previous range's `LaneState`,
+`busy` takes (App state, UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
+message column keeping `MIN_MSG_W` while the ref column gives way, and only the applied widths
+ever clamped (UI layer); a page continuing the previous range's `LaneState`,
 and only a strict extension counted as one (Graph); every modal `h3` + `.modal-body` +
 `.modal-buttons`, with only the body scrolling
 (UI layer); `--index` on

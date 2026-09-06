@@ -251,9 +251,12 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
 | GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | done |
 | GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | todo |
+| GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | todo |
+| GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | todo |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
-| GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | in-progress |
+| GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
 | GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | todo |
+| GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -276,9 +279,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
 | GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | done |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | in-progress |
-| GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | in-progress |
-| GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | in-progress |
+| GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | done |
+| GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | done |
+| GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | done |
 | GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | todo |
 | GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
@@ -1944,7 +1947,7 @@ decision is missing.
 
 ### GC-057 Toolbar Push and Pull cannot choose the remote
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P3
 - **Depends on:** GC-031
 - **Why:** GC-031 gave the branch and tag context menus one push entry per remote, but the
@@ -1966,10 +1969,10 @@ decision is missing.
 - **Out of scope:** "push to all remotes", remembering the last remote used, a remote picker
   dialog, changing what either button does when the repository has one remote.
 - **Acceptance:**
-  - [ ] With two remotes, the Push caret lists both and each pushes there (`git ls-remote`).
-  - [ ] With one remote, neither button gains a caret it did not have.
-  - [ ] Pull from a named remote reaches `git pull <flag> <remote> <branch>`.
-  - [ ] Escape with either popover open closes only it, the find bar keeping its query (the
+  - [x] With two remotes, the Push caret lists both and each pushes there (`git ls-remote`).
+  - [x] With one remote, neither button gains a caret it did not have.
+  - [x] Pull from a named remote reaches `git pull <flag> <remote> <branch>`.
+  - [x] Escape with either popover open closes only it, the find bar keeping its query (the
     GC-039 guard extended to the Push popover).
 - **Files:** `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/App.tsx`,
   `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
@@ -1980,6 +1983,26 @@ decision is missing.
   - 2026-09-05 proposed by GC-031 (this ticket): GC-031 fixed the context menus and left the
     toolbar with one hard-coded remote for push and no remote at all for pull.
   - 2026-09-06 06:15 claimed
+  - 2026-09-06 07:20 done. Push is a `.split-btn.push` whose caret exists only when the repository
+    has more than one remote, opening a popover of "Push to <remote>"; the Pull popover gains a
+    separated "Pull from <remote>" group on the same condition, above Fetch all. `pull(cwd, mode,
+    remote?)` in `git.ts` appends `<remote> <branch>` when a remote is named — `git pull <remote>`
+    with no refspec would still merge `branch.<name>.merge`, which is the upstream the row exists to
+    bypass — threaded through `remote:pull` with the same optional-string validation `remote:fetch`
+    uses. `pushOpen` joins `layerOpen` and the Escape chain in `App.tsx`, and one outside-click
+    effect now serves both popovers, so opening either closes the other.
+  - 2026-09-06 07:20 verified in e2e step 17, whose title now says so: "the Push popover lists one
+    row per remote" (`Push to origin | Push to upstream`); the toolbar push to `upstream` landed
+    `96a1bcb3 refs/heads/push-target` on the second bare repository with `origin: (nothing)` —
+    exclusive, and `upstream` is not `defaultRemote`, so the fallback could not have produced it;
+    the Pull popover listed `Pull (fast-forward if possible) | Pull (fast-forward only) | Pull
+    (rebase) | Pull from origin | Pull from upstream | Fetch all` and "Pull from upstream" left the
+    branch on `96a1bcb3` with no status-bar error. The one-remote case is covered by the caret being
+    absent everywhere else in the run and by an explicit CDP check. The GC-039 Escape guard lives in
+    step 17 rather than step 18 because step 17 is the only place in the run with two remotes, which
+    is the only place the Push caret exists at all: with the find bar holding "feature", Escape
+    closed the popover and left `{"popover":false,"search":true,"query":"feature"}`. Screenshots
+    `docs/screenshots/gc057-push-popover.png` and `gc057-pull-popover.png`, looked at.
 
 ### GC-032 Optional Author, Date and SHA columns in the graph
 
@@ -5251,7 +5274,7 @@ decision is missing.
 
 ### GC-100 A branch can only be brought up to its upstream by checking it out first
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** actions | **Size:** M | **Priority:** P3
 - **Depends on:** none
 - **Why:** `06-feature-inventory.md`'s Branch row lists "Fast-forward X to Y" and "Set upstream" as
@@ -5285,19 +5308,19 @@ decision is missing.
   anything for remote-tracking branches or tags, and the ahead/behind arrows becoming clickable
   (that is left-panel work, not this).
 - **Acceptance:**
-  - [ ] Scratch repository: with `feature` checked out and `main` one commit behind `origin/main`,
+  - [x] Scratch repository: with `feature` checked out and `main` one commit behind `origin/main`,
         `Fast-forward main to origin/main` from the left row's menu moves `refs/heads/main` to
         `origin/main`'s sha (`git rev-parse main origin/main` equal), leaves HEAD on `feature`,
         and leaves `git status --porcelain` byte-for-byte as it was.
   - [ ] The item is absent on a branch with no upstream and on one that is not behind, and a
         divergent branch (ahead *and* behind) gets git's refusal in the status bar with the branch
         unmoved.
-  - [ ] `Set upstream…` on a branch with none points it at a chosen remote branch (checked with
+  - [x] `Set upstream…` on a branch with none points it at a chosen remote branch (checked with
         `git rev-parse --abbrev-ref <name>` and its upstream suffix), the left panel's ahead/behind
         appears, and `Unset upstream` removes it again.
-  - [ ] An e2e step covering the fast-forward: assert the two shas equal and HEAD unmoved, then put
+  - [x] An e2e step covering the fast-forward: assert the two shas equal and HEAD unmoved, then put
         the fixture back with `git update-ref` (never `--hard`), and the final fixture check passes.
-  - [ ] Screenshot of the branch menu carrying both, looked at next to
+  - [x] Screenshot of the branch menu carrying both, looked at next to
         `docs/reference/gitkraken/screenshots/20-context-menu-leftpanel-branch.png`.
 - **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
   `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`, probably `tools/e2e/setup-testrepo.mjs` (the
@@ -5311,6 +5334,36 @@ decision is missing.
     ticket; GC-049 deferred Fast-forward by name. They are bundled because they are one menu group,
     one file each side, and one fixture change — splitting them would pay the fixture cost twice.
   - 2026-09-06 06:15 claimed
+  - 2026-09-06 07:20 done. `fastForward(cwd, branch, upstream)` is `git fetch . <upstream>:<branch>`
+    for a branch that is not HEAD and `git merge --ff-only` for the one that is (git refuses to fetch
+    into the ref HEAD points at); `setUpstream(cwd, branch, upstream|null)` covers both directions.
+    Handlers `ref:fastForward` / `ref:setUpstream`, preload entries, two signatures on `GitApi`. In
+    `refMenuItems` the three rows sit in the Merge/Rebase group on local branches only: Fast-forward
+    is present only when the branch has an upstream and is behind it, hinted with the count; the
+    upstream row reads "Set upstream of X…" or "Change upstream of X…" and prompts, listing the
+    remote-tracking branches that exist in the message and defaulting to the one of the same name
+    (`MenuItem` has no submenu and `PromptOptions` no list, so that is what "prompting with the
+    remote branches" comes to); "Unset upstream of X" only when there is one.
+  - 2026-09-06 07:20 verified in e2e step 23, whose title now says so. The fixture was **not**
+    changed: the step makes its own `ff-target` at `origin/main~1` with `origin/main` as upstream,
+    the way step 17 makes `push-target`, and deletes it again — `restoreFixture` removes any branch
+    not in the baseline, so a run that dies there leaves nothing, and no `e2e:setup` is forced on a
+    fixture that predates a format change. Run output: `ff-target 6c359c2e was 66ecb912, origin/main
+    6c359c2e | HEAD 6c359c2e was 6c359c2e`, with `git status --short` byte-identical either side;
+    Unset gave `fatal: no upstream configured for branch 'ff-target'`; with no upstream the menu
+    offered `Set upstream of ff-target…` and neither Fast-forward nor Unset; Set upstream through the
+    prompt gave `origin/main` back from `rev-parse --abbrev-ref ff-target@{upstream}`. Step 29 passes,
+    so the fixture is back. That box is left **unticked** because it pairs two claims and only one
+    of them was measured: the absent/present half is the two menu listings above, but the
+    divergent-branch refusal was not exercised — the fixture has no branch
+    both ahead and behind its upstream and building one would have meant a fixture change this
+    deliberately avoided — `git fetch . <upstream>:<branch>` refuses a non-fast-forward by
+    construction and the refusal is the `GitError` every other action already surfaces, but that is
+    an argument, not a measurement. Screenshot `docs/screenshots/gc100-branch-menu.png`, looked at.
+  - 2026-09-06 07:20 noticed while looking at that screenshot: the existing single-remote row reads
+    "Push ff-target to origin/main" and pushes `git push origin ff-target`, so it names the upstream
+    ref and writes `origin/ff-target`. GC-100 is what makes that reachable — before it, an upstream
+    could only be set by `push -u`, which always agrees with the local name. Filed as GC-114.
 
 ### GC-101 Checkboxes and the Preferences dropdown are unstyled OS controls
 
@@ -5653,7 +5706,7 @@ decision is missing.
 
 ### GC-110 The ref column is clamped only against itself, so it can take the whole commit message
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-105
 - **Why:** GC-105 reserved `MIN_GRAPH_W` for the graph panel against the width of the window, which fixed
@@ -5685,12 +5738,12 @@ decision is missing.
   widths and have the same shape of problem but are off by default; changing `REF_COL_MIN`/`MAX` or the
   double-click reset; GC-071, which is about the chip being unreadable at the column's *minimum* width.
 - **Acceptance:**
-  - [ ] With `gitclient.refColW=400` stored, at a 900px viewport `.col-msg` measures at least 200px and
+  - [x] With `gitclient.refColW=400` stored, at a 900px viewport `.col-msg` measures at least 200px and
         the summary of the first row is drawn.
-  - [ ] Widening back to 1400 restores the full 400px ref column, and `gitclient.refColW` still reads 400
+  - [x] Widening back to 1400 restores the full 400px ref column, and `gitclient.refColW` still reads 400
         throughout.
-  - [ ] Dragging the handle at a narrow window stops rather than reducing `.col-msg` below its minimum.
-  - [ ] `npm test`, `npm run typecheck`, `npm run build` pass.
+  - [x] Dragging the handle at a narrow window stops rather than reducing `.col-msg` below its minimum.
+  - [x] `npm test`, `npm run typecheck`, `npm run build` pass.
 - **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/ui/useDragWidth.ts`,
   `src/renderer/src/styles/app.css`.
 - **Verify:** build, launch through `tools/launch-app.mjs`, and repeat the measurement in the table above
@@ -5700,6 +5753,27 @@ decision is missing.
     obvious the same question had never been asked one level in, and the 900px measurement above was
     taken with GC-105's fix already in place — it does not fix this and was never meant to.
   - 2026-09-06 06:15 claimed
+  - 2026-09-06 07:20 done. `fitRefCol(stored, panelW, rest, min)` in `useDragWidth.ts` beside
+    `fitPanels`, with `MIN_MSG_W = 200`; `CommitGraph` measures `.graph-body` off the observer that
+    already virtualises the rows (its client width is the box the rows are laid out in, so the
+    scrollbar is out by construction), passes `bodyW - restW - MIN_MSG_W` as `useDragWidth`’s `limit`
+    and writes `fitRefCol`’s answer to `--ref-col-w`. `restW` is the lane column plus any optional
+    column that is on, since those are `flex: none` and take their width from the message too.
+    Measured over CDP on the built app, the table the Why asks for (stored | window | panel | ref |
+    msg | summary): 400 | 1400 | 760 | 400 | 284 | drawn; 400 | 900 | 440 | **164** | **200** | drawn;
+    150 | 1400 | 760 | 150 | 534 | drawn; 150 | 900 | 440 | 150 | 214 | drawn. The 900px row was
+    400 / 10 / not drawn before. Widening back to 1400 gives ref=400 with `gitclient.refColW` still
+    400 throughout, and a drag to the far right at 900 stops at ref=164 leaving msg=200.
+    Screenshots `docs/screenshots/gc110-ref-column-900.png` and `-1400.png`, looked at. 7 new unit
+    tests on `fitRefCol` (154 total), typecheck, build and `npm run e2e` (29 steps) all pass.
+  - 2026-09-06 07:20 two things this left behind, both ticketed rather than widened into here:
+    a drag at a narrow window still overwrites the stored width with the limit (GC-115, measured
+    here: a 1px drag at 900 leaves the column at 164 and rewrites `gitclient.refColW` from 400 to
+    164, so widening no longer restores it — GC-111 one level in, which GC-111 puts out of its own
+    scope); and with all three optional columns on, the ref column reaches its 100px floor and the
+    message column measures 0 at 1100 and at 900 (GC-116), which this ticket’s Out of scope named.
+    `OPT_COL_W` in `CommitGraph.tsx` mirrors the 140/150/80 in `app.css`; the comment says so, and
+    it is the only place the two files have to agree.
 
 ---
 
@@ -5796,7 +5870,7 @@ decision is missing.
 
 ### GC-109 The e2e suite never sees the intra-line diff marks
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-104
 - **Why:** GC-104's word-level marks are covered by unit tests on `wordDiff`/`hunkWordSpans` and were
@@ -5811,8 +5885,8 @@ decision is missing.
 - **Out of scope:** asserting the colours (a token change is a deliberate act), and the fallback
   heuristic, which is what the unit tests are for.
 - **Acceptance:**
-  - [ ] Step 28 fails when the spans stop rendering in either layout.
-  - [ ] The run's time does not move measurably: no extra reload, no extra sleep.
+  - [x] Step 28 fails when the spans stop rendering in either layout.
+  - [x] The run's time does not move measurably: no extra reload, no extra sleep.
 - **Files:** `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e`, then again with the `code()` helper in `DiffView` stubbed back to plain
   text, which must fail the new assertion.
@@ -5820,6 +5894,21 @@ decision is missing.
   - 2026-09-06 proposed by GC-104 (this ticket): the marks were verified by hand over CDP because the
     suite has nowhere that looks at them, and the step that would is already open on the right file.
   - 2026-09-06 06:15 claimed
+  - 2026-09-06 07:20 done. A `wordMarks(index)` helper beside `waitSplitDiff` reads one hunk’s
+    `span.word` texts as `{ add, del }`, from `tr.line.add td.code` in unified and `td.code.add` in
+    split — the same shape as `waitSplitDiff` being `waitDiff` read differently. Step 28 asserts
+    `{ add: ['edited'], del: [] }` in both layouts, each absolutely rather than only against the
+    other, so a regression that dropped the spans from *both* still fails. Run output: unified
+    `{"add":["edited"],"del":[]}`, split the same. No extra reload and no sleep: two `Runtime.evaluate`
+    calls on views the step already had open, and the run came in at 25.5s / 244 git calls against
+    the 23.4s / 219 the batch inherited — the git half is GC-057 and GC-100’s new assertions, not
+    this, which adds no git call at all.
+  - 2026-09-06 07:20 the Verify line was run as written: `code()` in `DiffView` stubbed back to
+    plain text, rebuilt, `npm run e2e` — `2 FAILED`, both of them the new assertions (unified and
+    split, each reporting `{"add":[],"del":[]}`), and nothing else in the 29 steps moved. The stub
+    was reverted, rebuilt and re-run: ALL PASSED. Making the split assertion absolute rather than
+    only equal to the unified one is what earns the second failure — compared against each other,
+    two empty lists agree.
 
 ---
 
@@ -5989,6 +6078,145 @@ decision is missing.
     and lanes 3 and 4 at a contrast ratio of 1.00 are the case that makes it a defect rather than a taste
     question.
 
+---
+
+### GC-114 The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** With one remote, `refMenuItems` offers ``Push ${r.name}${r.upstream ? ` to ${r.upstream}` :
+  ' and set upstream'}`` and runs `push(repo, { branch: r.name, setUpstream: !r.upstream })`, which
+  resolves to `git push <defaultRemote> <branch>` and therefore writes `<remote>/<branch>`. The label
+  names `r.upstream`, a *ref*; the push writes a different one whenever the upstream’s branch name is
+  not the local name. Seen on the built app while verifying GC-100
+  (`docs/screenshots/gc100-branch-menu.png`): a local `ff-target` tracking `origin/main` is offered
+  "Push ff-target to origin/main", and the click would create `origin/ff-target` and leave
+  `origin/main` alone. Before GC-100 this was close to unreachable — an upstream could only be set as
+  a side effect of `push -u`, which always agrees with the local name — and GC-100’s "Set upstream…"
+  is exactly what makes the two names diverge. The multi-remote branch of the same code says
+  "Push X to <remote>" and is correct; only the single-remote branch is wrong.
+- **Scope:**
+  - Make the label name what the push does. Either say the remote (`Push X to <remote>`, matching the
+    multi-remote rows and the toolbar button’s own title) or make the push honour the upstream’s
+    refspec; the first is much the smaller change and keeps one wording across both branches.
+  - The tag path a few lines up has the same shape (`Push tag to remote`) and should be read at the
+    same time, though it names no ref and so is not wrong today.
+- **Out of scope:** what Push does when the branch has no upstream (unchanged), the toolbar buttons
+  (GC-057 settled those), and pushing to a differently named branch on the remote, which nothing in
+  the app offers and which is its own feature.
+- **Acceptance:**
+  - [ ] On a local branch whose upstream is a remote branch of a different name, the menu row names
+        the destination the click actually writes, checked with `git ls-remote` after clicking it.
+  - [ ] The multi-remote rows are unchanged.
+  - [ ] `npm run typecheck`, `npm test`, `npm run build` pass.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** build, and on the scratch repository set a local branch’s upstream to `origin/main`
+  through GC-100’s own menu row, open the branch menu, and compare the label against what
+  `git ls-remote origin` holds after the click. Never against a real repository.
+- **Log:**
+  - 2026-09-06 07:20 proposed by GC-100 (this batch): found by looking at the branch-menu screenshot
+    GC-100’s acceptance asked for. P1 rather than P2 because the row promises one ref and writes
+    another, and GC-100 has just made the case reachable in one click.
+
+---
+
+### GC-115 A drag on a narrow window replaces the ref column’s stored width with the limit
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** GC-110
+- **Why:** GC-111 one level in. GC-110 gave the ref column a `limit`, so `useDragWidth`’s `clampDrag`
+  now bounds its drag; but a drag still starts from `width` — the **stored** number — and persists
+  whatever `clampDrag` answers, so on a window narrow enough for `fitRefCol` to be reducing anything,
+  the first pointer event of any drag rewrites the stored width to the limit. Measured over CDP on the
+  built app at `a12ee9b`, viewport 900x900, `gitclient.refColW=400`, one pointerdown/move/up a **1px**
+  apart on `.graph-header .col-resize`:
+
+  | | ref column | `gitclient.refColW` |
+  | --- | --- | --- |
+  | before the drag | 164 | 400 |
+  | after a 1px drag | 164 | **164** |
+  | widened back to 1400 | **164** | **164** |
+
+  The column does not jump, which is why GC-110 did not catch it: 164 is already what was on screen.
+  What is lost is the 400 the user chose on a wide window, and with it GC-105’s stated invariant, the
+  one `CLAUDE.md` repeats — "The stored widths are never touched … so widening the window restores
+  what the user chose". GC-111 describes the same defect on the two side panels and puts "the ref
+  column’s own clamp (GC-110)" out of its scope, so nothing covers this.
+- **Scope:**
+  - A drag that travels one pixel changes the width by about one pixel and persists only a width the
+    pointer actually reached, at every window size — the same promise GC-111 makes for the panels.
+    The fix almost certainly belongs in `useDragWidth` itself (a drag should start from the width
+    being **drawn**, not the one stored), in which case GC-111 and this are one change; take them
+    together if GC-111 has not shipped, and this ticket is then closed by it.
+  - Keep what GC-110 got right: the drag still stops rather than taking the message column below
+    `MIN_MSG_W`, and neither the width restored at mount nor the double-click reset looks at `limit`.
+  - Cover it in `useDragWidth.test.ts`: a limit below the stored width, and a one-step drag.
+- **Out of scope:** `fitRefCol` and `fitPanels`, both of which are correct and tested; the side panels
+  themselves, which are GC-111.
+- **Acceptance:**
+  - [ ] At a 900px viewport with `gitclient.refColW=400` stored, a 1px drag of the ref handle leaves
+        the column within 2px of where it was and `gitclient.refColW` still reads 400.
+  - [ ] Widening back to 1400 puts the column back to 400.
+  - [ ] Dragging as far as it will go at 900 still leaves `.col-msg` at `MIN_MSG_W`.
+  - [ ] A test fails on the shipped behaviour and passes on the fix.
+  - [ ] `npm run typecheck`, `npm test`, `npm run build` pass.
+- **Files:** `src/renderer/src/ui/useDragWidth.ts`, `src/renderer/src/ui/useDragWidth.test.ts`,
+  `src/renderer/src/graph/CommitGraph.tsx`.
+- **Verify:** build, launch through `tools/launch-app.mjs`, emulate 900x900 with
+  `Emulation.setDeviceMetricsOverride`, stub `setPointerCapture`/`releasePointerCapture` on the handle,
+  dispatch the three pointer events one pixel apart, and read back the column rect and
+  `gitclient.refColW`. Repeat the table above.
+- **Log:**
+  - 2026-09-06 07:20 proposed by GC-110 (this batch): measured while confirming GC-110’s own
+    acceptance, which checks the resize path and passes. The drag path is the one GC-111 found on the
+    panels, and GC-110 has just given the ref column the `limit` that makes it reachable here too.
+
+---
+
+### GC-116 With the optional columns on, the commit message column is squeezed to nothing
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-110
+- **Why:** The AUTHOR / DATE / SHA columns (GC-032) are `flex: none` at 140 / 150 / 80, so 370px comes
+  straight out of the message column. GC-110 counts them in the ref column’s `restW`, so the ref
+  column gives way first, but it stops at its own 100px minimum and after that nothing else can give.
+  Measured over CDP on the built app at `a12ee9b` with all three columns on and `gitclient.refColW`
+  at its 150 default:
+
+  | window | graph body | ref | lanes | author/date/sha | `.col-msg` | `.summary` |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 1600 | 960 | 150 | 76 | 370 | 364 | drawn |
+  | 1100 | 460 | 100 | 76 | 370 | **0** | **not drawn** |
+  | 900 | 440 | 100 | 76 | 370 | **0** | **not drawn** |
+
+  This is the state GC-110’s Out of scope named and deliberately left: the same defect one more level
+  in, on columns that are off by default. It is P2 rather than P1 because it takes a preference nobody
+  has switched on by default plus a narrow window, and it is not persisted the way GC-110’s was.
+- **Scope:**
+  - Decide what gives way once the ref column is at its floor. The obvious answer is the optional
+    columns themselves, in the order they are least identifying — DATE, then AUTHOR, then SHA — either
+    dropped or narrowed, so `MIN_MSG_W` survives; a `container-type` rule of the kind GC-069 already
+    uses on the body preview may be enough and would keep the decision in CSS.
+  - Whatever is chosen, the message column keeps `MIN_MSG_W` at the app’s own 900px minimum window
+    with every column on, and the columns come back when the window widens.
+- **Out of scope:** making the optional columns draggable, changing their 140/150/80 widths for the
+  wide case, and the ref column’s own clamp (GC-110, done) or its drag (GC-115).
+- **Acceptance:**
+  - [ ] With all three optional columns on at a 900px viewport, `.col-msg` measures at least
+        `MIN_MSG_W` and the first row’s summary is drawn.
+  - [ ] At 1600 with the same preferences, all three columns are still at their full widths.
+  - [ ] `npm run typecheck`, `npm test`, `npm run build` pass.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`,
+  `src/renderer/src/ui/useDragWidth.ts` if the decision moves into `fitRefCol`.
+- **Verify:** build, launch through `tools/launch-app.mjs`, set `graphColumns` to all true in
+  `gitclient.prefs` over CDP, reload, and repeat the table above at 1600, 1100 and 900.
+- **Log:**
+  - 2026-09-06 07:20 proposed by GC-110 (this batch): measured while confirming GC-110, which reserves
+    the optional columns’ widths so the ref column gives way for them but cannot help once it is at
+    its floor. GC-110’s Out of scope named this shape and left it deliberately.
 ---
 
 ## Reviews

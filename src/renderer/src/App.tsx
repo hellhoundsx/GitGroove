@@ -848,6 +848,45 @@ export function App(): JSX.Element {
         items.push({ label: `Merge ${r.name} into ${cur}`, onClick: () => runSequencer('merge', `Merging ${r.name}`, () => window.api.merge(repo!, r.name)) });
         items.push({ label: `Rebase ${cur} onto ${r.name}`, onClick: () => runSequencer('rebase', `Rebasing onto ${r.name}`, () => window.api.rebase(repo!, r.name)) });
       }
+      // Bringing a branch up to its upstream, and pointing it at one in the first place (GC-100).
+      // Both are local-branch actions and both sit in this group, beside Merge and Rebase, because
+      // that is what they are: the study lists "Fast-forward X to Y" as its own row rather than as
+      // something you have to check the branch out to get at.
+      if (r.kind === 'head') {
+        // Absent, not disabled, on a branch with nothing to catch up to: an action that cannot
+        // work is left out (GC-072). `behind` comes off `for-each-ref` for every branch, so this
+        // is the same number the left panel already draws.
+        if (r.upstream && (r.behind ?? 0) > 0) {
+          items.push({
+            label: `Fast-forward ${r.name} to ${r.upstream}`,
+            hint: `${r.behind} behind`,
+            onClick: () => run(`Fast-forwarding ${r.name}`, () => window.api.fastForward(repo!, r.name, r.upstream!)),
+          });
+        }
+        items.push({
+          label: r.upstream ? `Change upstream of ${r.name}…` : `Set upstream of ${r.name}…`,
+          hint: r.upstream,
+          onClick: async () => {
+            // No submenu on MenuItem and no list in the prompt, so the remote branches that exist
+            // are the message and the best guess is the default: the remote-tracking branch of the
+            // same name if there is one, else the default remote and this name.
+            const candidates = (snapshot?.refs ?? []).filter((x) => x.kind === 'remote').map((x) => x.name);
+            const guess = candidates.find((x) => x.endsWith(`/${r.name}`)) ?? (fallback ? `${fallback}/${r.name}` : '');
+            const res = await ui.prompt({
+              title: `Set upstream of ${r.name}`,
+              message: candidates.length ? `Remote branches: ${candidates.join(', ')}` : 'This repository has no remote-tracking branches.',
+              label: 'Upstream',
+              defaultValue: r.upstream ?? guess,
+              okLabel: 'Set upstream',
+            });
+            if (!res || res.value === r.upstream) return;
+            await run(`Setting upstream of ${r.name}`, () => window.api.setUpstream(repo!, r.name, res.value));
+          },
+        });
+        if (r.upstream) {
+          items.push({ label: `Unset upstream of ${r.name}`, hint: r.upstream, onClick: () => run(`Unsetting upstream of ${r.name}`, () => window.api.setUpstream(repo!, r.name, null)) });
+        }
+      }
       items.push({ separator: true });
       items.push({ label: `Create branch from ${r.name}…`, onClick: () => createBranchAt(r.name, r.name) });
       if (r.kind === 'head') {

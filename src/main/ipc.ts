@@ -198,6 +198,14 @@ export function registerIpc(): void {
   });
   ipcMain.handle('ref:deleteTag', (_e, repo: unknown, name: unknown) => git.deleteTag(repoOf(repo), str(name, 'A tag name')).then(() => undefined));
 
+  ipcMain.handle('ref:fastForward', (_e, repo: unknown, branch: unknown, upstream: unknown) =>
+    git.fastForward(repoOf(repo), str(branch, 'A branch name'), str(upstream, 'An upstream ref')),
+  );
+  ipcMain.handle('ref:setUpstream', (_e, repo: unknown, branch: unknown, upstream: unknown) =>
+    // null clears it, which is what `Unset upstream` sends (GC-100)
+    git.setUpstream(repoOf(repo), str(branch, 'A branch name'), upstream === null || upstream === undefined ? null : str(upstream, 'An upstream ref')),
+  );
+
   // remotes
   ipcMain.handle('remote:add', (_e, repo: unknown, name: unknown, url: unknown) => git.remoteAdd(repoOf(repo), str(name, 'A remote name'), str(url, 'A remote URL')));
   ipcMain.handle('remote:remove', (_e, repo: unknown, name: unknown) => git.remoteRemove(repoOf(repo), str(name, 'A remote name')).then(() => undefined));

@@ -208,6 +208,10 @@ export interface GitApi {
   abortOperation(repo: string): Promise<void>;
   createTag(repo: string, req: CreateTagRequest): Promise<void>;
   deleteTag(repo: string, name: string): Promise<void>;
+  /** Move a branch up to its upstream without checking it out; never anything but a fast-forward (GC-100). */
+  fastForward(repo: string, branch: string, upstream: string): Promise<void>;
+  /** Point a branch at an upstream, or clear it with `null` (GC-100). */
+  setUpstream(repo: string, branch: string, upstream: string | null): Promise<void>;
   // remotes
   remoteAdd(repo: string, name: string, url: string): Promise<void>;
   remoteRemove(repo: string, name: string): Promise<void>;

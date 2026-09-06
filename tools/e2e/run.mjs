@@ -1423,7 +1423,7 @@ await escape();
 git(['checkout', '-q', '--', UNSTAGED_DELETION]);
 log(await act(() => tool('Refresh')));
 
-step(23, 'branch menu: the tip-commit group, and a mixed Reset onto another branch tip');
+step(23, 'branch menu: the tip-commit group, a mixed Reset onto another branch tip, and fast-forward / set upstream');
 // GC-049. The reset actions used to exist only on the commit row, so resetting onto a branch tip
 // meant finding that exact row in the graph — impossible once it has scrolled out. The branch
 // menu now composes the same items, and this step drives the one that changes a ref.
@@ -1453,6 +1453,57 @@ check(
 // fixture assertions in the next step are what prove it
 git(['reset', '--mixed', '-q', mainBefore]);
 if (stagedBeforeReset.length) git(['add', '-A', '--', ...stagedBeforeReset]);
+log(await act(() => tool('Refresh')));
+
+// GC-100: a branch behind its upstream, brought up to it without being checked out. The fixture
+// has no such branch, so the step makes one the way step 17 makes push-target -- a scratch local
+// branch one commit back from origin/main, with origin/main as its upstream -- and deletes it
+// again; restoreFixture removes any branch that is not in the baseline, so a run that dies here
+// leaves nothing behind either. Nothing is checked out and nothing is reset --hard: the whole
+// point of the action is that a ref moves and the working tree does not.
+const FF_BRANCH = 'ff-target';
+const ffUpstream = 'origin/main';
+gitMay(['branch', '-D', FF_BRANCH]);
+git(['branch', FF_BRANCH, `${ffUpstream}~1`]);
+git(['branch', `--set-upstream-to=${ffUpstream}`, FF_BRANCH]);
+const ffBefore = git(['rev-parse', FF_BRANCH]);
+const ffTarget = git(['rev-parse', ffUpstream]);
+const headBeforeFf = git(['rev-parse', 'HEAD']);
+const treeBeforeFf = status();
+log(await act(() => tool('Refresh')));
+log(await contextMenuOn('.left-panel .ref-row', FF_BRANCH));
+const ffMenu = await menuList();
+check(
+  'a branch behind its upstream is offered the fast-forward, and an upstream to change or unset',
+  ffMenu.includes(`Fast-forward ${FF_BRANCH} to ${ffUpstream}`) && ffMenu.includes(`Change upstream of ${FF_BRANCH}`) && ffMenu.includes(`Unset upstream of ${FF_BRANCH}`),
+  ffMenu,
+);
+log(await act(() => menuClick(`Fast-forward ${FF_BRANCH} to ${ffUpstream}`)));
+check(
+  'the branch is up to its upstream, HEAD never moved and the working tree is untouched',
+  git(['rev-parse', FF_BRANCH]) === ffTarget && ffBefore !== ffTarget && git(['rev-parse', 'HEAD']) === headBeforeFf && status() === treeBeforeFf,
+  `${FF_BRANCH} ${git(['rev-parse', FF_BRANCH]).slice(0, 8)} was ${ffBefore.slice(0, 8)}, ${ffUpstream} ${ffTarget.slice(0, 8)} | HEAD ${git(['rev-parse', 'HEAD']).slice(0, 8)} was ${headBeforeFf.slice(0, 8)}`,
+);
+// Unset it, and the fast-forward goes with it: an action with nothing to act on is absent, not
+// greyed out (GC-072).
+log(await contextMenuOn('.left-panel .ref-row', FF_BRANCH));
+log(await act(() => menuClick(`Unset upstream of ${FF_BRANCH}`)));
+const noUpstream = gitMay(['rev-parse', '--abbrev-ref', `${FF_BRANCH}@{upstream}`]);
+check('Unset upstream clears it', noUpstream.startsWith('GIT-ERROR'), noUpstream);
+log(await contextMenuOn('.left-panel .ref-row', FF_BRANCH));
+const noUpstreamMenu = await menuList();
+check(
+  'with no upstream the branch is offered Set upstream and neither of the other two',
+  noUpstreamMenu.includes(`Set upstream of ${FF_BRANCH}`) && !/Fast-forward/.test(noUpstreamMenu) && !/Unset upstream/.test(noUpstreamMenu),
+  noUpstreamMenu,
+);
+log(await menuClick(`Set upstream of ${FF_BRANCH}`));
+await waitModal();
+log(await modal(ffUpstream, null));
+log(await act(() => modalOk()));
+check('Set upstream points the branch at the remote branch it was given', gitMay(['rev-parse', '--abbrev-ref', `${FF_BRANCH}@{upstream}`]) === ffUpstream, gitMay(['rev-parse', '--abbrev-ref', `${FF_BRANCH}@{upstream}`]));
+// The scratch branch goes, and with it the config the two actions wrote.
+git(['branch', '-D', FF_BRANCH]);
 log(await act(() => tool('Refresh')));
 
 step(24, 'a detached HEAD is marked in the graph, and Push says why it is disabled');
