@@ -993,15 +993,10 @@ input[type='radio']:disabled {
 .graph-row .col-msg .readout.dim {
   color: var(--text-dim);
 }
-.graph-row .col-msg .readout .add {
-  color: var(--success);
-}
-.graph-row .col-msg .readout .mod {
-  color: var(--warning);
-}
-.graph-row .col-msg .readout .del {
-  color: var(--danger);
-}
+/* No colour rule of its own: the counts carry `kind-*`, which is what the tokens are keyed by, so
+   the one set of rules colours this readout and the detail panel's alike (GC-183). The three
+   `.add` / `.mod` / `.del` rules that used to sit here were a second answer to the same question,
+   and `mod` was a class the panel never used. */
 /* the optional columns: same width in the header and in every row, so the two stay aligned */
 .graph-header .col-author,
 .graph-row .col-author {

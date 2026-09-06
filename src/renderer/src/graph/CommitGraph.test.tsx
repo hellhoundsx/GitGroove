@@ -679,3 +679,49 @@ describe('the WIP row commit field (GC-182)', () => {
     expect(selected).toEqual([]);
   });
 });
+
+// GC-183: the third rendering of the three file states, and the one GC-143 deliberately left. It
+// drew its own lucide glyphs under `add`/`mod`/`del` — classes the kind tokens are not keyed by —
+// so the graph row and the detail panel eight pixels away could not share a colour rule.
+describe("the WIP row's change readout (GC-183)", () => {
+  const dirty: RepoStatus = {
+    branch: 'main',
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    operation: null,
+    entries: [
+      { path: 'a.txt', staged: null, unstaged: 'modified' },
+      { path: 'b.txt', staged: 'added', unstaged: null },
+      { path: 'c.txt', staged: null, unstaged: 'deleted' },
+      { path: 'd.txt', staged: null, unstaged: 'conflicted' },
+    ],
+  };
+
+  it('draws each count with the kind mark and the kind class, not a glyph of its own', () => {
+    const { container } = renderGraph({ status: dirty });
+    const readout = container.querySelector('.graph-row .readout');
+    if (!readout) throw new Error('no readout on the WIP row');
+
+    // The classes the kind tokens are keyed by, which is what makes one rule colour both surfaces.
+    for (const kind of ['added', 'modified', 'deleted', 'conflicted']) {
+      const span = readout.querySelector(`.kind-${kind}`);
+      expect(span, kind).toBeTruthy();
+      // `FileKindIcon`'s own mark: `kind kind-<kind>` on the lucide svg inside the count.
+      expect(span?.querySelector(`svg.kind.kind-${kind}`), kind).toBeTruthy();
+    }
+    // And none of the old ones, which no stylesheet outside this row ever knew about.
+    expect(readout.querySelector('.add, .mod, .del')).toBeNull();
+    expect(readout.textContent).not.toMatch(/[+✎−→]/);
+  });
+
+  it('draws the modified mark filled, exactly as the detail panel draws it', () => {
+    const { container } = renderGraph({ status: dirty });
+    const pencil = container.querySelector('.graph-row .readout .kind-modified svg');
+    expect(pencil?.getAttribute('fill')).toBe('currentColor');
+    // The other three are the heavier outline `FileKindIcon` gives an unfilled kind.
+    const plus = container.querySelector('.graph-row .readout .kind-added svg');
+    expect(plus?.getAttribute('fill')).toBe('none');
+    expect(plus?.getAttribute('stroke-width')).toBe('2.5');
+  });
+});

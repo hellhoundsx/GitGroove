@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react';
-import { Archive, Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus, Search, Tag, TriangleAlert, X } from 'lucide-react';
+import { Archive, Check, ChevronDown, ChevronUp, Cloud, Pin, Search, Tag, X } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
 import { continuesRange, layoutGraph, wipDashFor, type GraphLayout } from './lanes';
 import { GraphCell, LANE_W, ROW_H, laneColor } from './GraphCell';
 import { chipsFor, kindMarksOf, headChipFor, HEAD_REF, RefChip, type Chip } from './RefChip';
-import { Icon } from '../ui/icons';
+import { FileKindIcon, Icon } from '../ui/icons';
 import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
 import { matches as isShortcut } from '../shortcuts';
@@ -757,26 +757,31 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
               }}
               onClick={(e) => e.stopPropagation()}
             />
+            {/* The third rendering of the same three states, and now the same one (GC-183).
+                GC-143 gave the detail panel's readout and its file rows one `FileKindIcon`; this
+                row drew its own lucide glyphs at the app's default hairline weight, under classes
+                (`add`/`mod`/`del`) the kind tokens are not keyed by, so it did not even share the
+                colour rule with the panel eight pixels away. One mark per kind, and one rule. */}
             {hasChanges ? (
               <span className="readout">
                 {counts.conflict > 0 && (
-                  <span className="del">
-                    <Icon of={TriangleAlert} size={11} /> {counts.conflict}
+                  <span className="kind-conflicted">
+                    <FileKindIcon kind="conflicted" /> {counts.conflict}
                   </span>
                 )}
                 {counts.add > 0 && (
-                  <span className="add">
-                    <Icon of={Plus} size={11} /> {counts.add}
+                  <span className="kind-added">
+                    <FileKindIcon kind="added" /> {counts.add}
                   </span>
                 )}
                 {counts.mod > 0 && (
-                  <span className="mod">
-                    <Icon of={Pencil} size={11} /> {counts.mod}
+                  <span className="kind-modified">
+                    <FileKindIcon kind="modified" /> {counts.mod}
                   </span>
                 )}
                 {counts.del > 0 && (
-                  <span className="del">
-                    <Icon of={Minus} size={11} /> {counts.del}
+                  <span className="kind-deleted">
+                    <FileKindIcon kind="deleted" /> {counts.del}
                   </span>
                 )}
               </span>
