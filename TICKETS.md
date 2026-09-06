@@ -249,8 +249,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
 | GC-013 | Light theme | ui | M | P3 | done |
 | GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
-| GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | todo |
-| GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | todo |
+| GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | in-progress |
+| GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -258,7 +258,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | done |
 | GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | done |
 | GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | done |
-| GC-108 | The repository-open path clears the status bar without owning it | actions | S | P3 | todo |
+| GC-108 | The repository-open path clears the status bar without owning it | actions | S | P3 | in-progress |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | done |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
@@ -268,11 +268,11 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
-| GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | todo |
+| GC-055 | The scratch repo has no commit with more than two refs, so chip folding is untested | tests | S | P3 | in-progress |
 | GC-070 | Tests for tools/ live under src/renderer/src | tests | S | P3 | done |
 | GC-058 | A component test for the folded-refs dropdown flip | tests | S | P3 | done |
-| GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | todo |
-| GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | todo |
+| GC-056 | The scratch repo's second remote is the same bare repo as origin | tests | S | P3 | in-progress |
+| GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | in-progress |
 | GC-109 | The e2e suite never sees the intra-line diff marks | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | todo |
@@ -1438,7 +1438,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-055 The scratch repo has no commit with more than two refs, so chip folding is untested
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `setup-testrepo.mjs` pushes only `main` with `-u`, so `feature` and `wip-branch` have no
@@ -1465,6 +1465,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     the fixture without adding two branches by hand, which showed the fold has no coverage.
   - 2026-09-05 23:14 GR-006: GC-023 was the second ticket to build the four-ref commit by hand (its 300px and
     400px measurements), and GC-071 now waits on this one; still P3 because nothing else is blocked.
+  - 2026-09-06 05:43 claimed
 
 ### GC-102 The window is built dark whatever the theme is, so a light start flashes and keeps dark controls
 
@@ -1871,7 +1872,7 @@ decision is missing.
 
 ### GC-056 The scratch repo's second remote is the same bare repo as origin
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** e2e step 17 adds a second remote (`upstream`, later renamed `mirror`) pointing at
@@ -1902,6 +1903,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-031 (this ticket): the per-remote push assertion GC-031 added
     cannot tell the two remotes apart, because step 17 points both at the same bare repository.
+  - 2026-09-06 05:43 claimed
 
 ### GC-057 Toolbar Push and Pull cannot choose the remote
 
@@ -4265,7 +4267,7 @@ decision is missing.
 
 ### GC-081 Time the e2e run's 141 git spawns and drop the redundant ones
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-080
 - **Why:** After GC-080 the largest remaining cost in the run is its own verification: `git()`
@@ -4301,6 +4303,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 requested by Ricardo alongside GC-080, with the note that the ceiling is about 5s
     and it is worth doing only once GC-080 has made that a meaningful share of the run.
+  - 2026-09-06 05:43 claimed
 
 ### GC-082 Popping a stash through the toolbar loses what was staged
 
@@ -5396,7 +5399,7 @@ decision is missing.
 
 ### GC-105 Panel widths are clamped only against themselves, so the graph can be squeezed to nothing
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `useDragWidth` clamps the left panel to 160-420 and the detail panel to 300-720 (GC-050),
@@ -5458,10 +5461,11 @@ decision is missing.
     width, which no review had done before. The 900px case is not hypothetical - it is the app's own
     declared `minWidth`, and the maximum-panels case needs no resize at all to produce a 34px message
     column on the default window.
+  - 2026-09-06 05:43 claimed
 
 ### GC-106 The graph's incremental lane layout is never used: every page re-lays out the whole history
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-012
 - **Why:** GC-012 gave `layoutGraph` a third parameter, `prev: LaneState`, so a later page continues
@@ -5514,6 +5518,7 @@ decision is missing.
   - 2026-09-06 05:50 proposed by GR-011: from the code-review pass over GC-012. That ticket's log is
     accurate about what it built; what it did not do is connect it, and `CLAUDE.md` was updated as
     though it had.
+  - 2026-09-06 05:43 claimed
 
 ### GC-107 A commit's file row cannot restore that file, only open the working-tree copy
 
@@ -5570,7 +5575,7 @@ decision is missing.
 
 ### GC-108 The repository-open path clears the status bar without owning it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P3
 - **Depends on:** GC-084
 - **Why:** GC-084 gave every `run()` call a busy token, so of two overlapping actions only the one
@@ -5593,6 +5598,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-084 (this ticket): giving `run()` a token made it plain that the two
     busies written outside it still have none.
+  - 2026-09-06 05:43 claimed
 
 ---
 
