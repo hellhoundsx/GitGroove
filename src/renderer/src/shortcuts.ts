@@ -21,6 +21,7 @@ export type ShortcutId =
   | 'toggleLeft'
   | 'toggleDetail'
   | 'focusFilter'
+  | 'newTab'
   | 'nextTab'
   | 'prevTab'
   | 'stageAll'
@@ -102,6 +103,12 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         keys: ['Ctrl+Alt+F'],
         description: 'Filter the branches in the left panel',
         match: (e) => mod(e) && e.altKey === true && letter(e, 'f'),
+      },
+      {
+        id: 'newTab',
+        keys: ['Ctrl+T'],
+        description: 'Open a new repository tab',
+        match: (e) => ctrlOnly(e, 't'),
       },
       {
         id: 'nextTab',

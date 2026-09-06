@@ -14,7 +14,12 @@ export interface Tab {
    * canonical form — a dialog hands back `c:\repo` and `rev-parse` calls it `C:/repo`.
    */
   id: number;
-  path: string;
+  /**
+   * Null for a tab that has not been given a repository yet: `+` makes one of these and the empty
+   * state is its content, which is where a repository is picked (GC-163). It is not remembered —
+   * `storedPaths` drops it — because a tab holding nothing has nothing worth coming back to.
+   */
+  path: string | null;
 }
 
 /** The paths of the open tabs, in bar order, newest last. */
@@ -34,6 +39,15 @@ export function readTabs(raw: string | null): string[] {
 /** Number the paths, in order, from 1. Ids are handed out afresh on every start. */
 export function makeTabs(paths: string[]): Tab[] {
   return paths.map((path, i) => ({ id: i + 1, path }));
+}
+
+/**
+ * What goes on `gitclient.tabs`: the real repositories, in bar order. A tab still waiting to be
+ * given one contributes nothing, so the key stays an array of paths and a restart comes back with
+ * only the repositories that were actually open (GC-163).
+ */
+export function storedPaths(tabs: Tab[]): string[] {
+  return tabs.map((t) => t.path).filter((p): p is string => p !== null);
 }
 
 /**

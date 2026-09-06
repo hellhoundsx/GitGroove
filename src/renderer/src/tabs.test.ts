@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { cycle, makeTabs, neighbourOf, readTabs } from './tabs';
+import { cycle, makeTabs, neighbourOf, readTabs, storedPaths, type Tab } from './tabs';
+
+/** A tab that has not been given a repository yet, as `+` makes one (GC-163). */
+const empty = (id: number): Tab => ({ id, path: null });
 
 describe('readTabs tolerates whatever is on the key (GC-016)', () => {
   it('reads back a list of paths', () => {
@@ -15,6 +18,25 @@ describe('readTabs tolerates whatever is on the key (GC-016)', () => {
 
   it('drops the entries that are not usable paths rather than the whole list', () => {
     expect(readTabs(JSON.stringify(['/a', '', 3, null, '/b']))).toEqual(['/a', '/b']);
+  });
+});
+
+describe('storedPaths is what gitclient.tabs holds (GC-163)', () => {
+  it('keeps the real repositories in bar order', () => {
+    expect(storedPaths(makeTabs(['/a', '/b']))).toEqual(['/a', '/b']);
+  });
+
+  it('drops a tab that has not been given one, so a restart comes back without it', () => {
+    const tabs = [...makeTabs(['/a', '/b']), empty(3)];
+    expect(storedPaths(tabs)).toEqual(['/a', '/b']);
+  });
+
+  it('answers empty for a bar holding nothing but an empty tab', () => {
+    expect(storedPaths([empty(1)])).toEqual([]);
+  });
+
+  it('round-trips through readTabs, which never produced a null in the first place', () => {
+    expect(readTabs(JSON.stringify(storedPaths([...makeTabs(['/a']), empty(2)])))).toEqual(['/a']);
   });
 });
 
@@ -37,6 +59,13 @@ describe('neighbourOf picks the tab left showing when one is closed (GC-016)', (
 
   it('answers none for an id the bar does not hold', () => {
     expect(neighbourOf(tabs, 99)).toBeNull();
+  });
+
+  // A tab holding no repository closes like any other: it is a real tab in the bar (GC-163).
+  it('falls to the neighbour of a closed empty tab, and can land on one', () => {
+    const mixed: Tab[] = [{ id: 1, path: '/a' }, empty(2), { id: 3, path: '/c' }];
+    expect(neighbourOf(mixed, 2)?.path).toBe('/c');
+    expect(neighbourOf(mixed, 1)?.path).toBeNull();
   });
 });
 
@@ -67,5 +96,12 @@ describe('cycle is what Ctrl+Tab moves to (GC-016)', () => {
   it('starts at the first tab when nothing is showing, whichever way it was asked', () => {
     expect(cycle(tabs, null, 1)).toBe(at(0));
     expect(cycle(tabs, 99, -1)).toBe(at(0));
+  });
+
+  // Ctrl+Tab walks the bar, and a tab with no repository in it is part of the bar (GC-163).
+  it('cycles through an empty tab like any other', () => {
+    const mixed: Tab[] = [{ id: 1, path: '/a' }, empty(2)];
+    expect(cycle(mixed, 1, 1)).toBe(2);
+    expect(cycle(mixed, 2, 1)).toBe(1);
   });
 });

@@ -18,7 +18,7 @@ import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
 import type { MenuAnchor } from './ui/UiContext';
 import { canDropRef, type RefDragHandlers } from './ui/refDrag';
-import { cycle, makeTabs, neighbourOf, readTabs, TABS_KEY, type Tab } from './tabs';
+import { cycle, makeTabs, neighbourOf, readTabs, storedPaths, TABS_KEY, type Tab } from './tabs';
 
 /** Which tab was showing when the app was last closed, so a restart comes back to it. */
 const LAST_REPO_KEY = 'gitclient.lastRepo';
@@ -161,7 +161,7 @@ export function App(): JSX.Element {
         return null;
       }
     })();
-    const showing = last === null ? undefined : tabs.find((t) => normRepoPath(t.path) === normRepoPath(last));
+    const showing = last === null ? undefined : tabs.find((t) => t.path !== null && normRepoPath(t.path) === normRepoPath(last));
     return (showing ?? tabs[0])?.id ?? null;
   });
   /** Ids are never reused within a session, so a tab closed while its load is in flight cannot be hit by it. */
@@ -309,7 +309,7 @@ export function App(): JSX.Element {
   // it holds paths only: the ids are handed out afresh on each start (GC-016).
   useEffect(() => {
     try {
-      localStorage.setItem(TABS_KEY, JSON.stringify(tabs.map((t) => t.path)));
+      localStorage.setItem(TABS_KEY, JSON.stringify(storedPaths(tabs)));
     } catch {
       /* ignore */
     }
@@ -338,7 +338,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (repoPath === null) return;
     setTabs((prev) =>
-      prev.map((t) => (t.id === activeId && t.path !== repoPath && normRepoPath(t.path) === normRepoPath(repoPath) ? { ...t, path: repoPath } : t)),
+      prev.map((t) => (t.id === activeId && t.path !== null && t.path !== repoPath && normRepoPath(t.path) === normRepoPath(repoPath) ? { ...t, path: repoPath } : t)),
     );
   }, [repoPath, activeId]);
 
@@ -538,6 +538,26 @@ export function App(): JSX.Element {
   );
 
   /**
+   * Clear the panels to the state that has no repository behind it. That is what closing the last
+   * tab leaves, and — since GC-163 — what a tab still waiting to be given one shows: the same
+   * empty state, now as a tab's content rather than only as the whole window's.
+   */
+  const showEmpty = useCallback(() => {
+    generation.current += 1;
+    setSnapshot(null);
+    setRepoPath(null);
+    setSelected(WIP);
+    setFileView(null);
+    setDraft(EMPTY_DRAFT);
+    setSearch({ open: false, tick: 0, query: '' });
+    paged.current = { path: '', loaded: 0 };
+    graphTop.current = 0;
+    setHasMore(false);
+    setError(null);
+    bumpGen();
+  }, [bumpGen]);
+
+  /**
    * Put `t` on screen: what it was parked with if it has been here before, a fresh load if not
    * (GC-016). A parked tab comes back in one commit — no frame is painted between the two
    * repositories — and is then refreshed underneath, because the watcher only ever followed the
@@ -547,6 +567,12 @@ export function App(): JSX.Element {
     (t: Tab) => {
       generation.current += 1;
       setActiveId(t.id);
+      // A tab that has not been given a repository has nothing to load and nothing to put back:
+      // the empty state is its content (GC-163).
+      if (t.path === null) {
+        showEmpty();
+        return;
+      }
       const back = parked.current.get(t.id);
       if (!back?.snapshot) {
         void openIn(t.path);
@@ -569,11 +595,14 @@ export function App(): JSX.Element {
       bumpGen();
       void reloadSnapshot(back.snapshot.info.path);
     },
-    [bumpGen, openIn, reloadSnapshot],
+    [bumpGen, openIn, reloadSnapshot, showEmpty],
   );
 
   /** The tab already holding `path`, if any: a repository is opened once and revisited, not duplicated. */
-  const tabFor = useCallback((path: string): Tab | undefined => tabs.find((t) => normRepoPath(t.path) === normRepoPath(path)), [tabs]);
+  const tabFor = useCallback(
+    (path: string): Tab | undefined => tabs.find((t) => t.path !== null && normRepoPath(t.path) === normRepoPath(path)),
+    [tabs],
+  );
 
   const selectTab = useCallback(
     (id: number) => {
@@ -626,6 +655,24 @@ export function App(): JSX.Element {
   );
 
   /**
+   * A recents row, on either surface that draws the list: the repository joins the bar rather than
+   * replacing the one showing (GC-164). `openPath` rewrote the active tab's path, so picking a
+   * second repository left the bar at one tab and dropped everything the first had parked —
+   * nothing was closed, so nothing warned. Both surfaces mean the same thing, "take me to that
+   * repository", so both go through here; a path already in the bar is still revisited rather than
+   * duplicated, which `openNewTab` answers first.
+   */
+  const openRecent = useCallback(
+    async (path: string) => {
+      // A tab that has not been given a repository is exactly the one the user is asking to fill,
+      // so it takes the repository in place rather than making a second tab (GC-163).
+      if (activeId !== null && activePath === null) await openPath(path);
+      else await openNewTab(path);
+    },
+    [activeId, activePath, openNewTab, openPath],
+  );
+
+  /**
    * Close a tab, and with it everything it had parked. Closing one that is not showing changes
    * nothing on screen; closing the last one goes back to the empty state, which is where the app
    * starts before a repository has ever been opened.
@@ -640,21 +687,11 @@ export function App(): JSX.Element {
         showTab(next);
         return;
       }
-      generation.current += 1;
       setActiveId(null);
-      setSnapshot(null);
-      setRepoPath(null);
-      setSelected(WIP);
-      setFileView(null);
-      setSearch({ open: false, tick: 0, query: '' });
-      paged.current = { path: '', loaded: 0 };
-      graphTop.current = 0;
-      setHasMore(false);
-      setError(null);
-      bumpGen();
+      showEmpty();
       // `gitclient.lastRepo` follows the showing tab, so closing the last one clears it there.
     },
-    [activeId, bumpGen, showTab, tabs],
+    [activeId, showEmpty, showTab, tabs],
   );
 
   const openRepo = useCallback(async () => {
@@ -662,11 +699,19 @@ export function App(): JSX.Element {
     if (path) await openPath(path);
   }, [openPath]);
 
-  /** `+`: a new tab is a repository this window is not showing yet, so it asks for the folder (GC-016). */
-  const newTab = useCallback(async () => {
-    const path = await window.api.openRepoDialog();
-    if (path) await openNewTab(path);
-  }, [openNewTab]);
+  /**
+   * `+` (and Ctrl+T): a tab with no repository in it yet, showing the recents page (GC-163). It
+   * used to open the folder dialog, which made it a second copy of the folder button beside it and
+   * left the list people actually want — the recents — one more button to the right. The tab that
+   * was showing is parked exactly as `openNewTab` parks it, so GC-016's promise survives.
+   */
+  const newTab = useCallback(() => {
+    if (activeId !== null) parked.current.set(activeId, live.current);
+    const id = nextTabId.current++;
+    setTabs((prev) => [...prev, { id, path: null }]);
+    setActiveId(id);
+    showEmpty();
+  }, [activeId, showEmpty]);
 
   const repo = snapshot?.info.path ?? null;
 
@@ -1663,15 +1708,17 @@ export function App(): JSX.Element {
             hint: p,
             hintPath: true,
             disabled: repoPath !== null && normRepoPath(p) === normRepoPath(repoPath),
-            onClick: () => void openPath(p),
+            onClick: () => void openRecent(p),
           });
         }
         items.push({ separator: true });
       }
+      // "Open repository…" keeps `openPath`: the bar spends a button on each of the two gestures
+      // and this ticket does not merge them (GC-164).
       items.push({ label: 'Open repository…', onClick: () => void openRepo() });
       ui.openMenu(at, items);
     },
-    [openPath, openRepo, recents, repoPath, ui],
+    [openRecent, openRepo, recents, repoPath, ui],
   );
 
   // The branch crumb's dropdown: the quickest way to switch branches without hunting for the row
@@ -1770,6 +1817,13 @@ export function App(): JSX.Element {
         setDetailCollapsed((v) => !v);
         return;
       }
+      // Making a tab needs no repository open either: an empty tab is precisely how the first one
+      // is opened now (GC-163).
+      if (hit('newTab')) {
+        e.preventDefault();
+        newTab();
+        return;
+      }
       // Cycling the tabs costs nothing and needs no repository open (GC-016). It is deliberately
       // above the bindings that do, so a window with one tab still swallows Ctrl+Tab rather than
       // letting the focus ring walk the toolbar.
@@ -1833,7 +1887,7 @@ export function App(): JSX.Element {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch, tabs, activeId, selectTab]);
+  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch, tabs, activeId, selectTab, newTab]);
 
   return (
     <div
@@ -1845,7 +1899,7 @@ export function App(): JSX.Element {
         activeId={activeId}
         onSelectTab={selectTab}
         onCloseTab={closeTab}
-        onNewTab={() => void newTab()}
+        onNewTab={newTab}
         onOpenRepo={openRepo}
         onRepoMenu={openRepoMenu}
       />
@@ -2015,7 +2069,7 @@ export function App(): JSX.Element {
                   <div className="recent-list">
                     <div className="recent-caption">Recently opened</div>
                     {recents.map((p) => (
-                      <button key={p} className="recent-row" title={p} onClick={() => void openPath(p)}>
+                      <button key={p} className="recent-row" title={p} onClick={() => void openRecent(p)}>
                         <span className="recent-name">{folderName(p)}</span>
                         <span className="recent-path">{p}</span>
                       </button>

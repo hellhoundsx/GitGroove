@@ -333,6 +333,28 @@ const withCommits = (path: string, summaries: string[]): RepoSnapshot => ({
 const tabLabels = (): string[] => [...document.querySelectorAll('.titlebar .tab')].map((t) => t.querySelector('span')?.textContent ?? '');
 /** The label on the tab currently showing. */
 const activeLabel = (): string | null => document.querySelector('.titlebar .tab.selected span')?.textContent ?? null;
+/**
+ * One row of the open recents menu, by folder name. Picked out of `.ctx-item` rather than by text,
+ * because the same folder name is on the tab in the bar behind the menu.
+ */
+const recentRow = (name: string): HTMLElement => {
+  const row = [...document.querySelectorAll('.ctx-item')].find((r) => r.querySelector('.ctx-label')?.textContent === name);
+  if (!row) throw new Error(`no recents row for ${name}`);
+  return row as HTMLElement;
+};
+/**
+ * The recents menu, opened from one of its two triggers: the title bar's chevron and the
+ * repository breadcrumb both open the same list and both mean "take me to that repository", so
+ * GC-164 changed them together and both are worth driving.
+ */
+const openRecents = (from: 'titlebar' | 'toolbar'): HTMLElement =>
+  document.querySelector(`.${from === 'titlebar' ? 'titlebar' : 'toolbar'} [title="Recent repositories"]`) as HTMLElement;
+/** The same list as it is drawn on the recents page itself, by folder name. */
+const recentPageRow = (name: string): HTMLElement => {
+  const row = [...document.querySelectorAll('.recent-row')].find((r) => r.querySelector('.recent-name')?.textContent === name);
+  if (!row) throw new Error(`no recents page row for ${name}`);
+  return row as HTMLElement;
+};
 
 describe('App keeps a tab per repository (GC-016)', () => {
   /** Opens REPO with two commits, selects the second of them, then opens REPO2 in a new tab. */
@@ -348,8 +370,11 @@ describe('App keeps a tab per repository (GC-016)', () => {
     await settle(() => fireEvent.keyDown(window, { key: 'ArrowDown' }));
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('first commit');
 
+    // `+` makes a tab holding no repository (GC-163); its page is where the second repository is
+    // chosen, and "Open repository…" there fills that tab rather than making another.
     (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = async () => REPO2;
     await settle(() => fireEvent.click(screen.getByTitle('New tab')));
+    await settle(() => fireEvent.click(screen.getByText('Open repository…')));
     await settle(() => loads[1]?.resolve(withCommits(REPO2, ['other repository'])));
   }
 
@@ -397,19 +422,165 @@ describe('App keeps a tab per repository (GC-016)', () => {
     expect(activeLabel()).toBe('repo');
 
     await settle(() => fireEvent.click(document.querySelector('.titlebar .tab-close')!));
-    expect(tabLabels()).toEqual(['New Tab']);
+    // The bar draws nothing at all now: the inert "New Tab" placeholder that used to stand here
+    // was not a tab and is gone (GC-163). The empty state still fills the window.
+    expect(tabLabels()).toEqual([]);
     expect(document.querySelector('.graph-empty')).not.toBeNull();
   });
 
   it('takes the user to the tab a repository is already open in rather than duplicating it', async () => {
     await twoTabs();
-    (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = async () => REPO;
     const before = loads.length;
-    await settle(() => fireEvent.click(screen.getByTitle('New tab')));
+    // The showing tab is REPO2, so REPO's recents row is live; picking it goes to the tab it is
+    // already open in rather than making a second copy of it (GC-164).
+    await settle(() => fireEvent.click(openRecents('titlebar')));
+    await settle(() => fireEvent.click(recentRow('repo')));
     expect(tabLabels()).toEqual(['repo', 'other-repo']);
     expect(activeLabel()).toBe('repo');
     // The switch restored what that tab was parked with, so the only load is its background refresh.
     expect(loads).toHaveLength(before + 1);
+  });
+
+  // GC-163: `+` no longer means "open a repository, but in a new tab". It makes a tab that holds
+  // nothing, whose content is the page the empty state already drew.
+  describe('`+` makes a tab with no repository in it (GC-163)', () => {
+    /** One repository open, then `+`. `openRepoDialog` throws so a stray call is a failure, not a hang. */
+    async function plus(): Promise<void> {
+      render(
+        <UiProvider>
+          <App />
+        </UiProvider>,
+      );
+      await settle(() => loads[0]?.resolve(withCommits(REPO, ['first commit'])));
+      (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = () => {
+        throw new Error('+ must not open a folder dialog (GC-163)');
+      };
+      await settle(() => fireEvent.click(screen.getByTitle('New tab')));
+    }
+
+    it('appends a real tab, selects it and shows the recents page, with no dialog and no load', async () => {
+      await plus();
+      expect(tabLabels()).toEqual(['repo', 'New Tab']);
+      expect(activeLabel()).toBe('New Tab');
+      expect(document.querySelector('.graph-empty')).not.toBeNull();
+      // Nothing to load: an empty tab costs no git call at all.
+      expect(loads).toHaveLength(1);
+    });
+
+    it('does not remember it: gitclient.tabs stays the real repositories', async () => {
+      await plus();
+      expect(JSON.parse(localStorage.getItem('gitclient.tabs') ?? '[]')).toEqual([REPO]);
+    });
+
+    it('closes onto its neighbour like any other tab', async () => {
+      await plus();
+      await settle(() => fireEvent.click(document.querySelector('.titlebar .tab.selected .tab-close')!));
+      expect(tabLabels()).toEqual(['repo']);
+      expect(activeLabel()).toBe('repo');
+    });
+
+    it('gives the tab that was showing its selection back when it returns', async () => {
+      render(
+        <UiProvider>
+          <App />
+        </UiProvider>,
+      );
+      await settle(() => loads[0]?.resolve(withCommits(REPO, ['first commit', 'second commit'])));
+      await settle(() => fireEvent.keyDown(window, { key: 'ArrowDown' }));
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('first commit');
+      await settle(() => fireEvent.click(screen.getByTitle('New tab')));
+      const before = loads.length;
+      await settle(() => fireEvent.click(screen.getAllByTitle(REPO)[0]!));
+      // Parked and put back in one commit, exactly as a switch between two repositories is.
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('first commit');
+      expect(loads).toHaveLength(before + 1);
+    });
+
+    it('is what Ctrl+T does, so the ? overlay documents it', async () => {
+      render(
+        <UiProvider>
+          <App />
+        </UiProvider>,
+      );
+      await settle(() => loads[0]?.resolve(withCommits(REPO, ['first commit'])));
+      await settle(() => fireEvent.keyDown(window, { key: 't', ctrlKey: true }));
+      expect(tabLabels()).toEqual(['repo', 'New Tab']);
+    });
+
+    it('is filled in place by its own recents row, rather than making a third tab', async () => {
+      await plus();
+      // The list on that page is the repository history; picking from it is what the tab is for.
+      await settle(() => fireEvent.click(document.querySelector('.recent-row')!));
+      expect(loadArgs[loadArgs.length - 1]?.path).toBe(REPO);
+      // REPO is already in the bar, so the user is taken to its tab; the count never grew past two.
+      expect(tabLabels()).toEqual(['repo', 'New Tab']);
+      expect(activeLabel()).toBe('repo');
+    });
+
+    it('takes a repository it does not already hold into itself, not into a third tab', async () => {
+      localStorage.setItem('gitclient.recentRepos', JSON.stringify([REPO2, REPO]));
+      await plus();
+      await settle(() => fireEvent.click(recentPageRow('other-repo')));
+      await settle(() => loads[loads.length - 1]?.resolve(withCommits(REPO2, ['other repository'])));
+      // The tab the user was standing in is the one that was filled: still two tabs (GC-163).
+      expect(tabLabels()).toEqual(['repo', 'other-repo']);
+      expect(activeLabel()).toBe('other-repo');
+      expect(JSON.parse(localStorage.getItem('gitclient.tabs') ?? '[]')).toEqual([REPO, REPO2]);
+    });
+  });
+
+  // GC-164: a recents row used to call `openPath`, which rewrote the showing tab's path — the
+  // repository the user was on was not moved aside, it was gone, with its parked state dropped.
+  describe('a recents row opens a tab beside the one showing (GC-164)', () => {
+    /** One repository open, a second one in the recents list, and the menu up. */
+    async function menuWithBoth(): Promise<void> {
+      localStorage.setItem('gitclient.recentRepos', JSON.stringify([REPO2, REPO]));
+      render(
+        <UiProvider>
+          <App />
+        </UiProvider>,
+      );
+      await settle(() => loads[0]?.resolve(withCommits(REPO, ['first commit', 'second commit'])));
+      await settle(() => fireEvent.keyDown(window, { key: 'ArrowDown' }));
+      await settle(() => fireEvent.click(openRecents('titlebar')));
+    }
+
+    it('leaves two tabs, the new one showing and the old one still in the bar', async () => {
+      await menuWithBoth();
+      await settle(() => fireEvent.click(recentRow('other-repo')));
+      await settle(() => loads[loads.length - 1]?.resolve(withCommits(REPO2, ['other repository'])));
+      expect(tabLabels()).toEqual(['repo', 'other-repo']);
+      expect(activeLabel()).toBe('other-repo');
+      expect(JSON.parse(localStorage.getItem('gitclient.tabs') ?? '[]')).toEqual([REPO, REPO2]);
+    });
+
+    it('never dropped what the old tab had parked, from the breadcrumb\'s copy of the list', async () => {
+      await menuWithBoth();
+      // The breadcrumb's menu is the same `openRepoMenu`, opened from the other trigger.
+      await settle(() => fireEvent.keyDown(window, { key: 'Escape' }));
+      await settle(() => fireEvent.click(openRecents('toolbar')));
+      await settle(() => fireEvent.click(recentRow('other-repo')));
+      await settle(() => loads[loads.length - 1]?.resolve(withCommits(REPO2, ['other repository'])));
+      const before = loads.length;
+      await settle(() => fireEvent.click(screen.getAllByTitle(REPO)[0]!));
+      expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('first commit');
+      expect(loads).toHaveLength(before + 1);
+    });
+
+    it('is true of the empty state\'s copy of the list, which opens exactly one tab', async () => {
+      localStorage.removeItem('gitclient.lastRepo');
+      localStorage.setItem('gitclient.recentRepos', JSON.stringify([REPO2, REPO]));
+      render(
+        <UiProvider>
+          <App />
+        </UiProvider>,
+      );
+      // Nothing open at all: the bar is empty and the window is the recents page.
+      expect(tabLabels()).toEqual([]);
+      await settle(() => fireEvent.click(recentPageRow('other-repo')));
+      await settle(() => loads[loads.length - 1]?.resolve(withCommits(REPO2, ['other repository'])));
+      expect(tabLabels()).toEqual(['other-repo']);
+    });
   });
 
   it('remembers the open tabs and which one was showing', async () => {
@@ -464,8 +635,11 @@ describe('App parks the commit message with the tab it was written in (GC-148)',
     await settle(() => fireEvent.change(summaryField(), { target: { value: 'half a message' } }));
     await settle(() => fireEvent.change(bodyField(), { target: { value: 'and its body' } }));
 
+    // `+` makes a tab holding no repository (GC-163); its page is where the second repository is
+    // chosen, and "Open repository…" there fills that tab rather than making another.
     (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = async () => REPO2;
     await settle(() => fireEvent.click(screen.getByTitle('New tab')));
+    await settle(() => fireEvent.click(screen.getByText('Open repository…')));
     await settle(() => loads[1]?.resolve(withCommits(REPO2, ['other repository'])));
   }
 
