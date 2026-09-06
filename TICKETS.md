@@ -1640,6 +1640,10 @@ decision is missing.
     history at any row and laying out the halves still equals laying out the whole, with stash rows
     included. Row indices reach `rowIndexOf`, the virtualiser and the WIP row's offset, so every one
     of those has to agree on the new count.
+  - The message column shows the stash's **own** message, with git's `On <branch>: ` prefix
+    stripped: GitKraken renders `On 008-page-monitor-port: est` as `est`, and the branch is
+    already named by the lane the row sits in. Strip it for display only - never in the `title`,
+    and never in what `stashRename` stores.
   - Record the shape in `docs/reference/gitkraken/03-graph.md` as an observation, described in our
     own words from Ricardo's screenshot - never copied from GitKraken's markup, CSS or strings.
 - **Out of scope:** a stash lane of its own separate from its parent's; stashes whose parent is not
@@ -1652,6 +1656,8 @@ decision is missing.
   - [ ] The stash node is drawn with a dashed outline and its lane line runs down into the parent.
   - [ ] Clicking the row selects it; right-click opens `stashMenuItems`; double-click applies.
   - [ ] Two stashes on the same parent draw two rows, in `git stash list` order, newest first.
+  - [ ] A stash whose reflog subject is `On <branch>: est` draws `est` in the message column, and
+        its full untouched message is still on the row's `title`.
   - [ ] A stash whose parent is not in the loaded range draws nothing and moves nothing.
   - [ ] `chipRoom` no longer counts a stash marker, and `CommitGraph.test.tsx`'s GC-156 case is
         updated rather than deleted - the cloud must still be kept at a width where it fits.
@@ -1675,6 +1681,16 @@ decision is missing.
     **is** present at 23ce5c2, so this replaces a shipped answer rather than reporting a missing
     one, which is why it is its own ticket and not a reopening of GC-140. `Depends on: GC-140`
     because the `Stash.parent` field it added is exactly what the row needs.
+  - 2026-09-06 GR-020, after the review was committed: Ricardo went looking for GC-140's chip on
+    `catena-feed` and could not find it, then found it by zooming in - a 20x20 glyph wedged
+    between an ellipsised `008-page-...` chip and the node. The chip works; it is invisible at
+    normal viewing distance on a real repository, which is better evidence for this ticket than
+    the reasoning above. He then sent a GitKraken capture of the target, which settles three
+    details the ticket had to leave open: the node is a **full-size dashed circle with the glyph
+    inside it**, in the branch's lane with the line running down into the tip; the row is
+    selectable and takes a highlighted band across its full width, exactly like a commit row; and
+    the message column reads `est`, so the `On <branch>: ` prefix is **stripped**. That capture is
+    the observation `03-graph.md` is missing - describe it in our own words, copy nothing.
 
 ### GC-171 A stash row spends 66px on its age and leaves its message 77px of the 192 it wants
 
@@ -1732,6 +1748,12 @@ decision is missing.
     stashes, on the rotation surface GR-019 did not reach. It is the second half of GC-156's
     lesson one panel over - a piece of furniture sized by its own content taking the room the
     name needed - which is why it is filed rather than left as a note.
+  - 2026-09-06 GR-020, after the review was committed: the scope above asks whoever takes this to
+    decide what to do with git's `On <branch>: ` prefix. **GitKraken strips it** - a capture
+    Ricardo sent renders `On 008-page-monitor-port: est` as `est`. So the decision is made, and
+    the nine characters it buys the message are the cheapest part of this fix. GC-170 carries the
+    same rule for the graph row, and the two must agree: strip for display only, never in the
+    `title` and never in what `stashRename` stores.
 
 ## Reviews
 
