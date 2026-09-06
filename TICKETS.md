@@ -262,13 +262,13 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-203 | `--force-with-lease` is implemented, typed and validated, and no call site can reach it | actions | S | P2 | todo |
-| GC-209 | A sticky group head is stuck 12px below the edge that clips the rows, so a file row shows above it and behind it | ui | S | P2 | todo |
+| GC-203 | `--force-with-lease` is implemented, typed and validated, and no call site can reach it | actions | S | P2 | in-progress |
+| GC-209 | A sticky group head is stuck 12px below the edge that clips the rows, so a file row shows above it and behind it | ui | S | P2 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | todo |
-| GC-198 | `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk | infra | S | P3 | todo |
-| GC-199 | A stash row carries five things at a 220px panel and the message gets 48px of them | ui | S | P3 | todo |
-| GC-201 | The lane band is a flat wash where it should read as light coming off the lane | ui | S | P3 | todo |
+| GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | in-progress |
+| GC-198 | `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk | infra | S | P3 | in-progress |
+| GC-199 | A stash row carries five things at a 220px panel and the message gets 48px of them | ui | S | P3 | in-progress |
+| GC-201 | The lane band is a flat wash where it should read as light coming off the lane | ui | S | P3 | in-progress |
 | GC-208 | An image in a commit says "Binary file." where the picture is what the reader wants | diff | M | P3 | todo |
 | GC-204 | Blame: the file view's third mode, and the last Build row of the study's file panel | diff | M | P3 | todo |
 | GC-205 | The staging view's bottom section keeps its place now, but still cannot be resized | ui | S | P3 | todo |
@@ -405,7 +405,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-184 The folded +N block cannot be opened by any driver, so nothing covers it end to end
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-123
 - **Why:** The `+N` fold opens on `:hover`, and `:hover` never fires in the app the routine
@@ -439,12 +439,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-147 (this ticket): the ticket's acceptance asked that hovering
     `+N` still work over the new band, and there was no way to hover; the check had to be made
     through `.more-drag` instead, which is what showed the gap.
+  - 2026-09-06 21:30 claimed
 
 ---
 
 ### GC-198 `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `repoRel()` in `ipc.ts` does two things at once: it refuses a path that resolves outside
@@ -480,12 +481,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-166 (this ticket's batch): its own scope said the path should go
     through `repoRel()`, and it could not, because the acceptance criterion "History on the
     fixture's deleted file lists the commit that deleted it" is exactly the case `repoRel` refuses.
+  - 2026-09-06 21:30 claimed
 
 ---
 
 ### GC-199 A stash row carries five things at a 220px panel and the message gets 48px of them
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-171
 - **Why:** measured after GC-171, in the running app at the **default** 220px panel: the row is
@@ -527,12 +529,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-171 (this ticket's batch): its own fix landed and the row is still
     48px of message, because the pressure that is left is the number of items on the row rather
     than the width of any one of them.
+  - 2026-09-06 21:30 claimed
 
 ---
 
 ### GC-201 The lane band is a flat wash where it should read as light coming off the lane
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-200
 - **Why:** GC-186's band is right and Ricardo says so — the ask is the next step, not a correction.
@@ -575,12 +578,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-025, from Ricardo's inbox: the band landed and reads well, and the
     remaining complaint is that one opacity across the whole cell reads as a printed rectangle
     rather than as light off the lane.
+  - 2026-09-06 21:30 claimed
 
 ---
 
 ### GC-203 `--force-with-lease` is implemented, typed and validated, and no call site can reach it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** GC-202
 - **Why:** Ricardo amended a commit that was already on the remote and the app had no way to publish
@@ -632,6 +636,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-025, from Ricardo's inbox: he could not publish an amended commit;
     the flag that would have done it safely is implemented and validated and reachable from nowhere
     in the renderer.
+  - 2026-09-06 21:30 claimed
 
 ---
 
@@ -896,7 +901,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-209 A sticky group head is stuck 12px below the edge that clips the rows, so a file row shows above it and behind it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** Reported by Ricardo and reproduced exactly, on the same file he named. A commit with more
@@ -950,6 +955,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-026, from Ricardo's inbox: reproduced on a 33-file commit, and the
     part he could not account for is the cause — sticky insets resolve against the content box while
     clipping happens at the padding box, so GC-142's 12px padding is a strip the head does not cover.
+  - 2026-09-06 21:30 claimed
 
 ---
 
