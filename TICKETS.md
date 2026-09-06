@@ -250,13 +250,13 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-013 | Light theme | ui | M | P3 | done |
 | GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
 | GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | done |
-| GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | todo |
-| GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | todo |
-| GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | todo |
+| GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | in-progress |
+| GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | in-progress |
+| GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | in-progress |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
-| GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | todo |
-| GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | todo |
+| GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | in-progress |
+| GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -5914,7 +5914,7 @@ decision is missing.
 
 ### GC-111 A drag on a narrow window collapses the panel to its minimum and persists it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-105
 - **Why:** GC-105 gave each side panel a `limit` — as far as a drag may go given the other panel —
@@ -5970,6 +5970,7 @@ decision is missing.
   - 2026-09-06 07:05 proposed by GR-012: measured on the built app at `37f392b` — a one-pixel drag of the
     left handle moves the panel 60px and writes the new width to `localStorage`, so the width the user
     chose on a wide window is gone for good after touching a handle on a narrow one.
+  - 2026-09-06 08:05 claimed
 
 ---
 
@@ -6032,7 +6033,7 @@ decision is missing.
 
 ### GC-113 The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** —
 - **Why:** `--lane-0..9` in `tokens.css` is a hue ramp walked in order. Measured on the running app at
@@ -6077,12 +6078,13 @@ decision is missing.
   - 2026-09-06 07:05 proposed by GR-012: from the screenshot pass. The ramp was measured rather than eyed,
     and lanes 3 and 4 at a contrast ratio of 1.00 are the case that makes it a defect rather than a taste
     question.
+  - 2026-09-06 08:05 claimed
 
 ---
 
 ### GC-114 The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** With one remote, `refMenuItems` offers ``Push ${r.name}${r.upstream ? ` to ${r.upstream}` :
@@ -6118,12 +6120,13 @@ decision is missing.
   - 2026-09-06 07:20 proposed by GC-100 (this batch): found by looking at the branch-menu screenshot
     GC-100’s acceptance asked for. P1 rather than P2 because the row promises one ref and writes
     another, and GC-100 has just made the case reachable in one click.
+  - 2026-09-06 08:05 claimed
 
 ---
 
 ### GC-115 A drag on a narrow window replaces the ref column’s stored width with the limit
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-110
 - **Why:** GC-111 one level in. GC-110 gave the ref column a `limit`, so `useDragWidth`’s `clampDrag`
@@ -6172,12 +6175,13 @@ decision is missing.
   - 2026-09-06 07:20 proposed by GC-110 (this batch): measured while confirming GC-110’s own
     acceptance, which checks the resize path and passes. The drag path is the one GC-111 found on the
     panels, and GC-110 has just given the ref column the `limit` that makes it reachable here too.
+  - 2026-09-06 08:05 claimed
 
 ---
 
 ### GC-116 With the optional columns on, the commit message column is squeezed to nothing
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-110
 - **Why:** The AUTHOR / DATE / SHA columns (GC-032) are `flex: none` at 140 / 150 / 80, so 370px comes
@@ -6217,6 +6221,7 @@ decision is missing.
   - 2026-09-06 07:20 proposed by GC-110 (this batch): measured while confirming GC-110, which reserves
     the optional columns’ widths so the ref column gives way for them but cannot help once it is at
     its floor. GC-110’s Out of scope named this shape and left it deliberately.
+  - 2026-09-06 08:05 claimed
 ---
 
 ## Reviews
