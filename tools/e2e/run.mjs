@@ -153,7 +153,10 @@ await stopPort(PORT);
 let target;
 let stopApp;
 try {
-  ({ target, stop: stopApp } = await launchApp({ port: PORT, appDir: APP }));
+  // `stopNow`, not `stop`: the graceful stop is asynchronous and an `exit` handler cannot await it
+  // (GC-162). This run has nothing to lose by being killed — step 1 rewrites every remembered key
+  // it depends on (GC-160) — so it takes the immediate one.
+  ({ target, stopNow: stopApp } = await launchApp({ port: PORT, appDir: APP }));
 } catch (e) {
   console.error(String(e.message ?? e));
   process.exit(1);

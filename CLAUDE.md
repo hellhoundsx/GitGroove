@@ -105,6 +105,17 @@ before it exits, because that command exists to leave an app running, and the `-
 attach path spawns nothing and so owns nothing. `stopApp(child)` stops one from a
 child handle, and `stopPort(port)` stops the one process listening on a DevTools port. By hand:
 `netstat -ano -p tcp | grep 9333`, then `taskkill //F //T //PID <pid>`.
+
+**And a stop asks before it kills** (GC-162). Chromium commits `localStorage` on a timer, so
+`taskkill /F` loses whatever the page wrote in the last second or so — silently, because the page
+reads its own in-memory copy back, which is how three seeded keys were measured missing from the
+next launch while the driver that wrote them saw them fine. `stop()` and `stopPort()` therefore
+call `requestClose(port)` — the DevTools `/json/close/<target>` endpoint, so closing the window is
+what quits the app — and wait a bounded `GRACEFUL_STOP_MS` for the process to go; the kill runs
+unconditionally afterwards, so GC-154's promise is untouched by a graceful path that hangs. A
+driver that seeds a `gitclient.*` key and relaunches on the same port to assert it came back needs
+that. `stopNow()` is the immediate kill, which is what `tools/e2e/run.mjs` takes: an `exit` handler
+cannot await, and the suite rewrites every key it depends on in step 1 anyway (GC-160).
 `tools/e2e/foreground.ps1` proves a launch was invisible by printing the foreground window handle
 and every top-level window an `electron` process owns — `Get-Process electron | MainWindowTitle` is
 useless, a frameless window reports an empty title even on screen.
@@ -163,6 +174,9 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   both messages standing. The sha is read first, because the drop is what makes it unreachable,
   and the drop only runs once the store has resolved, or a failure loses the stash outright. The
   re-stored entry lands at `stash@{0}`, which is why the dialog says the stash moves to the top.
+  It is `stashRenameWith(run, index, message)` with `stashRename` bound to a repository, the shape
+  `restoreStashWith` already had, so the arithmetic that silently destroys a stash when it is wrong
+  is four unit tests rather than only a 45-second e2e step (GC-167).
 - **`pull(cwd, mode, remote?)` names the branch whenever it names a remote** (GC-057): `git pull
   <remote>` with no refspec still merges `branch.<name>.merge`, which is the upstream the caller
   asked to bypass, so a named remote becomes `git pull <flag> <remote> <branch>`.
@@ -355,7 +369,11 @@ under it the moment git answers with its canonical form.
   keeps `'0'`, because an unattended `git status` must never sit on a prompt. Such a child is
   registered for `cancelRemote()` and given two minutes, since a helper's window waits for a
   person; `run(label, fn, { remote: true })` is what puts Cancel on the busy line, and a cancelled
-  command reports as an advisory notice rather than as a failure.
+  command reports as an advisory notice rather than as a failure. **Which functions reach
+  `runRemote` is a test, not a convention** (GC-176): `fetch`, `remoteAdd`, `pull`, `push`,
+  `deleteRemoteBranch` and `deleteRemoteTag` — five commands, the last two being pushes that GC-169
+  missed and that reported one ellipsised `403` until they were wired up. `git.test.ts` reads
+  `git.ts` for every function calling it and names the six, so a seventh cannot join them silently.
 - Menus come from `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`,
   `remoteMenuItems` and `fileMenuItems`; `tipCommitActions(sha)` is the shared source for the
   commit actions the branch and commit menus both carry, so their wording cannot drift — and
@@ -418,6 +436,14 @@ a zero floor, exactly as the collapsed left rail does.
 - `PromptOptions.secondary` adds a third button resolving `choice: 'secondary'`; `required`
   defaults to true and only the stash prompt sets it false. OK stays
   `.modal-buttons .btn:last-child`, which the e2e helpers rely on.
+- **A dialog may ask for several things at once** (GC-026): `PromptOptions.fields` is a list of
+  `PromptField`s and `PromptResult.values` answers them keyed by name, each input carrying its
+  `name` so a driver fills one by name rather than by position. OK waits for **every** field that
+  did not say `required: false`. `promptFields(options)` is the one place the two forms meet and
+  is pure: no `fields` means one field named `value` built from `label` / `defaultValue` /
+  `placeholder` / `required`, and `input: false` means none at all — which is why `result.value`
+  still answers every existing caller and a confirmation is still no body. "Add remote" is the
+  first user: it asked for the name, waited for OK, then asked for the URL.
 - **Every modal is `h3` + `.modal-body` + `.modal-buttons`, in that order** (GC-103). `.modal` is
   capped at `calc(100vh - 40px)` and `.modal-body` is the only part that scrolls, so a dialog taller
   than the window keeps its title and its buttons on screen instead of overflowing off both ends.
@@ -738,10 +764,19 @@ in `LeftPanel.tsx` is the pure half: `label` is the name **relative to the secti
 groups without its own segment — the remote's row is already the first level — and a folder's count
 is the refs beneath it at any depth, never its sub-folders. A folder row is `.ref-row.folder`; every
 row carries its own `--row-depth`, and `app.css` turns that into 16px of padding a level, so a name
-with no slash renders exactly where it always did. The collapsed set is component state keyed
-`<section>/<folder path>` and lasts the session; it stores what is **closed**, so a folder that
-appears later starts open. A filter forces every drawn folder open, which is sound because the tree
-is built from the matches alone. The section counts still count refs, never folders.
+with no slash renders exactly where it always did. The closed set is keyed `<section>/<folder path>`
+and stores what is **closed**, so a folder that appears later starts open. A filter forces every
+drawn folder open, which is sound because the tree is built from the matches alone. The section
+counts still count refs, never folders.
+
+**And that set is remembered per repository** (GC-139), on `gitclient.folded.<repoPath>` — state,
+so its own key rather than the prefs blob, like the hidden set. Two things it has to get right.
+It is **pruned against `folderKeys(refs, remotes)`**, the pure answer to which folders the snapshot
+can produce, built from the ref names rather than from the trees, because a filter narrows the
+trees and the whole snapshot is what decides whether a folder exists. And `LeftPanel` is **not**
+keyed by repository, so the path the set was read for is held beside it and a switch is noticed
+during render — the way `DiffView` derives rather than clearing from an effect (GC-075) — or one
+frame is painted with the previous repository's folders.
 
 **A stash row says how old it is** (GC-135). `Stash.date` had been on every snapshot since the list
 existed and was drawn nowhere, while "how old is this" is the question a stash list is read for.
@@ -926,6 +961,7 @@ Remembered **state** deliberately stays on its own keys, never in the blob:
 | `gitclient.sectionHeights` | the left panel's section heights in px, per section id (GC-153) |
 | `gitclient.pinned.<repoPath>` | the branch pinned to the graph's left column |
 | `gitclient.hidden.<repoPath>` | full names of the refs kept out of the graph |
+| `gitclient.folded.<repoPath>` | the left panel's closed folders, `<section>/<folder path>` (GC-139) |
 
 Both side panels drag from a 4px `.panel-resize` handle on their own edge, absolutely positioned so
 nothing reflows during the drag; `App` writes the widths as `--left-panel-w` / `--detail-panel-w`
@@ -999,7 +1035,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-382 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+406 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
 
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
@@ -1011,14 +1047,16 @@ than being noticed months later (GC-174 moved the `done` rows to a board in the 
 pins the routine's lock check and batch selection on synthetic text.
  `tools/launch-app` covers the attach path against a fake CDP endpoint, and the ownership a launch
 takes over the app it spawned (GC-154) against a sleeping node process — a unit test never starts
-Electron, and `ownChild` cares only that it was handed something with a pid.
+Electron, and `ownChild` cares only that it was handed something with a pid. GC-162's graceful stop
+is covered the same way: a fake CDP whose `/json/close` stops that process is the app asking to be
+closed, and a port nobody holds is the fallback.
 
 ### The e2e suite
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 39 steps, 285 assertions, ~44s. It ends with
-`total: 42.7s | git: 371 calls, 9.6s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 40 steps, 292 assertions, ~45s. It ends with
+`total: 45.0s | git: 373 calls, 9.9s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -1052,11 +1090,14 @@ here. Rules a new step must respect:
   than crash on it. `.git/index.lock` is retried five times at 200ms first, because the collision is
   with the app's own watcher refresh. A throw is caught by `bail`, which stops the run's Electron.
 - **Wait on the DOM, never on a fixed sleep.** `waitFor(expression, what, max)` polls the renderer
-  every 50ms. Five `sleep` calls are left, each commented with what is unobservable there — the
+  every 50ms. Seven `sleep` calls are left, each commented with what is unobservable there — the
   frame after a viewport override, because `ContextMenu` closes on `resize` and the override's own
   resize event arrives after `window.innerHeight` has already changed (GC-126), and the quiet
   window inside `waitSettled`, which is the absence of an event and so cannot be waited on
-  (GC-121). **`waitSettled` is not `waitIdle`**: the first answers "no reload is still coming" by
+  (GC-121). Step 39's two are the second kind: what it asserts after a `dragend`, and after a
+  drag that is not ours, is that the graph does **not** scroll (GC-168). The scroll it does expect
+  is a `waitFor`, not a sleep — one `dragover` and then the DOM, which is what proves the rAF loop
+  runs off the clock rather than off the event. **`waitSettled` is not `waitIdle`**: the first answers "no reload is still coming" by
   sampling `data-gen` until it holds, the second only "no action is running". A step that picks
   diff lines needs the first — a watcher echo landing while the bar is already idle bumps the
   version, and the selection is keyed to it, so the picks vanish between two clicks.
@@ -1219,9 +1260,13 @@ detail views with the parents column giving way before the authored date, the co
 with its tab, the left panel header naming HEAD rather than
 counting what its sections already count (Graph, Detail panel, App state); the backlog
 split by status across two files, row and section moved in the same commit as the status change,
-and neither file read before `backlog.mjs` says there is a batch (The backlog);
+and neither file read before `backlog.mjs` says there is a batch (The backlog); one dialog able to
+ask for several things with the single-field form unchanged underneath it, and the closed folders
+remembered per repository and pruned against the refs that exist (UI layer, Graph); every function
+that may ask for a credential named by a test rather than by a convention, and the stash rename's
+index shift held by unit tests rather than only by a 45-second run (Main process, Testing);
 
-stealth launches, narrow stops, the per-port profile, and a launch owned by the process that made it
+stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).
 

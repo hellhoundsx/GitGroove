@@ -178,6 +178,12 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
 | GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P2 | done |
 | GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | done |
 | GC-138 | The diff’s hunk navigation is inline in the component and untested | tests | S | P3 | done |
+| GC-026 | One dialog with several fields instead of chained prompts | ui | S | P2 | done |
+| GC-176 | A remote branch or tag delete is a push that still cannot ask for a credential | actions | S | P2 | done |
+| GC-167 | stashRename's index shift is the one piece of stash arithmetic with no unit test | tests | S | P3 | done |
+| GC-168 | The fixture's graph fits at every height, so nothing guards the drag auto-scroll | tests | S | P3 | done |
+| GC-162 | A launcher stop loses whatever the page wrote to localStorage last | infra | S | P3 | done |
+| GC-139 | A folder closed in the left panel opens again on every reload | ui | S | P3 | done |
 
 ## Tickets
 
@@ -9082,6 +9088,267 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
     wrong and was fixed twice, all without a test — and a throwaway script was what caught it.
   - 2026-09-06 14:37 claimed
   - 2026-09-06 done: `nextHunkStop(stops, at, dir)` is pure, exported and called by `gotoHunk`, which keeps only the measuring; 6 cases in `src/renderer/src/diff/hunkNav.test.ts` name both answers GC-052 got wrong, and the arrows were driven in the running app over CDP (0 -> 225 -> 334, back to 225, and the wrap at each end).
+
+---
+
+### GC-026 One dialog with several fields instead of chained prompts
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** none
+- **Why:** `ui.prompt` takes exactly one text field, so "Add remote" (GC-008) asks for the name,
+  waits for OK, then opens a second dialog for the URL. Cancelling the second one leaves nothing
+  behind but the two-step flow reads as a bug, and the same shape will come up again (clone with
+  a URL and a target folder, an annotated tag with a name and a message).
+- **Scope:**
+  - `PromptOptions` accepts several fields (label, placeholder, default value, required) and
+    resolves an object keyed by field name; the single-field form keeps working unchanged so no
+    existing caller or e2e helper has to move.
+  - `Modal` renders the fields stacked, focuses the first, and disables OK until every required
+    field is non-empty.
+  - "Add remote" becomes one dialog asking for the name and the URL together.
+- **Out of scope:** checkboxes per field, validation of URL syntax, a clone dialog.
+- **Acceptance:**
+  - [x] Add remote is one dialog with two fields; the e2e step 16 fills both and clicks OK once.
+  - [x] Every other prompt caller behaves as it does today.
+- **Files:** `src/renderer/src/ui/Modal.tsx`, `src/renderer/src/ui/UiContext.tsx`,
+  `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** `npm run typecheck`, `npm run build`, `npm run e2e`, and a screenshot of the
+  dialog.
+- **Log:**
+  - 2026-09-05 proposed by GC-008 (this ticket): adding a remote needs a name and a URL, and the
+    prompt modal can only ask for one thing at a time.
+  - 2026-09-06 GR-021: raised P3 -> P2 and moved above GC-128 on the board, which has been the
+    first unclaimed row for four reviews and never once eligible because this ticket gates it; a
+    ticket's priority should not be lower than that of the ticket it blocks.
+  - 2026-09-06 15:37 claimed
+  - 2026-09-06 15:58 done: `PromptOptions.fields` asks for several things at once and `PromptResult.values`
+    answers them keyed by name, with the single-field form untouched — 8 new `Modal.test.tsx` cases, e2e step
+    17 reading `fields":"name=upstream url=…` off one dialog, and `docs/screenshots/gc026-add-remote.png`;
+    the acceptance says step 16, which is the commit-search step today, so step 17 is where it was checked.
+
+---
+
+### GC-176 A remote branch or tag delete is a push that still cannot ask for a credential
+
+- **Status:** done
+- **Area:** actions | **Size:** S | **Priority:** P2
+- **Depends on:** GC-169
+- **Why:** GC-169 gave `fetch`, `pull` and `push` a credential path and a dialog, and its acceptance
+  named those three functions, so `deleteRemoteBranch` and `deleteRemoteTag` were left as they
+  were. Both are `git push <remote> --delete …` (`src/main/git.ts`): they talk to the same server,
+  fail the same way, and are now the only two commands in the app that reach a remote and cannot.
+  Under the SAML SSO refusal GC-169 was written for, deleting a branch on `origin` still reports
+  one ellipsised `403` on the status bar with the `remote:` lines dropped — the exact defect that
+  ticket exists to have fixed, surviving in the two places it did not look. The remote half of a
+  local branch delete (GC-112) goes through `deleteRemoteBranch`, so this is reachable from the
+  ordinary confirmation checkbox, not only from the tag menu.
+- **Scope:**
+  - Both go through `runRemote` rather than `runGit`, which is the whole change: prompting on, the
+    classifier, the summary line naming the remote and its URL, the dialog.
+  - GC-169's unit test asserting that every *other* command still spawns with
+    `GIT_TERMINAL_PROMPT=0` is extended rather than replaced: the set of commands that may prompt
+    is now five, and the test should name them.
+- **Out of scope:** every other decision GC-169 settled — the classifier's patterns, the dialog,
+  the cancel path and the timeout are all inherited unchanged.
+- **Acceptance:**
+  - [x] A remote branch delete refused for a credential raises the same dialog a fetch does, with
+        the whole of git's message.
+  - [x] The same for a remote tag delete.
+  - [x] The local half of GC-112's delete is unaffected: it still runs first, and the remote half's
+        failure still leaves it standing.
+  - [x] A unit test names the commands that may prompt, and fails if a sixth is added silently.
+  - [x] `npm run typecheck`, `npm test` and `npm run e2e` pass — step 33 covers both deletes.
+- **Files:** `src/main/git.ts`, `src/main/git.test.ts`.
+- **Verify:** `npm test`, build, then the GC-169 reproduction: a remote in the scratch repository
+  pointing at a local server that answers 403, and a branch delete against it from the UI. **Not**
+  against a real repository (rule 2).
+- **Log:**
+  - 2026-09-06 proposed by GC-169 (this ticket): its scope named three functions, and two more push
+    to a remote; the gap was found while wiring `runRemote` and is a one-line change with a test.
+  - 2026-09-06 15:37 claimed
+  - 2026-09-06 15:58 done: both deletes go through `runRemote`, reproduced from the UI against a local
+    server answering 403 — the dialog carried `remote: Forbidden` under
+    `Authentication failed for authtest (http://127.0.0.1:…/x.git)` for the tag delete and again for the
+    branch delete, with `GCM_INTERACTIVE=never` and `GIT_ASKPASS=echo` so no credential window could ever
+    appear (rule 3) — and `git.test.ts` now reads the file for every function reaching `runRemote`, which
+    went red when a seventh was added by hand.
+
+---
+
+### GC-167 stashRename's index shift is the one piece of stash arithmetic with no unit test
+
+- **Status:** done
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-129
+- **Why:** `stashRename` (`src/main/git.ts`) drops `stash@{index + 1}`, not `stash@{index}`, because
+  `git stash store` prepends a reflog entry and shifts every existing stash down one. Get that
+  `+ 1` wrong and the command silently destroys the neighbouring stash while leaving the one it was
+  asked to rename — a data loss with no error and no way back. The rule was measured before it was
+  written and e2e step 38 covers it end to end, but that is a 43-second run against a live
+  repository, and the seam for a cheap test is already there: `restoreStashWith` takes a
+  `GitRunner` for exactly this reason (GC-092) and `git.test.ts` drives it with a fake. Nothing
+  else in the stash group is untested.
+- **Scope:**
+  - `stashRenameWith(run: GitRunner, index, message)` beside `restoreStashWith`, with
+    `stashRename` as the bound one-liner, the same shape the apply/pop pair already has.
+  - Tests: the three commands run in order; the drop names `index + 1`; a store that rejects means
+    no drop is attempted at all and the error propagates; the sha is read before either.
+- **Out of scope:** changing what the command does, the dialog, or anything about `stash store`'s
+  own behaviour — GC-129 settled all three.
+- **Acceptance:**
+  - [x] `stashRename` is a bound call to a runner-taking function, matching `restoreStash`.
+  - [x] The four cases above are named tests and `npm test` passes.
+  - [x] A test fails if the drop's index is changed to `index`.
+- **Files:** `src/main/git.ts`, `src/main/git.test.ts`.
+- **Verify:** `npm run typecheck`, `npm test`, then change `index + 1` to `index` by hand and
+  confirm a test goes red before putting it back.
+- **Log:**
+  - 2026-09-06 14:05 proposed by GC-129 (this ticket): the arithmetic is load-bearing and destroys a
+    stash when wrong, and the runner seam that would test it already exists one function above.
+  - 2026-09-06 15:37 claimed
+  - 2026-09-06 15:58 done: `stashRenameWith` is the runner-taking form behind `stashRename`, matching
+    `restoreStashWith`, with the four cases as named tests; changing `index + 1` to `index` turned two of
+    them red before it was put back.
+
+---
+
+### GC-168 The fixture's graph fits at every height, so nothing guards the drag auto-scroll
+
+- **Status:** done
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-122
+- **Why:** GC-122 made `.graph-body` scroll while a branch is dragged over its edges, and the e2e
+  suite cannot see it: the fixture has eight commits, so the graph fits at every height the suite
+  runs at and the pointer is never in a band with anywhere to go. The behaviour was confirmed by a
+  hand-driven CDP session on a 1400x340 window (`scrollTop` 0 to 9 to 44 off one `dragover`), and
+  that session is not repeatable — a regression in the rAF loop, in the `REF_DRAG_TYPE` guard or in
+  the `dragleave` `relatedTarget` check would ship silently. The same gap covers anything else that
+  only appears when the graph scrolls: GC-012's paging, the `+N` block's flip above the row, the
+  keyboard's "keep the selected row visible".
+- **Scope:**
+  - An e2e step that overrides the viewport to a height where the fixture's rows overflow —
+    `Emulation.setDeviceMetricsOverride`, which the suite already uses (GC-126) — and asserts
+    `.graph-body` scrolls at all before anything else.
+  - In that viewport: a `dragstart` on a chip, one `dragover` inside the bottom band, then a wait
+    and an assertion that `scrollTop` moved without a second event; a `dragend` and an assertion
+    that it then stayed put; and a `dragover` carrying an empty `DataTransfer`, which must move
+    nothing.
+  - The override is put back, and the step leaves the scroll position where it found it.
+- **Out of scope:** the speed constants, the band width, and covering the paging or the `+N` flip in
+  the same step — each is its own assertion and this one is about the drag.
+- **Acceptance:**
+  - [x] The step fails if `useDragScroll` is removed from `.graph-body`.
+  - [x] The step fails if the `REF_DRAG_TYPE` guard is dropped.
+  - [x] `npm run e2e` passes, and the run is still re-entrant twice in a row.
+- **Files:** `tools/e2e/run.mjs`.
+- **Verify:** `npm run e2e` twice, then remove the `{...dragScroll}` spread and confirm the step
+  goes red before putting it back.
+- **Log:**
+  - 2026-09-06 14:05 proposed by GC-122 (this ticket): the feature shipped with a pure-function test
+    and a hand-driven check, and the suite has no way to reach it.
+  - 2026-09-06 15:37 claimed
+  - 2026-09-06 15:58 done: step 39 drives the drag on a 340px viewport where the graph overflows
+    (`scrollTop 0 -> 43 off a single event`), and it goes red without the `{...dragScroll}` spread
+    (2 failures) and again without the `REF_DRAG_TYPE` guard (1 failure); the suite is now 40 steps,
+    292 assertions, 45.0s, and passed twice back to back.
+
+---
+
+### GC-162 A launcher stop loses whatever the page wrote to localStorage last
+
+- **Status:** done
+- **Area:** infra | **Size:** S | **Priority:** P3
+- **Depends on:** GC-154
+- **Why:** `stopApp` in `tools/launch-app.mjs` is `killTree`, which is `taskkill /F /T`. Chromium
+  batches localStorage into a LevelDB store and commits on a timer, so a write made shortly before
+  that kill never reaches the profile at all — the process is gone before the commit. Nothing says
+  so, and the failure is silent in the worst way: the write appears to have worked, because the
+  page reads its own in-memory copy back.
+  Measured while verifying GC-160 (2026-09-06). A driver launched the app on 9333, set
+  `gitclient.refColW`, `gitclient.leftPanelW` and a `gitclient.pinned.<path>` key, read all three
+  back from the page, and called `stop()`. A second launch on the same profile found none of them
+  — only `gitclient.lastRepo`, `recentRepos` and `tabs`, the three the *app itself* writes during a
+  load, had survived. A four-second wait before the kill made no difference; what did was closing
+  the window (`window.close()`) so Electron quit and flushed. Two verification cycles were spent
+  believing a seeded profile had been seeded when it had not, and the one check that would have
+  caught it — GC-160's own step-1 assertion — passed for the wrong reason, because a key that was
+  never written is indistinguishable from a key the clear removed.
+  It matters beyond that one driver: `setRepo` writes `gitclient.lastRepo` through this same path,
+  and every remembered key in `CLAUDE.md`'s table is reachable by a driver that wants to set up a
+  state and restart into it. Any future check of the form "set a remembered key, restart, assert it
+  came back" is unsound until this is fixed.
+- **Scope:**
+  - A graceful stop in `tools/launch-app.mjs`: ask the page to close (or the app to quit) over CDP,
+    wait a bounded time for the process to go, and fall back to `killTree` when it does not. Which
+    of `stop()`, `stopApp()` and `stopPort()` gain it is the implementer's call, but a caller that
+    wrote to localStorage must have a way to stop the app without losing it.
+  - Whatever the answer is, it is written down where a driver author will meet it: the launcher's
+    own comments and `CLAUDE.md`'s launcher paragraph.
+  - The fallback stays unconditional. GC-154's promise is that the app a launch spawns is stopped
+    however its driver ends, and a graceful path that can hang must never weaken it.
+- **Out of scope:** the e2e suite's own stop, which is correct as it is — every run rewrites the
+  keys it depends on in step 1 (GC-160), so it has nothing to lose; changing what the app persists
+  or when; anything about Ricardo's own profile, which a normal quit already flushes.
+- **Acceptance:**
+  - [x] A driver that writes a `gitclient.*` key, stops the app through the launcher and launches
+        again on the same port reads that key back.
+  - [x] The fallback still stops an app that ignores the graceful request, within a bounded wait.
+  - [x] `tools/launch-app.test.ts` covers both paths against a sleeping node process, the way it
+        already covers `ownChild` — a unit test never starts Electron.
+  - [x] `npm test` and `npm run e2e` pass unchanged.
+- **Files:** `tools/launch-app.mjs`, `tools/launch-app.test.ts`, `CLAUDE.md`.
+- **Verify:** the two-launch round trip above, run by hand against the 9333 profile, plus
+  `npm test` and one full `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-160 (this ticket): three keys seeded into the 9333 profile and read
+    back from the page were absent from the next launch, because `stop()` kills the process before
+    Chromium commits.
+  - 2026-09-06 15:37 claimed
+  - 2026-09-06 15:58 done: `stop()` and `stopPort()` ask over the DevTools close endpoint and wait a
+    bounded time before the kill, which stays unconditional — a driver that wrote `gitclient.gc162-marker`,
+    stopped through the launcher and relaunched on 9333 read the same value back — with three
+    `launch-app.test.ts` cases for the ask, the fallback and a port nobody holds; `tools/e2e/run.mjs` takes
+    the new synchronous `stopNow`, because an `exit` handler cannot await the graceful path.
+
+---
+
+### GC-139 A folder closed in the left panel opens again on every reload
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-051
+- **Why:** GC-051 put the closed set in component state and said so in its Out of scope, which was
+  right for the first cut: it kept the ticket to the tree and the rendering. But the panel is the
+  thing a user arranges once, and `LeftPanel` remounts on every repository open and every reload, so
+  a repository with `feature/*`, `release/*` and `hotfix/*` folded down to three rows is back to its
+  full list the next time the app starts. Every other arrangement the user makes — the panel widths,
+  the ref column, the pin, the hidden set — is remembered, and the two per-repository ones are keyed
+  by path.
+- **Scope:**
+  - Persist the closed set on its own key, `gitclient.folded.<repoPath>`, the way
+    `gitclient.hidden.<repoPath>` is (remembered state, not a preference, so not in the prefs blob).
+  - Prune it against the refs actually present when a repository loads, so a folder that no longer
+    exists stops being remembered — the same reason the hidden set is pruned.
+  - A row in the "Remembered state" table in `CLAUDE.md`.
+- **Out of scope:** remembering which *sections* are open, the panel's own scroll position, and any
+  change to how the tree itself is built.
+- **Acceptance:**
+  - [x] A folder closed in one session is closed the next time the repository is opened, and open
+        again for a different repository.
+  - [x] A folder whose refs are all gone leaves the key rather than accumulating in it.
+  - [x] A component test covers the round trip through `localStorage`.
+- **Files:** `src/renderer/src/components/LeftPanel.tsx`,
+  `src/renderer/src/components/LeftPanel.test.tsx`, `CLAUDE.md`.
+- **Verify:** `npm run typecheck`, `npm test`, then close a folder in the running app, reload over
+  CDP and confirm it is still closed.
+- **Log:**
+  - 2026-09-06 proposed by GC-051 (this ticket): the ticket deferred persistence deliberately, and
+    with the folders shipped the deferral is now the one thing that makes them feel temporary.
+  - 2026-09-06 15:37 claimed
+  - 2026-09-06 15:58 done: the closed set is `gitclient.folded.<repoPath>`, pruned against the refs the
+    snapshot holds; driven in the app (closed `feat`, reloaded, still closed; deleted its two branches and
+    the key went) and covered by seven new `LeftPanel.test.tsx` cases including the repository switch.
 
 ---
 
