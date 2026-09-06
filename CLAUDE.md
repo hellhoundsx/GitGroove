@@ -151,6 +151,9 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   <remote>` with no refspec still merges `branch.<name>.merge`, which is the upstream the caller
   asked to bypass, so a named remote becomes `git pull <flag> <remote> <branch>`.
 - **A push with no remote named uses `defaultRemote(remotes)`** (`origin`, else the first remote).
+  Every menu row that offers one therefore **names the remote, never an upstream ref** (GC-114):
+  the push writes `<remote>/<branch>`, so a row naming `r.upstream` promised a different ref the
+  moment the upstream's branch name was not the local name.
   `src/shared/` is the only place code is shared both ways, so a menu label cannot promise a
   different remote from the one the push uses.
 
@@ -265,6 +268,17 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
   clamp, persist, double-click reset — used by the ref column and both side panels. It computes the
   released width from the release position rather than from state: the pointerup arrives before
   React has committed the last pointermove, so the closure's width is one step behind.
+- **A drag starts from the width being drawn and only ever reaches widths the pointer reaches**
+  (GC-111, GC-115). `dragWidth(start, delta, min, max, limit)` is that rule, pure and tested:
+  `start` is `clampDrag(width)` — what the element is on screen at — not the stored number, so
+  travel is one-for-one with the edge even while a fit is reducing it; and a request past `limit`
+  answers `reached: false`, on which the hook changes neither the width nor the key. That is what
+  keeps the "stored widths are never touched" promise true on the **drag** path as well as the
+  resize one: against the wall the edge simply stops, rather than the wall's own value being
+  written over the width the user chose on a wider window. A `limit` must therefore be derived from
+  what the *other* elements are **drawn** at, never from what is stored for them — the two differ
+  exactly when the fit is doing something, and a limit taken from a stored width comes out below
+  `min`, at which point a drag could reach nothing at all.
 - **The centre is the last thing to give way, not the first** (GC-105). Each panel's own range
   (160–420, 300–720) says nothing about the window they share, and the two maxima sum to 1140
   against a 900px `minWidth`. `MIN_GRAPH_W` (440) is the graph's reserved share, and
@@ -287,6 +301,14 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
   out by construction). Same promise as the panels: only `--ref-col-w` is reduced, `gitclient.refColW`
   is never touched, and `limit` bounds the drag alone. A `panelW` of 0 means not measured yet and
   applies the stored width unchanged, rather than snapping to the minimum for one frame.
+- **And what gives way after that: the optional columns themselves** (GC-116). `fitOptCols(want,
+  panelW, lanes, refMin, w)` answers which of AUTHOR / DATE / SHA are actually drawn, dropping
+  whole columns in that order — least identifying first — until the message can keep `MIN_MSG_W`.
+  Whole ones rather than narrowed: half a timestamp identifies a commit no better than none and
+  costs the message the same width. The set is decided against the ref column's **floor** and is
+  never re-examined after `fitRefCol` has run against the survivors, and that order is the whole of
+  why it is stable — a ref column allowed to grow back into the space a dropped column left would
+  drop the next column, and the next.
 
 ### Graph (`graph/`)
 
@@ -312,7 +334,10 @@ but a wrong one, carrying lanes from commits that are no longer there.
   passes another branch's sha instead.
 - **No early forking**: when two lines share a parent they both continue until the parent's row.
   Forking early handed the checked-out branch's line to a side branch. Do not reintroduce it.
-- Colour is the lane index (`--lane-0..9`), stable as lanes recycle.
+- Colour is the lane index (`--lane-0..9`), stable as lanes recycle. The ten are **interleaved,
+  not a hue ramp** (GC-113): `laneColor[i] = i % 10`, so the lanes drawn side by side are always
+  consecutive indices, and a ramp put exactly that pair closest together. Every adjacent pair is
+  at least 100 degrees of hue apart in both themes, 9/0 included.
 
 `GraphCell` renders one 28px row as inline SVG. **A join is three segments, never a diagonal**:
 down its own lane to `mid - JOIN_R`, one quarter arc, then horizontally to the node's centre line,
@@ -340,7 +365,9 @@ built in the renderer from `headSha`; `getRefs` and `GitRef` never see it, so it
 Three optional columns — AUTHOR, DATE / TIME and SHA — come from `prefs.graphColumns`, off by
 default, fixed at 140/150/80px with `flex: none` so the message column absorbs the remainder;
 `OPT_COL_W` in `CommitGraph.tsx` mirrors those three widths, because `fitRefCol` has to know what
-they take before it can leave the message its own minimum (GC-110). In that column the
+they take before it can leave the message its own minimum (GC-110). What the preference asks for is
+not always what is drawn: `fitOptCols` runs first and `cols` is its answer, so every render site —
+header, rows and `restW` — reads one set and they cannot disagree (GC-116). In that column the
 **summary wins**: the body preview sits in a `.body-wrap` with `flex: 1 1 0` and
 `container-type: inline-size`, so it only gets space the summary did not need, and a
 `@container (max-width: 40px)` rule drops it rather than leaving a lone ellipsis.
@@ -516,7 +543,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-147 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+169 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -525,8 +552,8 @@ fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 29 steps, 151 assertions, ~23s. It ends with
-`total: 23.4s | git: 219 calls, 5.5s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 29 steps, 167 assertions, ~26s. It ends with
+`total: 26.2s | git: 252 calls, 6.5s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -623,8 +650,9 @@ Design decisions that must not be quietly undone, and where each is explained ab
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
 one layer, one shortcut table, every confirmation on the modal, the busy token every writer of
 `busy` takes (App state, UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
-message column keeping `MIN_MSG_W` while the ref column gives way, and only the applied widths
-ever clamped (UI layer); a page continuing the previous range's `LaneState`,
+message column keeping `MIN_MSG_W` while the ref column gives way, the optional columns giving way
+after it, and only the applied widths ever clamped — on the drag path as well as the resize one, a
+drag starting from the drawn width and persisting only what the pointer reached (UI layer); a page continuing the previous range's `LaneState`,
 and only a strict extension counted as one (Graph); every modal `h3` + `.modal-body` +
 `.modal-buttons`, with only the body scrolling
 (UI layer); `--index` on
@@ -632,7 +660,7 @@ stash apply and pop, `defaultRemote` shared both ways (Main process); the diff k
 identity, the split layout a render of what is already loaded, a hunk patch built from
 `hunk.raw` whichever layout is showing, and both layouts marking intra-line changes from one map
 (Diff); the hidden set applied to a path's first load
-(Graph); every colour a token, the
+(Graph); the lane colours interleaved rather than ramped (Graph); every colour a token, the
 theme resolved in `prefs.ts` (Styling, Preferences); a failing e2e git call throwing, its Electron
 stopped on every exit path (Testing);
 stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control

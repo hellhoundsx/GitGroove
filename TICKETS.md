@@ -250,13 +250,13 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-013 | Light theme | ui | M | P3 | done |
 | GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
 | GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | done |
-| GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | in-progress |
-| GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | in-progress |
-| GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | in-progress |
+| GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | done |
+| GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | done |
+| GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | done |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
-| GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | in-progress |
-| GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | in-progress |
+| GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
+| GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | done |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -301,6 +301,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P3 | todo |
 | GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | todo |
+| GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -5914,7 +5915,7 @@ decision is missing.
 
 ### GC-111 A drag on a narrow window collapses the panel to its minimum and persists it
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-105
 - **Why:** GC-105 gave each side panel a `limit` — as far as a drag may go given the other panel —
@@ -5950,15 +5951,15 @@ decision is missing.
 - **Out of scope:** `fitPanels` itself, which is correct and tested; the ref column's own clamp (GC-110);
   the double-click reset; making the panels remember a per-window-size width (GC-105 ruled that out).
 - **Acceptance:**
-  - [ ] At a 1000px viewport with `gitclient.leftPanelW=220` and `gitclient.detailPanelW=720` stored, a
+  - [x] At a 1000px viewport with `gitclient.leftPanelW=220` and `gitclient.detailPanelW=720` stored, a
         +1px drag of the left handle leaves the left panel within 2px of where it was, and
         `gitclient.leftPanelW` still reads 220 afterwards.
-  - [ ] The mirror case with 420 / 400 stored and a -1px drag of the detail handle leaves the detail
+  - [x] The mirror case with 420 / 400 stored and a -1px drag of the detail handle leaves the detail
         panel where it was and `gitclient.detailPanelW` still reads 400.
-  - [ ] Dragging a handle as far as it will go at 1000px still leaves the graph panel at `MIN_GRAPH_W`.
-  - [ ] Widening back to 1400px restores both stored widths on screen.
-  - [ ] A test fails on the shipped behaviour and passes on the fix.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+  - [x] Dragging a handle as far as it will go at 1000px still leaves the graph panel at `MIN_GRAPH_W`.
+  - [x] Widening back to 1400px restores both stored widths on screen.
+  - [x] A test fails on the shipped behaviour and passes on the fix.
+  - [x] `npm run typecheck`, `npm test` and `npm run build` pass.
 - **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/ui/useDragWidth.ts`,
   `src/renderer/src/ui/useDragWidth.test.ts`.
 - **Verify:** build, launch through `tools/launch-app.mjs` on a port of your own, set the stored widths
@@ -5971,6 +5972,17 @@ decision is missing.
     left handle moves the panel 60px and writes the new width to `localStorage`, so the width the user
     chose on a wide window is gone for good after touching a handle on a narrow one.
   - 2026-09-06 08:05 claimed
+  - 2026-09-06 08:55 done. Two changes, one defect: `App.tsx` now caches `fitPanels`' answer in
+    `panelW.current` rather than the stored widths, so each handle's `limit` is taken from the width the
+    other panel is actually drawn at; and `useDragWidth` starts a drag from the width being drawn
+    (`clampDrag(width)`) and moves it only to widths the pointer reaches, through a new pure `dragWidth()`.
+    Measured over CDP on the built app at 1000x900, repeating the ticket's own table: stored 220/720 applies
+    220/340 and a +1px left drag leaves 220/340 with `gitclient.leftPanelW` still 220 (was 160/400, stored
+    160); stored 420/400 applies 231/329 and a -1px detail drag leaves 231/329 with `gitclient.detailPanelW`
+    still 400 (was 260/300, stored 300). A full-travel drag still leaves the graph panel at exactly 440, and
+    widening to 1400 puts 220/400 back on screen. 8 new `dragWidth` cases in `useDragWidth.test.ts`, two of
+    them the measured tables above; the shipped arithmetic answers 160, 300 and 164 for those three, so they
+    fail before the fix and pass after. 169 unit tests, typecheck, build and the 29-step e2e run all pass.
 
 ---
 
@@ -6033,7 +6045,7 @@ decision is missing.
 
 ### GC-113 The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** —
 - **Why:** `--lane-0..9` in `tokens.css` is a hue ramp walked in order. Measured on the running app at
@@ -6062,14 +6074,14 @@ decision is missing.
 - **Out of scope:** the number of lanes; `openLane`'s recycling rule; the WIP dash; ref-chip colours;
   `--accent` and the semantic colours; anything in `app.css` (every colour stays a token, GC-013).
 - **Acceptance:**
-  - [ ] For every adjacent pair 0/1 through 8/9, in both themes, the hue separation is at least 60 degrees
+  - [x] For every adjacent pair 0/1 through 8/9, in both themes, the hue separation is at least 60 degrees
         or the contrast ratio at least 1.4.
-  - [ ] No pair anywhere in the ten is within 20 degrees of hue at a contrast ratio under 1.2, in either
+  - [x] No pair anywhere in the ten is within 20 degrees of hue at a contrast ratio under 1.2, in either
         theme.
-  - [ ] `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' src/renderer/src/styles/app.css` still prints nothing.
-  - [ ] A screenshot of the fixture graph in each theme shows the two lanes as plainly different colours;
+  - [x] `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' src/renderer/src/styles/app.css` still prints nothing.
+  - [x] A screenshot of the fixture graph in each theme shows the two lanes as plainly different colours;
         both land in `docs/screenshots/`.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+  - [x] `npm run typecheck`, `npm test` and `npm run build` pass.
 - **Files:** `src/renderer/src/styles/tokens.css`, `docs/screenshots/`.
 - **Verify:** build, launch through `tools/launch-app.mjs`, and repeat the measurement over CDP —
   `getComputedStyle(document.documentElement).getPropertyValue('--lane-' + i)` for 0..9, converted to hue
@@ -6079,12 +6091,23 @@ decision is missing.
     and lanes 3 and 4 at a contrast ratio of 1.00 are the case that makes it a defect rather than a taste
     question.
   - 2026-09-06 08:05 claimed
+  - 2026-09-06 08:55 done. A values-only reorder: the same ten colours, interleaved, with the teal kept at
+    `--lane-0` so HEAD's column is unchanged, and the same permutation applied to the light ramp so the two
+    stay in step. Re-measured over CDP on the built app in both themes. Dark hue 191 307 47 279 95 332 161
+    359 217 14, lum .287 .166 .557 .112 .496 .165 .448 .137 .172 .262; the weakest adjacent pair is 1/2 at
+    100 degrees (cr 2.81) dark and 100 degrees (cr 1.31) light, against the 60 the acceptance asks for. The
+    two cases the ticket named: 0/1 goes from 26 degrees to 116 (dark) and 115 (light), and 3/4 from 25
+    degrees at a contrast ratio of 1.00 to 176 degrees at 3.37. No pair anywhere is within 20 degrees under
+    1.2 contrast, in either theme, and 9/0 is 177 degrees apart too, since lane 10 recycles colour 0 beside
+    lane 9. `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing. Screenshots:
+    `docs/screenshots/gc113-lanes-dark.png` and `gc113-lanes-light.png` — the fixture's two lanes read as
+    teal and magenta at a glance in both.
 
 ---
 
 ### GC-114 The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** With one remote, `refMenuItems` offers ``Push ${r.name}${r.upstream ? ` to ${r.upstream}` :
@@ -6108,10 +6131,10 @@ decision is missing.
   (GC-057 settled those), and pushing to a differently named branch on the remote, which nothing in
   the app offers and which is its own feature.
 - **Acceptance:**
-  - [ ] On a local branch whose upstream is a remote branch of a different name, the menu row names
+  - [x] On a local branch whose upstream is a remote branch of a different name, the menu row names
         the destination the click actually writes, checked with `git ls-remote` after clicking it.
-  - [ ] The multi-remote rows are unchanged.
-  - [ ] `npm run typecheck`, `npm test`, `npm run build` pass.
+  - [x] The multi-remote rows are unchanged.
+  - [x] `npm run typecheck`, `npm test`, `npm run build` pass.
 - **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
 - **Verify:** build, and on the scratch repository set a local branch’s upstream to `origin/main`
   through GC-100’s own menu row, open the branch menu, and compare the label against what
@@ -6121,12 +6144,20 @@ decision is missing.
     GC-100’s acceptance asked for. P1 rather than P2 because the row promises one ref and writes
     another, and GC-100 has just made the case reachable in one click.
   - 2026-09-06 08:05 claimed
+  - 2026-09-06 08:55 done. The single-remote row is now `Push <branch> to <remote>` with the remote passed
+    explicitly to `push()`, so the label and the command read the same value, and it carries the multi-remote
+    rows' own `sets the upstream` hint. The tag row a few lines up was read at the same time and now names
+    its remote too, matching the multi-remote tag rows. Covered in e2e step 23, where `ff-target` tracks
+    `origin/main`: the menu reads "Push ff-target to origin", and after the click `git ls-remote origin`
+    holds `refs/heads/ff-target` at 398ae25 while `refs/heads/main` is unchanged — the acceptance checked
+    exactly the way its Verify line names. The prologue drops both copies of `ff-target` and its tracking
+    ref, so a run that dies between the push and the delete still leaves the fixture clean; step 29 passes.
 
 ---
 
 ### GC-115 A drag on a narrow window replaces the ref column’s stored width with the limit
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-110
 - **Why:** GC-111 one level in. GC-110 gave the ref column a `limit`, so `useDragWidth`’s `clampDrag`
@@ -6159,12 +6190,12 @@ decision is missing.
 - **Out of scope:** `fitRefCol` and `fitPanels`, both of which are correct and tested; the side panels
   themselves, which are GC-111.
 - **Acceptance:**
-  - [ ] At a 900px viewport with `gitclient.refColW=400` stored, a 1px drag of the ref handle leaves
+  - [x] At a 900px viewport with `gitclient.refColW=400` stored, a 1px drag of the ref handle leaves
         the column within 2px of where it was and `gitclient.refColW` still reads 400.
-  - [ ] Widening back to 1400 puts the column back to 400.
-  - [ ] Dragging as far as it will go at 900 still leaves `.col-msg` at `MIN_MSG_W`.
-  - [ ] A test fails on the shipped behaviour and passes on the fix.
-  - [ ] `npm run typecheck`, `npm test`, `npm run build` pass.
+  - [x] Widening back to 1400 puts the column back to 400.
+  - [x] Dragging as far as it will go at 900 still leaves `.col-msg` at `MIN_MSG_W`.
+  - [x] A test fails on the shipped behaviour and passes on the fix.
+  - [x] `npm run typecheck`, `npm test`, `npm run build` pass.
 - **Files:** `src/renderer/src/ui/useDragWidth.ts`, `src/renderer/src/ui/useDragWidth.test.ts`,
   `src/renderer/src/graph/CommitGraph.tsx`.
 - **Verify:** build, launch through `tools/launch-app.mjs`, emulate 900x900 with
@@ -6176,12 +6207,19 @@ decision is missing.
     acceptance, which checks the resize path and passes. The drag path is the one GC-111 found on the
     panels, and GC-110 has just given the ref column the `limit` that makes it reachable here too.
   - 2026-09-06 08:05 claimed
+  - 2026-09-06 08:55 done, by the same change as GC-111 as this ticket predicted: the drag now starts from the
+    width being drawn rather than the stored one, so no fix of its own was needed in `CommitGraph.tsx`, whose
+    `limit` was already measured from the real panel. Measured over CDP at 900x900 with `gitclient.refColW`
+    at 400: the column sits at 164, a 1px drag leaves it at 164 and `gitclient.refColW` still reads 400 (it
+    read 164 before), and widening to 1400 puts the column back to 400. Dragging as far as it goes at 900
+    leaves `.col-msg` at exactly 200, `MIN_MSG_W`. Covered by the shared `dragWidth` cases, including the
+    ref column's own measured row.
 
 ---
 
 ### GC-116 With the optional columns on, the commit message column is squeezed to nothing
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-110
 - **Why:** The AUTHOR / DATE / SHA columns (GC-032) are `flex: none` at 140 / 150 / 80, so 370px comes
@@ -6209,10 +6247,10 @@ decision is missing.
 - **Out of scope:** making the optional columns draggable, changing their 140/150/80 widths for the
   wide case, and the ref column’s own clamp (GC-110, done) or its drag (GC-115).
 - **Acceptance:**
-  - [ ] With all three optional columns on at a 900px viewport, `.col-msg` measures at least
+  - [x] With all three optional columns on at a 900px viewport, `.col-msg` measures at least
         `MIN_MSG_W` and the first row’s summary is drawn.
-  - [ ] At 1600 with the same preferences, all three columns are still at their full widths.
-  - [ ] `npm run typecheck`, `npm test`, `npm run build` pass.
+  - [x] At 1600 with the same preferences, all three columns are still at their full widths.
+  - [x] `npm run typecheck`, `npm test`, `npm run build` pass.
 - **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`,
   `src/renderer/src/ui/useDragWidth.ts` if the decision moves into `fitRefCol`.
 - **Verify:** build, launch through `tools/launch-app.mjs`, set `graphColumns` to all true in
@@ -6222,6 +6260,19 @@ decision is missing.
     the optional columns’ widths so the ref column gives way for them but cannot help once it is at
     its floor. GC-110’s Out of scope named this shape and left it deliberately.
   - 2026-09-06 08:05 claimed
+  - 2026-09-06 08:55 done. `fitOptCols` joins `fitPanels` and `fitRefCol` in `useDragWidth.ts`: the visible set
+    is decided against the ref column's floor, dropping whole columns in the order the ticket named — DATE,
+    then AUTHOR, then SHA — and `fitRefCol` then runs against the survivors. Deciding the set once, before
+    the ref column is refitted, is what keeps it stable: a ref column allowed to grow back into the space a
+    dropped column left would drop the next one, and the next. Measured over CDP with all three columns on,
+    repeating the ticket's table: 1600 gives body 960, ref 150, all three at 140/150/80 and `.col-msg` 364;
+    1100 gives ref 104, SHA only, `.col-msg` exactly 200; 900 gives ref 150, no optional columns, `.col-msg`
+    214 — against 0 with no summary drawn at both of the narrow widths before. The summary is drawn at all
+    three (113px, "Work on wip branch"). 6 new `fitOptCols` cases, one of them sweeping every panel width
+    from `MIN_GRAPH_W` to 1400 against four stored ref widths. Screenshots:
+    `docs/screenshots/gc116-optional-columns-900.png` and `-1600.png`.
+  - 2026-09-06 08:55 noted while verifying: a column the preference has switched on is now simply absent on a
+    narrow window, with nothing saying why. Filed as GC-117 rather than widened into this ticket.
 ---
 
 ## Reviews
@@ -6230,6 +6281,42 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 `GR-0NN`, never appear on the board, are never picked by the ticket routine and are written
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
+
+### GC-117 A graph column switched on in Preferences can be silently absent
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-116
+- **Why:** GC-116 made the AUTHOR / DATE / SHA columns the last thing to give way: once the ref
+  column is at its floor they are dropped whole, in that order, so the commit message keeps
+  `MIN_MSG_W`. That is the right trade, but it is silent. Measured on the built app at 900x900 with
+  all three switched on, none of the three is drawn, while `Preferences` still shows all three
+  checked — the user has switched something on, sees no change, and nothing anywhere says the
+  window is the reason. The narrower the window the more columns vanish, and the preference itself
+  never moves, so the state is not even inspectable from the dialog.
+- **Scope:**
+  - Say why. A column dropped for want of width should be distinguishable from one switched off:
+    a hint on the Preferences row when the current window cannot draw it, or a marker in the graph
+    header, whichever reads better beside the existing rows.
+  - Whatever is chosen must be derived from the same `fitOptCols` answer the graph renders from,
+    not from a second guess at the width, so the two cannot disagree.
+- **Out of scope:** the drop order and the decision itself (GC-116, done); making the columns
+  narrowable rather than droppable; the ref column's own clamp (GC-110) or its drag (GC-115).
+- **Acceptance:**
+  - [ ] With all three columns on at a 900px viewport, the Preferences dialog distinguishes a
+        column the window cannot draw from one that is switched off.
+  - [ ] At 1600 with the same preferences, no such marker is shown.
+  - [ ] `npm run typecheck`, `npm test`, `npm run build` pass.
+- **Files:** `src/renderer/src/components/Preferences.tsx`, `src/renderer/src/graph/CommitGraph.tsx`,
+  `src/renderer/src/styles/app.css`.
+- **Verify:** build, launch through `tools/launch-app.mjs`, set `graphColumns` to all true over CDP,
+  and open Preferences at 900 and at 1600.
+- **Log:**
+  - 2026-09-06 08:55 proposed by GC-116 (this ticket): measured while confirming GC-116's own
+    acceptance — at 900 all three columns are gone from the graph and all three are still checked in
+    the dialog.
+
+---
 
 ### GR-001 Backlog review 2026-09-05 17:23
 
