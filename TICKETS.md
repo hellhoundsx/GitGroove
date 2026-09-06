@@ -249,6 +249,8 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
 | GC-013 | Light theme | ui | M | P3 | done |
 | GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | in-progress |
+| GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | todo |
+| GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -272,6 +274,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | todo |
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | todo |
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | todo |
+| GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
@@ -5319,6 +5322,180 @@ decision is missing.
     highlight plain, and the study records GitKraken having it.
   - 2026-09-06 05:18 claimed
 
+### GC-105 Panel widths are clamped only against themselves, so the graph can be squeezed to nothing
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** `useDragWidth` clamps the left panel to 160-420 and the detail panel to 300-720 (GC-050),
+  each in isolation, and nothing ever re-checks either against the width of the window they sit in.
+  The two maxima sum to 1140, and `src/main/index.ts` declares `minWidth: 900`, so both ends of the
+  supported range are broken. Measured over CDP on the built app at `bd9c89f`, `.col-msg` being the
+  commit message column:
+
+  | window | left | detail | graph panel | message column |
+  | --- | --- | --- | --- | --- |
+  | 1400 (default) | 220 | 400 | 780 | **554** |
+  | 900 (`minWidth`) | 220 | 400 | 280 | **54** |
+  | 1400 (default) | 420 | 720 | 260 | **34** |
+  | 900 (`minWidth`) | 420 | 720 | **0** | 10 |
+
+  So with the panels never touched, resizing to the app's own minimum width leaves 54px of commit
+  message - every row reads `Work...`, `Remo...`, `Merg...`, and the `COMMIT MESSAGE` header is
+  itself clipped mid-word (`%TEMP%/gitclient-review/GR-011/05-narrow-light.png`). With both handles
+  dragged to their maxima - reachable on Ricardo's 3440px monitor in two drags, and then persisted
+  in `localStorage` - the graph is 34px wide on the *default* window size, and at 900 it is gone
+  entirely: `.detail-panel` extends to x=1140, 240px past the right edge, so the commit summary
+  field, the description box and the commit button are all off-screen with no scrollbar
+  (`%TEMP%/gitclient-review/GR-011/06-narrow-wide-panels.png`). The graph is the app; it must be the
+  last thing to give way, not the first.
+- **Scope:**
+  - One shared minimum for the centre - a `MIN_GRAPH_W` constant, around 360px, enough for the ref
+    column at its own minimum plus a readable message column - and an effective width for each panel
+    derived from `window.innerWidth`, not only from the stored number: when
+    `left + detail + MIN_GRAPH_W` exceeds the window, the panels give way, the wider one first, down
+    to their own `min`.
+  - Applied on window resize as well as on drag, so shrinking the window reflows rather than
+    overflowing. The **stored** widths stay untouched, so widening the window restores what the user
+    chose; only the applied `--left-panel-w` / `--detail-panel-w` are clamped.
+  - A drag is clamped by the same rule, so a handle simply stops rather than pushing the graph away.
+  - Raise `minWidth` in `src/main/index.ts` if 900 cannot hold `160 + MIN_GRAPH_W + 300` - say which
+    number was chosen and why in the log.
+- **Out of scope:** collapsing a panel to a rail automatically at small widths (the diff view already
+  does that for the left panel by its own rule, and an automatic collapse is a separate decision);
+  making the panels remember a per-window-size width; any change to the drag handles themselves or
+  to `useDragWidth`'s persistence and double-click reset.
+- **Acceptance:**
+  - [ ] With no stored widths, at a 900px viewport the commit message column measures at least
+        200px, and `.graph-panel` at least `MIN_GRAPH_W` - the same CDP measurement the table above
+        was taken with (`document.querySelector('.col-msg').getBoundingClientRect().width`).
+  - [ ] With `gitclient.leftPanelW=420` and `gitclient.detailPanelW=720` stored, at a 900px viewport
+        `.detail-panel`'s right edge is inside the window and `.graph-panel` is at least
+        `MIN_GRAPH_W` wide.
+  - [ ] Widening back to 1400 restores 420 and 720; the two `localStorage` keys still read 420 and
+        720 throughout, so nothing the user chose was thrown away.
+  - [ ] Screenshots at 900 and 1400 with both panel configurations, looked at.
+  - [ ] `npm test`, `npm run typecheck`, `npm run build` pass.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/ui/useDragWidth.ts`,
+  `src/renderer/src/styles/app.css`, `src/main/index.ts`.
+- **Verify:** typecheck, build, launch through `tools/launch-app.mjs`, drive the viewport with
+  `Emulation.setDeviceMetricsOverride` over CDP at 900 and 1400 with both stored configurations, and
+  take the measurements and screenshots above.
+- **Log:**
+  - 2026-09-06 05:50 proposed by GR-011: from the screenshot pass, rotating onto a second window
+    width, which no review had done before. The 900px case is not hypothetical - it is the app's own
+    declared `minWidth`, and the maximum-panels case needs no resize at all to produce a 34px message
+    column on the default window.
+
+### GC-106 The graph's incremental lane layout is never used: every page re-lays out the whole history
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-012
+- **Why:** GC-012 gave `layoutGraph` a third parameter, `prev: LaneState`, so a later page continues
+  the lanes the previous range left open instead of restarting at column 0, returned it as
+  `GraphLayout.state`, covered it with ten cases in `lanes.test.ts` and wrote it into `CLAUDE.md` as
+  how the graph pages. Nothing calls it. `grep -rn layoutGraph src/ | grep -v test` finds exactly one
+  production call site, `CommitGraph.tsx:101`:
+  `useMemo(() => layoutGraph(commits, pinnedSha ?? headSha), [commits, headSha, pinnedSha])` - two
+  arguments, and `commits` is the whole accumulated array, whose identity changes on every append. So
+  each page re-lays out everything loaded so far, and the continuity GC-012's screenshot showed comes
+  from that, not from `LaneState`. The result is correct - `lanes.test.ts` proves splitting a history
+  and rejoining it equals the single call - which is why nothing looks wrong; what is wrong is that a
+  tested, documented API is dead, and `CLAUDE.md`'s Graph section describes a mechanism the app does
+  not use, which is the kind of drift a cold session acts on. The cost is secondary but real and grows
+  with the number of pages: transpiling `lanes.ts` with esbuild and timing it in Node on a synthetic
+  10,000-commit history, one whole layout takes 8.3ms, the incremental path costs 10.3ms in total
+  across all nine pages, and re-laying out the whole array after each page costs 22.7ms - plus a fresh
+  10,000-element `RowLayout[]` allocated per page. Not a visible stall today; quadratic in the number
+  of pages, and the fix is already written and tested.
+- **Scope:** decide one way and make the code and `CLAUDE.md` agree.
+  - Either: keep a `LaneState` alongside the rows in `CommitGraph` (or lift the layout into `App`
+    beside `paged`), lay out only the commits appended since the last layout, and concatenate the
+    rows - the `useMemo` becomes a reducer keyed on the commits array's length and identity, and it
+    must fall back to a full layout whenever the array is not a strict extension of the one it last
+    saw (a reload, a change of repository, a change of pin or of the hidden set, all of which replace
+    `commits` wholesale rather than appending).
+  - Or: delete `LaneState`, the `prev` parameter and `GraphLayout.state`, drop the cases in
+    `lanes.test.ts` that only exercise them - keeping the property test that splitting equals the
+    whole, which is worth having either way - and rewrite the `CLAUDE.md` sentence to say the graph
+    re-lays out the loaded range on every change, which is the invariant that is actually held.
+  - Whichever is chosen, say in the log why, and leave no third state where the API exists but the
+    documentation and the call site disagree.
+- **Out of scope:** virtualising the layout itself, changing lane assignment, colour or ordering
+  rules, and the `NEAR_END` / `PAGE_COMMITS` values.
+- **Acceptance:**
+  - [ ] `grep -rn 'layoutGraph\|LaneState' src/ | grep -v test` and the Graph section of `CLAUDE.md`
+        describe the same mechanism, with no unused export left.
+  - [ ] `lanes.test.ts` still proves that a history split at any row lays out identically to the
+        whole, by whichever path the app now takes.
+  - [ ] If the incremental path was chosen: a test that appending a page to an existing layout gives
+        the same rows as laying out the concatenation, and that a *replaced* (not extended) commits
+        array falls back to a full layout - a reload with a different hidden set must not be treated
+        as an append.
+  - [ ] `npm test`, `npm run typecheck`, `npm run build` pass.
+- **Files:** `src/renderer/src/graph/lanes.ts`, `src/renderer/src/graph/CommitGraph.tsx`,
+  `src/renderer/src/graph/lanes.test.ts`, `CLAUDE.md`.
+- **Verify:** `npm test`; the grep above; if the incremental path is taken, load a history past one
+  page boundary and confirm by screenshot that no lane restarts at the boundary, as GC-012 did.
+- **Log:**
+  - 2026-09-06 05:50 proposed by GR-011: from the code-review pass over GC-012. That ticket's log is
+    accurate about what it built; what it did not do is connect it, and `CLAUDE.md` was updated as
+    though it had.
+
+### GC-107 A commit's file row cannot restore that file, only open the working-tree copy
+
+- **Status:** todo
+- **Area:** actions | **Size:** M | **Priority:** P3
+- **Depends on:** GC-043
+- **Why:** `fileMenuItems` in `App.tsx` branches on `t.source`, and everything it adds for a commit's
+  file row is the shared tail: Open file, Show in folder, Copy file path. All three act on the
+  **working tree**, so on a row belonging to a commit from last week "Open file" opens today's
+  content - the row names one version of the file and the menu can only reach another. There is no way
+  to get an old version of a file back at all: the nearest thing the app offers is resetting the whole
+  branch to that commit. `06-feature-inventory.md`'s Files row lists "Restore file from this commit"
+  first, and GR-010's what's-next pass named it as still unticketed. It is the cheapest of that row's
+  remaining entries - the commit view already holds the sha and the path, and
+  `git checkout <sha> -- <path>` is one call.
+- **Scope:**
+  - `restoreFile(repo, sha, path)` in `git.ts` running `git checkout <sha> -- <path>`, its handler in
+    `ipc.ts` under `workdir:` with `str` validation on all three arguments, its entry in
+    `preload/index.ts` and its signature in `shared/types.ts` - the four files an API always means.
+  - A "Restore file from this commit" row in `fileMenuItems` for `t.source === 'commit'` only, going
+    through `run()` like every other action so the status bar and the reload happen.
+  - It is destructive: `git checkout <sha> -- <path>` overwrites the working-tree copy **and stages
+    the result**, so it goes through `useUi().confirm` naming the file and the short sha, and the
+    confirmation says the change will be staged. Absent, not disabled, on a row whose file the commit
+    deleted (`f.kind === 'deleted'`) - there is nothing at that sha to restore, and GC-072 settled that
+    an action that cannot work is left out rather than shown greyed.
+  - An e2e step: restore a file from an older commit, assert with `git show` that the working-tree
+    bytes match that commit's and that `git status --porcelain` shows it staged, then put the fixture
+    back with `git reset --soft` and a checkout of the original content.
+- **Out of scope:** the rest of the study's Files row - Blame, History, Export changes to patch,
+  Compare against working directory - each of which is its own ticket; restoring a whole folder or a
+  whole commit; and any change to what Open file and Show in folder do (that they act on the working
+  tree is correct, only unlabelled - a hint on those two rows would be a fine addition here but is not
+  required).
+- **Acceptance:**
+  - [ ] The row is offered on a commit's file row and on no other file row, and is absent on a file
+        the commit deleted.
+  - [ ] Confirming it restores the file: on the scratch repo, `git show <sha>:<path>` and the file on
+        disk are byte-identical afterwards, and the path is staged.
+  - [ ] Cancelling the confirmation changes nothing - `git status --porcelain` is identical either
+        side.
+  - [ ] The new e2e step passes and leaves the fixture as it found it, so the final drift-scan step
+        stays green.
+  - [ ] `npm test`, `npm run typecheck`, `npm run build`, `npm run e2e` pass.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`, `src/shared/types.ts`,
+  `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
+- **Verify:** `npm test`, `npm run e2e`, and by hand on the scratch repo: restore `a.txt` from the
+  initial commit, compare against `git show`, then reset.
+- **Log:**
+  - 2026-09-06 05:50 proposed by GR-011: from the what's-next pass, reading
+    `06-feature-inventory.md`'s Files row against `fileMenuItems`. GC-093 has just given that menu its
+    first non-trivial action, so it is the natural place to grow, and this is the entry with the
+    smallest gap between what the panel already knows and what the action needs.
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -5993,3 +6170,105 @@ appends its own section here.
     in 59f649f and d34d732 updated it again; it now reads "92 tests today", which matches this
     review's own run exactly, and its Commands and Architecture sections match what was observed on
     the running app. Nothing stale to report.
+
+### GR-011 Backlog review 2026-09-06 05:50
+
+- **Status:** done
+- **Window:** d34d732..6af7d97
+- **Log:**
+  - 2026-09-06 05:50 shipped: bc6f42f (the claim of GC-099, GC-098, GC-012, GC-013), 2486933,
+    92ce472, 0ab69cf and 4ea8ada (those four implemented one per commit), 096a41f (their close-out),
+    bd9c89f (the claim of GC-014), and then **91c2f8a and 6af7d97, which the worker pushed while this
+    review was running** - GC-014's close-out and the claim of a six-ticket batch (GC-103, GC-021,
+    GC-083, GC-104, GC-084, GC-040). The window was extended to 6af7d97, but everything below - the
+    health run, the app pass, the measurements in the new tickets - was taken at **bd9c89f**;
+    GC-014 was read only for `parseDiff.ts`, so GR-012 should read its other five files properly.
+    GC-099 is right and answers GR-010's finding exactly: `load()` reads the stored set for the path
+    it is about to open and passes it to the first `loadRepo`, and the close-out moved
+    `hiddenRef.current = hide` from before the await to beside `setSnapshot` - which matters, because
+    the prune effect clears that ref while there is no snapshot and on a cold open runs between the
+    two, so the earlier placement would have left the effect comparing against an empty set and asked
+    for the second load anyway. Three cases in `App.test.tsx` assert the thing that is actually at
+    stake, the *number* of `loadRepo` calls, and record what the first one excluded. GC-012 is
+    careful: a page carries the hidden set its range was loaded with, is dropped on a generation
+    change, and `pageDepth` makes a watcher reload ask for what is on screen rather than dragging a
+    deeply scrolled graph back to row 2000. Its log is honest that the acceptance named catena-feed
+    and that no repository on this machine reaches 2000 commits, and says what was used instead. One
+    defect found and filed as GC-106: `layoutGraph`'s `LaneState` - built, tested in ten cases and
+    written into `CLAUDE.md` - has no production call site, so every appended page re-lays out the
+    whole history. GC-013 is clean: `resolveTheme` is the single answer to which theme is showing
+    because the main process needs it for the window controls, `TITLE_BAR_OVERLAY` sits in `ipc.ts`
+    to avoid the cycle with `index.ts`, the theme argument is validated with `oneOf` like every other
+    enum, and a platform without an overlay is a no-op rather than a rejected IPC call. Verified
+    independently: `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` prints nothing, and every one of the
+    42 colour tokens on `:root` is redefined under `:root[data-theme='light']` (only `--row-h` and
+    `--lane-w`, which are metrics, are not). GC-098 reads well - `git()` throws and names the command,
+    `gitMay()` is the explicit opt-out, and the `index.lock` retry is scoped to the message the app's
+    own watcher produces.
+  - health: at bd9c89f, in the detached worktree at `%TEMP%/gitclient-review/wt` with `node_modules`
+    junctioned - typecheck ok, **106 tests passed (14 files)** in 1.43s, build ok. `MAIN/out` was
+    never written: its `index.html` still read 05:09 (the worker's) after the worktree's read 05:13.
+    e2e was run too, on **port 9335** with `GITCLIENT_E2E_ROOT=%TEMP%/gitclient-review/e2e`, because
+    this window rewrote the harness itself: **143 assertions across 28 steps, all passed, 23.0s**, and
+    the final drift step confirmed the fixture was left as found. Worth recording for the next
+    reviewer: `tools/e2e/run.mjs` defaults `PORT` to **9333** and calls `stopPort(PORT)` before
+    launching, so a review that runs e2e without setting `GITCLIENT_E2E_PORT` would kill the worker's
+    app. (CLAUDE.md at 6af7d97 reads 118 tests and 29 steps / 151 assertions, which is GC-014's own
+    count and is not contradicted by the numbers above - they were measured one commit earlier.)
+  - app: the bd9c89f build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, fixture
+    recreated first, every `gitclient.*` key except `lastRepo`/`recentRepos` cleared over CDP.
+    Screenshots in `%TEMP%/gitclient-review/GR-011/`, all looked at. `01-graph-dark.png` and
+    `02-graph-light.png` are the same nine rows in both themes: lanes continuous, `main` absorbing its
+    upstream, `wip-branch +1` and `feature +1`, the `v0.1.0` tag chip on the merge - GC-013 flips the
+    whole frame with nothing left behind, which is the thing that could have gone wrong.
+    `03-diff-light.png` is the surface GC-013's own screenshots did not cover: the added line's green,
+    the gutter and the Stage/Discard buttons all read correctly on white. `04-commit-light.png`
+    caught the confirm modal in light theme (a rotation surface: white card, real backdrop, the danger
+    button distinct) and the commit view behind it; the backdrop was checked properly rather than by
+    eye - full viewport, `pointer-events: auto`, z-index 900, `elementFromPoint` over the graph
+    returns it, and focus sits on the default button - so the modal is well behaved and the row that
+    appeared selected behind it was my synthetic dispatch, not a hit-testing bug. **The rotation onto a
+    second window width is where the review's finding came from**, and it is GC-105:
+    `05-narrow-light.png` at 900px, the app's own declared `minWidth`, leaves a 54px commit message
+    column with every row ellipsised to four characters; `06-narrow-wide-panels.png`, with both panels
+    at the maxima `useDragWidth` itself allows, has no graph at all and a detail panel running 240px
+    past the right edge. Also noted but not filed: the 10px toolbar labels measure 3.19:1 against
+    their bar in light and 3.32:1 in dark, both under AA - it is the `--text-dim` token doing what it
+    was designed to do in both themes, not a light-theme regression, so it is a palette decision for
+    Ricardo rather than a bug to file.
+  - what's next: read `06-feature-inventory.md`'s Files row against `fileMenuItems`. On a **commit's**
+    file row the menu is only Open file / Show in folder / Copy file path, and all three act on the
+    working tree - so a row naming last week's version of a file can only reach today's. "Restore file
+    from this commit" is the cheapest entry in that row and became GC-107. Still unticketed from the
+    same row and worth a later look: Blame, History, Export changes to patch, and Compare against
+    working directory. From the Branch row, "Delete branch local / remote / both" as one action
+    remains the only untouched entry now that GC-100 covers fast-forward and set-upstream.
+  - carried over: GR-010 asked this review to read d34d732's five tickets (GC-092, GC-088, GC-090,
+    GC-095, GC-093) properly, having only skimmed them. That was **not done** - d34d732 is this
+    window's exclusive start, and the budget went to this window's four tickets, the e2e run and the
+    app pass. GR-012 inherits it, together with GC-014's other five files.
+  - tickets: added GC-105 (ui, S, **P1**: panel widths never clamped against the window, from the
+    screenshot pass, measured over CDP at four configurations), GC-106 (graph, S, P2: the unused
+    `LaneState`, from the code-review pass, with the layout cost measured by transpiling `lanes.ts`
+    and timing it) and GC-107 (actions, M, P3: restore a file from a commit, from the what's-next
+    pass). Board: GC-105 goes directly under GC-103, the two P1 rows together at the head of the open
+    work; GC-106 under it as the only P2; GC-107 after GC-100, beside the other `actions` feature row.
+    Nothing else moved - the P3 block's ordering is still more historical than deliberate, as GR-010
+    said, and re-ordering forty rows in passing is worse than leaving it for a considered pass.
+    Deduplication: GC-105 is not the worker's GC-103 (that one is a modal outgrowing a short window;
+    this is the app frame's own panels) and not GC-050, which shipped the panels and is done; GC-106 is
+    new; GC-107 is the Files-row entry GR-010 named, and does not overlap GC-093's ignore rows or
+    GC-072's shell-action guard. Blocked GC-017 and GC-018 still wait on Ricardo and nothing in this
+    window unblocks either. No `todo` ticket has gone vague.
+  - hygiene: this window's batch ticked its acceptance boxes and carried real evidence in every log -
+    the lapse GR-010 recorded (four `done` tickets with no boxes ticked) did not repeat, so it was one
+    run's slip rather than drift. GC-012's log volunteers that its acceptance named catena-feed and
+    that catena-feed has only 881 commits, which is exactly the kind of honesty that makes a ticked box
+    worth reading. One small gap: GC-012's **Files** line lists five files and the commit touched
+    seven - `shared/types.ts` and `preload/index.ts` - which the log itself points out; adding an API
+    always means those four files, and the template's Files line should say so up front rather than in
+    the log afterwards. Not filed: process, not product.
+  - notes: `CLAUDE.md` is current at 6af7d97 - GC-014 updated it in the same commit, and its test and
+    e2e counts match that commit. The one sentence that is now wrong is the Graph section's account of
+    `prev`/`LaneState`, which describes paging the app does not do; GC-106 owns fixing it, and this
+    review does not edit `CLAUDE.md` itself.
