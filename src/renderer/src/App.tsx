@@ -1012,14 +1012,19 @@ export function App(): JSX.Element {
       }
       const r = await ui.prompt({
         title: 'Staged changes in the way',
-        message: `git refuses to ${what} while anything is staged, and you have ${staged.length} staged file${staged.length === 1 ? '' : 's'}. Stash them, ${what}, and put them back?`,
+        message: `git refuses to ${what} while anything is staged, and you have ${staged.length} staged file${staged.length === 1 ? '' : 's'}. Stash your tracked changes — untracked files stay where they are — ${what}, and put them back?`,
         input: false,
         okLabel: 'Stash and continue',
       });
       if (!r) return;
       const stashMessage = `Before ${label.toLowerCase()}`;
       await run(label, async () => {
-        await window.api.stashSave(repo!, { includeUntracked: true, message: stashMessage });
+        // No `-u`, unlike the checkout guard this was copied from (GC-097). What git refuses these
+        // four for is the **index**; it carries untracked files through all of them untouched, so
+        // stashing them moves files that were never in the way — and in the mid-operation case
+        // below, where the stash is deliberately kept, they would sit out of the working tree until
+        // the user popped it.
+        await window.api.stashSave(repo!, { includeUntracked: false, message: stashMessage });
         try {
           await action();
         } catch (e) {

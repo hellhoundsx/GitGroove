@@ -1056,6 +1056,10 @@ log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
 log(await menuClick('Cherry pick commit'));
 await waitModal();
 check('the guard names the files in the way', new RegExp(`${stagedForPick.length} staged files?`).test(await modalMessage()), await modalMessage());
+// GC-097: it says what it will stash in the same sentence, because what it stashes is narrower
+// than the checkout guard this was copied from — git carries untracked files through all four of
+// these operations untouched, so there is no reason to move them.
+check('and it says untracked files are not part of it', /untracked files stay where they are/.test(await modalMessage()), await modalMessage());
 check('it offers Cancel and stashing, and nothing that git would only refuse', (await modalButtons()) === 'Cancel | Stash and continue', await modalButtons());
 log(await modalClick('Cancel'));
 await waitNoModal();
@@ -1067,9 +1071,18 @@ check(
 log(await contextMenuOn('.graph-rows .graph-row:not(.wip)', 'Pickable commit'));
 log(await menuClick('Cherry pick commit'));
 await waitModal();
+// The fixture's own untracked file, which git would have carried through the cherry-pick anyway:
+// the guard must leave it exactly where it is, before and after (GC-097).
+const untrackedBefore = git(['status', '--porcelain', '--', 'new.txt']);
+check('the fixture has an untracked file for the guard to leave alone', untrackedBefore.startsWith('??'), untrackedBefore || 'new.txt is not untracked');
 log(await act(() => modalOk(), 'stash and cherry-pick'));
 s = await state();
 check('cherry-pick left in progress', existsSync(join(R, '.git', 'CHERRY_PICK_HEAD')) && /cherry-pick in progress/.test(s.banner ?? ''), s.banner ?? '');
+// Mid-operation is exactly where this matters: the stash is deliberately kept until the user
+// resolves or aborts, so anything the guard swept into it is out of the working tree until then.
+check('the untracked file is still in the working tree, mid-operation', existsSync(join(R, 'new.txt')) && git(['status', '--porcelain', '--', 'new.txt']) === untrackedBefore, git(['status', '--porcelain', '--', 'new.txt']) || 'gone');
+// A stash made with `-u` has a third parent holding the untracked half; this one must not.
+check('and the guard stash has no untracked half at all', gitMay(['rev-parse', '--verify', '--quiet', 'refs/stash^3']).startsWith('GIT-ERROR'), gitMay(['rev-parse', '--verify', '--quiet', 'refs/stash^3']));
 check('git message visible', /now empty/.test(s.err ?? ''), s.err ?? '');
 // The status bar shows one headline line and carries the whole message in its title (GC-091).
 const errTitle = await ev(`document.querySelector('.statusbar .err')?.title ?? ''`);
