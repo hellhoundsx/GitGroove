@@ -627,7 +627,7 @@ export async function stashSave(cwd: string, req: StashSaveRequest): Promise<voi
   await runGit(cwd, args);
 }
 
-/** One git call, bound to a repository: what `restoreStashWith` runs and what a test replaces. */
+/** One git call, bound to a repository: what the `…With` functions run and what a test replaces. */
 export type GitRunner = (args: string[]) => Promise<string>;
 
 /** The porcelain codes for an unmerged path — both sides of the pair, in either order. */
@@ -696,11 +696,14 @@ export const stashDrop = (cwd: string, index: number): Promise<string> => runGit
  * `index` would throw away the neighbour that moved into it and keep the old message as well as
  * the new. The re-stored entry therefore lands at `stash@{0}`, which is what the dialog says.
  */
-export async function stashRename(cwd: string, index: number, message: string): Promise<void> {
-  const sha = (await runGit(cwd, ['rev-parse', `stash@{${index}}`])).trim();
-  await runGit(cwd, ['stash', 'store', '-m', message, sha]);
-  await runGit(cwd, ['stash', 'drop', '-q', `stash@{${index + 1}}`]);
+export async function stashRenameWith(run: GitRunner, index: number, message: string): Promise<void> {
+  const sha = (await run(['rev-parse', `stash@{${index}}`])).trim();
+  await run(['stash', 'store', '-m', message, sha]);
+  await run(['stash', 'drop', '-q', `stash@{${index + 1}}`]);
 }
+
+/** The bound form, matching `restoreStash`: the runner seam is what `git.test.ts` drives (GC-167). */
+export const stashRename = (cwd: string, index: number, message: string): Promise<void> => stashRenameWith((args) => runGit(cwd, args), index, message);
 
 // ---------------------------------------------------------------------------
 // Branches, tags, history
@@ -734,7 +737,8 @@ export async function createBranch(cwd: string, req: CreateBranchRequest): Promi
 
 export const deleteBranch = (cwd: string, name: string, force = false): Promise<string> => runGit(cwd, ['branch', force ? '-D' : '-d', name]);
 export const renameBranch = (cwd: string, oldName: string, newName: string): Promise<string> => runGit(cwd, ['branch', '-m', oldName, newName]);
-export const deleteRemoteBranch = (cwd: string, remote: string, branch: string): Promise<string> => runGit(cwd, ['push', remote, '--delete', branch]);
+/** A push, so it goes through `runRemote` and can ask for a credential like any other (GC-176). */
+export const deleteRemoteBranch = (cwd: string, remote: string, branch: string): Promise<string> => runRemote(cwd, ['push', remote, '--delete', branch], remote);
 
 export const merge = (cwd: string, ref: string): Promise<string> => runGit(cwd, ['merge', '--no-edit', ref]);
 export const rebase = (cwd: string, onto: string): Promise<string> => runGit(cwd, ['rebase', onto]);
@@ -762,9 +766,11 @@ export const deleteTag = (cwd: string, name: string): Promise<string> => runGit(
  * Delete a tag on a remote (GC-112). The refspec is fully qualified — `refs/tags/<name>`, never a
  * bare name — because a remote holding both a branch and a tag called `v1` would otherwise leave
  * git to guess which of the two this meant, and it refuses rather than guessing. Until now the
- * menu could push a tag to a remote and had no call at all to take it back.
+ * menu could push a tag to a remote and had no call at all to take it back. It is a push, so it
+ * goes through `runRemote` and can ask for a credential like any other (GC-176).
  */
-export const deleteRemoteTag = (cwd: string, remote: string, name: string): Promise<string> => runGit(cwd, ['push', remote, '--delete', `refs/tags/${name}`]);
+export const deleteRemoteTag = (cwd: string, remote: string, name: string): Promise<string> =>
+  runRemote(cwd, ['push', remote, '--delete', `refs/tags/${name}`], remote);
 
 // ---------------------------------------------------------------------------
 // Remote operations
@@ -806,8 +812,9 @@ export function authSummary(remote: string | null, url: string | null): string {
 }
 
 /**
- * Run a command that talks to a remote (GC-169): the three that can ever need a credential, and
- * the only three spawned with prompting on.
+ * Run a command that talks to a remote (GC-169, GC-176): the commands that can ever need a
+ * credential, and the only ones spawned with prompting on. `git.test.ts` names the functions that
+ * reach it, so a new one cannot join them silently.
  *
  * A failure git blames on the credential is rethrown flagged, carrying its **whole** message
  * under a summary line naming the remote and its URL. Everything the user needs is then in one

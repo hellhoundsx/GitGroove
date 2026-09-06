@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { authSummary, GitError, ignorePattern, isAuthMessage, restoreStashWith, runGit, type GitRunner } from './git';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { authSummary, GitError, ignorePattern, isAuthMessage, restoreStashWith, runGit, stashRenameWith, type GitRunner } from './git';
 import { ADVISORY, AUTH_FAILURE } from '@shared/types';
 
 // `restoreStashWith` is the whole of GC-092's decision: whether a failed `stash apply --index`
@@ -87,6 +89,57 @@ describe('restoreStashWith', () => {
     const { run, calls } = fakeGit([''], ['']);
     await expect(restoreStashWith(run, 'apply', 2)).resolves.toBe('');
     expect(stashCalls(calls)).toEqual([['stash', 'apply', '-q', '--index', 'stash@{2}']]);
+  });
+});
+
+// `stashRename` has no command of its own: it stores the stash again and drops the old entry, and
+// `git stash store` **prepends** a reflog entry, so by the time the drop runs every stash has
+// shifted down one and the old one is at `index + 1` (GC-129). Getting that wrong destroys the
+// neighbouring stash and keeps the one it was asked to rename — silently, with no error. e2e step
+// 38 covers it against a live repository; these four cover the arithmetic in milliseconds (GC-167).
+describe('stashRenameWith', () => {
+  /** A scripted git for the rename: `rev-parse` answers a sha, everything else the next outcome. */
+  function fakeRename(outcomes: Array<string | Error> = []): { run: GitRunner; calls: string[][] } {
+    const calls: string[][] = [];
+    const run: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'rev-parse') return 'abc1234\n';
+      const next = outcomes.shift();
+      if (next instanceof Error) throw next;
+      return next ?? '';
+    };
+    return { run, calls };
+  }
+
+  it('reads the sha, stores under the new message, then drops the shifted entry', async () => {
+    const { run, calls } = fakeRename();
+    await stashRenameWith(run, 2, 'a better message');
+    expect(calls).toEqual([
+      ['rev-parse', 'stash@{2}'],
+      ['stash', 'store', '-m', 'a better message', 'abc1234'],
+      ['stash', 'drop', '-q', 'stash@{3}'],
+    ]);
+  });
+
+  it('drops index + 1, because the store has already pushed the old entry down one', async () => {
+    const { run, calls } = fakeRename();
+    await stashRenameWith(run, 0, 'renamed');
+    const drop = calls.find((c) => c[1] === 'drop');
+    // `stash@{0}` here would take the entry the store has just made and leave the old message.
+    expect(drop).toEqual(['stash', 'drop', '-q', 'stash@{1}']);
+  });
+
+  it('reads the sha before either write, since the drop is what makes it unreachable', async () => {
+    const { run, calls } = fakeRename();
+    await stashRenameWith(run, 1, 'x');
+    expect(calls[0][0]).toBe('rev-parse');
+  });
+
+  it('attempts no drop when the store fails, or the stash is lost outright', async () => {
+    const failed = new GitError('fatal: bad object', ['stash', 'store'], '', 128);
+    const { run, calls } = fakeRename([failed]);
+    await expect(stashRenameWith(run, 0, 'x')).rejects.toBe(failed);
+    expect(calls.some((c) => c[1] === 'drop')).toBe(false);
   });
 });
 
@@ -182,5 +235,23 @@ describe('GIT_TERMINAL_PROMPT is no longer unconditional (GC-169)', () => {
 
   it('lets a command asked for it prompt, which is the only way the helper can ask', async () => {
     expect((await runGit(process.cwd(), showPrompt, { prompt: true })).trim()).toBe('prompt=1');
+  });
+
+  // Which commands may prompt is a property of the file, not of one call: `runRemote` is the only
+  // way `prompt: true` is ever set, so the set of functions reaching it *is* the set that can ask
+  // for a credential (GC-176). Named here so a seventh cannot join them without this failing —
+  // and so the two that were missed when GC-169 named "the three" cannot be missed again.
+  it('names every function that may ask for a credential', () => {
+    const src = readFileSync(fileURLToPath(new URL('./git.ts', import.meta.url)), 'utf8');
+    const reaching: string[] = [];
+    let owner = '';
+    for (const line of src.split('\n')) {
+      const declared = /^export (?:async )?function (\w+)/.exec(line) ?? /^export const (\w+) =/.exec(line);
+      if (declared) owner = declared[1];
+      if (line.includes('runRemote(') && !line.startsWith('async function runRemote') && owner) reaching.push(owner);
+    }
+    // Five commands: a fetch (twice — `remoteAdd` fetches the remote it has just added), a pull,
+    // and three pushes, of which two are the deletes GC-176 brought in.
+    expect([...new Set(reaching)].sort()).toEqual(['deleteRemoteBranch', 'deleteRemoteTag', 'fetch', 'pull', 'push', 'remoteAdd']);
   });
 });
