@@ -9694,3 +9694,130 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
     two stashes taken to observe GC-140, both popped with `--index`, leaving
     `git status --short` byte-identical to the fixture's. The review's Electron on 9334 was found
     by command line and stopped by PID, twice, and never with a machine-wide kill.
+
+### GR-019 Backlog review 2026-09-06 13:35
+
+- **Status:** done
+- **Window:** 2f66b3e..ae3a492
+- **Log:**
+  - 2026-09-06 13:35 inbox: **two items pending**, both about the repository tabs, both
+    investigated in the code and reproduced in the running app, both now tickets. Neither was
+    declined and nothing was left in Pending. They are decided first and outside the zero-to-five
+    budget, so this review's own findings are two of the five allowed.
+  - inbox 1, `+` should open a new tab offering Open / Clone / recents rather than the folder
+    dialog: true, and narrower than it looks. `newTab` is `openRepoDialog()` then
+    `openNewTab(path)`, so `+` is the second of three title-bar buttons spending itself on one
+    gesture. But **the page it should open already exists** — closing the last tab draws the empty
+    state (`08-empty-state.png`) with the app name, a RECENTLY OPENED list of name + path rows and
+    an "Open repository…" button, which is exactly the three choices minus Clone. What is missing
+    is a **tab that may hold no repository**: `Tab.path` is a required `string`, `readTabs` drops
+    anything that is not a non-empty string, and the bar's empty case is an inert `div.tab` reading
+    "New Tab" that is not a tab at all. The study names the same thing —
+    `06-feature-inventory.md`, "TabsBar / NewTabView … new tab page with recent repos" — and
+    `05-menus-shortcuts.md` gives it `Ctrl+T`, which our table does not carry. **-> GC-163**, with
+    Clone left explicitly to GC-128 and `Ctrl+T` folded in, since a shortcut here costs a table
+    entry and a `matches` call and gets the `?` overlay for free.
+  - inbox 2, picking from recently opened replaces the active tab: true, and it loses more than the
+    tab. Every recents row calls `openPath`, which rewrites the **showing** tab's path, so the
+    parked state goes with it. Reproduced at `ae3a492`: with `testrepo` open, picking `catena-feed`
+    from the dropdown left **one** tab whose label had changed and `gitclient.tabs` holding only
+    `catena-feed`; picking `testrepo` straight back left it at one tab again. Two repositories
+    opened in a row and the bar never grew. `openNewTab` is right beside it and already handles
+    every case needed, `activeId === null` included, so the rows simply call the wrong one of two.
+    **-> GC-164**, covering the breadcrumb's copy of the menu and the empty state's list with it.
+  - shipped: **two full batches**, sixteen commits. `dcffe27` closes GC-121, GC-071, GC-074,
+    GC-087 and GC-091; `74631ea` closes GC-154, GC-155, GC-085, GC-094, GC-096 and GC-097. Read as
+    a reviewer, **GC-121** is the substantial one and it is right where it is hardest: the `kept`
+    flag in `buildLinePatch` carries a `\ No newline` marker only while the line it describes is
+    still in the patch, and the two directions genuinely mirror — an unselected removal becomes
+    context for the index and is dropped for the working tree, and the reverse for an addition.
+    **GC-097** is a clean, well-argued one-flag change whose comment says why `-u` is wrong for the
+    sequencer guard, and the follow-up it implies was filed and has already shipped as GC-161.
+    **GC-155** and **GC-085** are small and honest. No bug found in any diff.
+  - verified live rather than from the diffs: **GC-096** does exactly what it promises — the filter
+    is focused on open, `sand` narrows to `sandbox` and `origin/sandbox` with both captions kept,
+    and `zzzz` gives "No matches" rather than a bare field (`04-branch-filter-menu.png`).
+    **GC-094**'s left panel header reads `main`. **GC-121** picks lines in the unified layout: one
+    `.sel` row and the buttons reading "Stage 1 line" / "Discard 1 line" (`07-line-selection.png`).
+  - health: at `ae3a492` in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    282 tests passed (22 files)** in 2.28s, **build ok**. Confirmed the build landed in the
+    worktree's own `out/` (13:14) and that `MAIN/out` kept its 13:04 timestamps: `MAIN` was never
+    built, tested or launched.
+  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Eight
+    screenshots in `%TEMP%/gitclient-review/GR-019/`, all looked at. `01-graph.png`: lanes
+    continuous, right-angle joins, GC-144's dash covering the whole WIP-to-`main` run, GC-142's
+    detail panel reading as separated blocks. `05-preferences.png` is one rotation surface this
+    time — GC-103's scrolling body with the title and Close button fixed, GC-101's and GC-125's own
+    checkboxes and selects, nothing clipped. `06-diff.png` and `07-line-selection.png` are the
+    diff. `08-empty-state.png` is the other rotation surface, never screenshotted by any review
+    before, and it is the one that decided GC-163 and produced GC-165.
+  - app, the large real graph: `catena-feed` (881 commits, 7 local and 52 remote refs) was loaded
+    **read-only** for `03-catena-feed-graph.png`. Two open tickets reproduce in it exactly as
+    written and neither needed a new one: **GC-153** — REMOTE's 52 rows push TAGS and STASHES off
+    the bottom of the shared scroll — and **GC-117** — Preferences has all three graph columns on
+    (`05-preferences.png`) while the row header reads BRANCH / TAG, GRAPH, COMMIT MESSAGE, AUTHOR,
+    SHA, with DATE / TIME silently dropped by `fitOptCols`. GC-117 was claimed as `in-progress`
+    while this review was being written, so it was not edited; this is the evidence, recorded here.
+  - a near-miss worth recording: several rows in that graph draw an avatar with no initials, which
+    read as a defect until the DOM said otherwise — `semantic-release-bot` and `vmarkopoulos` both
+    resolve to a real `image` element pointing at gravatar, so what is on screen is the account's
+    own picture and the initials fallback never ran. No ticket. Likewise the hairline running from
+    the graph column's left edge into each node is `GraphCell`'s `connector`, present since the
+    initial commit; it stops at the graph column, so **GC-147** — a band across the gap inside the
+    ref column — is not a duplicate of it and stands as written.
+  - what's next, answering GR-018's handoff: GR-018 named Blame, History and Export changes to
+    patch as the last uncovered rows of `06-feature-inventory.md` and filed none, because each
+    wanted a surface decision, asking the next review to bring one back with a sketch. **The study
+    already settles History**: `04-panels.md` records the file view's toolbar as "centre toggle
+    File View | Diff View, right side **Blame | History**" and "History lists commits touching the
+    file", so History is a mode of the file view rather than a new screen — and `DiffView` is that
+    slot, already replacing the graph, already collapsing the left panel to the rail, already
+    carrying a segmented control in its header. Filed as **GC-166** with that sketch. Blame still
+    needs a per-line gutter and porcelain parsing, and Export needs a save dialog the app has never
+    opened; both are named again rather than filed thin.
+  - tickets: added **GC-163** (ui, M, P2) and **GC-164** (ui, S, P2) from the inbox, and
+    **GC-165** (ui, S, P3) and **GC-166** (graph, M, P3) as this review's own two — one from the
+    UI pass, one from the what's-next pass, which is the spread the routine asks for. **GC-165** is
+    the UI-pass find: the recents list is drawn twice and the two truncate opposite ways — the
+    menu's `hintPath` is `direction: rtl` and ellipsises at the start (GC-067), while the empty
+    state's `.recent-path` has no `direction` and ellipsises at the end, rendering the same entry
+    as `…/gitclient-review/e2e/testrepo` in one place and `C:/Users/…/e2e/t…` in the other, with
+    `scrollWidth` 367 against `clientWidth` 335 proving it is genuinely clipped. It matters more
+    once GC-163 makes that page what `+` opens.
+  - extended **GC-151**: its Reopen closed tab row now carries `Ctrl+Shift+T` and its Close tab row
+    `Ctrl+W`, both from `05-menus-shortcuts.md`'s tabs group. They belong there rather than in a
+    ticket of their own — the actions are GC-151's and a binding is one table entry — and `Ctrl+T`
+    went to GC-163 for the same reason. No other ticket was extended; each addition was checked
+    against the board first.
+  - board: GC-164 then GC-163 go **ahead of GC-128**, which has been the first unclaimed P2 for
+    three reviews and cannot be started anyway — its `Depends on` is GC-026, still `todo`. So the
+    top of the P2 band was a row no worker could take; the two tab tickets are eligible
+    immediately and both came from Ricardo. GC-165 and GC-166 go after GC-159 and ahead of GC-026,
+    where GR-015 through GR-018 all put their P3 additions. Nothing else moved.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all three
+    still want a decision from Ricardo. No `todo` ticket has gone vague. Dependencies on the four
+    added: GC-163 and GC-164 on GC-016, GC-165 on GC-044, GC-166 on GC-043 — all `done`, so all
+    four are eligible the moment they are read.
+  - notes: `CLAUDE.md` at `ae3a492` says "282 tests today", which matched exactly, and its
+    Architecture section is current for GC-121, GC-087, GC-091, GC-094 and GC-096. Nothing stale to
+    report; this review did not edit `CLAUDE.md`. One study note re-confirmed rather than
+    re-discovered: `09-repo-dropdown.png` and `10-branch-dropdown.png` are the two unusable
+    captures GC-065 recorded, so there is **no picture** of GitKraken's repository dropdown or new
+    tab page to compare GC-163 against — it is grounded in the written inventory row only, which
+    the ticket says.
+  - a moving tip, handled explicitly: the worker pushed `9336964` — the whole GC-156 / GC-157 /
+    GC-158 / GC-160 / GC-161 batch — while this review was being written, and a new batch claimed
+    GC-129, GC-134, GC-135, GC-102, GC-117 and GC-122 on top of it. That batch is **out of this
+    window and belongs to GR-020**, which should read its diffs properly. It also took GC-162 —
+    the worker's own reflect-step ticket — and GC-117, which is why the ids here start at GC-163
+    and why GC-117's evidence above is a log line here rather than on that ticket.
+  - isolation: no ticket was `in-progress` when the ids were chosen, and six were by the time this
+    was written; not one was touched. `MAIN` was never built, tested or launched, and its working
+    tree was left exactly as found — the write below waited for `TICKETS.md` and
+    `TICKETS-ARCHIVE.md` to be clean in `git status` and stages only those two. The only
+    repository written to was the review's own scratch root, whose `git status --short` and empty
+    `stash list` are byte-identical to what `e2e:setup` created; `catena-feed` was opened
+    read-only and nothing in it was touched. `+` was deliberately **never clicked**, because it
+    opens a native folder dialog and no unattended run may steal focus — that item was settled from
+    the code and from the empty state instead. The review's Electron on 9334 was found by command
+    line and stopped by PID tree, never with a machine-wide kill; zero remained afterwards.
