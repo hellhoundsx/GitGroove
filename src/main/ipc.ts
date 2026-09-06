@@ -13,6 +13,7 @@ import type {
   PullMode,
   PushRequest,
   ResetMode,
+  ResolvedTheme,
   StashSaveRequest,
   WorkdirDiffRequest,
 } from '@shared/types';
@@ -40,6 +41,35 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: st
 }
 
 const repoOf = (v: unknown): string => str(v, 'A repository path');
+
+/**
+ * The OS window controls are drawn by Windows, not by us, so they are the one part of the frame a
+ * `tokens.css` theme cannot reach: they keep whatever colours the window was built with until the
+ * renderer says the theme changed (GC-013). These two pairs are the `--bg-titlebar` and a text
+ * colour from each palette, kept here rather than read from CSS because the window is created
+ * before any renderer exists to ask.
+ */
+export const TITLE_BAR_OVERLAY: Record<ResolvedTheme, { color: string; symbolColor: string; height: number }> = {
+  dark: { color: '#2a2d34', symbolColor: '#d4d6db', height: 34 },
+  light: { color: '#e3e5ea', symbolColor: '#3a3d44', height: 34 },
+};
+
+/**
+ * Repaint one window's controls. Only Windows draws an overlay, and only a window built with
+ * `titleBarStyle: 'hidden'` accepts one, so a platform that has neither is a no-op rather than an
+ * error reaching the renderer as a failed IPC call.
+ */
+function applyTitleBarOverlay(win: BrowserWindow, theme: ResolvedTheme): void {
+  if (process.platform !== 'win32') return;
+  try {
+    win.setTitleBarOverlay(TITLE_BAR_OVERLAY[theme]);
+  } catch {
+    /* a window without an overlay has nothing to repaint */
+  }
+}
+
+/** The two themes the window controls can be painted for, validated like every other enum (GC-013). */
+const THEMES: readonly ResolvedTheme[] = ['dark', 'light'];
 
 /** The three patterns the row menu can write, validated like every other enum argument (GC-093). */
 const IGNORE_KINDS: readonly IgnoreKind[] = ['file', 'extension', 'folder'];
@@ -95,6 +125,12 @@ export function registerIpc(): void {
     return git.getLog(repoOf(path), max, exclude === undefined || exclude === null ? [] : strs(exclude, 'The hidden refs'), int(skip, 'The number of commits to skip'));
   });
   ipcMain.handle('repo:status', (_e, repo: unknown) => git.getStatus(repoOf(repo)));
+  // The one channel that touches neither git nor the file system: the window controls Windows
+  // draws for us, repainted for the theme the renderer resolved (GC-013).
+  ipcMain.handle('window:theme', (event, theme: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) applyTitleBarOverlay(win, oneOf(theme, THEMES, 'A theme'));
+  });
   // The watcher pushes on `repo:changed`; this is only the renderer saying what to watch (GC-011).
   ipcMain.handle('repo:watch', (event, repo: unknown) => {
     watchRepo(event.sender, repo === null || repo === undefined ? null : repoOf(repo));

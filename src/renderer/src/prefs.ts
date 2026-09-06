@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { PullMode } from '@shared/types';
+import type { PullMode, ResolvedTheme, Theme } from '@shared/types';
 
 // One home for every user preference. Everything lives under a single `gitclient.prefs` key so
 // settings do not keep sprouting their own keys; the per-repository pin and the ref column width
@@ -23,6 +23,8 @@ export interface Prefs {
   commitColumnGuide: boolean;
   /** Which optional columns the graph shows after the commit message. */
   graphColumns: GraphColumns;
+  /** Dark, light, or whatever the OS is set to (GC-013). */
+  theme: Theme;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -31,6 +33,7 @@ export const DEFAULT_PREFS: Prefs = {
   confirmDirtyCheckout: true,
   commitColumnGuide: true,
   graphColumns: { author: false, date: false, sha: false },
+  theme: 'dark',
 };
 
 const KEY = 'gitclient.prefs';
@@ -38,6 +41,7 @@ const KEY = 'gitclient.prefs';
 const LEGACY_PULL_MODE_KEY = 'gitclient.pullMode';
 
 const isPullMode = (v: unknown): v is PullMode => v === 'ff' || v === 'ff-only' || v === 'rebase';
+const isTheme = (v: unknown): v is Theme => v === 'dark' || v === 'light' || v === 'system';
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
 
 /** Each column falls back on its own, so a truncated or half-written object still loads (GC-032). */
@@ -61,6 +65,7 @@ function load(): Prefs {
         confirmDirtyCheckout: bool(o.confirmDirtyCheckout, DEFAULT_PREFS.confirmDirtyCheckout),
         commitColumnGuide: bool(o.commitColumnGuide, DEFAULT_PREFS.commitColumnGuide),
         graphColumns: graphColumns(o.graphColumns),
+        theme: isTheme(o.theme) ? o.theme : DEFAULT_PREFS.theme,
       };
     }
     // Migration: the pull mode used to have its own key.
@@ -87,6 +92,45 @@ const subscribe = (fn: () => void): (() => void) => {
 
 export const getPrefs = (): Prefs => current;
 
+// ---- theme (GC-013) ---------------------------------------------------------------------------
+
+const SYSTEM_LIGHT = '(prefers-color-scheme: light)';
+
+/**
+ * Which theme the `theme` setting actually means right now. `system` is resolved here rather than
+ * left to a media query in `tokens.css`, so there is one answer to "which theme is showing" — the
+ * renderer needs it in JavaScript to tell the main process what to paint the OS window controls,
+ * which are the one part of the frame CSS cannot reach.
+ */
+export function resolveTheme(theme: Theme): ResolvedTheme {
+  if (theme !== 'system') return theme;
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(SYSTEM_LIGHT).matches ? 'light' : 'dark';
+}
+
+/**
+ * Stamp the resolved theme on the document element, which is what every token in `tokens.css`
+ * keys off, and hand the same answer to the main process for the window controls. Guarded on
+ * `document` because `prefs.ts` is loaded by a test that runs without a DOM.
+ */
+function applyTheme(): void {
+  if (typeof document === 'undefined') return;
+  const resolved = resolveTheme(current.theme);
+  document.documentElement.dataset.theme = resolved;
+  // The bridge is absent, or stubbed with only the calls a case needs, in a test render; a window
+  // that cannot repaint its controls is not worth an unhandled rejection over.
+  void window.api?.setTheme?.(resolved)?.catch(() => undefined);
+}
+
+applyTheme();
+
+// Following the OS means following it as it changes, not only as the app starts. The listener is
+// registered once and does nothing unless the setting is `system`.
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  window.matchMedia(SYSTEM_LIGHT).addEventListener('change', () => {
+    if (current.theme === 'system') applyTheme();
+  });
+}
+
 /** Merge a patch into the preferences, persist them and re-render every `usePrefs()` caller. */
 export function setPrefs(patch: Partial<Prefs>): void {
   current = { ...current, ...patch };
@@ -95,6 +139,7 @@ export function setPrefs(patch: Partial<Prefs>): void {
   } catch {
     /* ignore */
   }
+  applyTheme();
   for (const fn of listeners) fn();
 }
 

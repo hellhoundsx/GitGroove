@@ -128,6 +128,11 @@ export interface CommitRequest {
 }
 
 export type PullMode = 'ff' | 'ff-only' | 'rebase';
+
+/** The theme setting. `system` follows the OS (GC-013). */
+export type Theme = 'dark' | 'light' | 'system';
+/** The theme actually on screen: `system` already resolved by the renderer (GC-013). */
+export type ResolvedTheme = 'dark' | 'light';
 export type ResetMode = 'soft' | 'mixed' | 'hard';
 
 export interface CheckoutOptions {
@@ -172,6 +177,8 @@ export interface GitApi {
    */
   getLog(path: string, skip: number, maxCommits?: number, exclude?: string[]): Promise<Commit[]>;
   getStatus(repo: string): Promise<RepoStatus>;
+  /** Repaint the OS window controls for the theme now showing (GC-013). */
+  setTheme(theme: ResolvedTheme): Promise<void>;
   /** Point the file-system watcher at a repository, or pass null to stop it (GC-011). */
   watchRepo(repo: string | null): Promise<void>;
   /** Subscribe to watcher pushes; the returned function unsubscribes (GC-011). */

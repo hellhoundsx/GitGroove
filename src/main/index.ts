@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
-import { registerIpc } from './ipc';
+import { registerIpc, TITLE_BAR_OVERLAY } from './ipc';
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL;
 
@@ -30,7 +30,8 @@ function createWindow(): BrowserWindow {
     backgroundColor: '#1b1d22',
     // Frameless with the OS window controls overlaid, so the renderer draws its own tabs bar.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#2b2e36', symbolColor: '#d4d6db', height: 34 },
+    // The window opens dark; the renderer repaints it as soon as it knows the theme (GC-013).
+    titleBarOverlay: TITLE_BAR_OVERLAY.dark,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

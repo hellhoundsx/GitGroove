@@ -1,7 +1,13 @@
 import { type JSX, type ReactNode } from 'react';
-import type { PullMode } from '@shared/types';
+import type { PullMode, Theme } from '@shared/types';
 import { setPrefs, usePrefs, type GraphColumns, type Prefs } from '../prefs';
 import { matches } from '../shortcuts';
+
+const THEMES: { theme: Theme; label: string }[] = [
+  { theme: 'dark', label: 'Dark' },
+  { theme: 'light', label: 'Light' },
+  { theme: 'system', label: 'Match the system' },
+];
 
 const PULL_MODES: { mode: PullMode; label: string }[] = [
   { mode: 'ff', label: 'Merge (fast-forward if possible)' },
@@ -62,6 +68,15 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
         <h3 id="prefs-title">Preferences</h3>
         <div className="pref-group">
           <div className="pref-group-title">Appearance</div>
+          <Row label="Theme" hint="Applies immediately, window controls included.">
+            <select className="pref-select" value={prefs.theme} onChange={(e) => setPrefs({ theme: e.target.value as Theme })}>
+              {THEMES.map((t) => (
+                <option key={t.theme} value={t.theme}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </Row>
           <Toggle of="avatars" label="Author avatars" hint="Fetches Gravatar images. Off means initials only, and no network requests." />
           <Toggle of="commitColumnGuide" label="72-character commit summary counter" hint="Counts down the characters left on the summary line." />
         </div>

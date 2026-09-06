@@ -370,7 +370,7 @@ textarea:focus {
   background: var(--accent-hover);
 }
 .ref-row.head {
-  background: rgba(85, 184, 106, 0.25);
+  background: var(--head-row);
   color: var(--text-bright);
 }
 .ref-row .ab {
@@ -588,7 +588,7 @@ textarea:focus {
   opacity: 0.3;
 }
 .graph-row.match {
-  background: rgba(222, 155, 67, 0.14);
+  background: var(--match-row);
 }
 .graph-row.selected {
   background: var(--accent-soft);
@@ -663,7 +663,7 @@ textarea:focus {
   font-size: var(--fs-sm);
   margin-right: var(--sp-2);
   border-color: var(--border);
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-input);
 }
 .graph-row .col-msg .readout {
   display: flex;
@@ -806,7 +806,7 @@ textarea:focus {
   color: var(--text-bright);
 }
 .graph-row .col-ref .more-list .ref-chip:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--hover-overlay);
 }
 .ref-chip.tag {
   background: var(--bg-panel-raised);
@@ -1066,14 +1066,14 @@ textarea:focus {
   border-color: var(--accent);
 }
 .btn.primary:hover {
-  background: rgba(79, 140, 255, 0.5);
+  background: var(--accent-strong);
 }
 .btn.success {
   background: var(--success-soft);
   border-color: var(--success);
 }
 .btn.success:hover {
-  background: rgba(85, 184, 106, 0.5);
+  background: var(--success-strong);
 }
 .btn.danger {
   background: var(--danger-soft);
@@ -1353,7 +1353,7 @@ textarea:focus {
   padding-right: 6px;
   color: var(--text-dim);
   user-select: none;
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--diff-gutter);
 }
 .hunk-lines .mark {
   width: 16px;
@@ -1483,7 +1483,7 @@ textarea:focus {
   z-index: 900;
   display: grid;
   place-items: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--backdrop);
 }
 .modal {
   width: 440px;
@@ -1620,7 +1620,7 @@ textarea:focus {
   border-radius: var(--radius-sm);
   font-size: var(--fs-sm);
   border: 1px solid var(--warning);
-  background: rgba(223, 162, 67, 0.15);
+  background: var(--banner-bg);
 }
 .banner.danger {
   border-color: var(--danger);

@@ -66,6 +66,7 @@ describe('load', () => {
       confirmDirtyCheckout: false,
       commitColumnGuide: false,
       graphColumns: { author: true, date: true, sha: false },
+      theme: 'light',
     };
     const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify(blob) });
     expect(getPrefs()).toEqual(blob);
@@ -80,7 +81,21 @@ describe('load', () => {
       confirmDirtyCheckout: DEFAULT_PREFS.confirmDirtyCheckout,
       commitColumnGuide: DEFAULT_PREFS.commitColumnGuide,
       graphColumns: DEFAULT_PREFS.graphColumns,
+      theme: DEFAULT_PREFS.theme,
     });
+  });
+
+  // The theme is the one setting the main process is told about as well, so a blob carrying a
+  // value that is not one of the three has to land on the default rather than reach the bridge.
+  it('keeps a valid theme and falls back on anything else (GC-013)', async () => {
+    for (const theme of ['dark', 'light', 'system']) {
+      const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify({ theme }) });
+      expect(getPrefs().theme).toBe(theme);
+    }
+    for (const theme of ['neon', '', 42, null]) {
+      const { getPrefs, DEFAULT_PREFS } = await freshPrefs({ [KEY]: JSON.stringify({ theme }) });
+      expect(getPrefs().theme).toBe(DEFAULT_PREFS.theme);
+    }
   });
 
   it('defaults the graph columns to off and falls back per column', async () => {

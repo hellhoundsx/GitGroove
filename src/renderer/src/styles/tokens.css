@@ -62,16 +62,26 @@
   --accent: #4d88ff;
   --accent-soft: rgba(77, 136, 255, 0.2);
   --accent-hover: rgba(77, 136, 255, 0.1);
+  --accent-strong: rgba(79, 140, 255, 0.5);
   --success: #5cb85c;
   --success-soft: rgba(92, 184, 92, 0.2);
+  --success-strong: rgba(85, 184, 106, 0.5);
   --warning: #de9b43;
   --danger: #d9413d;
   --danger-soft: rgba(217, 65, 61, 0.2);
   --link: #40c5ec;
 
+  /* Surface tints that were literals in app.css until the light theme needed them to flip (GC-013) */
+  --head-row: rgba(85, 184, 106, 0.25); /* the checked-out branch's row in the left panel */
+  --match-row: rgba(222, 155, 67, 0.14); /* a commit row the search matched */
+  --banner-bg: rgba(223, 162, 67, 0.15); /* the operation banner over the staging view */
+  --hover-overlay: rgba(255, 255, 255, 0.1); /* a row inside the folded-refs block under the pointer */
+  --backdrop: rgba(0, 0, 0, 0.5); /* behind a modal */
+
   /* Diff */
   --diff-add: rgba(92, 184, 92, 0.18);
   --diff-del: rgba(217, 65, 61, 0.18);
+  --diff-gutter: rgba(0, 0, 0, 0.12); /* the line-number column beside a hunk */
 
   /* Graph lanes, cycled by column index. Slightly desaturated so several lanes can coexist. */
   --lane-0: #1c9fbc;
@@ -84,4 +94,77 @@
   --lane-7: #e6c23a;
   --lane-8: #7fcf45;
   --lane-9: #34c99a;
+}
+
+/*
+ * Light theme (GC-013). Our own values, picked to hold the same contrast relationships as the dark
+ * ramp rather than lifted from GitKraken's light theme: the surfaces step the other way (the app
+ * background is the darkest of them and a raised surface is white), text is black with the same
+ * alphas white carried, and every accent is darkened until it reads on a light surface.
+ *
+ * Only the values change. `data-theme` is stamped on the document element by `prefs.ts`, which
+ * resolves the `system` setting itself rather than leaving it to a media query, so the renderer
+ * always knows which theme is showing and can tell the main process what to paint the window
+ * controls (GC-013).
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.22);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.36);
+
+  /* Surfaces: the same short warm-neutral ramp, stepping down from the page rather than up */
+  --bg-app: #f1f2f5;
+  --bg-titlebar: #e3e5ea;
+  --bg-toolbar: #dcdfe5;
+  --bg-panel: #e9ebef;
+  --bg-panel-raised: #ffffff;
+  --bg-menu: #ffffff;
+  --bg-input: rgba(0, 0, 0, 0.05);
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.22);
+  --shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+
+  /* Text as black with alpha, mirroring the white alphas above */
+  --text: rgba(0, 0, 0, 0.8);
+  --text-bright: #14161a;
+  --text-muted: rgba(0, 0, 0, 0.62);
+  --text-dim: rgba(0, 0, 0, 0.45);
+  --text-inverse: #ffffff;
+
+  /* Semantic: darkened until each one reads against a white surface */
+  --accent: #2f6fe0;
+  --accent-soft: rgba(47, 111, 224, 0.16);
+  --accent-hover: rgba(47, 111, 224, 0.09);
+  --accent-strong: rgba(47, 111, 224, 0.34);
+  --success: #2e7d32;
+  --success-soft: rgba(46, 125, 50, 0.18);
+  --success-strong: rgba(46, 125, 50, 0.34);
+  --warning: #9a6410;
+  --danger: #c62828;
+  --danger-soft: rgba(198, 40, 40, 0.16);
+  --link: #0b6f96;
+
+  --head-row: rgba(46, 125, 50, 0.18);
+  --match-row: rgba(214, 148, 20, 0.22);
+  --banner-bg: rgba(214, 148, 20, 0.2);
+  /* The hover overlay darkens on a light surface, where a white wash would be invisible */
+  --hover-overlay: rgba(0, 0, 0, 0.07);
+  --backdrop: rgba(0, 0, 0, 0.32);
+
+  --diff-add: rgba(46, 125, 50, 0.16);
+  --diff-del: rgba(198, 40, 40, 0.13);
+  --diff-gutter: rgba(0, 0, 0, 0.06);
+
+  /* Lanes, darkened so ten of them stay apart on white; the yellow and green move furthest */
+  --lane-0: #0f7f99;
+  --lane-1: #1f57bd;
+  --lane-2: #7420a3;
+  --lane-3: #a32496;
+  --lane-4: #b81b62;
+  --lane-5: #a81f23;
+  --lane-6: #bd4a22;
+  --lane-7: #8a6d0c;
+  --lane-8: #4b8f22;
+  --lane-9: #157f60;
 }
