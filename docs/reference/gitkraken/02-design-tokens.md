@@ -162,3 +162,65 @@ Selected via `data-theme="light"`. The newer UI kit swaps to: text rgba(0,0,0,0.
 surfaces #F0F0F0 / #FAFAFA / #F3F3F3, borders #CCCCCC, success #00A857,
 danger #9F1A16, link #005C95, accent #395BBF. Primary blue stays #4D88FF.
 Custom user themes were removed in 11.8; only dark and light remain.
+
+### Our light ramp (GC-175) — ours, not an observation
+
+Everything above this heading is what GitKraken does. This subsection is **our own
+calibration**, recorded here beside the dark one because it was built the same way and has
+to be checked the same way; nothing in it was taken from GitKraken.
+
+GitKraken's three light surfaces above (#F0F0F0 / #FAFAFA / #F3F3F3) sit within 1.05:1 of
+each other — its light theme is as flat as ours was, so it is no help as a target. Ours is
+built instead to hold the **relationships** of our own dark ramp: each adjoining pair gets
+the WCAG ratio its dark counterpart has. Rule 1 is what makes that a legitimate answer —
+study GitKraken, never copy it, and our tokens are our own values calibrated against
+measurements.
+
+| adjoining pair | dark | light (ours) |
+| --- | --- | --- |
+| `--bg-panel` over `--bg-app` | 1.161 | 1.162 |
+| `--bg-toolbar` over `--bg-titlebar` | 1.155 | 1.161 |
+| `--bg-titlebar` over `--bg-app` | 1.210 | 1.208 |
+| `--bg-panel-raised` over `--bg-app` | 1.378 | 1.377 |
+| `--bg-menu` over `--bg-panel` | 1.426 | 1.427 |
+| `--border` over `--bg-panel` | 1.282 | 1.303 |
+
+Read back from the running app over CDP, with
+`getComputedStyle(document.documentElement).getPropertyValue(name)` per token and the WCAG
+formula over each pair. Before this the same five measured 1.066, 1.059, 1.126, 1.119 and
+1.194: a weaker fill *and* a weaker line at every boundary, which is why the title bar, the
+tab bar, the toolbar and the status bar read as one undivided white strip.
+
+The values:
+
+| token | light |
+| --- | --- |
+| `--bg-app` | #c7c9cd |
+| `--bg-panel` | #d6d8dc |
+| `--bg-titlebar` | #dadce0 |
+| `--bg-panel-raised` | #e8eaee |
+| `--bg-toolbar` | #eaecf0 |
+| `--bg-menu` | #ffffff |
+| `--border` | rgba(0, 0, 0, 0.12) |
+| `--border-strong` | rgba(0, 0, 0, 0.28) |
+
+Two things worth knowing before moving any of them.
+
+**The ordering is dark's, not a mirror of it.** The app is the ground and every other surface
+sits *above* it, lighter, exactly as in dark. The old light block stepped *down* from the page
+for the panel and jumped straight to white for both raised surfaces, which is what left
+nothing above the panel to spend on a floating menu.
+
+**The ground has to be this dark.** The span from `--bg-app` to `--bg-menu` is 1.655:1 in the
+dark ramp, and white is the ceiling in light, so `L(app) + 0.05 = 1.05 / 1.655` — a lighter
+canvas than #c7c9cd cannot hold the ramp. Any future "make the light theme lighter" has to
+give up one of the five ratios, and should say which.
+
+**The border is decided by the luminance step, not by the alpha.** Black and white sit at
+opposite ends of the sRGB transfer curve, so the same alpha does not buy the same line: dark's
+0.08 white over the panel is a 1.282 step, while the old light 0.1 black over the old panel
+was only 1.249 — the weaker line on top of the weaker fill.
+
+The text ramp was deliberately left alone (GC-175's out-of-scope line). It moves a little with
+the surfaces: `--text-dim` over `--bg-panel` measures 3.15 in light against dark's 3.59, where
+before it was 3.25. Still above 3:1, and the same design.

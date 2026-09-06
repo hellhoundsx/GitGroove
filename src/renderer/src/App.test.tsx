@@ -513,12 +513,22 @@ describe('App keeps a tab per repository (GC-016)', () => {
       expect(tabLabels()).toEqual(['repo', 'New Tab']);
     });
 
-    it('is filled in place by its own recents row, rather than making a third tab', async () => {
+    it('closes itself when its recents row hands the user to a tab already holding that repository', async () => {
       await plus();
       // The list on that page is the repository history; picking from it is what the tab is for.
       await settle(() => fireEvent.click(document.querySelector('.recent-row')!));
       expect(loadArgs[loadArgs.length - 1]?.path).toBe(REPO);
-      // REPO is already in the bar, so the user is taken to its tab; the count never grew past two.
+      // REPO is already in the bar, so the user is taken to its tab (GC-016) — and the empty tab
+      // they asked from goes, because it was made for a repository it never got (GC-173).
+      expect(tabLabels()).toEqual(['repo']);
+      expect(activeLabel()).toBe('repo');
+    });
+
+    it('stays in the bar when the user leaves it by clicking another tab', async () => {
+      await plus();
+      // Not a hand-over: the user chose a tab, they did not ask this one for a repository, so the
+      // empty tab is still theirs (GC-173).
+      await settle(() => fireEvent.click(screen.getAllByTitle(REPO)[0]!));
       expect(tabLabels()).toEqual(['repo', 'New Tab']);
       expect(activeLabel()).toBe('repo');
     });

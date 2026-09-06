@@ -14,6 +14,7 @@ const api: GitApi = {
   initRepo: call('repo:init'),
   loadRepo: call('repo:load'),
   getLog: call('repo:log'),
+  getFileLog: call('repo:fileLog'),
   getStatus: call('repo:status'),
   setTheme: call('window:theme'),
   watchRepo: call('repo:watch'),

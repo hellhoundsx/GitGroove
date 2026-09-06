@@ -6,6 +6,14 @@
   --font-ui: 'Open Sans', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
   --font-mono: 'Cascadia Code', Consolas, 'JetBrains Mono', Menlo, monospace;
   --fs-xs: 10px;
+  /* A stash row's age (GC-171). Fixed, because content-sized was the defect: the box grew with
+     its own phrase — "2 minutes ago" is 66px — and it grew out of the message, which is the only
+     thing on the row that says *which* stash this is. 46px holds "just now" and "3 days ago"
+     whole and ellipsises the longest phrase relativeTime produces ("59 minutes ago", 70px), which
+     is the right way round: the age is an approximation read at a glance, the message an identity.
+     It is as tight as it is because at the default 220px panel the row spends 34px on padding,
+     32 on gaps and 59 on the icon, the index and GC-150's sha before the message sees anything. */
+  --row-when-w: 46px;
   --fs-sm: 12px;
   --fs-md: 14px;
   --fs-lg: 16px;
@@ -138,16 +146,38 @@
   --scrollbar-thumb: rgba(0, 0, 0, 0.22);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.36);
 
-  /* Surfaces: the same short warm-neutral ramp, stepping down from the page rather than up */
-  --bg-app: #f1f2f5;
-  --bg-titlebar: #e3e5ea;
-  --bg-toolbar: #dcdfe5;
-  --bg-panel: #e9ebef;
-  --bg-panel-raised: #ffffff;
+  /* Surfaces: the dark ramp's own *relationships*, not its lightnesses inverted (GC-175).
+     The light block was built as a mirror of the dark one and never measured, and it came out
+     systematically flatter: panel over app was 1.066 against dark's 1.161, and a context menu
+     floating over a panel got 1.194 where dark gives it 1.426 — so the title bar, the tab bar,
+     the toolbar and the status bar read as one undivided white strip, and the graph panel and
+     the detail panel did not separate at all.
+
+     Each surface below is solved for the WCAG ratio its dark counterpart has against the surface
+     it adjoins, and the ordering is dark's too: the app is the ground, the panel sits on it, and
+     raised and menu sit above that. That last part is what changed shape — the old ramp stepped
+     *down* from the page for the panel and jumped to white for both raised surfaces, which is
+     what left nothing above the panel to spend on the menu.
+
+     The ground is as dark as it is because the arithmetic leaves no choice: the span from app to
+     menu is 1.655:1 in dark, and white is the ceiling in light, so app + 0.05 = 1.05 / 1.655.
+     A lighter canvas than this cannot hold the ramp. Measured back from the running app:
+     panel/app 1.162 (dark 1.161), toolbar/titlebar 1.161 (1.155), titlebar/app 1.208 (1.210),
+     raised/app 1.377 (1.378), menu/panel 1.427 (1.426) — worst difference 0.006. */
+  --bg-app: #c7c9cd;
+  --bg-titlebar: #dadce0;
+  --bg-toolbar: #eaecf0;
+  --bg-panel: #d6d8dc;
+  --bg-panel-raised: #e8eaee;
   --bg-menu: #ffffff;
   --bg-input: rgba(0, 0, 0, 0.05);
-  --border: rgba(0, 0, 0, 0.1);
-  --border-strong: rgba(0, 0, 0, 0.22);
+  /* Decided by the luminance step, not by matching dark's number (GC-175): black and white sit at
+     opposite ends of the sRGB transfer curve, so the same alpha does not buy the same line. Dark's
+     0.08 white over the panel is a 1.282 step; 0.12 black over this one is 1.303, where the old
+     0.1 over the old panel was 1.249 — the weaker line on the weaker fill, at every boundary. */
+  --border: rgba(0, 0, 0, 0.12);
+  /* Same measurement: dark's 0.2 white is 1.913 over the panel, this is 1.937. */
+  --border-strong: rgba(0, 0, 0, 0.28);
   --shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
 
   /* Text as black with alpha, mirroring the white alphas above */

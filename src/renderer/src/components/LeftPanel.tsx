@@ -5,6 +5,9 @@ import { Icon } from '../ui/icons';
 import { fitSections, useBoundaryDrag, type DragHandleProps } from '../ui/useDragWidth';
 import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 import { formatDateTimeSeconds, relativeTime } from '../time';
+// The graph row's own answer to what a stash's message reads as (GC-170), so the two surfaces
+// cannot strip git's prefix differently (GC-171).
+import { stashMessageText } from '../graph/CommitGraph';
 
 interface Props {
   /** Where HEAD is, which is what the header says (GC-094). The same `info` the breadcrumb reads. */
@@ -630,7 +633,13 @@ export function LeftPanel(p: Props): JSX.Element {
             >
               <Icon of={Archive} size={12} className="row-icon" />
               <span className="stash-idx">{s.index}</span>
-              <span className="row-name">{s.message}</span>
+              {/* git's `On <branch>: ` prefix comes off the drawn line and nowhere else (GC-171).
+                  Every stash git makes carries it, so the nine characters that survived a 77px
+                  column were the ones identical across every stash on the branch: two stashes on
+                  `main` rendered as the same row. GitKraken drops it too. `stashMessageText` is the
+                  graph row's own answer (GC-170) and the two must agree — never in the `title`
+                  above, and never in what `stashRename` stores. */}
+              <span className="row-name">{stashMessageText(s.message)}</span>
               {/* Which commit it was taken from, in the graph's own vocabulary — a short sha —
                   so the two surfaces say the same thing without a hover (GC-140, GC-150). */}
               <span className="row-sha">{s.parent.slice(0, 7)}</span>

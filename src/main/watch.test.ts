@@ -33,6 +33,10 @@ const cases: Array<[string, Decision, string]> = [
   ['.git/refs/heads/main', 'refs', 'a named ref'],
   ['.git/HEAD', 'refs', 'the checkout moved'],
   ['.git/packed-refs', 'refs', 'refs were packed'],
+  // The remotes and a branch's upstream live only in the full snapshot, so a config write made
+  // outside the app produced no REMOTE row at all until the page was reloaded (GC-190).
+  ['.git/config', 'refs', 'a remote or an upstream changed, and only the full snapshot carries them'],
+  ['.git/config.lock', 'ignored', 'git writes config through a lock file, as it does every ref'],
 
   ['.git/index', 'tree', 'staging only moves the status'],
   ['.git/MERGE_HEAD', 'tree', 'an operation started: the status shows the banner'],

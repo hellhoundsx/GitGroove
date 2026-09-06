@@ -54,11 +54,32 @@ const COMBINED_DIFF = [
   '',
 ].join('\n');
 
-/** Only the two calls `DiffView` makes; `prefs.ts` reaches for `setTheme` on every write. */
+/** What `repo:fileLog` answers with, in the shape `getLog` uses (GC-166). */
+const HISTORY = [
+  { sha: 'aaaaaaa1111111111111111111111111111111111', parents: [], authorName: 'Ada', authorEmail: 'ada@x', authorDate: '2026-09-01T10:00:00Z', committerName: 'Ada', committerDate: '2026-09-01T10:00:00Z', summary: 'rename it', body: '', refs: [] },
+  { sha: 'bbbbbbb2222222222222222222222222222222222', parents: [], authorName: 'Bo', authorEmail: 'bo@x', authorDate: '2026-08-01T10:00:00Z', committerName: 'Bo', committerDate: '2026-08-01T10:00:00Z', summary: 'add it', body: '', refs: [] },
+];
+
+/** How many times each call was made, so "switching costs no reload" is a number (GC-166). */
+const calls = { diff: 0, fileLog: 0 };
+
+/** Only the calls `DiffView` makes; `prefs.ts` reaches for `setTheme` on every write. */
 const stubApi = (diff = DIFF): void => {
+  calls.diff = 0;
+  calls.fileLog = 0;
   (window as unknown as { api: Record<string, unknown> }).api = {
-    getWorkdirFileDiff: () => Promise.resolve(diff),
-    getCommitFileDiff: () => Promise.resolve(diff),
+    getWorkdirFileDiff: () => {
+      calls.diff += 1;
+      return Promise.resolve(diff);
+    },
+    getCommitFileDiff: () => {
+      calls.diff += 1;
+      return Promise.resolve(diff);
+    },
+    getFileLog: () => {
+      calls.fileLog += 1;
+      return Promise.resolve(HISTORY);
+    },
     setTheme: () => Promise.resolve(),
   };
 };
@@ -79,6 +100,7 @@ const open = async (diff = DIFF): Promise<void> => {
         onUnstageFile={noop}
         onDiscardFile={noop}
         onApplyPatch={noop}
+        onOpenCommit={() => undefined}
       />
     </UiProvider>,
   );
@@ -177,6 +199,7 @@ describe('DiffView says why the body is empty when the load fails (GC-083)', () 
           onUnstageFile={noop}
           onDiscardFile={noop}
           onApplyPatch={noop}
+          onOpenCommit={() => undefined}
         />
       </UiProvider>,
     );
@@ -224,6 +247,7 @@ describe('DiffView line selection (GC-121)', () => {
             patches.push(patch);
             return Promise.resolve();
           }}
+          onOpenCommit={() => undefined}
         />
       </UiProvider>,
     );
@@ -316,6 +340,7 @@ describe('DiffView line selection (GC-121)', () => {
           onUnstageFile={noop}
           onDiscardFile={noop}
           onApplyPatch={noop}
+          onOpenCommit={() => undefined}
         />
       </UiProvider>,
     );
@@ -348,7 +373,7 @@ describe('DiffView, the layout switch on a combined diff (GC-188)', () => {
     expect(getPrefs().diffView).toBe('split');
   });
 
-  it('comes back to split on the next ordinary file, from that untouched preference', async () => {
+  it('comes back to split on the next ordinary file, from that untouched preference ', async () => {
     setPrefs({ diffView: 'split' });
     await open(COMBINED_DIFF);
     expect(seg('Unified').className).toContain('on');
@@ -359,5 +384,87 @@ describe('DiffView, the layout switch on a combined diff (GC-188)', () => {
     expect(document.querySelector('.hunk-lines.split')).not.toBeNull();
     expect(seg('Split').className).toContain('on');
     expect((seg('Split') as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('DiffView History (GC-166)', () => {
+  const rows = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('.history-row')];
+
+  it('lists the commits that touched the file, in the order git answered with', async () => {
+    await open();
+    expect(calls.fileLog).toBe(0); // nothing is fetched until the mode is asked for
+
+    await act(async () => {
+      fireEvent.click(seg('History'));
+    });
+
+    expect(calls.fileLog).toBe(1);
+    expect(rows().map((r) => r.querySelector('.history-summary')?.textContent)).toEqual(['rename it', 'add it']);
+    expect(rows()[0]?.querySelector('.history-sha')?.textContent).toBe('aaaaaaa');
+    expect(rows()[0]?.querySelector('.history-author')?.textContent).toBe('Ada');
+    // The diff is not on screen while the list is, and the list is not a diff.
+    expect(document.querySelector('.hunk-lines')).toBeNull();
+  });
+
+  it('costs no reload of the diff already loaded, the way Unified | Split does not (GC-014)', async () => {
+    await open();
+    const afterOpen = calls.diff;
+    expect(afterOpen).toBe(1);
+
+    await act(async () => {
+      fireEvent.click(seg('History'));
+    });
+    await act(async () => {
+      fireEvent.click(seg('Diff'));
+    });
+
+    expect(calls.diff).toBe(afterOpen);
+    expect(document.querySelectorAll('.hunk-lines tr.line')).toHaveLength(5);
+    // And the list itself is fetched once per file, not once per visit to it.
+    await act(async () => {
+      fireEvent.click(seg('History'));
+    });
+    expect(calls.fileLog).toBe(1);
+  });
+
+  it('turns off the diff controls it cannot answer for, with the reason on each (GC-188)', async () => {
+    await open();
+    await act(async () => {
+      fireEvent.click(seg('History'));
+    });
+
+    for (const label of ['Unified', 'Split', 'Next change', 'Previous change', 'Wrap', 'Ignore whitespace']) {
+      const btn = seg(label) as HTMLButtonElement;
+      expect(btn.disabled, label).toBe(true);
+      expect(btn.title, label).toContain('History');
+    }
+  });
+
+  it('hands the sha of a picked commit up, rather than loading it itself', async () => {
+    stubApi();
+    const picked: string[] = [];
+    render(
+      <UiProvider>
+        <DiffView
+          repo="/repo"
+          view={{ source: 'wip', path: 'f.txt', staged: false, kind: 'modified', history: true }}
+          version={0}
+          onClose={noop}
+          onStageFile={noop}
+          onUnstageFile={noop}
+          onDiscardFile={noop}
+          onApplyPatch={noop}
+          onOpenCommit={(sha) => picked.push(sha)}
+        />
+      </UiProvider>,
+    );
+    // `history: true` opens straight into the list, which is what the file menu's row does.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rows()).toHaveLength(2);
+
+    fireEvent.click(rows()[1]!);
+    expect(picked).toEqual(['bbbbbbb2222222222222222222222222222222222']);
   });
 });

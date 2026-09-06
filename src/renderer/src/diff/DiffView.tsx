@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
-import type { FileChangeKind } from '@shared/types';
+import type { Commit, FileChangeKind } from '@shared/types';
 import { alignHunks, buildHunkPatch, buildLinePatch, hunkWordSpans, parseUnifiedDiff, splitHunkHeader, type DiffHunk, type DiffLine, type FileDiff, type WordSpan } from './parseDiff';
 import { ChevronDown, ChevronUp, Pilcrow, WrapText, X } from 'lucide-react';
+import { formatDateTime, relativeTime } from '../time';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { useUi } from '../ui/UiContext';
 import { setPrefs, usePrefs, type DiffViewMode } from '../prefs';
@@ -10,6 +11,14 @@ const VIEW_MODES: { mode: DiffViewMode; label: string; title: string }[] = [
   { mode: 'unified', label: 'Unified', title: 'One column: removals and additions in file order' },
   { mode: 'split', label: 'Split', title: 'Side by side: the old file left, the new file right' },
 ];
+
+const BODY_MODES: { mode: 'diff' | 'history'; label: string; title: string }[] = [
+  { mode: 'diff', label: 'Diff', title: 'What this commit changed in the file' },
+  { mode: 'history', label: 'History', title: 'Every commit that touched this file, following renames' },
+];
+
+/** Why a diff control is off while the History list is showing — GC-188's rule, said once. */
+const HISTORY_OFF = 'Not available in History: this is a list of commits, not a diff';
 
 /** Which tint a split cell takes. An empty side is padding, not an unchanged line. */
 const sideClass = (line: DiffLine | null): string => (line === null ? 'pad' : line.type);
@@ -52,7 +61,10 @@ function code(line: DiffLine, spans: Map<DiffLine, WordSpan[]>): JSX.Element {
   );
 }
 
-export type FileViewSource =
+/** Diff, or the list of commits that touched this path (GC-166). A mode of the one file view. */
+export type FileViewMode = 'diff' | 'history';
+
+type FileViewOf =
   | { source: 'commit'; sha: string; path: string; kind: FileChangeKind }
   /**
    * The same file at the same sha, read against the working directory rather than against the
@@ -62,6 +74,14 @@ export type FileViewSource =
    */
   | { source: 'compare'; sha: string; path: string; kind: FileChangeKind }
   | { source: 'wip'; path: string; staged: boolean; kind: FileChangeKind };
+
+/**
+ * `history` opens the view straight into the History list, so `fileMenuItems` is a way in as well
+ * as the header (GC-166). It is deliberately *not* part of `identityKey` below — it says which of
+ * this file's two bodies is showing, not which content is loaded — so opening History and going
+ * back to the diff reloads nothing, the way `Unified | Split` does not (GC-014).
+ */
+export type FileViewSource = FileViewOf & { history?: boolean };
 
 interface Props {
   repo: string;
@@ -73,6 +93,8 @@ interface Props {
   onUnstageFile(path: string): Promise<void>;
   onDiscardFile(path: string, untracked: boolean): Promise<void>;
   onApplyPatch(patch: string, opts: { cached?: boolean; reverse?: boolean }): Promise<void>;
+  /** Show this file at a commit the History list supplied (GC-166): the parent re-aims the view. */
+  onOpenCommit(sha: string): void;
 }
 
 /**
@@ -103,7 +125,7 @@ function splitPath(path: string): [string, string] {
   return i >= 0 ? [path.slice(0, i + 1), path.slice(i + 1)] : ['', path];
 }
 
-export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageFile, onDiscardFile, onApplyPatch }: Props): JSX.Element {
+export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageFile, onDiscardFile, onApplyPatch, onOpenCommit }: Props): JSX.Element {
   const ui = useUi();
   const prefs = usePrefs();
   const split = prefs.diffView === 'split';
@@ -172,6 +194,31 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
       cancelled = true;
     };
   }, [repo, view, version, viewKey, identityKey, ignoreWs]);
+
+  // (GC-166) Which body is showing. Carried with the identity it was chosen for and compared
+  // during render, the way `sel` and `loaded` are: opening another file is a different question,
+  // so it goes back to the diff unless the caller asked for History outright. The diff's own load
+  // is untouched by it — that is what makes switching back cost nothing.
+  const [nav, setNav] = useState<{ identity: string; mode: FileViewMode } | null>(null);
+  const mode: FileViewMode = (nav?.identity === identityKey ? nav.mode : undefined) ?? (view.history ? 'history' : 'diff');
+  const inHistory = mode === 'history';
+  // The history is the file's, not the view's: it is keyed by path alone, so picking a commit from
+  // the list and coming back finds the same list rather than fetching it again.
+  const historyKey = `${repo}|${view.path}`;
+  const [hist, setHist] = useState<{ key: string; commits: Commit[] | null; error: string | null } | null>(null);
+  const history = hist?.key === historyKey ? hist : null;
+
+  useEffect(() => {
+    if (!inHistory || history !== null) return;
+    let cancelled = false;
+    window.api.getFileLog(repo, view.path).then(
+      (cs) => !cancelled && setHist({ key: historyKey, commits: cs, error: null }),
+      (e) => !cancelled && setHist({ key: historyKey, commits: null, error: e instanceof Error ? e.message : String(e) }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [inHistory, history, historyKey, repo, view.path]);
 
   const files = useMemo(() => (text === null ? [] : parseUnifiedDiff(text)), [text]);
   const file: FileDiff | undefined = files[0];
@@ -362,26 +409,28 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         <span className="spacer" />
         {/* Previous / next change, then the two toggles (GC-052). The arrows are disabled with
             one hunk or none, where there is nothing to move between. */}
-        <button className="icon-btn" title="Previous change" aria-label="Previous change" disabled={hunkCount < 2} onClick={() => gotoHunk('prev')}>
+        <button className="icon-btn" title={inHistory ? HISTORY_OFF : 'Previous change'} aria-label="Previous change" disabled={inHistory || hunkCount < 2} onClick={() => gotoHunk('prev')}>
           <Icon of={ChevronUp} size={14} />
         </button>
-        <button className="icon-btn" title="Next change" aria-label="Next change" disabled={hunkCount < 2} onClick={() => gotoHunk('next')}>
+        <button className="icon-btn" title={inHistory ? HISTORY_OFF : 'Next change'} aria-label="Next change" disabled={inHistory || hunkCount < 2} onClick={() => gotoHunk('next')}>
           <Icon of={ChevronDown} size={14} />
         </button>
         <button
           className={`seg-btn toggle${ignoreWs ? ' on' : ''}`}
-          title="Ignore whitespace: diff with -w, so a reindent shows no change"
+          title={inHistory ? HISTORY_OFF : 'Ignore whitespace: diff with -w, so a reindent shows no change'}
           aria-label="Ignore whitespace"
           aria-pressed={ignoreWs}
+          disabled={inHistory}
           onClick={() => setPrefs({ diffIgnoreWhitespace: !ignoreWs })}
         >
           <Icon of={Pilcrow} size={13} />
         </button>
         <button
           className={`seg-btn toggle${wrap ? ' on' : ''}`}
-          title="Wrap long lines instead of scrolling sideways"
+          title={inHistory ? HISTORY_OFF : 'Wrap long lines instead of scrolling sideways'}
           aria-label="Wrap"
           aria-pressed={wrap}
+          disabled={inHistory}
           onClick={() => setPrefs({ diffWordWrap: !wrap })}
         >
           <Icon of={WrapText} size={13} />
@@ -389,6 +438,21 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         {/* The layout of what is already loaded, so flipping it costs no reload and never disables
             an action: `hunk.raw` is what a Stage/Discard patch is built from, and alignment does not
             touch it (GC-014). */}
+        {/* Where `04-panels.md` puts it: the file view's own header, beside the layout switch, so
+            History costs no new window, no new layer and no new Escape case (GC-166). */}
+        <div className="seg" role="group" aria-label="File view mode">
+          {BODY_MODES.map((m) => (
+            <button
+              key={m.mode}
+              className={`seg-btn${mode === m.mode ? ' on' : ''}`}
+              title={m.title}
+              aria-pressed={mode === m.mode}
+              onClick={() => setNav({ identity: identityKey, mode: m.mode })}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <div className="seg" role="group" aria-label="Diff layout">
           {VIEW_MODES.map((m) => {
             const isSplit = m.mode === 'split';
@@ -399,9 +463,9 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
               <button
                 key={m.mode}
                 className={`seg-btn${drawSplit === isSplit ? ' on' : ''}`}
-                title={unavailable ? 'Not available on a conflicted file: a combined diff has a column per parent, which no side-by-side layout can show' : m.title}
+                title={inHistory ? HISTORY_OFF : unavailable ? 'Not available on a conflicted file: a combined diff has a column per parent, which no side-by-side layout can show' : m.title}
                 aria-pressed={drawSplit === isSplit}
-                disabled={unavailable}
+                disabled={inHistory || unavailable}
                 onClick={() => setPrefs({ diffView: m.mode })}
               >
                 {m.label}
@@ -451,9 +515,32 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         </span>
         {/* Why nothing here can be staged (GC-152). Said in the sub-header rather than as a
             disabled button's title, because in this view there is no button to hover. */}
-        {isCompare && <span className="note">Read-only: a comparison is not a patch git can apply</span>}
+        {inHistory && <span className="note">Every commit that touched this file, newest first</span>}
+        {isCompare && !inHistory && <span className="note">Read-only: a comparison is not a patch git can apply</span>}
         {error && <span className="err">{error}</span>}
       </div>
+      {inHistory ? (
+        <div className="diff-body file-history">
+          {history === null && <div className="diff-empty">Loading history…</div>}
+          {history?.error !== undefined && history?.error !== null && <div className="diff-empty">{history.error}</div>}
+          {history?.commits?.length === 0 && <div className="diff-empty">No commits touch this file.</div>}
+          {history?.commits?.map((c) => (
+            <button
+              key={c.sha}
+              className={`history-row${view.source === 'commit' && view.sha === c.sha ? ' selected' : ''}`}
+              title={`${c.summary}\n${c.authorName} <${c.authorEmail}>\n${formatDateTime(c.authorDate)}`}
+              onClick={() => onOpenCommit(c.sha)}
+            >
+              <span className="history-summary">{c.summary}</span>
+              <span className="history-author">{c.authorName}</span>
+              {/* `time.ts` is the one answer to how a timestamp is written (GC-133, GC-135), so this
+                  list cannot invent a fourth format. */}
+              <span className="history-when">{relativeTime(c.authorDate)}</span>
+              <span className="history-sha">{c.sha.slice(0, 7)}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
       <div ref={bodyRef} className={`diff-body${stale ? ' stale' : ''}${wrap ? ' wrap' : ''}`}>
         {loading && !error && <div className="diff-empty">Loading diff…</div>}
         {loadError !== null && <div className="diff-empty">{loadError}</div>}
@@ -516,6 +603,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
             </div>
           ))}
       </div>
+      )}
     </div>
   );
 }

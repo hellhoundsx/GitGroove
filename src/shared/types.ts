@@ -230,6 +230,11 @@ export interface GitApi {
    * be the set the page before it was loaded with, or `skip` counts through a different traversal.
    */
   getLog(path: string, skip: number, maxCommits?: number, exclude?: string[]): Promise<Commit[]>;
+  /**
+   * The commits that touched one path, newest first, with `--follow` (GC-166). Its own traversal:
+   * the graph's globs and hidden set have no part in a question about one file.
+   */
+  getFileLog(repo: string, path: string, maxCount?: number): Promise<Commit[]>;
   getStatus(repo: string): Promise<RepoStatus>;
   /** Repaint the OS window controls for the theme now showing (GC-013). */
   setTheme(theme: ResolvedTheme): Promise<void>;

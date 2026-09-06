@@ -52,14 +52,23 @@ export function ignored(rel: string): boolean {
 }
 
 /**
- * `.git/refs`, `HEAD` and `packed-refs` move the graph, so the renderer reloads the whole
+ * `.git/refs`, `HEAD`, `packed-refs` and `config` move the graph, so the renderer reloads the whole
  * snapshot; anything else (a working tree file, `.git/index`, `MERGE_HEAD`) only moves the status.
+ *
+ * `config` is there because the remotes, and a branch's upstream with them, live only in the full
+ * snapshot (GC-190): `git remote add web <url>` in a terminal wrote `.git/config`, which is
+ * "anything else", so the status refreshed and no REMOTE row ever appeared — a 20-second wait on
+ * the DOM timed out, and the row was there the moment the page was reloaded by hand. The same held
+ * for `branch --set-upstream-to`, a remote renamed, removed or given a new URL. It cannot loop the
+ * way the bare `.git` event did: a full reload reads config (`git remote -v`, `git config --get`)
+ * and never writes it, and the three functions that do write it — `remoteAdd`, `remoteSetUrl`,
+ * `setUpstream` — are user actions that already reload themselves.
  */
 export function scopeOf(rel: string): RepoChange['scope'] {
   const parts = rel.split('/');
   if (parts[0] !== '.git') return 'tree';
   const seg = parts[1] ?? '';
-  return seg === 'refs' || seg === 'HEAD' || seg === 'packed-refs' ? 'refs' : 'tree';
+  return seg === 'refs' || seg === 'HEAD' || seg === 'packed-refs' || seg === 'config' ? 'refs' : 'tree';
 }
 
 interface Watch {

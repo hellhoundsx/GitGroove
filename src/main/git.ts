@@ -255,6 +255,31 @@ export async function getLog(cwd: string, maxCount = 500, exclude: string[] = []
     if (e instanceof GitError && /does not have any commits|bad default revision|unknown revision/i.test(e.stderr)) return [];
     throw e;
   }
+  return parseCommits(out);
+}
+
+/**
+ * The history of one path, newest first (GC-166): the same traversal and the same field format
+ * `getLog` uses, so nothing downstream needs a second type or a second parser, with `--follow` so a
+ * rename is followed through rather than ending the list where the file changed name.
+ *
+ * Not the graph traversal: `--follow` takes exactly one pathspec and walks from HEAD, so the
+ * globs, the excludes and the hidden set have no part in it — this answers "when did this file
+ * change", which is a question about the file and not about which refs the graph is drawing.
+ */
+export async function getFileLog(cwd: string, path: string, maxCount = 200): Promise<Commit[]> {
+  let out: string;
+  try {
+    out = await runGit(cwd, ['log', '--follow', '--date-order', `--max-count=${maxCount}`, `--format=${LOG_FORMAT}`, '--', path]);
+  } catch (e) {
+    if (e instanceof GitError && /does not have any commits|bad default revision|unknown revision/i.test(e.stderr)) return [];
+    throw e;
+  }
+  return parseCommits(out);
+}
+
+/** One `--format=LOG_FORMAT` payload as commits; shared by every traversal so the fields cannot drift. */
+function parseCommits(out: string): Commit[] {
   return out
     .split(RECORD)
     .map((r) => r.replace(/^\n/, ''))
@@ -279,7 +304,7 @@ export async function getLog(cwd: string, maxCount = 500, exclude: string[] = []
               .filter(Boolean)
           : [],
       };
-    });
+    }) as Commit[];
 }
 
 const REF_FORMAT = [

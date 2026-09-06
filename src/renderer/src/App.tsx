@@ -732,6 +732,31 @@ export function App(): JSX.Element {
     [activeId, park, showTab, tabs],
   );
 
+  /**
+   * Hand the user to the tab already holding the repository they asked for, and close the tab they
+   * asked from when that tab was an empty one (GC-173). `+` makes a tab holding no repository
+   * (GC-163) and its recents page is where one is chosen; picking a repository already in the bar
+   * is answered by taking the user to its tab — the right answer, and GC-016's rule — but the empty
+   * tab was left standing behind them, so the bar grew by a tab holding nothing for a gesture that
+   * opened no repository. Only that case: an empty tab the user leaves by clicking another tab is
+   * still theirs, so `selectTab` itself never drops one.
+   *
+   * The drop is a `setTabs` rather than a `closeTabs`: an empty tab is in neither `gitclient.tabs`
+   * (GC-163) nor the reopen stack (`pushClosed` ignores a null path), and which tab is left showing
+   * is decided here rather than by `survivorOf`.
+   */
+  const revisitTab = useCallback(
+    (id: number) => {
+      const standing = tabs.find((t) => t.id === activeId);
+      const drop = standing && standing.id !== id && standing.path === null ? standing.id : null;
+      selectTab(id);
+      if (drop === null) return;
+      parked.current.delete(drop);
+      setTabs((prev) => prev.filter((t) => t.id !== drop));
+    },
+    [activeId, selectTab, tabs],
+  );
+
   /** Switch the showing tab to a repository; with nothing open at all, the first tab is made for it. */
   const openPath = useCallback(
     async (path: string) => {
@@ -739,7 +764,7 @@ export function App(): JSX.Element {
       // Opening a repository that is already in the bar takes the user to it rather than making a
       // second copy of it, which is what every other tabbed application does.
       if (already && already.id !== activeId) {
-        selectTab(already.id);
+        revisitTab(already.id);
         return;
       }
       if (activeId === null) {
@@ -751,7 +776,7 @@ export function App(): JSX.Element {
       }
       await openIn(path);
     },
-    [activeId, openIn, park, selectTab, tabFor],
+    [activeId, openIn, revisitTab, tabFor],
   );
 
   /** Open a repository in a tab of its own, beside the showing one (GC-016). */
@@ -759,7 +784,7 @@ export function App(): JSX.Element {
     async (path: string) => {
       const already = tabFor(path);
       if (already) {
-        selectTab(already.id);
+        revisitTab(already.id);
         return;
       }
       if (activeId !== null) parked.current.set(activeId, park());
@@ -768,7 +793,7 @@ export function App(): JSX.Element {
       setActiveId(id);
       await openIn(path);
     },
-    [activeId, openIn, selectTab, tabFor],
+    [activeId, openIn, park, revisitTab, tabFor],
   );
 
   /**
@@ -1949,6 +1974,21 @@ export function App(): JSX.Element {
       });
       items.push({ label: 'Show in folder', disabled: gone, onClick: () => inShell(() => window.shell.showInFolder(repo!, path)) });
       items.push({ separator: true });
+      // The file view opened straight into its History list (GC-166): the same surface the header's
+      // `Diff | History` switch reaches, so the menu is a way in and not a second screen. The source
+      // is the one the row's own click builds, because History is a mode of *this* view — going back
+      // to Diff lands on the file the user right-clicked.
+      items.push({
+        label: 'File history',
+        hint: 'commits that touched this file',
+        onClick: () =>
+          setFileView(
+            t.source === 'wip'
+              ? { source: 'wip', path, staged: t.group === 'staged', kind: t.group === 'staged' ? t.entry.staged ?? 'modified' : t.group === 'conflicted' ? 'conflicted' : t.entry.unstaged ?? 'modified', history: true }
+              : { source: t.source, sha: selectedCommit?.sha ?? '', path, kind: t.file.kind, history: true },
+          ),
+      });
+      items.push({ separator: true });
       items.push({ label: 'Copy file path', hint: 'relative to the repository', onClick: () => void navigator.clipboard.writeText(path) });
       return items;
     },
@@ -2371,6 +2411,10 @@ export function App(): JSX.Element {
                 onUnstageFile={(p) => actions.unstage([p])}
                 onDiscardFile={(p, untracked) => actions.discard([{ path: p, staged: null, unstaged: untracked ? 'untracked' : 'modified' }])}
                 onApplyPatch={applyPatch}
+                // A commit picked out of the History list is the existing commit-source load with a
+                // sha the list supplied (GC-166): the file view stays open on the same path, so the
+                // header still names the file and Escape still closes one layer.
+                onOpenCommit={(sha) => setFileView((v) => (v === null ? v : { source: 'commit', sha, path: v.path, kind: 'modified' }))}
               />
             ) : (
               <CommitGraph

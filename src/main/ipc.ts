@@ -180,6 +180,15 @@ export function registerIpc(): void {
     const max = typeof maxCommits === 'number' && maxCommits > 0 ? Math.min(maxCommits, 20000) : 500;
     return git.getLog(repoOf(path), max, exclude === undefined || exclude === null ? [] : strs(exclude, 'The hidden refs'), int(skip, 'The number of commits to skip'));
   });
+  // One path's history (GC-166). The path goes through `str` and not `repoRel`, for the reason
+  // `workdir:resolveConflict` and `workdir:restoreFile` already give: git resolves it against the
+  // repository itself and refuses one outside it, and a history is read precisely for files the
+  // working tree no longer has — `repoRel` requires the file to be on disk, so it would refuse the
+  // deleted file this exists to follow.
+  ipcMain.handle('repo:fileLog', (_e, repo: unknown, path: unknown, maxCount?: unknown) => {
+    const max = typeof maxCount === 'number' && maxCount > 0 ? Math.min(maxCount, 5000) : 200;
+    return git.getFileLog(repoOf(repo), str(path, 'A file path'), max);
+  });
   ipcMain.handle('repo:status', (_e, repo: unknown) => git.getStatus(repoOf(repo)));
   // The one channel that touches neither git nor the file system: the window controls Windows
   // draws for us, repainted for the theme the renderer resolved (GC-013).

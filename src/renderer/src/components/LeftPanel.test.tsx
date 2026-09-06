@@ -389,6 +389,29 @@ describe('LeftPanel stash rows (GC-150)', () => {
     expect(row(neither).classList.contains('selected')).toBe(false);
   });
 
+  // What the row spends its width on (GC-171). The message is the identity of a stash and it was
+  // getting 77px of the 192 it wanted, of which the first nine characters were git's own prefix —
+  // so two stashes taken on `main` with different messages drew the same row.
+  it('draws the message with git\'s own prefix off it, and keeps the whole message on the title', () => {
+    const long: Stash[] = [
+      { index: 0, sha: 'a'.repeat(40), message: 'On main: rewrite the lane layout for paged history', date: '2026-09-01T10:00:00+02:00', parent: 'p'.repeat(40) },
+    ];
+    const c = panel([head('main', true)], { stashes: long });
+    expect(row(c).querySelector('.row-name')!.textContent).toBe('rewrite the lane layout for paged history');
+    // Never in the title, and never in what `stashRename` stores (GC-170).
+    expect(row(c).getAttribute('title')).toContain('On main: rewrite the lane layout for paged history');
+  });
+
+  it('tells two stashes on the same branch apart, which the shared prefix is what prevented', () => {
+    const two: Stash[] = [
+      { index: 0, sha: 'a'.repeat(40), message: 'On main: review the graph', date: '2026-09-01T10:00:00+02:00', parent: 'p'.repeat(40) },
+      { index: 1, sha: 'b'.repeat(40), message: 'On main: the diff header', date: '2026-09-01T10:00:00+02:00', parent: 'p'.repeat(40) },
+    ];
+    const c = panel([head('main', true)], { stashes: two });
+    const names = [...c.querySelectorAll<HTMLElement>('.ref-row .row-name')].slice(-2).map((n) => n.textContent);
+    expect(names).toEqual(['review the graph', 'the diff header']);
+  });
+
   it('reports a stash whose parent is not loaded exactly like any other', () => {
     // Nothing here knows what the graph has loaded; `rowIndexOf` answers -1 for an unloaded sha
     // and the graph then stays where it is (GC-141), so this row has no special case to carry.

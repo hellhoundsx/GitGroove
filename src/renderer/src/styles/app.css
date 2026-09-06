@@ -1856,6 +1856,67 @@ input[type='radio']:disabled {
   /* git's own message goes here when a load fails (GC-083), and stderr comes with its newlines. */
   white-space: pre-wrap;
 }
+
+/* The file view's other body: every commit that touched this path (GC-166). A list, not a diff, so
+   it drops the diff body's own padding and each row is a full-width button — the same shape a ref
+   row in the left panel has, and the same reason: one click is the whole gesture. The summary is
+   the only flexible column, because it is the identity of a commit and the other three are fixed
+   strings; the author gives way before it does. */
+.file-history {
+  padding: var(--sp-2) 0 var(--sp-4);
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  height: 26px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.history-row:hover {
+  background: var(--hover-overlay);
+}
+.history-row.selected {
+  background: var(--accent-soft);
+}
+.history-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-author {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+/* Fixed, so the phrase cannot take the summary's room the way a stash row's age did (GC-171). */
+.history-when {
+  flex: none;
+  width: 84px;
+  text-align: right;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.history-sha {
+  flex: none;
+  width: 56px;
+  text-align: right;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
 .hunk {
   margin-bottom: var(--sp-3);
   border: 1px solid var(--border);
@@ -2333,14 +2394,29 @@ input[type='radio']:disabled {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
-/* How long ago the stash was made (GC-135). `margin-left: auto` puts it on the right edge the way
-   a branch row's ahead/behind sits, and `flex: none` means the message is what ellipsises: the age
-   is four or five characters and the message is the part with room to give. */
+/* How long ago the stash was made (GC-135), at a width of its own (GC-171). `margin-left: auto`
+   puts it on the right edge the way a branch row's ahead/behind sits. `flex: none` was already
+   here; what was missing is the width, so the box was sized by its own phrase and grew with it —
+   "2 minutes ago" is thirteen characters and 66px, which it took out of the message, the one part
+   of the row that says *which* stash this is. Fixed now: the same box for "just now" and for
+   "59 minutes ago", and the phrase ellipsises inside it rather than the message ellipsising for it.
+   The message is an identity; the age is an approximation being read at a glance. */
 .ref-row .row-when {
   margin-left: auto;
   flex: none;
+  width: var(--row-when-w);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-dim);
   font-size: var(--fs-xs);
+}
+/* The remainder, and with it the floor the furniture leaves: every sibling on a stash row is now
+   `flex: none` at a width that does not move, so what the message gets is decided by the panel's
+   width alone and never by how long ago the stash was taken (GC-171). */
+.ref-row .row-name {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 /* The commit the stash was taken from (GC-150), in the graph's own vocabulary. `margin-left: auto`
    sits on this one instead now, so the sha and the age are the pair on the right edge and the

@@ -161,7 +161,14 @@ must never disturb the worker, so it obeys strict isolation:
 
 - It never modifies, builds, tests or launches anything in this checkout. All analysis happens
   in a detached git worktree of `origin/main` under `%TEMP%/gitclient-review/wt` (with
-  `node_modules` junctioned from here), which it removes when done.
+  `node_modules` junctioned from here), which it removes when done. **Both are
+  `node tools/scratch-worktree.mjs add <dir> [ref]` and `remove <dir>`, never done by hand**
+  (GC-189): a recursive delete of that worktree follows the junction and deletes files out of this
+  checkout's real `node_modules` — measured on 2026-09-06, 129 packages and `node_modules/.bin`
+  gone, and the repair blocked by an unrelated running Electron. The helper removes the junction as
+  a *link*, asserts it is gone and that `.bin` survives, and only then runs `git worktree remove`;
+  if the junction is still standing it refuses and leaves the worktree, because an unremoved
+  worktree costs a `git worktree prune` and the other way round costs an `npm install`.
 - It uses its own scratch repository (`GITCLIENT_E2E_ROOT=%TEMP%/gitclient-review/e2e`) and its
   own DevTools port (9334), and stops only the Electron process it started (by PID, never
   `taskkill /IM electron.exe`, which would kill a worker's e2e run).
@@ -256,8 +263,6 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
 | GC-191 | With many changed files the commit message is a clipped line and the commit form is off the panel | ui | S | P1 | todo |
-| GC-189 | Removing a review worktree can delete the real `node_modules` through its junction | infra | S | P1 | in-progress |
-| GC-190 | A remote added outside the app never appears until the window is reloaded | ui | S | P2 | in-progress |
 | GC-192 | A file row prints its folder and its name as two things, and cuts the name rather than the folder | ui | S | P2 | todo |
 | GC-193 | A tab and a toolbar button answer the pointer with 25% of alpha and nothing else | ui | S | P2 | todo |
 | GC-194 | The two crumbs open menus and draw nothing that says so | ui | S | P2 | todo |
@@ -265,14 +270,12 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | GC-197 | The staging view's two file lists cannot be collapsed, so Staged is unreachable past 20 files | ui | S | P2 | todo |
 | GC-196 | The detail panel's second design pass: an audit against the study before anything changes | ui | M | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | in-progress |
-| GC-166 | A file can be diffed but never followed: no history for one path | graph | M | P3 | in-progress |
-| GC-171 | A stash row spends 66px on its age and leaves its message 77px of the 192 it wants | ui | S | P3 | in-progress |
-| GC-175 | The light theme is a mechanical inversion of the dark one, and every surface boundary is weaker | ui | M | P3 | in-progress |
 | GC-177 | Which left-panel sections are open is forgotten on every reload | ui | S | P3 | todo |
 | GC-178 | A selected stash says what it is and offers nothing to do with it | ui | S | P3 | todo |
 | GC-183 | The graph row's own change readout is the text glyphs GC-143 took out of the panel | ui | S | P3 | todo |
 | GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | todo |
+| GC-198 | `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk | infra | S | P3 | todo |
+| GC-199 | A stash row carries five things at a 220px panel and the message gets 48px of them | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
 
@@ -401,262 +404,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
       reports, not a refactor, so it is Ricardo's to make.
 
 ---
-
-### GC-173 An empty tab given a repository that is already open is left behind
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-163
-- **Why:** `+` makes a tab holding no repository (GC-163) and its recents page is where one is
-  chosen. Choosing a repository that is **already in the bar** goes through `openPath`, which
-  finds the tab already holding it and switches to it — the right answer to "take me there", and
-  the rule every tabbed application follows. But the empty tab the user was standing in is still
-  open behind them, and nothing closed it: the bar grows by one tab that holds nothing, for a
-  gesture that opened no repository. Reachable in two clicks from a cold start.
-- **Scope:**
-  - An empty tab that ends up handing the user to another tab closes itself, since it was made for
-    a repository it did not get. Only that case: an empty tab the user leaves by clicking another
-    tab is still theirs and stays.
-- **Out of scope:** any change to what `openPath` does with a repository already in the bar
-  (GC-016's rule, and it is right), and closing an empty tab on any other trigger.
-- **Acceptance:**
-  - [ ] With one repository open, `+` then picking that same repository from the new tab's recents
-        page leaves exactly one tab, showing it.
-  - [ ] `+` then picking a repository that is **not** open still fills the empty tab in place, as
-        GC-163 has it.
-  - [ ] `+` then clicking the first tab leaves the empty tab in the bar.
-- **Files:** `src/renderer/src/App.tsx`.
-- **Verify:** `npm run typecheck`, `npm test`, then over CDP: press `+`, pick the showing
-  repository from the page, assert `document.querySelectorAll('.titlebar .tab').length === 1`.
-- **Log:**
-  - 2026-09-06 proposed by GC-163 (this ticket): found while driving the new tab page — the empty
-    tab is filled in place for a repository that is new to the bar, and left standing for one that
-    is not.
-  - 2026-09-06 18:15 claimed
-
----
-
-### GC-166 A file can be diffed but never followed: no history for one path
-
-- **Status:** in-progress
-- **Area:** graph | **Size:** M | **Priority:** P3
-- **Depends on:** GC-043
-- **Why:** `git log -- <path>` has no equivalent anywhere in the app. `fileMenuItems` offers Open,
-  Show in folder, Copy path, Discard, Ignore and Restore from this commit (GC-107) — every one of
-  them about the file *now*, or about one commit's copy of it. The question a client is opened for
-  half the time, "when did this file change, and who changed it", can only be answered by scrolling
-  the graph and clicking commits until one lists the path. GR-018's what's-next pass named Blame,
-  History and Export changes to patch as the last uncovered rows of
-  `06-feature-inventory.md` and filed none of them, because each wanted a surface decision, and
-  asked the next review to bring one back with a sketch. **This is that sketch, and the study
-  already settles it.** `04-panels.md` records the file view's toolbar as
-  "centre toggle **File View | Diff View**, right side **Blame | History**", and
-  "History lists commits touching the file" — so History is not a new window, it is a mode of the
-  file view we already have. `DiffView` is that slot: it replaces the graph, collapses the left
-  panel to the icon rail, and already carries a header of exactly this shape, with the
-  `Unified | Split` segmented control (GC-014) sitting where the study puts the view toggles.
-- **Scope:**
-  - `git.ts`: `getFileLog(cwd, path, max)` — the same `--date-order` traversal and the same field
-    format `getLog` uses, with `--follow -- <path>`, answering `Commit[]` so nothing downstream
-    needs a new type. It goes through `runGit` like every other call; the path is a
-    repository-relative one and goes through `repoRel()`, which already refuses one landing outside
-    the repository (GC-093).
-  - `ipc.ts` + preload: `repo:fileLog`, arguments validated with `str`/`int` like every other
-    handler.
-  - A `History` control in `DiffView`'s header beside `Unified | Split`, switching that view's body
-    between the diff and a list of the commits that touched the path: summary, author, the authored
-    date through `time.ts` — the one module that answers how a timestamp is written (GC-133), so
-    this list cannot invent a fourth format, and it picks up relative dates for free when GC-135
-    lands — and the short sha. It is a **mode of the open file view**, so it costs no new
-    layer, no new Escape case and no new left-panel state.
-  - Selecting a commit in that list shows that commit's diff **of this file** in the same body — the
-    view already knows how to render a commit-source diff, so this is the existing load with a sha
-    the list supplied.
-  - An entry in `fileMenuItems` that opens the file view straight into History, so the menu is a way
-    in as well as the header.
-- **Out of scope:** Blame, which needs `git blame` porcelain parsing and a per-line gutter and is
-  its own ticket; File View (the whole file with highlighting), which needs a highlighter we do not
-  have; renames beyond what `--follow` gives; a history for a *directory*; and any history of the
-  working-tree copy, which has no commits to list.
-- **Acceptance:**
-  - [ ] Opening History on a file in the fixture lists exactly the commits `git log --follow --
-        <path>` lists, in the same order, asserted against git rather than by eye.
-  - [ ] Selecting a commit in the list shows that commit's diff of that file, and the header still
-        names the file.
-  - [ ] History on the fixture's deleted file lists the commit that deleted it.
-  - [ ] Escape closes the file view from History exactly as it does from the diff — one layer, one
-        press, and no new `window` listener anywhere (`CLAUDE.md`, App state).
-  - [ ] Switching to History and back costs no reload of the diff already loaded, the way
-        `Unified | Split` does not (GC-014).
-  - [ ] A file with one commit in its history renders without a special case.
-- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
-  `src/shared/types.ts`, `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/App.tsx`,
-  `src/renderer/src/styles/app.css`.
-- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, then an e2e step that opens History
-  on a fixture file and compares the listed shas against `git log --follow --format=%h -- <path>`
-  run directly, plus one that opens a commit from the list and asserts the diff header and hunks.
-  Screenshot History over a file with several commits and look at it beside
-  `docs/reference/gitkraken/screenshots/04-diff-view.png`.
-- **Log:**
-  - 2026-09-06 proposed by GR-019: from the what's-next pass, answering GR-018's explicit handoff.
-    The surface decision it was waiting on is in the study already — `04-panels.md` puts History in
-    the file view's own header, which is the slot `DiffView` occupies — so the ticket can be
-    written without inventing a new screen.
-  - 2026-09-06 18:15 claimed
-
----
-
-### GC-171 A stash row spends 66px on its age and leaves its message 77px of the 192 it wants
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-135
-- **Why:** measured at 23ce5c2 in the running app, at the **default** 220px left panel
-  (`%TEMP%/gitclient-review/GR-020/06-stash-row.png`): the row is 219px, and its four children take
-  12px of icon, 5.9px of `.stash-idx`, **77.2px** of `.row-name` against a `scrollWidth` of **192**,
-  and **65.9px** of `.row-when`. What is drawn is `On main: re…` - eleven characters, of which
-  nine would have been git's own `On <branch>: ` prefix. Every stash git makes carries that prefix,
-  so the part that survives is the part that is identical across every stash on the branch: two
-  stashes on `main` render as the same row. The age won that space because `.ref-row .row-when`
-  is `flex: none` with **no width at all** (`app.css:2150`), so it is content-sized and grows with
-  the phrase - `CLAUDE.md` describes it as "`flex: none` at 39px" and "four or five characters",
-  which is the ahead/behind readout it was copied from, not what `relativeTime` renders: "2 minutes
-  ago" is thirteen characters and 66px, and "11 months ago" is wider still. The same paragraph's
-  "at 300px and above the name is back at its natural width" does not hold either - at 300px the
-  name gets about 158px of the 192 it wants. GC-135 was right that the age belongs on the row; it
-  is the arithmetic that is off, and the message is the half that identifies the stash.
-- **Scope:**
-  - `.row-when` stops being content-sized on a stash row. Give it a width that does not move with
-    the phrase, and let the phrase ellipsise or shorten inside it rather than taking the row's
-    remainder - the age is an approximation being read at a glance, the message is an identity.
-  - The message gets the remainder and a floor, so that at the default panel width it shows enough
-    to tell two stashes apart rather than enough to show the prefix they share.
-  - Decide what to do with git's `On <branch>: ` prefix in this row. It repeats the section it is
-    in and, on the checked-out branch, the panel header directly above; dropping it in the drawn
-    text (never in the `title`, and never in what `stashRename` writes) buys the message nine
-    characters at no cost. Whichever way it goes, say why in the code.
-  - `CLAUDE.md`'s GC-135 paragraph is corrected in the same commit: the 39px and the "four or five
-    characters" are both wrong, and so is the claim about 300px.
-- **Out of scope:** the branch row's own ahead/behind readout, which is genuinely four or five
-  characters and is not what this measures; the panel's default width; `relativeTime` itself and
-  the wording it produces (GC-135 settled those); a stash row's click behaviour (GC-150).
-- **Acceptance:**
-  - [ ] At the default 220px panel, two stashes taken on the same branch with different messages
-        render as two visibly different rows.
-  - [ ] `.row-when` on a stash row is the same width for "2 minutes ago" and for "11 months ago".
-  - [ ] The full message and the absolute timestamp are still both on the row's `title`.
-  - [ ] A `LeftPanel.test.tsx` case pins the drawn message against a long one, so the split cannot
-        drift back.
-  - [ ] `CLAUDE.md`'s stash-row paragraph states the measured widths rather than the 39px.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/renderer/src/components/LeftPanel.tsx`,
-  `src/renderer/src/components/LeftPanel.test.tsx`, `src/renderer/src/styles/app.css`,
-  `src/renderer/src/styles/tokens.css`, `CLAUDE.md`
-- **Verify:** `npm test`, build, launch through `tools/launch-app.mjs` on the scratch repository,
-  take two stashes on the same branch with different messages, screenshot the expanded STASHES
-  section at the default panel width and look at it: two rows that can be told apart. Then read the
-  children's `getBoundingClientRect().width` back over CDP and check the age's width is unchanged
-  by the phrase.
-- **Log:**
-  - 2026-09-06 proposed by GR-020: found in the UI pass while reproducing an inbox item about
-    stashes, on the rotation surface GR-019 did not reach. It is the second half of GC-156's
-    lesson one panel over - a piece of furniture sized by its own content taking the room the
-    name needed - which is why it is filed rather than left as a note.
-  - 2026-09-06 GR-020, after the review was committed: the scope above asks whoever takes this to
-    decide what to do with git's `On <branch>: ` prefix. **GitKraken strips it** - a capture
-    Ricardo sent renders `On 008-page-monitor-port: est` as `est`. So the decision is made, and
-    the nine characters it buys the message are the cheapest part of this fix. GC-170 carries the
-    same rule for the graph row, and the two must agree: strip for display only, never in the
-    `title` and never in what `stashRename` stores.
-  - 2026-09-06 18:15 claimed
-
----
-
-### GC-175 The light theme is a mechanical inversion: every surface boundary is weaker than its dark counterpart
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** M | **Priority:** P3
-- **Depends on:** none
-- **Why:** measured at cfe9aa9 in the running app by reading the tokens back over CDP and
-  computing the WCAG ratio between each pair of adjoining surfaces
-  (`%TEMP%/gitclient-review/GR-021/08-graph-light.png`, `09-diff-light.png`). The two themes are
-  not the same design at two lightnesses; the light one is systematically flatter:
-
-  | adjoining pair | light | dark |
-  | --- | --- | --- |
-  | `--bg-panel` over `--bg-app` | **1.066** | 1.161 |
-  | `--bg-toolbar` over `--bg-titlebar` | **1.059** | 1.155 |
-  | `--bg-titlebar` over `--bg-app` | **1.126** | 1.210 |
-  | `--bg-panel-raised` over `--bg-app` | **1.119** | 1.378 |
-  | `--bg-menu` over `--bg-panel` | **1.194** | 1.426 |
-
-  Two of those are not close: a context menu floating over a panel gets 1.19 where dark gives it
-  1.43, and every raised surface — the menu, a chip, an input — sits at 1.12 over the app where
-  dark gives 1.38. The line loses on the same trade: `--border` is `rgba(0, 0, 0, 0.1)` in light
-  against `rgba(255, 255, 255, 0.08)` in dark, and because the two sit at opposite ends of the
-  sRGB transfer curve the black-at-0.1 line over a near-white surface is the *smaller* luminance
-  step of the two. So light is drawn with both a weaker fill and a weaker line at every boundary
-  in the app, which is why the title bar, the tab bar, the toolbar and the status bar read as one
-  undivided white strip in `08-graph-light.png` and the graph panel and the detail panel do not
-  separate at all. The text ramp is not the problem and should be left alone: `--text-dim` over
-  `--bg-panel` measures 3.25:1 in light against 3.56:1 in dark, which is the same design.
-
-  The values themselves were never wrong so much as never looked at. GC-013 built the light
-  palette by redefining the same token names under `:root[data-theme='light']`, which is the right
-  structure and is what makes this fixable in one file; what it did not get is the calibration pass
-  the dark ramp had against GitKraken's measurements (`02-design-tokens.md`). Nothing in the study
-  records GitKraken's light palette either, and its own inventory row for Theme reads "Dark / light
-  only since 11.8 — **Build both**" (`06-feature-inventory.md`), so half the feature is shipped
-  untested by eye. It is filed P3 rather than higher because dark is the default, is what the main
-  process remembers, and is what Ricardo works in — this is a preference nobody is currently
-  stranded by, not a bug in a path anyone is on.
-- **Scope:**
-  - Recalibrate the light block of `tokens.css` so the surface ramp holds the same *relationships*
-    the dark one does, rather than the same absolute lightnesses inverted. The five pairs in the
-    table are the acceptance measure; matching dark's ratio to within a reasonable margin on each
-    is the target, and the ordering must stay the same (app is the ground, panel sits on it,
-    raised and menu sit above that).
-  - `--border` in light gets a value that produces a comparable luminance step to dark's, which
-    almost certainly means a larger alpha than 0.08 — decide it by measurement, not by matching
-    the number.
-  - Look at the result, in both themes, on the same four surfaces: the graph, a commit, the
-    staging view and an open diff, plus one floating layer (a context menu over a panel) since
-    that is the pair that is furthest off.
-  - Record the light ramp in `docs/reference/gitkraken/02-design-tokens.md` as **our** calibration
-    with the ratios it was built to, the way the dark one is recorded — the study has no light
-    palette of GitKraken's to compare against, so what goes there is our own measured values and
-    the reasoning, clearly marked as ours.
-- **Out of scope:** the text ramp (`--text`, `--text-muted`, `--text-dim`, `--text-bright`), which
-  measures equivalently in both themes; the accent and the semantic colours; the ten lane colours,
-  whose adjacent-pair separation GC-113 already pins in both themes; the dark palette, which is
-  calibrated and must not move; adding a third theme; and any change to how `prefs.ts` resolves
-  `system` or how the main process remembers the theme (GC-013, GC-102 settled both).
-- **Acceptance:**
-  - [ ] In light, `--bg-panel`/`--bg-app`, `--bg-toolbar`/`--bg-titlebar`, `--bg-panel-raised`/
-        `--bg-app` and `--bg-menu`/`--bg-panel` each measure within 0.03 of the dark theme's ratio
-        for the same pair, read back from the running app rather than computed by hand.
-  - [ ] `--border` in light produces a luminance step against `--bg-panel` comparable to dark's.
-  - [ ] The title bar, the toolbar and the status bar are distinguishable from each other and from
-        the graph in a light screenshot, and the graph panel and the detail panel separate.
-  - [ ] Screenshots of the four surfaces plus a context menu, in light, are in
-        `docs/screenshots/` and were looked at beside the dark ones.
-  - [ ] `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' src/renderer/src/styles/app.css` still prints
-        nothing: every value changed is a token.
-  - [ ] `docs/reference/gitkraken/02-design-tokens.md` carries the light ramp and its ratios,
-        marked as our calibration rather than as an observation of GitKraken.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
-- **Files:** `src/renderer/src/styles/tokens.css`,
-  `docs/reference/gitkraken/02-design-tokens.md`, `docs/screenshots/`.
-- **Verify:** build, launch through `tools/launch-app.mjs` on the scratch repository, switch the
-  theme through Preferences, and screenshot the graph, a commit, the staging view, a diff and an
-  open context menu in each theme. Read the ratios back over CDP with the same computation the Why
-  used — `getComputedStyle(document.documentElement).getPropertyValue(name)` for each token, then
-  the WCAG formula over the pairs — and put the two columns of numbers in the log.
-- **Log:**
-  - 2026-09-06 proposed by GR-021: the light theme is a shipped preference no review had ever
-    looked at, and the rotation pass found it flat; the numbers above are what turned that
-    impression into a ticket, and they say the defect is the surface ramp rather than the text.
-  - 2026-09-06 18:15 claimed
 
 ### GC-177 Which left-panel sections are open is forgotten on every reload
 
@@ -798,105 +545,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-147 (this ticket): the ticket's acceptance asked that hovering
     `+N` still work over the new band, and there was no way to hover; the check had to be made
     through `.more-drag` instead, which is what showed the gap.
-
----
-
-### GC-189 Removing a review worktree can delete the real node_modules through its junction
-
-- **Status:** in-progress
-- **Area:** infra | **Size:** S | **Priority:** P1
-- **Depends on:** none
-- **Why:** The review routine's isolation recipe — "a detached git worktree of `origin/main` under
-  `%TEMP%/gitclient-review/wt` (with `node_modules` junctioned from here), which it removes when
-  done" — has a hole in its last step. A recursive removal of that worktree **follows the
-  junction** and deletes files out of this checkout's real `node_modules`.
-  Measured on 2026-09-06 during the GC-186 batch, which made the same kind of worktree to read a
-  baseline test count: after `Remove-Item <wt>/node_modules -Force` (which failed on its own
-  confirmation prompt) and `git worktree remove --force <wt>`, this repository's
-  `node_modules/.bin` and 129 packages were gone — every entry alphabetically before
-  `@esbuild`, `@babel/*` among them. `npm run typecheck` then failed with "'tsc' is not
-  recognized" and `npm run build` with "Cannot find package '@babel/core'". The repair was
-  `npm rebuild --ignore-scripts` followed by `npm install --ignore-scripts`, and it was nearly
-  worse: a plain `npm install` was refused with `EBUSY` on
-  `node_modules/electron/dist/resources/default_app.asar` because an unrelated Electron was
-  running, and killing it is exactly what rule 4 forbids.
-  The hourly reviewer has been doing this for weeks without the damage showing, so whatever order
-  it uses is either safe or lucky; either way the order is currently a sentence in
-  `TICKETS.md` rather than something a script gets right by construction, and every session that
-  follows the recipe by hand can hit it.
-- **Scope:**
-  - One helper both routines can call — `tools/scratch-worktree.mjs` or similar — that makes a
-    worktree with a junctioned `node_modules` and removes it again, in the one order that is
-    safe: delete the junction as a **link** (not its contents), assert it is gone and that this
-    checkout's `node_modules/.bin` still exists, and only then `git worktree remove`.
-  - It refuses to remove anything if the junction is still present, so a failure leaves the
-    worktree standing rather than reaching through it.
-  - A unit test beside it, on a temporary directory, pinning that the link is removed and the
-    target's contents are not — the property that was violated.
-  - The "Review routine" paragraph in `TICKETS.md` names the helper instead of describing the
-    steps.
-- **Out of scope:** the review routine's own scheduled prompt (outside this repository), and any
-  change to how `node_modules` is shared.
-- **Acceptance:**
-  - [ ] The helper creates and removes a worktree whose `node_modules` is a junction, and this
-        checkout's `node_modules` is byte-identical before and after — checked by counting entries
-        and asserting `.bin` survives.
-  - [ ] A unit test covers the link-versus-contents distinction.
-  - [ ] Removal refuses to proceed while the junction is still there.
-  - [ ] `TICKETS.md`'s review-routine paragraph points at the helper.
-- **Files:** new `tools/scratch-worktree.mjs`, new `tools/scratch-worktree.test.ts`, `TICKETS.md`
-- **Verify:** run the helper twice over, and after each removal print
-  `(Get-ChildItem node_modules).Count` and `Test-Path node_modules/.bin` for this checkout; both
-  must be unchanged. Then `npm test`.
-- **Log:**
-  - 2026-09-06 proposed by GC-186 (this ticket's batch): the batch's own baseline measurement
-    destroyed 129 packages and `node_modules/.bin` in this checkout by removing a worktree whose
-    `node_modules` was a junction, and the repair was blocked by an unrelated running Electron.
-  - 2026-09-06 18:15 claimed
-
----
-
-### GC-190 A remote added outside the app never appears until the window is reloaded
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P2
-- **Depends on:** GC-011
-- **Why:** `scopeOf` in `watch.ts` answers `refs` for `.git/refs`, `.git/HEAD` and
-  `.git/packed-refs`, and `tree` for everything else. `.git/config` is everything else, so a
-  change to it refreshes the status and nothing more — and the remotes, which only the full
-  snapshot carries, stay as they were.
-  Measured on 2026-09-06 while verifying GC-159: `git remote add web <url>` in the scratch
-  repository, with the app open on it, never produced a REMOTE row — a 20-second wait on the DOM
-  timed out, and the row appeared immediately after a page reload. The same is true of anything
-  else `.git/config` holds that the app draws: a branch's upstream set with
-  `git branch --set-upstream-to` on the command line, a remote's URL edited by hand, a remote
-  renamed or removed. The app's own actions are unaffected, because `run()` reloads the snapshot
-  itself; this is only about a change made outside it, which is exactly what GC-011 exists for.
-- **Scope:**
-  - `scopeOf` answers `refs` for `config` as well, so a `.git/config` write triggers the full
-    reload that a ref change already does.
-  - Check that this cannot loop: the app writes `.git/config` itself (`remoteAdd`,
-    `remoteSetUrl`, `setUpstream`), and a full reload must not be able to cause another write to
-    it. The `.git/index.lock` loop that `watch.ts` documents is the precedent to check against.
-  - A unit test in `watch.test.ts` beside the existing `scopeOf` cases.
-- **Out of scope:** watching anything else under `.git/` that is currently ignored, and the
-  debounce.
-- **Acceptance:**
-  - [ ] `scopeOf('.git/config')` is `refs`, covered by a unit test.
-  - [ ] With the app open on the scratch repository, `git remote add` on the command line makes
-        the REMOTE row appear without a reload.
-  - [ ] `git branch --set-upstream-to` on the command line updates the branch row's
-        ahead/behind the same way.
-  - [ ] Adding a remote through the app still costs one reload, not two.
-- **Files:** `src/main/watch.ts`, `src/main/watch.test.ts`
-- **Verify:** `npm test`, then launch on the scratch repository and run `git remote add` and
-  `git remote remove` from a shell, watching `data-gen` on the status bar move and the row
-  appear and go.
-- **Log:**
-  - 2026-09-06 proposed by GC-159 (this ticket's batch): the ticket's own positive case could not
-    be reached without a page reload, because a `.git/config` change scopes the watcher to
-    `tree` and the remotes only come with a full snapshot.
-  - 2026-09-06 18:15 claimed
 
 ---
 
@@ -1271,6 +919,94 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
+
+### GC-198 `repoRel()` cannot answer "is this path inside the repository" without also requiring it on disk
+
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `repoRel()` in `ipc.ts` does two things at once: it refuses a path that resolves outside
+  the repository (GC-093's rule, the security one) and it refuses one missing from the working tree.
+  Both are right for the `shell:*` channels it was written for — `openFile` and `showInFolder` can
+  do nothing with a path that is not on disk. They are not right together anywhere else, and three
+  handlers now take their path through a bare `str` **because of the second check**, each with its
+  own comment saying git resolves the path itself: `workdir:resolveConflict`, `workdir:restoreFile`
+  and, as of GC-166, `repo:fileLog` — whose whole point is a file the working tree no longer has.
+  So the containment check, which is the one that matters, is skipped by the three handlers that
+  cannot use the existence check, and the reason is a comment repeated three times rather than a
+  function. `repoRel` already has a sibling in this shape: `repoFile()` is `repoRel` plus a resolve.
+- **Scope:**
+  - Split the two: a containment-only answer (`repoRelAny`, or `repoRel(repo, path, { onDisk })`)
+    and the existing `repoRel` expressed in terms of it, so there is one implementation of the rule
+    that refuses a `..`, an absolute path or another drive.
+  - The three handlers above take the containment-only form instead of a bare `str`, and their
+    three comments collapse into the one sentence the function's own doc carries.
+  - A unit test for the containment-only form: a `..`, an absolute path, another Windows drive, and
+    a path that is inside but not on disk, which must now pass.
+- **Out of scope:** the `shell:*` channels' behaviour, which must keep refusing a missing file;
+  `repoFile()`; and any change to what the three handlers do once the path is accepted.
+- **Acceptance:**
+  - [ ] `repo:fileLog`, `workdir:restoreFile` and `workdir:resolveConflict` refuse a path outside
+        the repository, asserted per handler.
+  - [ ] A path inside the repository but absent from the working tree is accepted by the new form
+        and still refused by `repoRel`.
+  - [ ] The three per-handler comments are gone, replaced by the function's own.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/main/ipc.ts`, new `src/main/ipc.test.ts` (or the nearest existing home for it).
+- **Verify:** `npm test`, then drive one of the three over CDP with a `../` path and read the error.
+- **Log:**
+  - 2026-09-06 proposed by GC-166 (this ticket's batch): its own scope said the path should go
+    through `repoRel()`, and it could not, because the acceptance criterion "History on the
+    fixture's deleted file lists the commit that deleted it" is exactly the case `repoRel` refuses.
+
+---
+
+### GC-199 A stash row carries five things at a 220px panel and the message gets 48px of them
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-171
+- **Why:** measured after GC-171, in the running app at the **default** 220px panel: the row is
+  219px and spends 34px on padding (`.ref-row`'s 26px left, for the folder tree's alignment, plus
+  8 right), 32px on its four `--sp-2` gaps, 12 on the archive icon, 6 on `.stash-idx`, 41 on
+  GC-150's short sha and 46 on GC-171's age — 171px of furniture before the message sees anything,
+  which leaves it **48px of the 207 it wants**. GC-171 fixed the two things it named — the age was
+  content-sized and grew with its own phrase, and git's `On <branch>: ` prefix was eating the first
+  nine characters — and those were worth 12px and nine characters. What is left is not a bug in any
+  one of them: it is five items on a 220px row. Two stashes can be told apart now ("the di…" against
+  "rewrit…"), which is what GC-171 was asked for, but that is the floor and not a readable row.
+  At 300px the message has 128px and at 420px its natural width, so this is about the default alone.
+- **Scope:**
+  - Decide what gives way on a narrow panel, and say why in the code. The candidates, in the order
+    they cost the row: the sha (41px, GC-150 — it is the one item repeated verbatim on the graph row
+    directly above the same stash), the 26px left padding (there so a row's icon aligns under the
+    folder chevrons, which a stash row has none of), and the gaps.
+  - Whatever gives way must come back when there is room, the way `fitOptCols` drops a whole graph
+    column rather than narrowing it (GC-116) — that is the pattern this is one panel over, and its
+    rule is "whole ones rather than narrowed", because half a sha identifies a commit no better
+    than none.
+  - A `LeftPanel.test.tsx` case pinning what is drawn at the narrow width and what comes back.
+- **Out of scope:** `relativeTime`'s wording (GC-135), the prefix rule (GC-170, GC-171), the
+  panel's default width, and the branch rows, whose ahead/behind is genuinely four or five
+  characters.
+- **Acceptance:**
+  - [ ] At the default 220px panel a stash message gets materially more than 48px, measured in the
+        running app, with the numbers in this log.
+  - [ ] Whatever was dropped is back at a wider panel, asserted rather than eyeballed.
+  - [ ] Nothing is drawn half: no truncated sha, no truncated age.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/components/LeftPanel.tsx`,
+  `src/renderer/src/components/LeftPanel.test.tsx`, `src/renderer/src/styles/app.css`,
+  `src/renderer/src/styles/tokens.css`, `CLAUDE.md`
+- **Verify:** build, launch through `tools/launch-app.mjs`, take two stashes on the same branch with
+  different messages, and read `getBoundingClientRect().width` back for every child of the row at
+  220, 300 and 420px.
+- **Log:**
+  - 2026-09-06 proposed by GC-171 (this ticket's batch): its own fix landed and the row is still
+    48px of message, because the pressure that is left is the number of items on the row rather
+    than the width of any one of them.
+
+---
 
 ## Reviews
 

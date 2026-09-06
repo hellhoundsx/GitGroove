@@ -217,7 +217,14 @@ then pushed as `repo:changed`. Ignored: `node_modules`, `.git/objects`, `.git/lo
 `.git` path** — that last is load-bearing: our own `git status` writes `.git/index.lock`, Windows
 reports it as a change on `.git` itself, a directory event has no second path segment for the
 ignore list to match, and the refresh it triggered ran `git status` again, forever. `.git/refs`,
-`HEAD` and `packed-refs` scope to `refs` (full reload); everything else to `tree` (status only).
+`HEAD`, `packed-refs` **and `config`** scope to `refs` (full reload); everything else to `tree`
+(status only). `config` is there because the remotes, and a branch's upstream with them, live only
+in the full snapshot (GC-190): a `git remote add` typed in a terminal wrote `.git/config`, which
+was "everything else", so the status refreshed and no REMOTE row ever appeared until the page was
+reloaded by hand. It cannot loop the way the bare `.git` event did — a full reload reads config
+and never writes it — and it costs the app's own `remoteAdd` nothing new: the watcher echo after
+an action was already a `bumpGen`, and this changes what that echo does rather than how many there
+are.
 `git check-ignore` is deliberately not used: every git call lives in `git.ts`, so the watcher stays
 pure fs.
 
@@ -307,7 +314,14 @@ under it the moment git answers with its canonical form.
   appends one, parks the showing tab and selects it, and opens no dialog; the bar draws it as a real
   tab labelled "New Tab", with its close button and middle-click, and with no tabs at all draws
   nothing — the inert placeholder that used to stand there was not a tab. Giving it a repository
-  fills **that** tab, which is `openPath`'s existing `activeId !== null` path.
+  fills **that** tab, which is `openPath`'s existing `activeId !== null` path. **And an empty tab
+  that hands the user to another tab closes itself** (GC-173): picking a repository already in the
+  bar is answered by taking the user to its tab, which is right, but the tab they asked from was
+  made for a repository it never got, so the bar grew by one holding nothing. `revisitTab` is that
+  one path — both `openPath` and `openNewTab` go through it — and it drops the empty tab with a
+  `setTabs` rather than through `closeTabs`, because an empty tab is in neither `gitclient.tabs`
+  nor the reopen stack and the tab left showing is already decided. Only that case: an empty tab
+  the user leaves by clicking another tab is still theirs, so `selectTab` never drops one.
 - **The tab strip scrolls once there are more tabs than fit** (GC-149). A tab's padding, icon and
   close box are `flex: none` and stop it shrinking at about 40px, so past a dozen repositories the
   row spilled to the right and pushed `+` and the recents chevron under the 140px the OS window
@@ -879,13 +893,29 @@ keyed by repository, so the path the set was read for is held beside it and a sw
 during render — the way `DiffView` derives rather than clearing from an effect (GC-075) — or one
 frame is painted with the previous repository's folders.
 
-**A stash row says how old it is** (GC-135). `Stash.date` had been on every snapshot since the list
-existed and was drawn nowhere, while "how old is this" is the question a stash list is read for.
-`relativeTime` renders it into a `.row-when` on the right edge of the row, the way a branch row's
-ahead/behind sits, with the absolute form joining the message on the row's `title`. It is
-`flex: none` at 39px, so the **message** is what ellipsises: the age is four or five characters and
-the message is the part with room to give. That costs the message about 43px at the 220px default
-panel; at 300px and above the name is back at its natural width.
+**A stash row says how old it is, in a box of its own** (GC-135, GC-171). `Stash.date` had been on
+every snapshot since the list existed and was drawn nowhere, while "how old is this" is the question
+a stash list is read for. `relativeTime` renders it into a `.row-when` on the right edge of the
+row, the way a branch row's ahead/behind sits, with the absolute form joining the message on the
+row's `title`.
+
+**The width is `--row-when-w` (46px) and not the phrase's own** (GC-171), which is where GC-135 was
+wrong: it was `flex: none` with no width at all, so the box was content-sized and grew with what
+`relativeTime` produced — "2 minutes ago" is thirteen characters and 66px, not the four or five
+characters the ahead/behind readout it was copied from has — and it grew out of the **message**,
+which is the only thing on the row saying *which* stash this is. The age ellipsises inside its box
+now; the message takes the remainder. And the drawn message is `stashMessageText`'s, the graph
+row's own answer (GC-170), so git's `On <branch>: ` prefix is off the line here too — every stash
+git makes carries it, so the nine characters that survived the column were the ones identical
+across every stash on the branch, and two stashes on `main` drew the same row. Never in the
+`title`, and never in what `stashRename` stores.
+
+Measured on the fixture at the default 220px panel: the message gets **48px** of the 207 it wants,
+where before it got 36 and spent the first nine characters on the prefix. The row spends 34px on
+padding, 32 on gaps and 59 on the icon, the index and GC-150's sha before the message sees
+anything, which is why 220px is tight whatever the age does; at 300px the message has 128px and at
+420px its natural width. The old claim that "at 300px and above the name is back at its natural
+width" was never true.
 
 **And which commit it was taken from, in the graph's own vocabulary** (GC-150): a `.row-sha` beside
 the age. A single click selects the stash — the gesture every other row in the panel answers, and
@@ -977,6 +1007,29 @@ layouts share one selection: the split view clicks the cell and the unified the 
 the same `DiffLine` objects. The buttons say `Stage N lines` / `Discard N lines` while a hunk has a
 selection and the whole-hunk wording otherwise. Line picking is off on the staged side — a partial
 unstage is its own ticket — and off while `-w` is on, like every other patch button.
+
+**A file can be followed as well as diffed: History is a mode of this view** (GC-166).
+`04-panels.md` puts History in the file view's own header, which is the slot `DiffView` already
+occupies, so it costs no new window, no new layer and no new Escape case. The `Diff | History`
+segmented control sits beside `Unified | Split`; the list is `getFileLog(cwd, path, max)` behind
+`repo:fileLog` — `git log --follow` over one path, the same `--date-order` traversal and the same
+`LOG_FORMAT` `getLog` uses, both parsed by the shared `parseCommits` so the fields cannot drift,
+and deliberately **not** the graph traversal: `--follow` takes one pathspec and walks from HEAD, so
+the globs and the hidden set have no part in a question about one file. The path goes through
+`str` and not `repoRel()`, the way `workdir:restoreFile` already does — git resolves it against the
+repository and refuses one outside it, and a history is read precisely for a file the working tree
+no longer has, which `repoRel` would refuse for not being on disk.
+
+Which body is showing is `DiffView` state carrying the identity it was chosen for, compared during
+render like `loaded` and `sel` (GC-075), so opening another file asks the question again. The diff's
+own load is untouched by it, which is what keeps GC-014's promise one control over: switching to
+History and back reloads nothing, and the list itself is keyed by path, so a visit to it is not a
+fetch. Selecting a commit hands the sha **up** (`onOpenCommit`) rather than loading it here — the
+file view becomes a commit-source view of the same path, which is the existing load and the existing
+header. Every diff-only control — both arrows, both toggles and `Unified | Split` — is disabled with
+one reason on it while the list is up, GC-188's rule. `fileMenuItems` carries a **File history** row
+that opens the view straight into it, through `FileViewSource.history`, which is not part of
+`identityKey`: it says which body is showing, not what is loaded.
 
 **Three controls in the header, and only one of them costs a reload** (GC-052). Previous / next
 change scroll by **stop** — the `scrollTop` that would put a `.hunk-head` at the top of the body,
@@ -1135,7 +1188,19 @@ colours and the layout metrics. `app.css` is one file with a section per compone
 
 **Every colour lives in `tokens.css`, none in `app.css`** (GC-013): `:root` is the dark palette and
 `:root[data-theme='light']` redefines the same names for the light one, so a new colour is a token
-or it does not flip with the theme. The nine `rgba()` literals `app.css` used to carry became
+or it does not flip with the theme. **And the light block holds the dark ramp's ratios, not its
+lightnesses inverted** (GC-175): each adjoining surface pair is solved for the WCAG ratio its dark
+counterpart has — panel/app 1.162 against 1.161, toolbar/titlebar 1.161 against 1.155, titlebar/app
+1.208 against 1.210, raised/app 1.377 against 1.378, menu/panel 1.427 against 1.426 — and the
+ordering is dark's too: the app is the ground and every other surface sits lighter above it. The
+old block stepped *down* from the page for the panel and jumped to white for both raised surfaces,
+which left nothing above the panel to spend on a floating menu, and the whole frame read as one
+undivided white strip. The ground is #c7c9cd because the arithmetic leaves no choice — the app-to-
+menu span is 1.655:1 and white is the ceiling — so making light lighter means giving up one of the
+five ratios and saying which. `--border` is decided by the luminance step rather than by matching
+dark's alpha, since black and white sit at opposite ends of the sRGB curve. The values and the
+reasoning are in `docs/reference/gitkraken/02-design-tokens.md`, marked as ours rather than as an
+observation of GitKraken, whose own light surfaces sit within 1.05:1 of each other. The nine `rgba()` literals `app.css` used to carry became
 `--head-row`, `--match-row`, `--banner-bg`, `--hover-overlay`, `--backdrop`, `--accent-strong`,
 `--success-strong` and `--diff-gutter`; `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` must keep
 printing nothing.
@@ -1186,7 +1251,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-479 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+495 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
 
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
@@ -1196,7 +1261,15 @@ failing — it is what guards rule 6 above — **and on a backlog whose two file
 `TICKETS.md`, a row disagreeing with its section or one resolving to nothing fails `npm test` rather
 than being noticed months later (GC-174 moved the `done` rows to a board in the archive). `tools/backlog`
 pins the routine's lock check and batch selection on synthetic text.
- `tools/launch-app` covers the attach path against a fake CDP endpoint, and the ownership a launch
+ `tools/scratch-worktree` pins the property whose violation cost this checkout 129 packages
+(GC-189): a worktree's junctioned `node_modules` is removed as a **link**, never recursively, and
+the target's contents survive. `addWorktree`/`removeWorktree` are the one safe order — unlink the
+junction, assert it is gone *and* that this checkout's `node_modules/.bin` still exists, only then
+`git worktree remove` — and the guard refuses rather than repairs, leaving the worktree standing,
+because an unremoved worktree costs a `git worktree prune` and a recursive delete through a live
+junction costs an `npm install`. Every session following the review routine's isolation recipe by
+hand should call it instead.
+`tools/launch-app` covers the attach path against a fake CDP endpoint, and the ownership a launch
 takes over the app it spawned (GC-154) against a sleeping node process — a unit test never starts
 Electron, and `ownChild` cares only that it was handed something with a pid. GC-162's graceful stop
 is covered the same way: a fake CDP whose `/json/close` stops that process is the app asking to be
@@ -1438,6 +1511,14 @@ fills the form in never gated on the form being complete, a restore whose direct
 the list the row came from, one scheme check shared by the two places a URL can reach
 `openExternal`, and one `direction` rule for both surfaces that draw the recents (Graph, Diff, UI
 layer, Detail panel, Main process);
+a file's history a mode of the file view rather than a screen of its own, with the diff's own load
+untouched by the switch and the picked sha handed up rather than loaded in place, a stash row's age
+in a box that does not move with its phrase and git's prefix off the drawn line on both surfaces
+that draw it, an empty tab closing itself only when it hands the user to another one, a
+`.git/config` write scoped to the full reload the remotes need, and the light surfaces holding the
+dark ramp's ratios rather than its lightnesses inverted (Diff, Graph, App state, Main process,
+Styling); a scratch worktree's junction removed as a link, with the removal refusing rather than
+reaching through it (Testing);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control
