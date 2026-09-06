@@ -254,7 +254,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | done |
 | GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | done |
 | GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | done |
-| GC-130 | Step 21's hunk staging loses a race and fails on a fixture nothing changed | tests | S | P1 | todo |
+| GC-130 | Step 21's hunk staging loses a race and fails on a fixture nothing changed | tests | S | P1 | in-progress |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
 | GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
@@ -265,7 +265,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
 | GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
-| GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | todo |
+| GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -7016,7 +7016,7 @@ decision is missing.
 
 ### GC-130 Step 21's hunk staging loses a race and fails on a fixture nothing changed
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P1
 - **Depends on:** —
 - **Why:** Six `npm run e2e` runs during the GC-125/126/107/112 batch, five green and one not: step
@@ -7044,12 +7044,13 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-126 (this batch): one flaky failure in six runs of the suite, with the
     full output in this ticket's Why. Nothing in the batch touched step 21 or the diff.
+  - 2026-09-06 08:36 claimed
 
 ---
 
 ### GC-131 A confirmation that carries an option has to be written as a prompt with no input
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** —
 - **Why:** `ConfirmOptions` is title, message, okLabel and danger. GC-112 needed a confirmation with
@@ -7076,6 +7077,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-112 (this batch): the checkbox that ticket needed had no home on
     `confirm`, so both of its confirmations are prompts with the input switched off.
+  - 2026-09-06 08:36 claimed
 
 ---
 
