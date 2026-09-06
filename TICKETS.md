@@ -262,7 +262,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | done |
 | GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
-| GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | todo |
+| GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | in-progress |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | done |
 | GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | done |
@@ -294,9 +294,9 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | done |
 | GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | done |
 | GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | done |
-| GC-027 | Author filter in commit search | graph | S | P3 | todo |
-| GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
-| GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
+| GC-027 | Author filter in commit search | graph | S | P3 | in-progress |
+| GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | in-progress |
+| GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | in-progress |
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
 | GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | todo |
@@ -1180,7 +1180,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-027 Author filter in commit search
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-009
 - **Why:** GC-009 shipped a single text field that matches message, author and sha at once. The
@@ -1209,6 +1209,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - 2026-09-05 proposed by GC-009 (this ticket): the study's commit search has author filter
     chips; the text field shipped here cannot separate "authored by" from "mentioned in the
     message".
+  - 2026-09-06 09:00 claimed
 
 ### GC-028 Stealth mode: unattended runs never steal focus or show a window
 
@@ -2118,7 +2119,7 @@ decision is missing.
 
 ### GC-033 Global shortcuts from the study: branch, fetch, panels, staging
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-010
 - **Why:** `05-menus-shortcuts.md` lists the body-scope bindings GitKraken users have in their
@@ -2153,6 +2154,7 @@ decision is missing.
   - 2026-09-05 18:25 scope extended by GR-002: `whileTyping` exists in the table but no handler
     reads it; this ticket adds the bindings that need the distinction, so it owns making the
     flag live rather than a separate hygiene ticket.
+  - 2026-09-06 09:00 claimed
 
 ---
 
@@ -2528,7 +2530,7 @@ decision is missing.
 
 ### GC-045 Commit view banner linking back to the working directory changes
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** The study's commit view starts with a blue banner "N file change in working
@@ -2559,6 +2561,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-002: the commit view is the one panel where the study keeps the
     working-directory changes visible and ours drops them.
+  - 2026-09-06 09:00 claimed
 
 ### GC-046 A DOM environment so components can be unit tested
 
@@ -6861,7 +6864,7 @@ decision is missing.
 
 ### GC-132 Three more e2e helpers drop a click on a disabled control and assert nothing
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** GC-130 fixed `hunkAction`, but the shape it fixed is not unique to it. `stageRow`
@@ -6891,6 +6894,7 @@ decision is missing.
   - 2026-09-06 proposed by GC-130 (this ticket): found while fixing `hunkAction`. The demonstrated
     cause — a control disabled by a watcher echo on a fixture nothing changed — is not specific to
     the diff's hunk buttons, and two other helpers swallow it the same way.
+  - 2026-09-06 09:00 claimed
 
 ---
 
