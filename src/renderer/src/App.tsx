@@ -165,7 +165,6 @@ export function App(): JSX.Element {
       // no stored set under its key, which loads unfiltered and lets the prune effect correct it —
       // the old behaviour, for the one case that cannot be keyed up front.
       const hide = readHidden(path);
-      hiddenRef.current = hide;
       // A reload of the repository already open asks for everything on screen, not just the first
       // page (GC-012): the user scrolled to row 4000, and snapping back to 2000 on every watcher
       // refresh would move the graph under them. A different path starts from one page again.
@@ -175,7 +174,12 @@ export function App(): JSX.Element {
         if (gen !== generation.current) return; // (GC-068) something newer has already landed
         setSnapshot(snap);
         // Applied in the same commit as the snapshot it was loaded with, so no frame is ever
-        // painted with a chip for a ref that snapshot already excludes (GC-099).
+        // painted with a chip for a ref that snapshot already excludes, and recorded as the set
+        // this snapshot was built with so the prune effect below has nothing to correct (GC-099).
+        // It is recorded here rather than before the await because the effect clears it while
+        // there is no snapshot, which on a cold open runs between the two and would otherwise
+        // leave the effect comparing this snapshot against an empty set — the second load again.
+        hiddenRef.current = hide;
         setHidden((prev) => (sameNames(prev, hide) ? prev : hide));
         paged.current = { path: snap.info.path, loaded: snap.commits.length };
         // A short answer is the end of the history; a full one may have more behind it (GC-012).

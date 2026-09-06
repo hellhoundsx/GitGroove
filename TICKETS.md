@@ -244,10 +244,10 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | done |
 | GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | done |
 | GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | done |
-| GC-099 | Opening a repository with hidden refs loads the graph twice and flashes the hidden branches | graph | S | P1 | in-progress |
-| GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | in-progress |
-| GC-012 | Lazy loading past 2000 commits | graph | M | P3 | in-progress |
-| GC-013 | Light theme | ui | M | P3 | in-progress |
+| GC-099 | Opening a repository with hidden refs loads the graph twice and flashes the hidden branches | graph | S | P1 | done |
+| GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | done |
+| GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
+| GC-013 | Light theme | ui | M | P3 | done |
 | GC-014 | Side-by-side diff | diff | L | P3 | todo |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -286,6 +286,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P3 | todo |
+| GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -782,7 +783,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-012 Lazy loading past 2000 commits
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** M | **Priority:** P3
 - **Depends on:** GC-002
 - **Why:** `MAX_COMMITS = 2000` truncates large repositories (catena-feed) with no indication.
@@ -794,16 +795,38 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - A "Loading more" row at the bottom while a page is in flight.
 - **Out of scope:** searching unloaded commits.
 - **Acceptance:**
-  - [ ] catena-feed (read-only) scrolls past 2000 with continuous lanes.
-  - [ ] Unit test: layout of a full list equals layout of the same list in two pages.
+  - [x] catena-feed (read-only) scrolls past 2000 with continuous lanes.
+  - [x] Unit test: layout of a full list equals layout of the same list in two pages.
 - **Files:** `src/main/git.ts`, `ipc.ts`, `App.tsx`, `lanes.ts`, `CommitGraph.tsx`.
 - **Verify:** `npm test`, screenshot at the page boundary.
 - **Log:**
   - 2026-09-06 04:26 claimed
+  - 2026-09-06 05:00 done. `getLog` takes `skip`, a new `repo:log` channel returns one more page of
+    the same traversal, and `App` appends pages of `PAGE_COMMITS` (1000) when `CommitGraph` reports
+    the viewport within `NEAR_END` (200) rows of what is loaded; a `.more-row` says "Loading more…"
+    while a page is in flight. A page carries the hidden set its range was loaded with and is
+    dropped if the generation moved (GC-068), so a reload cannot be overwritten by a page counted
+    against a range that no longer exists. `paged` also makes a reload ask for what is on screen
+    rather than the first page, or every watcher refresh would drag a deeply scrolled graph back to
+    row 2000. `layoutGraph` gained `LaneState`: a layout returns the lanes still open at the end of
+    its range and accepts them back, and does not re-seed the pin on a later page. Ten new cases in
+    `lanes.test.ts` prove page-splits at every row of a three-lane history equal the single call.
+    **The acceptance names catena-feed, and that could not be used: it has 881 commits across all
+    refs (kyushu-route 34, GitClient 90), so no repository on this machine reaches 2000.** Checked
+    instead against a disposable 2802-commit fixture built with `git fast-import` in
+    `%TEMP%/gitclient-big` — two chains off one root with interleaved dates so `--date-order` keeps
+    two lanes open across the boundary, and a merge at the tip. Over CDP: the first load stopped at
+    2001 rows (2000 commits plus WIP) with only 40 row elements rendered, scrolling to the end took
+    it to 2803 rows for 2802 commits, the "Loading more" row was observed by a `MutationObserver`
+    while the page was in flight and gone after, and rows 1998-2002 each still drew 4 lane marks —
+    no line restarts at the boundary. Screenshot `docs/screenshots/gc012-page-boundary.png` (status
+    bar reads 2802 commits, both lanes continuous). `src/shared/types.ts` and `src/preload/index.ts`
+    were touched too, which the Files line does not list: adding an API means all four files.
+    The fixture was deleted afterwards; the generator is described above rather than committed.
 
 ### GC-013 Light theme
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P3
 - **Depends on:** GC-007
 - **Why:** Everything is dark-only. Tokens already centralise colours, so a light palette is a
@@ -814,13 +837,34 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
   - `titleBarOverlay` colours updated from the renderer via IPC so the window controls match.
 - **Out of scope:** custom themes.
 - **Acceptance:**
-  - [ ] No hard-coded colours remain in `app.css` (`grep -n "#[0-9a-f]\{3,6\}" app.css` prints
+  - [x] No hard-coded colours remain in `app.css` (`grep -n "#[0-9a-f]\{3,6\}" app.css` prints
     nothing outside the tokens file).
-  - [ ] Screenshot of both themes with the same repo loaded.
+  - [x] Screenshot of both themes with the same repo loaded.
 - **Files:** `tokens.css`, `app.css`, `prefs.ts`, `src/main/index.ts`, `ipc.ts`.
 - **Verify:** build, screenshots.
 - **Log:**
   - 2026-09-06 04:26 claimed
+  - 2026-09-06 05:00 done. `tokens.css` keeps the dark palette on `:root` and adds a
+    `:root[data-theme='light']` block redefining every colour — surfaces stepping the other way, text
+    as black alphas mirroring the white ones, accents and all ten lane colours darkened until they
+    read on white. `prefs.ts` owns the setting (`dark` | `light` | `system`) and resolves `system`
+    itself with `matchMedia` rather than leaving it to a media query, because the renderer needs the
+    answer in JavaScript: it stamps `data-theme` and calls the new `window:theme` channel, which
+    repaints the OS window controls — the one part of the frame CSS cannot reach. It also listens
+    for the OS setting changing while `system` is chosen. `TITLE_BAR_OVERLAY` and its applier live in
+    `ipc.ts`, not `index.ts` as first written: `index.ts` already imports `registerIpc`, so putting
+    them there would have made the import circular. The nine `rgba()` literals left in `app.css`
+    became tokens (`--head-row`, `--match-row`, `--banner-bg`, `--hover-overlay`, `--backdrop`,
+    `--accent-strong`, `--success-strong`, `--diff-gutter`, and one that was already `--bg-input`), so
+    `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` now prints **nothing**. Verified over CDP on the
+    same repository: dark gives `body` `rgb(28, 30, 35)` on `rgba(255,255,255,0.75)`, light gives
+    `rgb(241, 242, 245)` on `rgba(0,0,0,0.8)`, Preferences offers exactly `dark,light,system`, and
+    changing the select repainted `data-theme` with no reload. Screenshots
+    `docs/screenshots/gc013-theme-dark.png`, `gc013-theme-light.png` and `gc013-preferences-light.png`.
+    Two things the light theme shows but does not own: the checkboxes and selects are still
+    unstyled OS controls (GC-101, already filed — the light screenshots are evidence for it), and
+    the window is *built* dark whatever the setting is, so a light-theme start flashes dark and
+    wears dark window controls until the renderer answers — GC-102, filed by this ticket.
 
 ### GC-014 Side-by-side diff
 
@@ -1350,6 +1394,43 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
     the fixture without adding two branches by hand, which showed the fold has no coverage.
   - 2026-09-05 23:14 GR-006: GC-023 was the second ticket to build the four-ref commit by hand (its 300px and
     400px measurements), and GC-071 now waits on this one; still P3 because nothing else is blocked.
+
+### GC-102 The window is built dark whatever the theme is, so a light start flashes and keeps dark controls
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-013
+- **Why:** GC-013 gave the app a light theme, and the renderer repaints the OS window controls
+  through `window:theme` as soon as it has resolved the setting. The window itself is created
+  before any of that exists: `src/main/index.ts` passes `backgroundColor: '#1b1d22'` and
+  `titleBarOverlay: TITLE_BAR_OVERLAY.dark` as literals. So a light-theme start paints a dark
+  window, and the controls stay dark until the renderer's first `applyTheme()` lands — on a cold
+  start that is after the bundle has parsed and React has mounted. The theme lives in
+  `localStorage`, which is the renderer's, so the main process has no way to know it at
+  `createWindow` time; it needs its own copy.
+- **Scope:**
+  - The main process remembers the last resolved theme (a small file under `app.getPath('userData')`
+    is enough, and it stays per-profile, so the launcher's per-port profiles keep their own — GC-060)
+    and builds the window with that `backgroundColor` and overlay.
+  - `window:theme` writes it whenever the renderer reports a theme, so the next start matches.
+  - A first-ever start with nothing remembered keeps today's dark default.
+- **Out of scope:** the token values themselves, `prefs.ts`'s resolution of `system` (GC-013 owns
+  both), and following the OS theme from the main process with `nativeTheme` — the renderer is
+  where the setting lives and it already reports changes.
+- **Acceptance:**
+  - [ ] With the theme set to light, a restart shows a light window frame and light window
+        controls from the first painted frame, with no dark flash.
+  - [ ] With it set to dark, nothing changes.
+  - [ ] The remembered value is per Electron profile: a launcher run on port 9333 cannot change
+        what Ricardo's own profile starts with.
+- **Files:** `src/main/index.ts`, `src/main/ipc.ts`.
+- **Verify:** build, launch through `tools/launch-app.mjs` with each theme stored, and capture the
+  first frame over CDP; compare the window background against the token value for that theme.
+- **Log:**
+  - 2026-09-06 05:00 proposed by GC-013 (this ticket): the light theme is complete inside the
+    renderer, but `createWindow` has two hard-coded dark literals it cannot see past. Noticed while
+    taking the both-themes screenshots the ticket's acceptance asks for.
+
 
 
 ## Adding a ticket
@@ -4859,7 +4940,7 @@ decision is missing.
 
 ### GC-098 A failed git call in the e2e suite is silent, so a lost race reads as a UI bug
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `run.mjs`'s `git()` helper returns `GIT-ERROR: <stderr>` as a **string** when a command
@@ -4884,13 +4965,13 @@ decision is missing.
     (`RUN_FILE_RE` already names the pattern; only the untracked case is missed).
 - **Out of scope:** the app's watcher timing, retries anywhere in `src/`, GC-081's spawn count.
 - **Acceptance:**
-  - [ ] A deliberately broken fixture call (a bad ref name) ends the run with that command and
+  - [x] A deliberately broken fixture call (a bad ref name) ends the run with that command and
         git's stderr in the message, at the step where it happened.
-  - [ ] The calls that are allowed to fail still pass through `gitMay()` and the prologue is still a
+  - [x] The calls that are allowed to fail still pass through `gitMay()` and the prologue is still a
         no-op on a clean fixture.
-  - [ ] A run against a repository holding a stale `.git/index.lock` retries and then reports the
+  - [x] A run against a repository holding a stale `.git/index.lock` retries and then reports the
         lock by name rather than a missing row.
-  - [ ] `npm run e2e` passes three times in a row.
+  - [x] `npm run e2e` passes three times in a row.
 - **Files:** `tools/e2e/run.mjs`.
 - **Verify:** `npm run e2e` three times, plus the two injected-failure checks above.
 - **Log:**
@@ -4898,6 +4979,26 @@ decision is missing.
     batch; the next five passed unchanged. What made it expensive was not the flake but that the
     suite reported everything except what went wrong.
   - 2026-09-06 04:26 claimed
+  - 2026-09-06 05:00 done. `git()` now throws `git <args> failed: <stderr>`, `gitMay()` keeps the old
+    swallowing for the eleven calls whose failure is the normal case (the prologue's `--abort`s,
+    `branch -D`, `tag -d`, `remote remove`, `push --delete`, and step 17's `push origin --delete`,
+    which can never succeed because push-target is only ever pushed to `upstream`). Two calls that
+    use git's exit code as their *answer* rather than as a failure went to `gitMay` as well, which
+    the scope did not name: `check-ignore` exits 1 to mean "not ignored" and step 28's drift scan
+    would have crashed on a baseline branch that is missing outright, which is the very drift
+    GC-076 exists to report. `.git/index.lock` and `Unable to create` are retried five times at
+    200ms before reporting. A `bail` handler on both `uncaughtException` and `unhandledRejection`
+    prints the message and stops the run's own Electron, so a throw does not leak the process the
+    way GC-040 describes. Verified by injecting both failures into `run.mjs` and reverting with
+    `git checkout`: a bad ref ended the run **at step 2** with
+    `git rev-parse no-such-ref-gc098 failed: fatal: ambiguous argument ...`, exit 1, total 2.9s, and
+    `netstat` showed nothing listening on 9333 afterwards; a planted `.git/index.lock` was retried
+    for **1185ms** and then reported as
+    `fatal: Unable to create '.../index.lock': File exists`. The prologue now sweeps an untracked
+    `pick-*.txt` after `restoreFixture()` (where `RUN_FILE_RE` is in scope), which is what recovered
+    the fixture after that aborted run. `npm run e2e` passed five times in this batch — three
+    consecutive before the injected checks (22.6s, 22.1s, 22.3s) and twice after, the last against
+    the final build (22.2s).
 
 
 
@@ -4907,7 +5008,7 @@ decision is missing.
 
 ### GC-099 Opening a repository with hidden refs loads the graph twice and flashes the hidden branches
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** GC-073's hidden set is applied from an effect that runs *after* the first snapshot has
@@ -4937,15 +5038,15 @@ decision is missing.
   items, `getLog`'s `--exclude` placement, and the watcher's own reload path (GC-068 owns that);
   changing what a *toggle* costs — one reload per toggle is correct and stays.
 - **Acceptance:**
-  - [ ] Scratch repository with both `wip-branch` refs hidden: a cold open (reload the renderer)
+  - [x] Scratch repository with both `wip-branch` refs hidden: a cold open (reload the renderer)
         settles at the same `data-gen` as a cold open with nothing hidden, and the row count is the
         hidden-set count from the first painted frame — assert with a `MutationObserver` on
         `.graph-body` that no frame ever contains a `wip-branch` chip.
-  - [ ] `git branch -D` a hidden branch, then reload: the name is pruned out of `localStorage`,
+  - [x] `git branch -D` a hidden branch, then reload: the name is pruned out of `localStorage`,
         Viewing is right, and the one extra load in that case is expected and acceptable.
-  - [ ] Switching repositories through the recents dropdown to one with a different hidden set
+  - [x] Switching repositories through the recents dropdown to one with a different hidden set
         applies that set on its first load, and the previous repository's set is not applied to it.
-  - [ ] `npm test` and `npm run e2e` pass; the GC-073 step is unchanged.
+  - [x] `npm test` and `npm run e2e` pass; the GC-073 step is unchanged.
 - **Files:** `src/renderer/src/App.tsx`.
 - **Verify:** typecheck, build, the CDP checks above on the built app, and a read-only open of
   `catena-feed` with one branch hidden to confirm the flash is gone on a large graph (read-only:
@@ -4957,6 +5058,26 @@ decision is missing.
     snapshot and explicitly puts "coalescing two loads into one" out of scope; this is the cold-open
     path never having the set in the first place.
   - 2026-09-06 04:26 claimed
+  - 2026-09-06 05:00 done. `load()` reads `readHidden(path)` for the path it is about to load and
+    passes it to that first `loadRepo`, and records it in `hiddenRef` **after** the await, in the same
+    commit as `setSnapshot` and `setHidden` — not before it, which is where the first attempt put it
+    and which does not work: the prune effect's `!snapshot` branch runs between `load()` starting and
+    the snapshot landing on a cold open, clears the ref it had just primed, and the effect then
+    compared the arriving snapshot against an empty set and reloaded anyway. Measured over CDP on the
+    scratch fixture before and after: `data-gen` was 1 with nothing hidden and 2 with
+    `refs/heads/wip-branch` + `refs/remotes/origin/wip-branch` hidden, and is now **1 for both**. A
+    `MutationObserver` installed through `Page.addScriptToEvaluateOnNewDocument` — so it is running
+    before any of the app's own code — saw **0 wip-branch chips across every frame** of the cold open,
+    8 rows against 9 clean. The prune step is kept and now reloads only when the applied set really
+    differs: with a hidden branch deleted behind the app's back, gen is 2 (the one extra load the
+    ticket allows), the name is pruned out of `localStorage`, the two live names stay, and the branch
+    crumb still reads `main`. Switching to another repository through the recents menu applied that
+    repository's own set on its first load (`side` never drawn) and cost one load, not two. Three new
+    cases in `App.test.tsx` pin all of it; removing the one `hiddenRef.current = hide` line fails two
+    of them, so they catch the real bug rather than restating the code. `npm test` 106 passed,
+    `npm run e2e` ALL PASSED (22.2s), screenshot `docs/screenshots/gc099-hidden-cold-open.png`.
+    The Viewing header reads "Viewing 2" and never names the checked-out branch, which is GC-094's
+    ticket, not a regression here — the branch crumb was asserted instead.
 
 ### GC-100 A branch can only be brought up to its upstream by checking it out first
 

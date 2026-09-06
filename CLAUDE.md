@@ -121,7 +121,9 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
 
 - **The log is `--date-order`, deliberately**: it reproduces GitKraken's row order, where
   topo-order groups branches into blocks and was wrong. The renderer asks for 2000 commits
-  (`MAX_COMMITS`).
+  (`MAX_COMMITS`) and then pages: `getLog(cwd, max, exclude, skip)` behind `repo:log` answers the
+  next 1000 (`PAGE_COMMITS`) of the same traversal, so a page must be asked for with the hidden set
+  its range was loaded with or `skip` counts through a different one (GC-012).
 - **The graph traverses the namespaces the UI lists, never `--all`** (GC-095): `--glob=refs/heads/*`,
   `--glob=refs/remotes/*`, `--glob=refs/tags/*` and the revision `HEAD`, with `--ignore-missing` so
   an unborn HEAD is skipped rather than fatal. `--all` means every ref under `refs/`, which drew
@@ -157,8 +159,11 @@ ignore list to match, and the refresh it triggered ran `git status` again, forev
 pure fs.
 
 **IPC and preload** — channels grouped by prefix: `repo:*`, `commit:*`, `workdir:*`, `ref:*`,
-`remote:*`, `stash:*`, `shell:*`. `ipc.ts` validates every argument (`str`, `strs`, `int`,
-`oneOf`); `repo:checkGit` is the only handler taking none. Adding an API means: type in
+`remote:*`, `stash:*`, `shell:*`, `window:*`. `ipc.ts` validates every argument (`str`, `strs`,
+`int`, `oneOf`); `repo:checkGit` is the only handler taking none. `window:theme` is the other
+handler that never touches git: it repaints the OS window controls for the theme the renderer
+resolved, and `TITLE_BAR_OVERLAY` with it lives in `ipc.ts` rather than `index.ts` because
+`index.ts` already imports `registerIpc` and the other direction would be a cycle (GC-013). Adding an API means: type in
 `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`.
 `shell:*` is the group that never touches git: its two handlers live in `ipc.ts` itself, go through
 `repoFile()` — which resolves a repository-relative path against the repository and **refuses one
@@ -241,7 +246,11 @@ differently from the way it behaves. Adding a shortcut means an entry in that ta
 
 ### Graph (`graph/`)
 
-`layoutGraph(commits, pinnedSha)` assigns lanes in the order commits arrive.
+`layoutGraph(commits, pinnedSha, prev?)` assigns lanes in the order commits arrive. `prev` is the
+`state` a previous call returned — the lanes still open at the end of its range — so a later page
+continues them instead of restarting at column 0, and the pin is not re-seeded on a page that is
+not the first (GC-012). `lanes.test.ts` pins the property that matters: splitting a history at any
+row and laying out the halves equals laying out the whole.
 
 - **Column 0 is reserved for HEAD's lineage** (`active[0] = headSha` before the loop), so the
   checked-out branch is the leftmost straight line and the WIP node sits above it. "Pin to Left"
@@ -292,8 +301,14 @@ reaches `loadRepo(path, max, exclude)`. **One action hides exactly one ref**: hi
 does not also hide the upstream its chip absorbs, because the row and its eye stand for one ref and
 taking a second silently would hide something the user did not name — so a branch whose commits are
 also reachable from its upstream stays until that upstream is hidden too. The checked-out branch can
-never be hidden. The set is pruned against every snapshot, so a name cannot outlive its ref. `App`
-hands `CommitGraph` only the visible refs; the left panel gets all of them and marks the hidden.
+never be hidden. **The set is read for the path being opened, inside `load()`, so it reaches that
+path's first `loadRepo`** (GC-099) — it is recorded in `hiddenRef` *after* the await, in the same
+commit as `setSnapshot`, because the prune effect clears that ref while there is no snapshot and
+would otherwise wipe a value primed before it. The set is still pruned against every snapshot, so a
+name cannot outlive its ref, but that now reloads only when a hidden ref has genuinely disappeared:
+an ordinary open costs one `git log`, not two, and no frame is painted with a chip the snapshot
+already excludes. `App` hands `CommitGraph` only the visible refs; the left panel gets all of them
+and marks the hidden.
 
 ### Diff (`diff/`)
 
@@ -327,11 +342,18 @@ by turning the box RTL and a `/` at either end is reordered to the other one.
 `prefs.ts` is the single home for user settings: a typed `Prefs` with `DEFAULT_PREFS`, persisted as
 one JSON blob under `gitclient.prefs`, read with `usePrefs()` and written with `setPrefs(patch)`.
 `load()` validates each field and falls back to the default, so a hand-edited blob cannot break the
-app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide` and
+app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `theme` and
 `graphColumns` — the one nested value, so `load()` falls back per column and a `defaults()` helper
 copies it, a bare spread having shared the nested object. Adding a setting means: a field with a
 default in `prefs.ts`, validation in `load()`, a row in `components/Preferences.tsx`, and reading
 it with `usePrefs()`. There is no OK/Cancel; every change applies immediately.
+
+**`theme` is `dark` | `light` | `system`, and `prefs.ts` resolves `system` itself** with `matchMedia`
+rather than leaving it to a media query (GC-013): there has to be one answer to which theme is
+showing, because the renderer hands it to the main process over `window:theme` to repaint the OS
+window controls — the one part of the frame CSS cannot reach. `applyTheme()` stamps `data-theme` on
+the document element on load, on every `setPrefs` and when the OS setting changes; it is guarded on
+`document` because a node-environment test imports this module.
 
 Remembered **state** deliberately stays on its own keys, never in the blob:
 
@@ -361,6 +383,13 @@ one network call (SHA-256 of the lowercased email, `d=404`); failures are cached
 (`--bg-app #1c1e23`, titlebar `#2a2d34`, toolbar `#33373f`, panel `#272a31`, raised `#32363f`,
 menu `#3d424d`), text as white alphas (.75/.6/.4), accent `#4d88ff`, semantic colours, ten lane
 colours and the layout metrics. `app.css` is one file with a section per component.
+
+**Every colour lives in `tokens.css`, none in `app.css`** (GC-013): `:root` is the dark palette and
+`:root[data-theme='light']` redefines the same names for the light one, so a new colour is a token
+or it does not flip with the theme. The nine `rgba()` literals `app.css` used to carry became
+`--head-row`, `--match-row`, `--banner-bg`, `--hover-overlay`, `--backdrop`, `--accent-strong`,
+`--success-strong` and `--diff-gutter`; `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` must keep
+printing nothing.
 
 - **One global `::-webkit-scrollbar` rule set** near the top: 8px, a flat thumb at a 4px radius,
   transparent track and corner, no buttons. Every scroll container gets it with no per-component
@@ -397,7 +426,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-92 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+106 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
 fake CDP endpoint.
@@ -418,6 +447,13 @@ live process unless `--force` is passed (a marker over 30 minutes old is stale w
 says). What each step covers is its own `step(n, …)` title; read those rather than a second list
 here. Rules a new step must respect:
 
+- **Every git call goes through `git()`, which throws** (GC-098): it names the command and carries
+  git's stderr, so a broken fixture stops the run where it happened instead of surfacing steps later
+  as a row that never appeared. `gitMay()` is the explicit opt-out, for the commands whose failure is
+  the normal case (the prologue's `--abort`s and deletes) and for the two that use git's exit code as
+  their answer — `check-ignore`, and step 28's drift scan, which must report a missing branch rather
+  than crash on it. `.git/index.lock` is retried five times at 200ms first, because the collision is
+  with the app's own watcher refresh. A throw is caught by `bail`, which stops the run's Electron.
 - **Wait on the DOM, never on a fixed sleep.** `waitFor(expression, what, max)` polls the renderer
   every 50ms. Three `sleep` calls are left, each commented with what is unobservable there.
 - **Every git action goes through `act(fn)`**, which reads `data-gen` off the status bar, performs
@@ -482,9 +518,10 @@ Design decisions that must not be quietly undone, and where each is explained ab
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
 one layer, one shortcut table, every confirmation on the modal (App state, UI layer); `--index` on
 stash apply and pop, `defaultRemote` shared both ways (Main process); the diff keyed to its view
-identity (Diff); stealth launches, narrow stops, the per-port profile (Commands); the LF working
-copy, control characters as escapes, study-never-copy, no writes against the real repositories
-(The rules).
+identity (Diff); the hidden set applied to a path's first load (Graph); every colour a token, the
+theme resolved in `prefs.ts` (Styling, Preferences); a failing e2e git call throwing (Testing);
+stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control
+characters as escapes, study-never-copy, no writes against the real repositories (The rules).
 
 Memory for this project lives in the Claude memory directory (`gitclient-project.md`) and points
 here. `README.md` is the public-facing overview with the same commands and dependency notes.

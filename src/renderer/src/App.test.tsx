@@ -40,6 +40,8 @@ function defer<T>(): Deferred<T> {
 
 /** Every `loadRepo` call, oldest first, waiting to be resolved. */
 let loads: Deferred<RepoSnapshot>[] = [];
+/** What each of those calls was given, so a case can assert what the first load excluded (GC-099). */
+let loadArgs: { path: string; maxCommits?: number; exclude?: string[] }[] = [];
 /** The same for `getStatus`, which is the `tree` half of the watcher. */
 let statuses: Deferred<RepoStatus>[] = [];
 /** The watcher subscription `App` registers, so a case can push a `repo:changed` by hand. */
@@ -62,6 +64,7 @@ const STAGED: StatusEntry[] = [{ path: 'a.txt', staged: 'modified', unstaged: nu
 
 beforeEach(() => {
   loads = [];
+  loadArgs = [];
   statuses = [];
   repoChanged = null;
   // Avatars are gated inside `useGravatar`, so switching them off keeps the render clear of
@@ -70,9 +73,10 @@ beforeEach(() => {
   localStorage.setItem('gitclient.lastRepo', REPO); // so the mount effect opens a repository
   const api = {
     checkGit: async () => ({ available: true, version: 'git version 2.45.0' }),
-    loadRepo: () => {
+    loadRepo: (path: string, maxCommits?: number, exclude?: string[]) => {
       const d = defer<RepoSnapshot>();
       loads.push(d);
+      loadArgs.push({ path, maxCommits, exclude });
       return d.promise;
     },
     getStatus: () => {
@@ -161,5 +165,58 @@ describe('App drops a background reload that a user action has overtaken (GC-068
     await settle(() => statuses[0]?.resolve(status(UNSTAGED)));
     expect(groupCount('Staged')).toBe(1);
     expect(groupCount('Unstaged')).toBe(0);
+  });
+});
+
+// GC-099: the hidden set has to reach the *first* `loadRepo` for a path. It used to be applied by
+// an effect that only runs once a snapshot has landed, so every cold open was two full `git log`
+// runs and painted the hidden branches before removing them. The counts below are the whole point:
+// one load when the stored set still matches the refs, two only when one of them has gone.
+const WIP_REF = 'refs/heads/wip-branch';
+const withRefs = (entries: StatusEntry[], refs: string[]): RepoSnapshot => ({
+  ...snapshot(entries),
+  refs: refs.map((fullName) => ({ name: fullName.replace('refs/heads/', ''), fullName, kind: 'head' as const, sha: 'abc123', isHead: false })),
+});
+
+describe('App applies the stored hidden set to a path\'s first load (GC-099)', () => {
+  it('excludes the hidden refs on the first call and does not reload afterwards', async () => {
+    localStorage.setItem(`gitclient.hidden.${REPO}`, JSON.stringify([WIP_REF]));
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    // The set was read from the path about to be loaded, not from the snapshot that came back.
+    expect(loadArgs[0]?.exclude).toEqual([WIP_REF]);
+
+    await settle(() => loads[0]?.resolve(withRefs(UNSTAGED, [WIP_REF, 'refs/heads/main'])));
+    // The ref still exists, so the set that was applied is the set that is wanted: no second load.
+    expect(loads).toHaveLength(1);
+  });
+
+  it('costs the one extra load only when a hidden ref has since been deleted', async () => {
+    localStorage.setItem(`gitclient.hidden.${REPO}`, JSON.stringify([WIP_REF]));
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    // The snapshot comes back without that ref: it was deleted outside the app.
+    await settle(() => loads[0]?.resolve(withRefs(UNSTAGED, ['refs/heads/main'])));
+    expect(loads).toHaveLength(2);
+    expect(loadArgs[1]?.exclude).toEqual([]);
+    // and the name that no longer names anything is pruned out of storage rather than kept.
+    expect(localStorage.getItem(`gitclient.hidden.${REPO}`)).toBeNull();
+  });
+
+  it('opens a repository with nothing hidden in one load', async () => {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    expect(loadArgs[0]?.exclude).toEqual([]);
+    await settle(() => loads[0]?.resolve(withRefs(UNSTAGED, ['refs/heads/main'])));
+    expect(loads).toHaveLength(1);
   });
 });
