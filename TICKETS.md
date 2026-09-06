@@ -248,20 +248,20 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | done |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
 | GC-013 | Light theme | ui | M | P3 | done |
-| GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | todo |
+| GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
-| GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
-| GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | todo |
-| GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | todo |
-| GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | todo |
+| GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | in-progress |
+| GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | in-progress |
+| GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | in-progress |
+| GC-084 | Two overlapping actions clear the busy spinner early | actions | S | P3 | in-progress |
 | GC-023 | Chip shrinking still assumes exactly two chips | graph | S | P3 | done |
 | GC-036 | The e2e prologue leaves the named stash a run that dies mid-scenario creates | tests | S | P3 | done |
 | GC-053 | e2e waits on the DOM instead of fixed sleeps | tests | S | P3 | done |
 | GC-046 | A DOM environment so components can be unit tested | tests | M | P3 | done |
 | GC-047 | A test that fails on a raw control byte in a source file | tests | S | P3 | done |
-| GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | todo |
+| GC-040 | A crashed e2e run leaves its own Electron alive | tests | S | P3 | in-progress |
 | GC-041 | The launcher documents --keep-alive but checks --keep-running | infra | S | P3 | done |
 | GC-054 | --keep-running still spawns a second Electron that cannot bind the port | infra | S | P3 | done |
 | GC-059 | A test for the launcher attach path | tests | S | P3 | done |
@@ -1077,7 +1077,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-021 The pin follows a renamed branch and is dropped with a deleted one
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-005
 - **Why:** The pin is stored by branch name. Renaming the pinned branch from inside the app leaves
@@ -1099,6 +1099,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 proposed by GC-005 (this ticket): noticed while wiring the pin through the ref menu,
     which is the same menu that renames and deletes the branch.
+  - 2026-09-06 05:18 claimed
 
 ---
 
@@ -1302,7 +1303,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-040 A crashed e2e run leaves its own Electron alive
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-035
 - **Why:** `tools/e2e/run.mjs` calls `stopApp()` on the last line only. Any earlier exit — an
@@ -1329,6 +1330,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Log:**
   - 2026-09-05 proposed by GC-035 (this ticket): wiring the narrow stopper into the epilogue made
     it obvious that no other exit path reaches it.
+  - 2026-09-06 05:18 claimed
 
 ### GC-041 The launcher documents --keep-alive but checks --keep-running
 
@@ -4316,7 +4318,7 @@ decision is missing.
 
 ### GC-083 A diff that fails to load shows an empty body
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** S | **Priority:** P3
 - **Depends on:** GC-075
 - **Why:** `DiffView`'s body renders one of three things — the loading line, "No textual changes."
@@ -4341,10 +4343,11 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-075 (this ticket): reworking the load path made the blank-on-error
     body obvious, and more likely to be seen now that a failed reload clears the previous diff.
+  - 2026-09-06 05:18 claimed
 
 ### GC-084 Two overlapping actions clear the busy spinner early
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P3
 - **Depends on:** GC-068
 - **Why:** `run()` in `App.tsx` sets `busy` to its own label and clears it to `null` in its `finally`,
@@ -4368,6 +4371,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-068 (this ticket): giving the background reads a generation counter
     made it plain that the actions writing `busy` and `error` still have no identity of their own.
+  - 2026-09-06 05:18 claimed
 
 ### GC-085 Dead CSS and an unreachable tooltip left over from the one-chip ref column
 
@@ -5242,7 +5246,7 @@ decision is missing.
 
 ### GC-103 The Preferences dialog outgrows a short window and its last rows cannot be reached
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `.modal` sets a width and no height at all, and `.modal-backdrop` centres it with
@@ -5274,10 +5278,11 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-014 (this ticket): its Preferences row pushed the dialog to 770px and
     the measurement above fell out of screenshotting it.
+  - 2026-09-06 05:18 claimed
 
 ### GC-104 Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** M | **Priority:** P3
 - **Depends on:** GC-014
 - **Why:** Both diff layouts tint a changed line whole. GitKraken does not: the study records
@@ -5312,6 +5317,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-014 (this ticket): the split view makes the missing intra-line
     highlight plain, and the study records GitKraken having it.
+  - 2026-09-06 05:18 claimed
 
 ## Reviews
 
