@@ -5,7 +5,7 @@ import type { FileViewSource } from '../diff/DiffView';
 // The sentinel for the working-directory row: the commit view's banner selects it (GC-045).
 import { WIP } from '../graph/CommitGraph';
 import { chipsFor, RefChip } from '../graph/RefChip';
-import { Trash2 } from 'lucide-react';
+import { ChevronRight, Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
 import { usePrefs } from '../prefs';
@@ -33,6 +33,64 @@ export type FileMenuTarget =
  * The one wording for throwing a single file's changes away, so the row's ✕ button and the same
  * action in its context menu cannot drift apart (GC-043).
  */
+/** The staging view's three groups, which are also the ids the open set is keyed by (GC-197). */
+export type StagingGroup = 'conflicted' | 'unstaged' | 'staged';
+const STAGING_GROUPS: StagingGroup[] = ['conflicted', 'unstaged', 'staged'];
+
+/**
+ * Where the staging groups' open set lives (GC-197). Global rather than per repository, for
+ * GC-177's reason one panel over: these are the same three groups in every repository, unlike the
+ * closed folders, which name refs that exist in one.
+ *
+ * It is `localStorage` rather than `App` state deliberately, and that is what keeps it out of
+ * GC-148's trap: this component unmounts behind a file view and on every tab switch — which is
+ * precisely when a user reaches for a file — so component state would drop the arrangement at the
+ * moment it is being used. Read at mount, it comes back instead.
+ */
+const STAGING_GROUPS_KEY = 'gitclient.stagingGroups';
+
+/**
+ * The stored open set: only the groups the user has actually toggled, so one never touched starts
+ * open however the counts change. Anything but a boolean reads as absent rather than as closed —
+ * `readSectionOpen`'s own rule, and for the same reason: a hand-edited blob must not be able to
+ * hide the file list.
+ */
+export function readStagingGroups(): Partial<Record<StagingGroup, boolean>> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(STAGING_GROUPS_KEY) ?? 'null');
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Partial<Record<StagingGroup, boolean>> = {};
+    for (const id of STAGING_GROUPS) {
+      const v = (raw as Record<string, unknown>)[id];
+      if (typeof v === 'boolean') out[id] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeStagingGroups(next: Partial<Record<StagingGroup, boolean>>): void {
+  try {
+    if (Object.keys(next).length === 0) localStorage.removeItem(STAGING_GROUPS_KEY);
+    else localStorage.setItem(STAGING_GROUPS_KEY, JSON.stringify(next));
+  } catch {
+    /* private mode: the arrangement just does not survive the reload */
+  }
+}
+
+/**
+ * Drop the stored state of a group that currently holds nothing (GC-197), so a group closed while
+ * it had rows and then emptied is open again when it next fills. A closed empty group looks
+ * exactly like an open empty one — the head and nothing else — so nothing on screen would say why
+ * the rows did not come back.
+ */
+export function pruneStagingGroups(stored: Partial<Record<StagingGroup, boolean>>, counts: Record<StagingGroup, number>): Partial<Record<StagingGroup, boolean>> {
+  const out: Partial<Record<StagingGroup, boolean>> = {};
+  for (const id of STAGING_GROUPS) if (stored[id] !== undefined && counts[id] > 0) out[id] = stored[id];
+  return out;
+}
+
 export const discardFileConfirm = (e: StatusEntry): ConfirmOptions =>
   e.unstaged === 'untracked'
     ? { title: `Delete ${e.path}?`, message: 'The untracked file will be deleted. This cannot be undone.', okLabel: 'Delete', danger: true }
@@ -123,6 +181,29 @@ function FileRow({ path, origPath, kind, active, onClick, onContextMenu, childre
   );
 }
 
+/**
+ * A staging group's head: the chevron and the title toggle the list, and the action button on the
+ * right is untouched by the state (GC-197). The study calls these lists collapsible
+ * (`04-panels.md` line 62) and with 29 unstaged files the Staged head — the group you are staging
+ * *into* — sat below 788px of the group you are staging *from*.
+ *
+ * The chevron and its rotation are the left panel's own (`.chev`), because these heads already
+ * read as section heads and a second vocabulary for "this opens" would be one too many.
+ */
+function GroupHead({ title, count, open, onToggle, children }: { title: string; count: number; open: boolean; onToggle(): void; children?: ReactNode }): JSX.Element {
+  return (
+    <div className={`group-head ${open ? 'open' : ''}`}>
+      <button className="group-toggle" aria-expanded={open} onClick={onToggle}>
+        <Icon of={ChevronRight} size={12} className="chev" />
+        <span>
+          {title} ({count})
+        </span>
+      </button>
+      {children}
+    </div>
+  );
+}
+
 const isActive = (open: FileViewSource | null, path: string, staged?: boolean): boolean =>
   !!open && open.path === path && (open.source !== 'wip' || staged === undefined || open.staged === staged);
 
@@ -134,6 +215,28 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
   const conflicted = entries.filter((e) => e.unstaged === 'conflicted' || e.staged === 'conflicted');
   const unstaged = entries.filter((e): e is StatusEntry & { unstaged: FileChangeKind } => e.unstaged !== null && e.unstaged !== 'conflicted');
   const staged = entries.filter((e): e is StatusEntry & { staged: FileChangeKind } => e.staged !== null && e.staged !== 'conflicted');
+
+  // Which groups are open (GC-197). The stored set holds only what the user has toggled, so a
+  // group they have never touched is open; `pruneStagingGroups` drops the state of a group that
+  // is currently empty, which is what stops a stale close hiding rows when it fills again.
+  const [groupsStored, setGroupsStored] = useState<Partial<Record<StagingGroup, boolean>>>(readStagingGroups);
+  const counts: Record<StagingGroup, number> = { conflicted: conflicted.length, unstaged: unstaged.length, staged: staged.length };
+  useEffect(() => {
+    setGroupsStored((prev) => {
+      const next = pruneStagingGroups(prev, counts);
+      // Same shape means nothing to write: the effect runs on every status reload.
+      if (Object.keys(next).length === Object.keys(prev).length) return prev;
+      writeStagingGroups(next);
+      return next;
+    });
+  }, [counts.conflicted, counts.unstaged, counts.staged]);
+  const isOpen = (id: StagingGroup): boolean => groupsStored[id] ?? true;
+  const toggleGroup = (id: StagingGroup): void =>
+    setGroupsStored((prev) => {
+      const next = { ...prev, [id]: !(prev[id] ?? true) };
+      writeStagingGroups(next);
+      return next;
+    });
 
   const { summary, body, amend } = draft;
   // Ctrl+Shift+M focuses the summary; the tick is what makes asking twice focus twice (GC-033).
@@ -211,14 +314,14 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
         )}
         {error && <div className="err-box">{error}</div>}
         {conflicted.length > 0 && (
-          <div className="file-list">
-            <div className="group-head">
-              <span>Conflicted Files ({conflicted.length})</span>
+          <div className={`file-list ${isOpen('conflicted') ? '' : 'closed'}`}>
+            <GroupHead title="Conflicted Files" count={conflicted.length} open={isOpen('conflicted')} onToggle={() => toggleGroup('conflicted')}>
               <button className="btn success" disabled={busy} onClick={() => void run(() => actions.stage(conflicted.map((e) => e.path)))}>
                 Mark all resolved
               </button>
-            </div>
-            {conflicted.map((e) => (
+            </GroupHead>
+            {isOpen('conflicted') &&
+              conflicted.map((e) => (
               <FileRow
                 key={`c${e.path}`}
                 path={e.path}
@@ -234,14 +337,14 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
             ))}
           </div>
         )}
-        <div className="file-list">
-          <div className="group-head">
-            <span>Unstaged Files ({unstaged.length})</span>
+        <div className={`file-list ${isOpen('unstaged') ? '' : 'closed'}`}>
+          <GroupHead title="Unstaged Files" count={unstaged.length} open={isOpen('unstaged')} onToggle={() => toggleGroup('unstaged')}>
             <button className="btn success" disabled={unstaged.length === 0 || busy} onClick={() => void run(actions.stageAll)}>
               Stage all changes
             </button>
-          </div>
-          {unstaged.map((e) => (
+          </GroupHead>
+          {isOpen('unstaged') &&
+            unstaged.map((e) => (
             <FileRow
               key={`u${e.path}`}
               path={e.path}
@@ -265,14 +368,14 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
             </FileRow>
           ))}
         </div>
-        <div className="file-list">
-          <div className="group-head">
-            <span>Staged Files ({staged.length})</span>
+        <div className={`file-list ${isOpen('staged') ? '' : 'closed'}`}>
+          <GroupHead title="Staged Files" count={staged.length} open={isOpen('staged')} onToggle={() => toggleGroup('staged')}>
             <button className="btn" disabled={staged.length === 0 || busy} onClick={() => void run(actions.unstageAll)}>
               Unstage all
             </button>
-          </div>
-          {staged.map((e) => (
+          </GroupHead>
+          {isOpen('staged') &&
+            staged.map((e) => (
             <FileRow
               key={`s${e.path}`}
               path={e.path}

@@ -1534,6 +1534,34 @@ input[type='radio']:disabled {
   min-height: 30px;
   overflow: auto;
 }
+/* A closed group is its head and nothing more, and it asks for no share of the column: the open
+   one takes what it releases, which is the whole point of closing it (GC-197). `overflow: visible`
+   because there is nothing left inside to scroll, and a scroll box of exactly its own head can
+   still show a scrollbar. */
+.file-list.closed {
+  flex: none;
+  overflow: visible;
+}
+/* The head's own toggle: the chevron and the title, with the action button beside it untouched by
+   the state. `.chev` is the left panel's, rotation included, since these already read as section
+   heads (GC-197). */
+.file-list .group-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.file-list .group-head .chev {
+  flex: none;
+  transition: transform 0.12s;
+}
+.file-list .group-head.open .chev {
+  transform: rotate(90deg);
+}
 /* The list's own header, and the strongest of the boundaries: a band rather than another
    hairline, so Unstaged and Staged read as two groups rather than one run of rows (GC-142). Its
    8px inset matches a file row's, so the label sits over the names it heads. It is `sticky` now
