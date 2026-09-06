@@ -2837,7 +2837,63 @@ git(['stash', 'drop', '-q', 'stash@{0}']);
 log(await act(() => tool('Refresh'), 'the emptied stash list'));
 check('the step leaves no stash behind', git(['stash', 'list']) === '', git(['stash', 'list']));
 
-step(39, 'the run leaves the fixture exactly as it found it');
+step(39, 'a branch dragged to the bottom edge scrolls the graph, on the clock and only for our own drag');
+// GC-168, guarding GC-122. The fixture is eight commits, so `.graph-body` fits at every height the
+// suite runs at and the pointer is never in a band with anywhere to go: the auto-scroll shipped
+// with a pure-function test and one hand-driven session and nothing repeatable. The viewport is
+// emulated rather than the window resized, as step 31 does it — this run has no OS window at all.
+const dragViewportW = await ev(`window.innerWidth`);
+await send('Emulation.setDeviceMetricsOverride', { width: dragViewportW, height: 340, deviceScaleFactor: 1, mobile: false });
+await waitFor(`window.innerHeight === 340`, 'the viewport to be short enough for the graph to overflow');
+// The fifth sleep, and the same kind as step 31's: the `resize` the override fires arrives after
+// `window.innerHeight` has already changed, and the virtualiser re-measures on it.
+await sleep(400);
+const overflow = JSON.parse(
+  await ev(
+    `(() => { const b = document.querySelector('.graph-body'); if (!b) return JSON.stringify({ found: false }); b.scrollTop = 0; const r = b.getBoundingClientRect(); return JSON.stringify({ found: true, scrollH: b.scrollHeight, clientH: b.clientHeight, top: Math.round(r.top), bottom: Math.round(r.bottom) }); })()`,
+  ),
+);
+// Asserted first: everything below is vacuous on a graph with nowhere to scroll to.
+check('the graph overflows at this height, so there is somewhere to scroll', overflow.found === true && overflow.scrollH > overflow.clientH, JSON.stringify(overflow));
+
+/** One `dragover` inside the container's bottom band, `real` deciding whether it carries our type. */
+const dragOverBand = (real) =>
+  ev(
+    `(() => { const b = document.querySelector('.graph-body'); const r = b.getBoundingClientRect(); const dt = ${real ? 'window.__e2eDt' : 'new DataTransfer()'}; b.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.x + r.width / 2, clientY: r.bottom - 4 })); return JSON.stringify({ types: [...dt.types], scrollTop: Math.round(b.scrollTop) }); })()`,
+  );
+const graphTop = () => ev(`Math.round(document.querySelector('.graph-body').scrollTop)`);
+
+log(await dragRefFrom('release', ROW_SEL));
+await waitDragging('release', ROW_SEL);
+const bandEvent = JSON.parse(await dragOverBand(true));
+check('the drag carries our own type into the band', bandEvent.types.includes('application/x-gitclient-ref'), JSON.stringify(bandEvent));
+// One event, then a wait on the DOM: the rAF loop is what scrolls, so the distance comes from the
+// clock and not from how often the browser fires `dragover`. A pointer held still at the edge is
+// the whole case, and a scroll that needed a second event would never satisfy this.
+await waitFor(`document.querySelector('.graph-body').scrollTop > 0`, 'the graph to scroll off a single dragover');
+const scrolled = await graphTop();
+check('one dragover in the band keeps scrolling on its own', scrolled > 0, `scrollTop ${bandEvent.scrollTop} -> ${scrolled} off a single event`);
+
+await ev(`document.querySelector('.graph-body').dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: window.__e2eDt })); 'dragend'`);
+const atEnd = await graphTop();
+// The sixth sleep, and the same kind as the quiet window in `waitSettled`: what is being asserted
+// is that nothing happens, and the absence of a scroll cannot be waited on.
+await sleep(400);
+check('and stops when the drag ends', (await graphTop()) === atEnd, `scrollTop ${atEnd} at dragend, ${await graphTop()} after`);
+
+// A file dragged in from Explorer carries no `REF_DRAG_TYPE`, and must move nothing at all.
+await ev(`document.querySelector('.graph-body').scrollTop = 0; 'reset'`);
+const foreign = JSON.parse(await dragOverBand(false));
+await sleep(400); // the seventh, and an absence again: this drag must scroll nothing
+check('a drag that is not ours does not scroll the graph', foreign.types.length === 0 && (await graphTop()) === 0, `types=${JSON.stringify(foreign.types)} scrollTop=${await graphTop()}`);
+
+// Back to the window and the scroll position every later step assumes, both asserted.
+await ev(`document.querySelector('.graph-body').scrollTop = 0; 'reset'`);
+await send('Emulation.clearDeviceMetricsOverride');
+await waitFor(`window.innerHeight > 340`, 'the viewport to be restored');
+check('the step leaves the viewport and the graph where it found them', (await ev(`window.innerHeight`)) > 340 && (await graphTop()) === 0);
+
+step(40, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).
