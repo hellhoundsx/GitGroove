@@ -263,6 +263,7 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | GC-169 | Pull, push and fetch cannot survive a credential the helper cannot fix, and report one line of the reason | actions | M | P1 | in-progress |
 | GC-170 | A stash is a chip on its parent, where GitKraken gives it a row of its own above the tip | graph | M | P2 | in-progress |
 | GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P2 | in-progress |
+| GC-026 | One dialog with several fields instead of chained prompts | ui | S | P2 | todo |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
 | GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | in-progress |
@@ -283,7 +284,7 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | todo |
 | GC-166 | A file can be diffed but never followed: no history for one path | graph | M | P3 | todo |
 | GC-171 | A stash row spends 66px on its age and leaves its message 77px of the 192 it wants | ui | S | P3 | todo |
-| GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
+| GC-175 | The light theme is a mechanical inversion of the dark one, and every surface boundary is weaker | ui | M | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
 
@@ -341,7 +342,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 ### GC-026 One dialog with several fields instead of chained prompts
 
 - **Status:** todo
-- **Area:** ui | **Size:** S | **Priority:** P3
+- **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `ui.prompt` takes exactly one text field, so "Add remote" (GC-008) asks for the name,
   waits for OK, then opens a second dialog for the URL. Cancelling the second one leaves nothing
@@ -365,6 +366,9 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-05 proposed by GC-008 (this ticket): adding a remote needs a name and a URL, and the
     prompt modal can only ask for one thing at a time.
+  - 2026-09-06 GR-021: raised P3 -> P2 and moved above GC-128 on the board, which has been the
+    first unclaimed row for four reviews and never once eligible because this ticket gates it; a
+    ticket's priority should not be lower than that of the ticket it blocks.
 
 ---
 
@@ -1644,6 +1648,93 @@ in the Why; an invariant goes in `CLAUDE.md`.
     same rule for the graph row, and the two must agree: strip for display only, never in the
     `title` and never in what `stashRename` stores.
 
+---
+
+### GC-175 The light theme is a mechanical inversion: every surface boundary is weaker than its dark counterpart
+
+- **Status:** todo
+- **Area:** ui | **Size:** M | **Priority:** P3
+- **Depends on:** none
+- **Why:** measured at cfe9aa9 in the running app by reading the tokens back over CDP and
+  computing the WCAG ratio between each pair of adjoining surfaces
+  (`%TEMP%/gitclient-review/GR-021/08-graph-light.png`, `09-diff-light.png`). The two themes are
+  not the same design at two lightnesses; the light one is systematically flatter:
+
+  | adjoining pair | light | dark |
+  | --- | --- | --- |
+  | `--bg-panel` over `--bg-app` | **1.066** | 1.161 |
+  | `--bg-toolbar` over `--bg-titlebar` | **1.059** | 1.155 |
+  | `--bg-titlebar` over `--bg-app` | **1.126** | 1.210 |
+  | `--bg-panel-raised` over `--bg-app` | **1.119** | 1.378 |
+  | `--bg-menu` over `--bg-panel` | **1.194** | 1.426 |
+
+  Two of those are not close: a context menu floating over a panel gets 1.19 where dark gives it
+  1.43, and every raised surface — the menu, a chip, an input — sits at 1.12 over the app where
+  dark gives 1.38. The line loses on the same trade: `--border` is `rgba(0, 0, 0, 0.1)` in light
+  against `rgba(255, 255, 255, 0.08)` in dark, and because the two sit at opposite ends of the
+  sRGB transfer curve the black-at-0.1 line over a near-white surface is the *smaller* luminance
+  step of the two. So light is drawn with both a weaker fill and a weaker line at every boundary
+  in the app, which is why the title bar, the tab bar, the toolbar and the status bar read as one
+  undivided white strip in `08-graph-light.png` and the graph panel and the detail panel do not
+  separate at all. The text ramp is not the problem and should be left alone: `--text-dim` over
+  `--bg-panel` measures 3.25:1 in light against 3.56:1 in dark, which is the same design.
+
+  The values themselves were never wrong so much as never looked at. GC-013 built the light
+  palette by redefining the same token names under `:root[data-theme='light']`, which is the right
+  structure and is what makes this fixable in one file; what it did not get is the calibration pass
+  the dark ramp had against GitKraken's measurements (`02-design-tokens.md`). Nothing in the study
+  records GitKraken's light palette either, and its own inventory row for Theme reads "Dark / light
+  only since 11.8 — **Build both**" (`06-feature-inventory.md`), so half the feature is shipped
+  untested by eye. It is filed P3 rather than higher because dark is the default, is what the main
+  process remembers, and is what Ricardo works in — this is a preference nobody is currently
+  stranded by, not a bug in a path anyone is on.
+- **Scope:**
+  - Recalibrate the light block of `tokens.css` so the surface ramp holds the same *relationships*
+    the dark one does, rather than the same absolute lightnesses inverted. The five pairs in the
+    table are the acceptance measure; matching dark's ratio to within a reasonable margin on each
+    is the target, and the ordering must stay the same (app is the ground, panel sits on it,
+    raised and menu sit above that).
+  - `--border` in light gets a value that produces a comparable luminance step to dark's, which
+    almost certainly means a larger alpha than 0.08 — decide it by measurement, not by matching
+    the number.
+  - Look at the result, in both themes, on the same four surfaces: the graph, a commit, the
+    staging view and an open diff, plus one floating layer (a context menu over a panel) since
+    that is the pair that is furthest off.
+  - Record the light ramp in `docs/reference/gitkraken/02-design-tokens.md` as **our** calibration
+    with the ratios it was built to, the way the dark one is recorded — the study has no light
+    palette of GitKraken's to compare against, so what goes there is our own measured values and
+    the reasoning, clearly marked as ours.
+- **Out of scope:** the text ramp (`--text`, `--text-muted`, `--text-dim`, `--text-bright`), which
+  measures equivalently in both themes; the accent and the semantic colours; the ten lane colours,
+  whose adjacent-pair separation GC-113 already pins in both themes; the dark palette, which is
+  calibrated and must not move; adding a third theme; and any change to how `prefs.ts` resolves
+  `system` or how the main process remembers the theme (GC-013, GC-102 settled both).
+- **Acceptance:**
+  - [ ] In light, `--bg-panel`/`--bg-app`, `--bg-toolbar`/`--bg-titlebar`, `--bg-panel-raised`/
+        `--bg-app` and `--bg-menu`/`--bg-panel` each measure within 0.03 of the dark theme's ratio
+        for the same pair, read back from the running app rather than computed by hand.
+  - [ ] `--border` in light produces a luminance step against `--bg-panel` comparable to dark's.
+  - [ ] The title bar, the toolbar and the status bar are distinguishable from each other and from
+        the graph in a light screenshot, and the graph panel and the detail panel separate.
+  - [ ] Screenshots of the four surfaces plus a context menu, in light, are in
+        `docs/screenshots/` and were looked at beside the dark ones.
+  - [ ] `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' src/renderer/src/styles/app.css` still prints
+        nothing: every value changed is a token.
+  - [ ] `docs/reference/gitkraken/02-design-tokens.md` carries the light ramp and its ratios,
+        marked as our calibration rather than as an observation of GitKraken.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/styles/tokens.css`,
+  `docs/reference/gitkraken/02-design-tokens.md`, `docs/screenshots/`.
+- **Verify:** build, launch through `tools/launch-app.mjs` on the scratch repository, switch the
+  theme through Preferences, and screenshot the graph, a commit, the staging view, a diff and an
+  open context menu in each theme. Read the ratios back over CDP with the same computation the Why
+  used — `getComputedStyle(document.documentElement).getPropertyValue(name)` for each token, then
+  the WCAG formula over the pairs — and put the two columns of numbers in the log.
+- **Log:**
+  - 2026-09-06 proposed by GR-021: the light theme is a shipped preference no review had ever
+    looked at, and the rotation pass found it flat; the numbers above are what turned that
+    impression into a ticket, and they say the defect is the surface ramp rather than the text.
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -1651,121 +1742,94 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
 
-### GR-020 Backlog review 2026-09-06 14:35
+### GR-021 Backlog review 2026-09-06 15:35
 
 - **Status:** done
-- **Window:** ae3a492..23ce5c2
+- **Window:** 23ce5c2..cfe9aa9
 - **Log:**
-  - 2026-09-06 14:35 inbox: **three items pending**, all three investigated in the code and
-    reproduced in the running app, none declined and none left in Pending. They are decided first
-    and outside the zero-to-five budget, so this review's own findings are one of the five allowed.
-  - inbox 1, pull on `catena-feed` fails with a 403 under the organisation's SAML SSO: confirmed
-    from the code, and **not reproduced against `catena-feed`** - rule 2 forbids a write there and
-    Ricardo's own `git ls-remote` already showed the refusal read-only, so the item carried its own
-    evidence and needed none of mine. Reading the code turned a credential story into a reporting
-    one. `runGit` sets `GIT_TERMINAL_PROMPT: '0'` unconditionally on every spawn (`git.ts:85`),
-    which is right for the hundred read-only calls a snapshot makes and wrong for the three that
-    talk to a remote. But the sharper defect is downstream: `StatusBar`'s `headline()` prefers a
-    line matching `/^(error|fatal):|CONFLICT|failed/i`, which on this error picks the `fatal: ...
-    403` line and **drops the two `remote:` lines that name SAML SSO and say what to do** - so the
-    app shows the least useful sentence git wrote, in a `button.err` at `max-width: 45%`,
-    `white-space: nowrap`, ellipsised, whose only full text is a native `title` tooltip.
-    **-> GC-169**, at P1: it is the only open ticket that makes the app unusable against the
-    repositories Ricardo actually works in.
-  - inbox 2, stashes still do not show in the graph: he asked to check whether the build even has
-    GC-140's chip, and it does. Took a stash in the review's own scratch repository and confirmed a
-    20x20 `span.stash-chip` at the end of `main`'s ref cell with a `title` of
-    `stash@{0}: On main: review: a stash to look at` (`02-stash-in-graph.png`). So GC-140 shipped
-    and the shape is what is wrong: **the message never reaches the screen at all**, and 20px of
-    ref column is expensive - the same row loses `main`'s upstream cloud to it, which is GC-156
-    working exactly as designed and is the cost of the chip rather than a defect. The study cannot
-    arbitrate: `docs/reference/gitkraken/` has **no** stash note in the graph anywhere, `03-graph.md`
-    included, which is why GC-140 had to invent a shape and is itself a gap.
-    **-> GC-170**, which replaces the chip with the row he described - dashed node above the tip,
-    lane line down into it, message in its own column - and closes the study gap in the same
-    commit. Filed as `Depends on: GC-140` rather than as a reopening, since `Stash.parent` is
-    exactly what the row needs.
-  - inbox 3, left panel sections overflow the panel: **already covered by GC-153**, which GR-017
-    wrote from the other end (52 remote branches pushing TAGS and STASHES off) with evidence from
-    `catena-feed`. Confirmed unchanged at 23ce5c2: `.left-panel .sections` computes to
-    `overflow: auto`, `display: block`, one scroll box over all four. **-> extended GC-153** with
-    the one requirement it did not carry - a **minimum height per section**, because "every header
-    on screen" is satisfied by a section squeezed to its header alone and his ask is that STASHES
-    stays readable, not merely present - plus an acceptance line for it. No new ticket: duplicating
-    a ticket the stakeholder has now independently reported twice would be the wrong answer to
-    being right about it twice.
-  - shipped: **eleven commits**, two batches. `9336964` closes GC-156, GC-157, GC-158, GC-160 and
-    GC-161; `72d0694` closes GC-129, GC-134, GC-135, GC-102, GC-117 and GC-122. Read as a reviewer,
-    **GC-129** is the one whose correctness is least obvious and it is right: the sha is read before
-    the drop that makes it unreachable, the drop is awaited only after the store resolves, and it
-    targets `index + 1` because `git stash store` prepends a reflog entry - the comment states all
-    three, and the reasoning matches what git actually does. **GC-102** is clean: `rememberedTheme()`
-    is read lazily because `index.ts` calls `app.setPath` after the module is imported, both
-    failure paths fall back to dark, and the write is wrapped because an unwritable profile should
-    only cost the next start one frame. It also quietly fixed a real drift - `index.ts` carried
-    `#1b1d22` where `--bg-app` is `#1c1e23`. **GC-134** is a straight move with its tests moved
-    with it. No bug found in any diff.
-  - verified live rather than from the diffs: **GC-129**'s "Edit message…" row is in the stash
-    menu, opened from the graph chip (`04-stash-menu.png`). **GC-135**'s relative times render in
-    both places it targeted - `authored 3 minutes ago` on the commit view (`03-commit-view.png`)
-    and `2 minutes ago` on the stash row (`06-stash-row.png`). **GC-157**'s parents column gives way
-    before the authored date on the fixture's merge commit at the default 400px panel.
-    **GC-144**'s dash covers the whole WIP-to-`main` run (`01-graph.png`).
-  - health: at 23ce5c2 in the detached worktree with `node_modules` junctioned - **typecheck ok,
-    306 tests passed (22 files)** in 2.36s, **build ok**. The build landed in the worktree's own
-    `out/` (14:14) and `MAIN/out` kept its 13:56 timestamps: `MAIN` was never built, tested or
+  - 2026-09-06 15:35 inbox: `INBOX.md` exists and its **Pending section is empty** — GR-020 drained
+    all three items last hour and Ricardo has added none since. Nothing to investigate, nothing
+    declined, nothing left in Pending, and the file is not rewritten this run. So the whole budget
+    went to the reviewer's own passes.
+  - shipped: **eight commits**, of which three carry code. `a5240f8` closes GC-164 and GC-163,
+    `bb58971` GC-123, `be96b22` GC-124; `89442ba` is their close-out and carries GC-127 and GC-136
+    outright; `10da457` is GC-174; `904b1d3` and `75dea9b` are GR-020's own; `cfe9aa9` is the
+    current batch's claim. Read as a reviewer, **no bug found in any diff**. The one worth naming
+    is **GC-163**, because widening `Tab.path` to `string | null` is the kind of change that leaks:
+    it does not — all four places that compare a path (`tabFor`, the restore of `lastRepo`, the
+    canonical-spelling effect, `storedPaths`) were each given the null guard, and `showEmpty` is
+    extracted from `closeTab`'s last-tab branch rather than duplicated, so the empty state is one
+    piece of code in both places it is now reached from. **GC-124** is a defensive fix whose own
+    comment says nothing is wrong today, which is the honest framing, and it moves both guards to
+    the ref in the same commit rather than one. **GC-123** takes both halves of the hover state,
+    including the `overflow: visible` half that is the load-bearing one, and says so in the CSS.
+    Acceptance evidence is present in every ticket log I spot-checked.
+  - health: at cfe9aa9 in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    337 tests passed (23 files)** in 3.06s, **build ok**. The build landed in the worktree's own
+    `out/` (15:14) while `MAIN/out` kept its 15:06 timestamps: `MAIN` was never built, tested or
     launched.
-  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Six
-    screenshots in `%TEMP%/gitclient-review/GR-020/`, all looked at. `01-graph.png` and
-    `02-stash-in-graph.png` are the same graph without and with a stash, which is what settled
-    inbox 2 and showed GC-156's cloud-dropping as a cost rather than a bug. `03-commit-view.png`
-    is the detail panel on the merge commit. `04-stash-menu.png` is the stash context menu.
-    `05-shortcuts.png` and `06-stash-row.png` are this review's two rotation surfaces - the
-    shortcuts overlay, which no review had screenshotted, where GC-103's scrolling body keeps the
-    title and Close fixed and nothing is clipped; and the expanded STASHES section, which is where
-    this review's own finding came from.
-  - tickets: added **GC-169** (actions, M, P1) and **GC-170** (graph, M, P2) from the inbox,
-    extended **GC-153** from it, and added **GC-171** (ui, S, P3) as this review's own single
-    finding. **GC-171** is the UI-pass find and it is measured, not impressionistic: at the default
-    220px panel the stash row's `.row-name` is drawn at 77.2px against a `scrollWidth` of 192,
-    while `.row-when` takes 65.9px because `.ref-row .row-when` is `flex: none` with **no width at
-    all** - so what is on screen is `On main: re…`, eleven characters of a prefix every stash on the
-    branch shares, and two stashes on `main` render identically. It is GC-156's lesson one panel
-    over: furniture sized by its own content taking the room the name needed. No what's-next ticket
-    this run - GR-019's two named gaps (Blame, Export to patch) still want the surface decision it
-    described, and the inbox supplied three items and most of the budget, so forcing a fourth would
-    have been the weak one.
-  - board: **GC-169** and **GC-170** go ahead of GC-128, which is still the first unclaimed row and
-    still cannot be started - its `Depends on` is GC-026, `todo` - for the third review running.
-    Both new ones are eligible immediately and both came from Ricardo. **GC-153 moves up beside
-    them and is raised P3 -> P2**: it is the only open ticket that makes the panel wrong on every
-    real repository, and the stakeholder has now reported it twice from two directions. GC-171 goes
-    after GC-166 and ahead of GC-026, where GR-015 onwards have put their P3 additions. Nothing
-    else moved.
+  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Nine
+    screenshots in `%TEMP%/gitclient-review/GR-021/`, all looked at. `01-graph.png` and
+    `04-diff.png` are the graph and an open diff in dark and show nothing new. `05-new-tab-page.png`
+    is **GC-163's new tab**, which is the window's most recently shipped surface and works as
+    Ricardo asked: `+` makes a real tab labelled "New Tab", the recents page is its content, and
+    every toolbar control on it is correctly disabled (`Undo`, `Redo`, both remote buttons,
+    `Branch`, `Stash`, `Pop`, `Refresh`, `Search`) while Shortcuts and Preferences stay live. It
+    also confirms **GC-165** on screen rather than by reading: the recents path renders as
+    `C:/Users/Ricar/AppData/Local/Temp/gitclient-review/w…`, cut at the end, losing the folder that
+    identifies the row — evidence added to that ticket rather than a second one filed.
+  - the rotation surfaces this run were **Preferences** and the **light theme**, neither of which
+    any review had screenshotted. `06-preferences.png` is clean: GC-103's scrolling body keeps the
+    title and Close fixed, every control is the app's own, and nothing is clipped. The light theme
+    is where this review's finding came from — **-> GC-175**, and it is measured rather than
+    impressionistic: reading the tokens back over CDP and computing the WCAG ratio for each pair of
+    adjoining surfaces gives light 1.066 / 1.059 / 1.126 / 1.119 / 1.194 against dark's 1.161 /
+    1.155 / 1.210 / 1.378 / 1.426, so a menu over a panel gets 1.19 where dark gives 1.43 and every
+    raised surface sits at 1.12 over the app where dark gives 1.38. `--border` loses the same way,
+    `rgba(0,0,0,0.1)` against `rgba(255,255,255,0.08)`, which at opposite ends of the transfer curve
+    is the smaller step of the two — so light is drawn with a weaker fill *and* a weaker line at
+    every boundary. The text ramp is fine and is out of scope: `--text-dim` over `--bg-panel` is
+    3.25:1 light against 3.56:1 dark. Filed P3, not higher, because dark is the default, is what
+    the main process remembers and is what Ricardo works in.
+  - tickets: added **GC-175** (ui, M, P3), this review's single finding, from the UI pass. Nothing
+    from the code-review pass, which found no bug. No what's-next ticket either, and the reason is
+    the board rather than the study: the study's own largest open recommendation is
+    "Build open/clone/init", which **is** GC-128 and has been unstartable for four reviews — fixing
+    that is worth more this hour than a fifth P3, and is the reorder below.
+  - board: **GC-026 moves to the top of the todo rows, above GC-128, and is raised P3 -> P2.**
+    GC-128 has been the first unclaimed row for four reviews running and has never once been
+    eligible, because its `Depends on` is GC-026, which sat eighteen rows below it in the P3 pile.
+    A size-S ticket with no dependencies of its own was gating the largest capability the client is
+    missing, and every review since GR-018 has observed that and left the order alone. Now
+    `node tools/backlog.mjs` picks GC-026 the moment the current batch clears, and GC-128 becomes
+    eligible the run after. A ticket's priority should not be lower than that of the ticket it
+    gates, which is the general form of the mistake and is why the cell moved and not just the row.
+    **GC-175** goes after GC-171 and ahead of GC-017/GC-018, where GR-015 onwards have put their
+    P3 additions. Nothing else moved.
   - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here and all three
-    still want a decision from Ricardo. No `todo` ticket has gone vague. Dependencies on the three
-    added: GC-169 on nothing, GC-170 on GC-140 and GC-171 on GC-135, both `done`, so all three are
-    eligible the moment they are read.
-  - notes, and one that is genuinely stale: `CLAUDE.md` at 23ce5c2 says "306 tests today", which
-    matched exactly, and its Architecture section is current for GC-129, GC-134, GC-102, GC-117,
-    GC-122 and GC-156. But its **GC-135 paragraph is measurably wrong**: it says the stash row's
-    `.row-when` "is `flex: none` at 39px" and that "the age is four or five characters", where
-    `app.css:2150` gives it `flex: none` and **no width**, "2 minutes ago" measures 65.9px, and the
-    following claim that "at 300px and above the name is back at its natural width" does not hold
-    either (about 158px of the 192 wanted). That description was the ahead/behind readout it was
-    copied from. This review does not edit `CLAUDE.md`; GC-171 carries the correction, which is
-    where it belongs since the same ticket changes the widths.
-  - isolation: six tickets were `in-progress` throughout (GC-164, GC-163, GC-123, GC-124, GC-127,
-    GC-136) and not one was touched; the three ids added start at GC-169, above every id the worker
-    holds. `MAIN` was never built, tested or launched, and its working tree was left exactly as
-    found - the write below waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean in
-    `git status` and stages only those two, while the worker's own `src/` edits sat uncommitted
-    beside them. The only repository written to was the review's own scratch root: one stash taken
-    for `02-stash-in-graph.png` and popped back with `--index`, leaving `git status --short` and an
-    empty `stash list` byte-identical to what `e2e:setup` created. `catena-feed` was **not opened
-    at all** this run - inbox 1 came with its own read-only evidence and inbox 3 was already
-    evidenced on GC-153, so there was nothing a real repository was needed for. The review's
-    Electron on 9334 was found by command line and stopped by PID tree; zero remained afterwards.
-  - the tip moved as usual: `origin/main` is 23ce5c2 and `MAIN` already carries three unpushed
-    worker commits above it (GC-164/GC-163 partial, GC-123, GC-124). Those are **out of this window
-    and belong to GR-021**, which should read their diffs properly.
+    still want a decision from Ricardo. No `todo` ticket has gone vague. `tools/backlog.mjs`, which
+    the routine now depends on entirely, was read as part of the GC-174 diff: `boardRows` splits on
+    the pipe cell by cell as the file demands rather than by regex, `decide` treats a row and a
+    section that disagree as the hygiene test's problem rather than as a batch to take, and the
+    `done` set is read from the archive's board as well as from both files' sections — so a ticket
+    whose row moved but whose section did not cannot be picked up. It behaves as documented.
+  - notes: `CLAUDE.md` at cfe9aa9 says "337 tests today", which matched the run exactly, and its
+    Architecture and Commands sections are current for GC-163, GC-164, GC-123, GC-124, GC-127,
+    GC-136 and GC-174. GR-020's finding that the GC-135 paragraph is measurably wrong still stands
+    and is still carried by GC-171, which has not been claimed. Nothing else looked stale.
+  - isolation: six tickets were `in-progress` throughout (GC-172, GC-169, GC-170, GC-153, GC-137,
+    GC-138) and not one was touched; the one id added is GC-175, above every id the worker holds.
+    `MAIN` was never built, tested or launched, and its working tree was left exactly as found —
+    the write below waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean in `git status`
+    and stages only those two, while the worker's own `tools/e2e/run.mjs` edit and an untracked
+    `docs/screenshots/gc170-stash-row.png` sat uncommitted beside them. The only repository
+    written to was the review's own scratch root, and only through the app's Preferences dialog:
+    the theme was switched to light for the screenshots and switched back, and `gitclient.prefs`
+    reads `"theme":"dark"` again with every other field unchanged. `catena-feed` was **not opened**
+    this run — the inbox was empty and nothing needed a large real graph. The review's Electron on
+    9334 was found by command line and stopped by PID tree; zero remained afterwards.
+  - the tip moved as usual: `origin/main` is cfe9aa9 and `MAIN` already carries **two unpushed
+    worker commits** above it (`084a779` and `35f5940`, closing out GC-172, GC-169, GC-170 and
+    starting on GC-153/GC-137/GC-138). Those are out of this window and belong to GR-022, which
+    should read their diffs properly — and should note that the six tickets were still marked
+    `in-progress` while their code was committed, so the batch was mid-close-out, not stalled.
