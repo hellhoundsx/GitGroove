@@ -313,10 +313,10 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | done |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | done |
-| GC-156 | A stash marker on a row cuts the primary ref chip’s name down to one letter | graph | S | P2 | todo |
-| GC-157 | The authored timestamp is cut short at the default detail-panel width on any merge commit | ui | S | P2 | todo |
-| GC-158 | The backlog archive is outside the control-byte scan, so 82% of the backlog lost rule 6’s guard | tests | S | P2 | todo |
-| GC-160 | e2e step 1 clears three remembered keys by name, and a driver can leave any of the others | tests | S | P2 | todo |
+| GC-156 | A stash marker on a row cuts the primary ref chip’s name down to one letter | graph | S | P2 | in-progress |
+| GC-157 | The authored timestamp is cut short at the default detail-panel width on any merge commit | ui | S | P2 | in-progress |
+| GC-158 | The backlog archive is outside the control-byte scan, so 82% of the backlog lost rule 6’s guard | tests | S | P2 | in-progress |
+| GC-160 | e2e step 1 clears three remembered keys by name, and a driver can leave any of the others | tests | S | P2 | in-progress |
 | GC-140 | Stashes never appear in the graph, only in the left panel’s list | graph | M | P2 | done |
 | GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | done |
 | GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | done |
@@ -369,7 +369,7 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | done |
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | done |
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | done |
-| GC-161 | The checkout guard stashes untracked files without saying so, now that its neighbour does | ui | S | P3 | todo |
+| GC-161 | The checkout guard stashes untracked files without saying so, now that its neighbour does | ui | S | P3 | in-progress |
 | GC-129 | A stash message cannot be edited once the stash is made | actions | S | P3 | todo |
 | GC-134 | remoteCopyOf is inline and untested, and its comment justifies a state git forbids | tests | S | P3 | todo |
 | GC-135 | Nothing says how long ago anything happened, and the stash date is fetched and thrown away | ui | M | P3 | todo |
@@ -411,7 +411,7 @@ decision is missing.
 
 ### GC-160 e2e step 1 clears three remembered keys by name, and a driver can leave any of the others
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-155
 - **Why:** GC-155 added `gitclient.tabs` to the keys step 1 removes, because a driver had left one
@@ -445,12 +445,13 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-085 (this ticket): a screenshot driver's `gitclient.refColW=400`
     survived a whole e2e run, which is GC-155's bug one key over.
+  - 2026-09-06 12:54 claimed
 
 ---
 
 ### GC-161 The checkout guard stashes untracked files without saying so, now that its neighbour does
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-097
 - **Why:** GC-097 gave the sequencer guard's prompt a clause saying what it will stash — "Stash your
@@ -480,6 +481,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-097 (this ticket): the sequencer guard now says what it stashes and
     the checkout guard next to it, which stashes more, still does not.
+  - 2026-09-06 12:54 claimed
 
 ---
 
@@ -1560,7 +1562,7 @@ decision is missing.
     fixture - the scratch repo's nine refs cannot produce it.
 ### GC-156 A stash marker on a row cuts the primary ref chip's name down to one letter
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-140, GC-071
 - **Why:** GC-140 put a `.stash-chip` in `.col-ref` and was careful about what it is *not*: it
@@ -1611,12 +1613,13 @@ decision is missing.
   - 2026-09-06 proposed by GR-018: measured at `dcffe27`, a stash on `main`'s tip takes the
     primary chip from `main` to `m…` at a 134px ref column; GC-071's `width - 41` counts the
     `+N` and nothing else.
+  - 2026-09-06 12:54 claimed
 
 ---
 
 ### GC-157 The authored timestamp is cut short at the default detail-panel width on any merge commit
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-142
 - **Why:** GC-142 made `.author` a three-column grid — `auto minmax(0, 1fr) auto`, avatar |
@@ -1659,12 +1662,13 @@ decision is missing.
   - 2026-09-06 proposed by GR-018: measured at `dcffe27`, the fixture's merge commit renders
     `authored 06/09/2026, 12:…` at the default 400px panel; the parents column takes 154px of 375
     and is `auto`, so the date pays the entire shortfall.
+  - 2026-09-06 12:54 claimed
 
 ---
 
 ### GC-158 The backlog archive is outside the control-byte scan, so 82% of the backlog lost rule 6's guard
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** GC-145
 - **Why:** `tools/repo-hygiene.test.ts` is what enforces `CLAUDE.md`'s rule 6 — a control
@@ -1701,6 +1705,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-018: GC-145 moved 630 KB of backlog prose into a file
     `ROOT_FILES` does not list, so rule 6's guard now covers 1,956 of the backlog's 10,189 lines.
+  - 2026-09-06 12:54 claimed
 
 ---
 
