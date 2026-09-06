@@ -255,13 +255,13 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-180 | A conflicted file opens a diff pane that is blank, with live buttons over it | diff | M | P1 | todo |
-| GC-181 | A conflict can be marked resolved but never resolved | actions | S | P2 | todo |
-| GC-182 | The graph’s WIP row has a text field wired to nothing | graph | S | P2 | todo |
+| GC-180 | A conflicted file opens a diff pane that is blank, with live buttons over it | diff | M | P1 | in-progress |
+| GC-181 | A conflict can be marked resolved but never resolved | actions | S | P2 | in-progress |
+| GC-182 | The graph’s WIP row has a text field wired to nothing | graph | S | P2 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-151 | A repository tab is the one row in the app a right-click does nothing on | ui | S | P3 | todo |
-| GC-150 | A stash row in the left panel is inert on a single click, and never says which commit it came from | ui | S | P3 | todo |
-| GC-152 | A commit can only be read against its parent, never against the working directory | diff | M | P3 | todo |
+| GC-151 | A repository tab is the one row in the app a right-click does nothing on | ui | S | P3 | in-progress |
+| GC-150 | A stash row in the left panel is inert on a single click, and never says which commit it came from | ui | S | P3 | in-progress |
+| GC-152 | A commit can only be read against its parent, never against the working directory | diff | M | P3 | in-progress |
 | GC-159 | The remote menu can copy a URL but cannot open the remote on its hosting service | actions | S | P3 | todo |
 | GC-165 | The empty state’s recents paths ellipsise at the wrong end, unlike the menu’s | ui | S | P3 | todo |
 | GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | todo |
@@ -403,7 +403,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-150 A stash row in the left panel is inert on a single click, and never says which commit it came from
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-140
 - **Why:** GC-141 gave every LOCAL, REMOTE and TAG row an `onClick` that selects the ref's tip, and
@@ -438,10 +438,11 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-141 (this batch): GC-141 fenced the stash rows off because a stash
     had no commit to select. GC-140, in the same batch, gave it one, so the two tickets together
     left a gap neither of them owns.
+  - 2026-09-06 16:44 claimed
 
 ### GC-151 A repository tab is the one row in the app a right-click does nothing on
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-016
 - **Why:** GC-016 shipped the tab bar with a close button and middle-click-to-close and no context
@@ -506,10 +507,11 @@ in the Why; an invariant goes in `CLAUDE.md`.
     study lists all three tab bindings together and our table carries none of them; `Ctrl+T` went
     to GC-163 with the `+` behaviour it names, and these two belong with the actions this ticket
     is already building rather than in a bindings ticket of their own.
+  - 2026-09-06 16:44 claimed
 
 ### GC-152 A commit can only be read against its parent, never against the working directory
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** M | **Priority:** P3
 - **Depends on:** none
 - **Why:** the commit view's file list is `git show`, so a commit is always read against its
@@ -566,6 +568,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GR-017: the one commit action in the study's list that is neither
     blocked behind interactive rebase nor a worktree feature, and GR-016 named it unticketed.
+  - 2026-09-06 16:44 claimed
 
 ### GC-159 The remote menu can copy a URL but cannot open the remote on its hosting service
 
@@ -1007,7 +1010,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-180 A conflicted file opens a diff pane that is blank, with live buttons over it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** M | **Priority:** P1
 - **Depends on:** —
 - **Why:** Reproduced at `3def19a` in a throwaway repository (one file, one content conflict on a
@@ -1059,12 +1062,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-022: reproduced at `3def19a` — the conflicted file's diff body is the
     empty string, because git's combined diff parses to a file with no hunks and `DiffView` has no
     branch for that.
+  - 2026-09-06 16:44 claimed
 
 ---
 
 ### GC-181 A conflict can be marked resolved but never resolved
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** —
 - **Why:** The staging banner says "merge in progress with 1 conflicted file. Resolve them, then
@@ -1108,12 +1112,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GR-022: the conflicted row's menu was read off the running app and
     offers nothing that resolves anything, on a state four of the app's own actions produce.
+  - 2026-09-06 16:44 claimed
 
 ---
 
 ### GC-182 The graph's WIP row has a text field wired to nothing
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P2
 - **Depends on:** GC-148
 - **Why:** `CommitGraph.tsx` renders the WIP row's message cell as
@@ -1159,6 +1164,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
     staging summary stays empty, Enter does nothing, and the text lives only in an uncontrolled DOM
     node. If Ricardo would rather the graph did not commit at all, the alternative is to make the
     cell a non-interactive `// WIP` label; what is not acceptable is a field that keeps nothing.
+  - 2026-09-06 16:44 claimed
 
 ---
 
