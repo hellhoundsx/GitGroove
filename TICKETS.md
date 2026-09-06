@@ -253,10 +253,14 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | done |
 | GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | done |
 | GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | done |
+| GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | todo |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
 | GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
 | GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | done |
+| GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | todo |
+| GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | todo |
+| GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | in-progress |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -289,6 +293,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | todo |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | todo |
+| GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | todo |
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
 | GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
 | GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | todo |
@@ -299,7 +304,6 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | todo |
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
-| GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P3 | todo |
 | GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | todo |
 | GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
@@ -6274,14 +6278,8 @@ decision is missing.
     `docs/screenshots/gc116-optional-columns-900.png` and `-1600.png`.
   - 2026-09-06 08:55 noted while verifying: a column the preference has switched on is now simply absent on a
     narrow window, with nothing saying why. Filed as GC-117 rather than widened into this ticket.
+
 ---
-
-## Reviews
-
-Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
-`GR-0NN`, never appear on the board, are never picked by the ticket routine and are written
-once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
-appends its own section here.
 
 ### GC-117 A graph column switched on in Preferences can be silently absent
 
@@ -6318,6 +6316,203 @@ appends its own section here.
     the dialog.
 
 ---
+
+### GC-118 A drag released past the limit throws away the width the pointer did reach
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** GC-111, GC-115 (both `done`)
+- **Why:** GC-111 and GC-115 made a drag stop at the wall the window imposes and, crucially, stop
+  *persisting* a width the pointer never reached: `dragWidth` answers `reached: false` for a
+  request past `limit`, and `useDragWidth`'s `onPointerUp` then does `if (!reached) return` and
+  writes nothing at all. But `reached` is computed at the **release** position only, so a drag that
+  travelled through widths the wall does allow and then overshot it discards the whole drag,
+  including the part that was legitimate. Measured on the built `c98c10a` app at 1000x900 with
+  `gitclient.leftPanelW = 170` and `gitclient.detailPanelW = 300` (so the left handle's limit is
+  `1000 - 300 - MIN_GRAPH_W` = 260): dragging the left handle 200px right draws the panel at 260 and
+  leaves it there, and `gitclient.leftPanelW` still reads `170`. The next load snaps the panel back
+  to 170. The user dragged, watched the panel move, released, and the change was dropped in silence
+  — which is the same class of surprise GC-115 was filed for, from the other direction.
+- **Scope:**
+  - A release past the limit persists the last width the pointer **did** reach during that drag,
+    rather than nothing. A drag that reached no allowed width at all — the GC-111 case, where the
+    limit is at or below the width the element starts from — still persists nothing.
+  - Keep GC-115's promise exactly as it is: the wall's own value is never written over a **larger**
+    stored width. Both defects are one rule said once — persist what the pointer reached, never what
+    it did not — so state it that way rather than adding a second special case beside the first.
+  - `dragWidth` stays pure and keeps the unit cases it has; the last width reached belongs in the
+    drag ref beside `x` and `w`, which is the only place that knows the drag is still the same one.
+- **Out of scope:** the limits themselves (GC-105, GC-110), the fit applied on resize, the
+  double-click reset, and the ref column's own `fitRefCol` (GC-110).
+- **Acceptance:**
+  - [ ] At 1000x900 with `leftPanelW` 170 and `detailPanelW` 300, dragging the left handle 200px
+        right and releasing leaves the drawn width **and** `gitclient.leftPanelW` at 260, and a
+        reload keeps 260.
+  - [ ] The GC-111 case is unchanged: at 1000x900 with 220 / 720 stored, a one-pixel rightward drag
+        of the left handle leaves `gitclient.leftPanelW` at 220 — nothing reached, nothing written.
+  - [ ] The GC-115 case is unchanged: at 900 with `gitclient.refColW` 400, a rightward drag on the
+        ref column leaves the stored 400 alone.
+  - [ ] `useDragWidth.test.ts` gains a case for a drag whose travel reaches an allowed width and
+        whose release does not, asserting which width is persisted.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/ui/useDragWidth.ts`, `src/renderer/src/ui/useDragWidth.test.ts`.
+- **Verify:** build, launch through `node tools/launch-app.mjs`, set the two width keys and the
+  window size over CDP, drive a real pointer drag with `Input.dispatchMouseEvent`
+  (mousePressed, several mouseMoved, mouseReleased), and read `localStorage` and the drawn width
+  before the release, after it, and after a reload.
+- **Log:**
+  - 2026-09-06 08:20 proposed by GR-013: measured on the running `c98c10a` build, the numbers above.
+    Not a duplicate of GC-111 or GC-115: both are `done` and both are about a width the pointer
+    never reached being written; this is the mirror case, a width it did reach not being written.
+
+---
+
+### GC-119 Both toolbar popovers can be open at once, and Escape then needs two presses
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** GC-057 (`done`)
+- **Why:** GC-057 made Push a split button beside Pull's. The two are kept mutually exclusive by a
+  single `mousedown` listener in `Toolbar.tsx`: opening one closes the other only because the click
+  that opens it is preceded by a `mousedown` landing outside the other's ref. A `<button>` activated
+  from the keyboard fires `click` with no `mousedown` at all, so with the Push popover up, moving
+  focus to Pull's caret and pressing Enter leaves **both** open and overlapping — the Push popover
+  covers the Pull popover's three mode rows. Measured on the built `c98c10a` app over CDP with real
+  `Input.dispatchKeyEvent` presses: state after Enter is `{push: true, pull: true}`, and it then
+  takes two Escapes to get back to no layer, because `layerOpen`'s ladder in `App.tsx` closes one
+  layer per press and both flags are set. Nothing is corrupted, but the toolbar shows two menus at
+  once and makes the "one Escape, one layer" rule look wrong when the fault is the state.
+- **Scope:**
+  - Opening either popover closes the other **in state**, so the two cannot both be open however
+    the button was activated. The `mousedown` listener keeps only the job it is good for, closing
+    on an outside click.
+  - Whatever shape this takes, the flags stay in `App.tsx` with the other layers and Escape stays
+    handled there and nowhere else (GC-038): a mutual-exclusion rule in `Toolbar` must not turn
+    into a second keydown listener.
+- **Out of scope:** the contents of either popover, focus management or a roving tabindex inside
+  them, and the `layerOpen` ladder's order, which is correct for the states it can legally see.
+- **Acceptance:**
+  - [ ] With the Push popover open, focusing the Pull caret and pressing Enter leaves only the Pull
+        popover open; the mirror case leaves only the Push popover open.
+  - [ ] A `mousedown` anywhere outside both still closes both.
+  - [ ] From either popover, one Escape returns to no layer open.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/components/Toolbar.tsx`, `src/renderer/src/App.tsx`.
+- **Verify:** build, launch through `node tools/launch-app.mjs` on a repository with two remotes,
+  open one popover with a real `Input.dispatchMouseEvent` click, then `focus()` the other caret and
+  send a real Enter with `Input.dispatchKeyEvent`, reading
+  `document.querySelector('.split-btn.push .popover')` and `.split-btn.pull .popover` after each.
+- **Log:**
+  - 2026-09-06 08:20 proposed by GR-013: found in the app pass while screenshotting GC-057's two
+    popovers, then confirmed with real key events rather than the synthetic `click()` that first
+    showed it.
+
+---
+
+### GC-120 A context menu taller than the window loses its last rows, with nothing to scroll
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** —
+- **Why:** `.ctx-menu` is `position: fixed` with a `max-width` and no `max-height`, and its
+  `overflow-y` is `visible`. The branch menu has been growing all along: GC-049 added the
+  tip-commit actions, GC-073 the hide/solo pair, GC-100 the upstream pair, and GC-114 one
+  "Push `<branch>` to `<remote>`" row **per remote**, so its height now scales with the repository.
+  Measured on the built `c98c10a` app at 1400x620 — the app's own `minHeight` is 600 — the menu on
+  `main` with two remotes is 623px tall, clamped to `top: 4`, and its last row ("Copy branch name")
+  ends at y=622 against a 620px window: it is off the bottom edge and there is no way to reach it.
+  A third remote adds another row. GC-103 answered exactly this question for the modal — cap the
+  height against the window, let one part scroll, keep both ends on screen — and the menu, which is
+  the surface most likely to outgrow a short window, never got the same treatment.
+- **Scope:**
+  - `.ctx-menu` gets a height cap derived from the window and scrolls internally past it, so the
+    first and last rows are always reachable. The existing top clamp keeps working, and a menu that
+    fits is spaced and positioned exactly as it is now.
+  - The scroll container picks up the global `::-webkit-scrollbar` rules (GC-079) with no
+    per-component rule of its own, and no `scrollbar-width` / `scrollbar-color`.
+  - Check the flip-above-the-anchor path still chooses sensibly once a height cap exists: a menu
+    that is capped has no reason to flip.
+- **Out of scope:** shortening the branch menu itself or grouping its rows into submenus; GC-074's
+  row-width truncation, which is the other axis; the folded-refs block in the graph, which is not a
+  `.ctx-menu`.
+- **Acceptance:**
+  - [ ] At 1400x600, the branch menu on a branch with two remotes shows its last row, reachable by
+        scrolling, and its first row is on screen.
+  - [ ] At 1400x900 the same menu is unscrolled and its rect is unchanged from today's.
+  - [ ] The scrollbar is the app's 8px flat thumb, with no new rule in `app.css` for it, and
+        `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/ui/ContextMenu.tsx`.
+- **Verify:** build, launch through `node tools/launch-app.mjs`, resize to 1400x600 over CDP,
+  right-click `main` in the left panel, and read the menu's `getBoundingClientRect()` and the last
+  row's `bottom` against `window.innerHeight`; repeat at 1400x900.
+- **Log:**
+  - 2026-09-06 08:20 proposed by GR-013: found in the app pass, measured at the app's own minimum
+    window height. Named as its own ticket rather than folded into GC-074, which is about a row
+    being too wide for the menu, not the menu being too tall for the window.
+
+---
+
+### GC-121 Stage and discard selected lines, not only whole hunks
+
+- **Status:** todo
+- **Area:** diff | **Size:** M | **Priority:** P3
+- **Depends on:** —
+- **Why:** the staging workflow stops at the hunk. `buildHunkPatch(file, hunk)` rebuilds a patch
+  from `hunk.raw` and the two hunk buttons use it, so anything smaller than a hunk cannot be staged
+  at all without editing the file first. GitKraken's Files row offers
+  "Stage / unstage / discard (file, folder, hunk, **line**)"
+  (`docs/reference/gitkraken/06-feature-inventory.md`), and of everything still missing from the
+  study this is the one that changes what the client is *for*: crafting a commit out of a messy
+  working tree is the reason to open a git GUI at all. The pieces are already here — the diff
+  renders one element per `DiffLine` in both layouts, and GC-104 already keys data off the
+  `DiffLine` object itself so the unified and split views read one map, which is exactly what a
+  line selection needs in order not to drift between them.
+- **Scope:**
+  - Selecting lines inside one hunk: click a changed line to select it, shift-click to extend the
+    run, click a selected line to deselect. The selection lives with the hunk, is limited to one
+    hunk at a time, and clears whenever the diff's identity or version changes (GC-075's keying),
+    so a selection can never outlive the content it was made against.
+  - `buildLinePatch(file, hunk, selected)` beside `buildHunkPatch`, pure and unit-tested in the
+    node project: selected additions stay `+`, unselected additions are dropped, selected removals
+    stay `-`, unselected removals become context lines, and the `@@` counts are recomputed from
+    what survives. Discard is that patch applied in reverse.
+  - The hunk header's buttons read "Stage N lines" / "Discard N lines" while that hunk has a
+    selection, and the whole-hunk wording otherwise.
+  - Both layouts must build a byte-identical patch from the same selection, the way GC-014 requires
+    of `hunk.raw` today.
+- **Out of scope:** unstaging individual lines from the staged side — a follow-up once the patch
+  builder exists, and worth its own ticket then; folder-level staging; Blame and History from the
+  same inventory row; dragging to select.
+- **Acceptance:**
+  - [ ] Selecting two of three added lines in a hunk and staging leaves exactly those two staged,
+        asserted with `git diff --cached` in the scratch repository.
+  - [ ] The same selection made in the split layout produces a byte-identical patch to the unified
+        one, asserted in a unit test rather than by eye.
+  - [ ] Discarding a selection leaves the unselected lines in the working tree untouched.
+  - [ ] `buildLinePatch` has unit cases for additions only, removals only, a mixed hunk, and a
+        selection covering every changed line — which must equal `buildHunkPatch`'s output.
+  - [ ] A new e2e step stages a line selection and asserts the result against git.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/diff/parseDiff.ts`, `src/renderer/src/diff/parseDiff.test.ts`,
+  `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css`, `tools/e2e/run.mjs`.
+- **Verify:** `npm test` for the patch builder, then `npm run e2e` for the new step, plus a manual
+  pass over CDP in both layouts on `a.txt`, which the fixture leaves with a multi-line change.
+- **Log:**
+  - 2026-09-06 08:20 proposed by GR-013 from the what's-next pass: the largest remaining gap in the
+    Files row of `06-feature-inventory.md`, and the one whose groundwork (`buildHunkPatch`,
+    `alignHunks`, the per-`DiffLine` keying from GC-104) is already in place. Not a duplicate of
+    GC-052, which is navigation and rendering options inside the diff, or of GC-107, which restores
+    a whole file from a commit.
+
+---
+
+## Reviews
+
+Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
+`GR-0NN`, never appear on the board, are never picked by the ticket routine and are written
+once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
+appends its own section here.
 
 ### GR-001 Backlog review 2026-09-05 17:23
 
@@ -7186,3 +7381,118 @@ appends its own section here.
     committed `57cbe94` and `0740d62` locally while this review was running. The window above deliberately
     stops at `37f392b`, the tip when the review started; GR-013 picks up from there. None of the four
     `in-progress` tickets was touched. The review's Electron on 9334 was stopped by PID.
+
+### GR-013 Backlog review 2026-09-06 08:20
+
+- **Status:** done
+- **Window:** 37f392b..c98c10a
+- **Log:**
+  - 2026-09-06 08:20 shipped: ten commits, two worker batches and one review. `fccc9bb` claims
+    GC-110, GC-109, GC-057 and GC-100; `57cbe94`, `0740d62` and `a12ee9b` implement three of them
+    and `6c74a9c` closes the batch out with GC-100. `882ad4d` claims GC-111, GC-115, GC-114, GC-113
+    and GC-116; `9099be4` implements all five and `770b385` closes them out. `678aafa` is GR-012,
+    and `c98c10a` is the worker's claim of GC-015, which is `in-progress` and was not touched here.
+    Read as a reviewer: **GC-110** does one level in what GC-105 did one level out and keeps the
+    same promise — `fitRefCol` reduces only what reaches `--ref-col-w`, `gitclient.refColW` is left
+    alone, and the `panelW <= 0` guard means the first frame draws the stored width instead of
+    snapping to the minimum and back. **GC-116**'s `fitOptCols` is the sharpest piece in the window:
+    deciding the surviving set against the ref column's *floor* and never re-examining it after
+    `fitRefCol` has run is what makes it stable, and the reasoning for that is written down beside
+    the code rather than left to be rediscovered. Every render site reads `cols`, not `wantCols` —
+    header, rows and `restW` — so the three cannot disagree. **GC-113** is a reorder of the same ten
+    values with the argument attached; the claim "at least 100 degrees apart" is 98 at the 1/2 pair
+    by my own measurement, which is not worth a ticket. **GC-114** is small and right, and the
+    remote is now passed explicitly so the label and the command read one value. **GC-057**'s
+    `pull()` naming the branch whenever it names a remote is the subtle part and it is correct —
+    `git pull <remote>` alone would still merge `branch.<name>.merge`. **GC-100**'s split between
+    `git fetch . <upstream>:<branch>` and `git merge --ff-only` is the right shape and neither path
+    can force anything. **The drag half of GC-111/GC-115 is still not finished**, from the opposite
+    direction to the one they fixed — see the tickets line. Nothing in the window drifts from
+    `CLAUDE.md`; every acceptance box I spot-checked has evidence in its log.
+  - health: at `c98c10a`, in the detached worktree at `%TEMP%/gitclient-review/wt` with
+    `node_modules` junctioned — **typecheck ok, 169 tests passed (16 files)** in 1.68s, **build ok**.
+    e2e was run as well, because the window touched `git.ts`, `ipc.ts`, `App.tsx` actions and
+    `tools/e2e/run.mjs`: on port **9335** with `GITCLIENT_E2E_ROOT=%TEMP%/gitclient-review/e2e`,
+    **ALL PASSED, 167 assertions, 0 failures**, `total: 27.4s | git: 252 calls, 6.5s`, and step 29
+    confirmed the fixture was left exactly as found. `MAIN` was never built, tested or launched; its
+    only change from this session is `TICKETS.md`.
+  - app: the `c98c10a` build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, fixture
+    recreated first, every `gitclient.*` key except `lastRepo`/`recentRepos` cleared over CDP. A
+    second remote was added to the scratch repository by hand so the new multi-remote surfaces had
+    something to show, and removed again before the e2e run. Screenshots in
+    `%TEMP%/gitclient-review/GR-013/`, all looked at. `01-graph-1400.png`: nine rows, lanes
+    continuous, right-angle joins, `wip-branch +1` and `main +4`; GC-113 is visible and it works —
+    HEAD's cyan column 0 against the magenta branch beside it is now the easiest pair to tell apart
+    rather than the hardest. `02-push-popover.png` and `03-pull-popover.png` are GC-057's two new
+    layers: the Push caret appears only with two remotes, both popovers list them, and Pull keeps
+    its radio group above the new rows. `04-both-popovers-keyboard.png` is the first of this
+    review's defects. `05-branch-menu-main.png` is GC-100 and GC-114 together — "Change upstream of
+    main…", "Unset upstream of main", "Push main to origin", "Push main to remote2", no
+    fast-forward row because `main` is level with its upstream, all correct — and it also shows
+    GC-074 still true, "keep changes in the working dire…" truncated, which is fresh evidence for a
+    ticket already open. `06-branch-menu-620.png` is the second defect. `07-cols-1600.png` and
+    `08-cols-900.png` are GC-116 measured again from outside the ticket: all three columns at 1600,
+    none at 900, message readable at both. `09-`/`10-` are a commit and its diff, `11-wip-diff.png`
+    the WIP side with `Stage hunk` / `Discard hunk` live. `12-file-menu.png` is an untracked row's
+    menu; note it offers two "Ignore …" rows, not three, because `new.txt` is at the repository
+    root and the folder row is conditional — the code is right, `CLAUDE.md`'s "three" is a shade
+    strong. `13-preferences.png` is this review's rotation surface and it is the reason GC-101
+    moved — see below. `14-drag-past-limit.png` is the P1.
+  - what's next: read the Files row of `06-feature-inventory.md` against the staging surfaces.
+    "Stage / unstage / discard (file, folder, hunk, **line**)" is the entry that stands out: the app
+    stops at the hunk, and line-level staging is the one missing capability that changes what the
+    client is for rather than adding another convenience. Its groundwork already exists —
+    `buildHunkPatch`, `alignHunks`, and GC-104's per-`DiffLine` keying that lets both layouts read
+    one map — so it is specifiable now, and it became GC-121. Still unticketed from the same row and
+    worth a later look: Blame, History, Export changes to patch. From the Commit row: Compare
+    against working directory. From the Stash row: Edit stash message, which is small and would fit
+    a batch that is otherwise full of P3s.
+  - tickets: added **GC-118** (ui, S, **P1**, code review plus the running app: a drag released past
+    the limit discards the width the pointer did reach, measured at 1000x900 — drawn 260, stored
+    170, back to 170 on reload), **GC-119** (ui, S, P2, from the app pass: both toolbar popovers can
+    be open at once when the second is opened from the keyboard, confirmed with real key events),
+    **GC-120** (ui, S, P2, from the app pass: the branch menu is 623px tall at the app's own 600px
+    minimum window height and its last row is off the bottom, with no `max-height` and no scroll)
+    and **GC-121** (diff, M, P3, from the what's-next pass). Board: GC-118 goes directly under
+    GC-114, at the head of the open work — it was the only P1 among the `todo` rows and the first
+    eligible row before it was GC-016, a size-L P3 that a worker run would otherwise have taken
+    alone. GC-119 and GC-120 go under GC-116 with the other P2s. GC-121 goes under GC-052, beside
+    the other diff feature row.
+  - reordering: **GC-101** (unstyled checkboxes and dropdowns) was raised from P3 to P2 and moved up
+    beside GC-119 and GC-120. The reason is `13-preferences.png`: the dialog is the one surface
+    where Windows draws its own controls, and against an otherwise consistent dark palette the
+    native blue checkboxes and the two OS `<select>` boxes are the loudest visual mismatch left in
+    the app — louder than anything else this review looked at. It also now carries eight rows, three
+    of which GC-117 is about to annotate, so doing GC-117 first means building on controls that are
+    going to be replaced. Nothing else moved.
+  - hygiene: no `todo` ticket has gone vague. `blocked` is GC-017, GC-018 and GC-081; none can be
+    unblocked from here, all three want a decision from Ricardo. Dependencies read correctly:
+    GC-118 on GC-111/GC-115, GC-119 on GC-057, GC-120 and GC-121 on nothing. One filing error
+    fixed: **GC-117's section had been written inside the Reviews section**, between its intro
+    paragraph and GR-001, where a review section is supposed to be the only thing that can appear;
+    its text is untouched and it now sits with the other tickets, before the `---` that closes the
+    Tickets section. Its own `Depends on: GC-116` is still right; it is arguably also downstream of
+    GC-101 now, but that is a judgement for whoever picks it up and the ticket was not edited.
+  - carried over: GR-011 and GR-012 both asked for a read of GC-014's other five files and of the
+    five tickets in GR-010's `d34d732`. GR-012 said carrying the line a third time would be worse
+    than either doing it or dropping it, and it is right: **both are written off here.** Both
+    windows are `done`, both were reviewed at the time by the sessions that shipped them, e2e covers
+    GC-014's two layouts in step 28 and the intra-line marks in both since GC-109, and the budget is
+    better spent on the current window and the app than on re-reading month-old diffs for defects
+    nothing has surfaced. GR-014 should not carry this line.
+  - notes: `CLAUDE.md` is current at `c98c10a`, and its numbers were checked rather than trusted:
+    "169 tests" matches the run exactly, and "29 steps, 167 assertions, ~26s" with
+    `total: 26.2s | git: 252 calls, 6.5s` matches this machine's run to the assertion and the call
+    count, the seconds being 27.4 here. The Graph, UI-layer and Main-process sections match the code
+    the window shipped, including the `fitOptCols` and `dragWidth` paragraphs. One shade of
+    overstatement, not worth an edit on its own: the Detail-panel section says "the three 'Ignore …'
+    rows are offered on an untracked row", where the folder row is conditional on the file being in
+    a folder — true of every row in a subdirectory, false at the repository root. This review did
+    not edit `CLAUDE.md`.
+  - isolation: GC-015 was `in-progress` throughout and was not touched. `MAIN` was never built,
+    tested or launched, and its working tree — which was holding the worker's half-finished GC-015
+    edits across `App.tsx`, `LeftPanel.tsx`, `CommitGraph.tsx`, `app.css`, `tools/e2e/run.mjs` and a
+    new `ui/refDrag.ts`, and grew while this review ran — was left exactly as found;
+    `TICKETS.md` was clean in `git status` before this write and is the only file staged. The
+    review's Electron on 9334 was found by command line and stopped by PID; the e2e run had the
+    port to itself on 9335.
