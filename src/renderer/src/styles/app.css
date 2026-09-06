@@ -1427,6 +1427,12 @@ input[type='radio']:disabled {
   font-weight: 600;
   color: var(--text-bright);
 }
+/* A commit with no description has nothing under the summary for that 8px to separate it from, and
+   a box whose height is now its content's is exactly where such a gap shows (GC-191): measured, it
+   was 8px of the 54 a one-line message came to. */
+.message-box h2:last-child {
+  margin-bottom: 0;
+}
 .message-box pre {
   margin: 0;
   font: inherit;
@@ -1521,7 +1527,11 @@ input[type='radio']:disabled {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  min-height: 0;
+  /* Its head, and never less: a list squeezed under that has neither its count nor its Stage-all
+     button, which is the left panel's `MIN_SECTION_H` argument for a shorter box (GC-153). It is
+     also what an empty Staged list costs, so the three lists in the staging view share what is
+     left in proportion to what each is asking for and the empty one asks for its header. */
+  min-height: 30px;
   overflow: auto;
 }
 /* The list's own header, and the strongest of the boundaries: a band rather than another
@@ -1537,6 +1547,7 @@ input[type='radio']:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: none;
   height: 30px;
   padding: 0 var(--sp-2);
   margin-bottom: var(--sp-1);
@@ -1549,6 +1560,10 @@ input[type='radio']:disabled {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  /* `flex: none` with it (GC-191): the list is a bounded flex column now, so a row's 26px was a
+     basis it could be shrunk from — measured, 29 rows in a 474px box came out at 15px each, all
+     of them on screen and none of them readable. The list overflows and scrolls instead. */
+  flex: none;
   height: 26px;
   padding: 0 var(--sp-2);
   font-size: var(--fs-sm);
@@ -1567,8 +1582,14 @@ input[type='radio']:disabled {
    backwards by the rule the ref chip (GC-071) and the stash row (GC-135) already follow. The
    spans sit in one `.path` item now, so the row's gap falls after the kind icon and before the
    hover actions and nowhere else.
-   The folder is what gives way: a shrink factor large enough that it absorbs the whole shortfall
-   and the name is only reached once the folder has nothing left. It loses its **head**, through
+   The folder is what gives way, and it is the **only** item that can: the name is `flex: none`
+   and bounded by `max-width` instead. A large shrink factor was tried first and is not enough —
+   shrinkage is distributed in proportion to factor times base size, so the name still gave up a
+   fraction of a pixel, and a box 0.03px under its text is one Chromium draws an ellipsis in. The
+   name was measurably whole (`clientWidth` 185 against a natural 185) and visibly read
+   `VeryLongComponentName10.t…`. With nothing else shrinkable the folder absorbs the whole
+   shortfall, and `max-width: 100%` is what still ellipsises a name too long for the row on its
+   own. It loses its **head**, through
    the `direction: rtl` box GC-067 and GC-165 already share — and the inner span is load-bearing
    with it: an RTL box moves a trailing `/` to the other end (GC-093), so the text is re-isolated
    as LTR inside a box that is RTL only to decide where the ellipsis goes. */
@@ -1582,7 +1603,7 @@ input[type='radio']:disabled {
 .file-row .dir,
 .file-view-head .dir {
   color: var(--text-dim);
-  flex: 0 999 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1594,8 +1615,8 @@ input[type='radio']:disabled {
 }
 .file-row .name,
 .file-view-head .name {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: none;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2282,7 +2303,8 @@ input[type='radio']:disabled {
    ellipsised at the end — the half of a path that identifies a repository is exactly the half it
    was throwing away, on the one screen where a user has nothing else on screen to go by. Which
    end gives way is one declaration; where a path that *fits* sits is each surface's own business,
-   and stays in its own block (the menu's hint is right-aligned, a recents row's path is not). */
+   and stays in its own block (the menu's hint is right-aligned, a recents row's path is not).
+
    The two halves of a file path join them (GC-192): a changed file's folder in the detail panel
    and in the file view's header gives way at its head for the same reason, so which end an
    ellipsised path loses is one declaration for every surface that draws one. Those two wrap their

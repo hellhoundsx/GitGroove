@@ -530,7 +530,12 @@ a zero floor, exactly as the collapsed left rail does.
   than the window keeps its title and its buttons on screen instead of overflowing off both ends.
   The gap between the children is `--modal-gap`, which `.modal.prefs` and `.modal.shortcuts` raise;
   a body that fits is spaced exactly as it was. A new modal joins this shape — no `max-height` of
-  its own, or it is a scrollbar inside a scrollbar.
+  its own, or it is a scrollbar inside a scrollbar. **And the horizontal padding is on the children,
+  not on `.modal`** (GC-195): a classic scrollbar is laid out between the border and the padding
+  box, so a body that spans the dialog and carries the inset itself puts the bar at the dialog's own
+  edge with the content stopping 16px short of it — where the padding on `.modal` put the bar 17px
+  in, with dead space one side and the controls flush against the other. `.modal > *` is the rule,
+  so a fourth block joining the shape is inset like the three.
 - **A context menu is capped against the window and scrolls inside itself** (GC-120), the same
   answer `.modal` has: `.ctx-menu` is `calc(100vh - 8px)` — the 4px the position clamp keeps at
   each edge — so the branch menu, whose height grows with the number of remotes, keeps its first
@@ -874,6 +879,15 @@ floor — so GC-111, GC-115 and GC-118 hold here without a second copy of them. 
 both stored heights, and the pair then splits what is left, which is an equal share without that
 being a case of its own.
 
+**And which sections are open is remembered with them** (GC-177), on `gitclient.sectionOpen` —
+global like the heights, since these are the same four sections in every repository, and unlike
+the closed folders, which are per path. GC-153 is why it matters: the open set is what decides how
+the column is shared, so a user who arranged the panel was losing the arrangement while the
+heights they dragged came back. The key holds **only the sections the user has actually toggled**,
+so one they have never touched keeps its default and STASHES goes on following whether there are
+any; a missing, hand-edited or empty value is absent rather than "all closed", which is
+`readSectionHeights`' own rule.
+
 **Slash-separated names fold into folders in the left panel** (GC-051). `buildRefTree(refs, label)`
 in `LeftPanel.tsx` is the pure half: `label` is the name **relative to the section**, so a remote
 groups without its own segment — the remote's row is already the first level — and a folder's count
@@ -1068,6 +1082,33 @@ and `filled`, the latter `fill: currentColor` on the lucide glyph — rather tha
 component: there is one place the app's stroke weight is decided and it stays that way. The
 graph row's own readout is still text and is GC-183.
 
+**The file list is the block that gives way; nothing above or below it moves** (GC-191). A flex
+item whose `overflow` is anything but `visible` has an automatic minimum size of **zero**, so
+`.message-box` — the one block in the column that carried `overflow: auto` — was the only one that
+could be crushed, and a 29-file list beside it, having no overflow of its own, crushed it to 12px
+of the 160 it wanted. It is `flex: none` now with the cap moved onto its `pre`, so the summary is
+whole at whatever height it needs and only the description scrolls; `.file-list` takes
+`flex: 1 1 auto; min-height: 30px; overflow: auto` and is what scrolls in all three views, with
+`.file-row` and `.group-head` `flex: none` inside it — a row's 26px is a basis a bounded flex
+column will otherwise shrink, and 29 of them came out at 15px each, all on screen and none
+readable. The `.group-head` is `sticky`, since the count and the Stage-all button are what a list
+scrolling away would take with it. What this buys is the staging view: `.commit-form` keeps the
+bottom of the panel at every file count, where it used to sit 328px below the fold. `.detail-body`
+keeps its own `overflow: auto` as the fallback for a panel too short even for the blocks that
+cannot shrink.
+
+**A path is one thing, and the file name is its identity** (GC-192). Both surfaces that draw a
+changed file's path — the detail panel's `.file-row` and the file view's `.file-view-head` — put
+the dim folder and the bright name in one `.path` flex item, so the row's own 8px gap falls after
+the kind icon and before the hover actions and never between the two halves of one path. The
+folder is the **only** shrinkable item (`.name` is `flex: none` with `max-width: 100%`) and loses
+its **head**, joining the `direction: rtl` rule `.ctx-hint.path` and `.recent-row .recent-path`
+already share. Two things there are load-bearing: a large shrink factor is not enough, because
+shrinkage is distributed in proportion to factor times base size and a name left 0.03px short is
+one Chromium draws an ellipsis in — measurably whole and visibly `…Name10.t…`; and the folder's
+text is re-isolated LTR inside that RTL box, or the trailing `/` is reordered to the other end
+(GC-093).
+
 **One boundary treatment, listed once for both views** (GC-142). A block in `.detail-body` is
 either a **card**, which carries its own border — the message box, a banner, an error — or a
 **section**, separated from the block above it by a 1px rule and the body's own 12px: `.author`,
@@ -1163,6 +1204,7 @@ Remembered **state** deliberately stays on its own keys, never in the blob:
 | `gitclient.leftPanelW` | left panel width in px (160–420, default 220) |
 | `gitclient.detailPanelW` | detail panel width in px (300–720, default 400) |
 | `gitclient.sectionHeights` | the left panel's section heights in px, per section id (GC-153) |
+| `gitclient.sectionOpen` | which of the left panel's sections are open, only the ones toggled (GC-177) |
 | `gitclient.pinned.<repoPath>` | the branch pinned to the graph's left column |
 | `gitclient.hidden.<repoPath>` | full names of the refs kept out of the graph |
 | `gitclient.folded.<repoPath>` | the left panel's closed folders, `<section>/<folder path>` (GC-139) |
@@ -1216,6 +1258,22 @@ printing nothing.
   A component rule written against a bare `input` therefore has to exclude both —
   `.commit-form input:not([type='checkbox']):not([type='radio'])` is the only one, and its 8px
   padding had floored the Amend box at 18px under `box-sizing: border-box`.
+- **A control that answers the pointer answers with a shape, not with alpha** (GC-193). The two
+  vocabularies are `--accent-hover` (every row in both panels) and `--hover-overlay` (a control on
+  the title bar or the toolbar); a hover that only lifts `--text-muted` to `--text-bright` is 25%
+  of alpha on a 10px label and is not one. The tab row's rule is a **`background-image`** — a
+  single-colour `linear-gradient` — because that composites over whatever `background-color` the
+  element already has, so one rule answers both an unselected tab, which tints the title bar
+  showing through it, and the **selected** tab, which lands one step above its `--bg-toolbar` and
+  had no hover response at all. `.tool-btn` takes `--hover-overlay` as an ordinary background
+  inside the 4px-inset box its own margin makes, `:not(:disabled)` so a disabled button still
+  answers with nothing, and its colour stays in a rule `.tool-btn.active` outranks.
+- **A control that opens a menu draws a chevron** (GC-194). Both toolbar crumbs are
+  `owner`-anchored dropdowns and were the only controls in the window that opened one silently,
+  while the same window drew `ChevronDown` on the recents button, on `.pref-select` and on the
+  split buttons' caret. `.crumb.as-button` is a row of a `.stack` and that icon, so the menu still
+  hangs off the crumb's own bottom-left corner and the chevron is part of the button rather than a
+  second target.
 - **One global `::-webkit-scrollbar` rule set** near the top: 8px, a flat thumb at a 4px radius,
   transparent track and corner, no buttons. Every scroll container gets it with no per-component
   rule. Do **not** also set the standard `scrollbar-width` or `scrollbar-color`: either makes
@@ -1279,8 +1337,11 @@ closed, and a port nobody holds is the fallback.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 42 steps, 314 assertions, ~46s. It ends with
-`total: 45.0s | git: 373 calls, 9.9s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 42 steps, 314 assertions. It ends with
+`total: 83.5s | git: 386 calls, 23.6s` — measured 2026-09-06, and the clock is worth reading as a
+comparison rather than as a constant: the same suite has ended at 45s on an idle machine and takes
+about twice that with another Electron and a build running beside it. The line is
+the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -1519,6 +1580,13 @@ that draw it, an empty tab closing itself only when it hands the user to another
 dark ramp's ratios rather than its lightnesses inverted (Diff, Graph, App state, Main process,
 Styling); a scratch worktree's junction removed as a link, with the removal refusing rather than
 reaching through it (Testing);
+the file list the block that gives way while the message box and the commit form keep their place,
+a row inside it `flex: none` so it scrolls rather than being squeezed, a path drawn as one item
+whose folder is the only half that may shrink and loses its head with its text re-isolated LTR, a
+hover that carries a shape and answers the selected tab as well, a control that opens a menu
+drawing a chevron, a modal's horizontal padding on its children so the scrollbar sits at the
+dialog's edge, and the left panel's open set remembered beside its heights (Detail panel, Diff, UI
+layer, Styling, Graph);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control
