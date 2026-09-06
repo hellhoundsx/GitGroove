@@ -230,11 +230,11 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | done |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | done |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | done |
-| GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | todo |
+| GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | in-progress |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
-| GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | todo |
-| GC-082 | Popping a stash through the toolbar loses what was staged | actions | S | P2 | todo |
-| GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | todo |
+| GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | in-progress |
+| GC-082 | Popping a stash through the toolbar loses what was staged | actions | S | P2 | in-progress |
+| GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | in-progress |
 | GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
 | GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
@@ -3039,7 +3039,7 @@ decision is missing.
 
 ### GC-064 An e2e:setup on the shared scratch root wipes a run already using it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `tools/e2e/setup-testrepo.mjs` starts with `rmSync(root, { recursive: true, force: true })`
@@ -3070,6 +3070,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GC-053 (this ticket): a concurrent `e2e:setup` on the default root
     destroyed a baseline measurement mid-run and the resulting failure named nothing.
+  - 2026-09-06 02:28 claimed
 
 
 ### GC-065 Two of the study's screenshots show the desktop, not GitKraken
@@ -3458,7 +3459,7 @@ decision is missing.
 
 ### GC-072 Show in folder is offered on a file the commit deleted, and always fails
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-043
 - **Why:** GC-043 disables "Open file" on a commit file whose `kind` is `deleted`, but leaves
@@ -3501,6 +3502,7 @@ decision is missing.
     Open file and Show in folder and Open file fails with "File not found in the working tree") and
     raised from P3 to P2: it is a defect in GC-043 as shipped and reachable from the fixture as it
     stands. Board row moved up behind GC-069.
+  - 2026-09-06 02:28 claimed
 
 
 ### GC-073 Hide and Solo branches in the graph from the left panel
@@ -3964,7 +3966,7 @@ decision is missing.
 
 ### GC-080 The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** GC-053 replaced 61 fixed sleeps with `waitFor`, but the two helpers every git action still
@@ -4023,6 +4025,7 @@ decision is missing.
   - 2026-09-06 requested by Ricardo after asking whether the e2e time could be improved; the 39 +
     12 call sites and the 43.8s floor were counted in `run.mjs`, the ~55-60s run length read off
     the shot timestamps of the run then in progress.
+  - 2026-09-06 02:28 claimed
 
 ### GC-081 Time the e2e run's 141 git spawns and drop the redundant ones
 
@@ -4065,7 +4068,7 @@ decision is missing.
 
 ### GC-082 Popping a stash through the toolbar loses what was staged
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `stashApply`/`stashPop` in `src/main/git.ts` run `git stash pop` without `--index`, so a
@@ -4098,6 +4101,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GC-076 (this ticket): measuring what a finished run leaves in the fixture
     showed the staged half gone from step 8 onwards, on every run, with or without GC-076.
+  - 2026-09-06 02:28 claimed
 
 ### GC-083 A diff that fails to load shows an empty body
 
