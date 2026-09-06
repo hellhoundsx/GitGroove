@@ -2045,6 +2045,7 @@ export function App(): JSX.Element {
           <>
             <LeftPanel
               info={snapshot.info}
+              repoPath={repo}
               refs={snapshot.refs}
               stashes={snapshot.stashes}
               remotes={snapshot.remotes}

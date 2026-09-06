@@ -1,8 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import type { ComponentProps } from 'react';
+import type { ComponentProps, JSX } from 'react';
 import type { GitRef } from '@shared/types';
-import { LeftPanel, buildRefTree, readSectionHeights } from './LeftPanel';
+import { LeftPanel, buildRefTree, folderKeys, readFolded, readSectionHeights } from './LeftPanel';
 import type { RefDragHandlers } from '../ui/refDrag';
 
 // Explicit imports rather than vitest globals is the house style, so RTL's own auto-cleanup and
@@ -85,10 +85,12 @@ const noResize = {
   onDoubleClick: () => {},
 };
 
-function panel(refs: GitRef[], over: Partial<ComponentProps<typeof LeftPanel>> = {}): HTMLElement {
-  const { container } = render(
+/** The panel with every prop filled in, as a component: a test that rerenders needs the element. */
+function Panel({ refs, ...over }: { refs: GitRef[] } & Partial<ComponentProps<typeof LeftPanel>>): JSX.Element {
+  return (
     <LeftPanel
       info={{ path: '/repo', name: 'repo', headSha: 'abc1234def', branch: 'main' }}
+      repoPath="/repo"
       refs={refs}
       stashes={[]}
       remotes={[]}
@@ -111,9 +113,12 @@ function panel(refs: GitRef[], over: Partial<ComponentProps<typeof LeftPanel>> =
       onRemoteMenu={() => {}}
       onAddRemote={() => {}}
       {...over}
-    />,
+    />
   );
-  return container;
+}
+
+function panel(refs: GitRef[], over: Partial<ComponentProps<typeof LeftPanel>> = {}): HTMLElement {
+  return render(<Panel refs={refs} {...over} />).container;
 }
 
 const names = (c: HTMLElement, sel: string): string[] => [...c.querySelectorAll(sel)].map((e) => e.querySelector('.row-name')?.textContent ?? '');
@@ -165,6 +170,65 @@ describe('LeftPanel folders (GC-051)', () => {
     const c = panel([head('main', true), head('feat/a'), head('feat/b')]);
     // Three refs in two rows and a folder: the header of LOCAL says 3, not 5 and not 2.
     expect(c.querySelector('.section-head .count')!.textContent).toBe('3');
+  });
+});
+
+describe('a closed folder is remembered per repository (GC-139)', () => {
+  const feat = [head('main', true), head('feat/a'), head('feat/b')];
+  const folderOf = (c: HTMLElement): Element => c.querySelector('.ref-row.folder')!;
+
+  it('stores the closed folder and reads it back on the next mount', () => {
+    const c = panel(feat);
+    fireEvent.click(folderOf(c));
+    expect(JSON.parse(localStorage.getItem('gitclient.folded./repo')!)).toEqual(['local/feat']);
+
+    cleanup();
+    expect(folderOf(panel(feat)).classList.contains('open')).toBe(false);
+  });
+
+  it('drops the key again when the folder is reopened', () => {
+    const c = panel(feat);
+    fireEvent.click(folderOf(c));
+    fireEvent.click(folderOf(c));
+    expect(localStorage.getItem('gitclient.folded./repo')).toBe(null);
+  });
+
+  it('is another repository’s business: the same folder is open there', () => {
+    localStorage.setItem('gitclient.folded./repo', JSON.stringify(['local/feat']));
+    expect(folderOf(panel(feat, { repoPath: '/other' })).classList.contains('open')).toBe(true);
+  });
+
+  it('follows a repository switch without a repaint of the previous one’s folders', () => {
+    localStorage.setItem('gitclient.folded./other', JSON.stringify(['local/feat']));
+    const { rerender, container } = render(<Panel refs={feat} repoPath="/repo" />);
+    expect(folderOf(container).classList.contains('open')).toBe(true);
+    rerender(<Panel refs={feat} repoPath="/other" />);
+    expect(folderOf(container).classList.contains('open')).toBe(false);
+  });
+
+  it('prunes a folder whose refs have all gone, rather than accumulating', () => {
+    localStorage.setItem('gitclient.folded./repo', JSON.stringify(['local/feat', 'local/release']));
+    panel(feat);
+    expect(JSON.parse(localStorage.getItem('gitclient.folded./repo')!)).toEqual(['local/feat']);
+  });
+
+  it('ignores a hand-edited value rather than throwing', () => {
+    localStorage.setItem('gitclient.folded./repo', '{"not":"an array"}');
+    expect(folderOf(panel(feat)).classList.contains('open')).toBe(true);
+    expect(readFolded('/repo').size).toBe(0);
+  });
+});
+
+describe('folderKeys', () => {
+  it('names every level of a local and a tag name, and no leaf', () => {
+    const tag = (name: string): GitRef => ({ ...head(name), kind: 'tag', fullName: `refs/tags/${name}` });
+    expect([...folderKeys([head('feat/ui/a'), head('main'), tag('v1/rc')], [])].sort()).toEqual(['local/feat', 'local/feat/ui', 'tags/v1']);
+  });
+
+  it('drops the remote’s own segment, which its row already carries', () => {
+    const rem = (name: string): GitRef => ({ ...head(name), kind: 'remote', fullName: `refs/remotes/${name}` });
+    const remotes = [{ name: 'origin', fetchUrl: 'u', pushUrl: 'u' }];
+    expect([...folderKeys([rem('origin/feat/a'), rem('origin/main')], remotes)]).toEqual(['remote:origin/feat']);
   });
 });
 

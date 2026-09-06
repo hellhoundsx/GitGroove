@@ -9,6 +9,8 @@ import { formatDateTimeSeconds, relativeTime } from '../time';
 interface Props {
   /** Where HEAD is, which is what the header says (GC-094). The same `info` the breadcrumb reads. */
   info: RepoInfo;
+  /** The open repository, which the closed-folder set is keyed by (GC-139). */
+  repoPath: string;
   refs: GitRef[];
   stashes: Stash[];
   remotes: Remote[];
@@ -67,6 +69,54 @@ export function readSectionHeights(): Partial<Record<SectionId, number>> {
   } catch {
     return {};
   }
+}
+
+/** Where a repository's closed folders live (GC-139): remembered state, so its own key per path. */
+const foldedKey = (repoPath: string): string => `gitclient.folded.${repoPath}`;
+
+/** The closed folders stored for a repository. Anything but an array of strings reads as none. */
+export function readFolded(repoPath: string): Set<string> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(foldedKey(repoPath)) ?? 'null');
+    return new Set(Array.isArray(raw) ? raw.filter((k): k is string => typeof k === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeFolded(repoPath: string, closed: ReadonlySet<string>): void {
+  try {
+    // Nothing closed means no key, the way the heights drop theirs: a set the user has emptied is
+    // not one the app has to keep.
+    if (closed.size === 0) localStorage.removeItem(foldedKey(repoPath));
+    else localStorage.setItem(foldedKey(repoPath), JSON.stringify([...closed]));
+  } catch {
+    /* private mode: the folders just do not survive the reload */
+  }
+}
+
+/**
+ * Every folder key a set of refs can produce, which is what a stored set is pruned against
+ * (GC-139) — a folder whose refs are all gone stops being remembered, the same reason the hidden
+ * set is pruned. Built from the names directly rather than from the trees, because the trees hold
+ * only what the filter matched and the whole snapshot is what decides whether a folder exists.
+ */
+export function folderKeys(refs: GitRef[], remotes: Remote[]): Set<string> {
+  const out = new Set<string>();
+  const add = (section: string, label: string): void => {
+    const segs = label.split('/').filter(Boolean);
+    for (let i = 1; i < segs.length; i++) out.add(`${section}/${segs.slice(0, i).join('/')}`);
+  };
+  for (const r of refs) {
+    if (r.kind === 'head') add('local', r.name);
+    else if (r.kind === 'tag') add('tags', r.name);
+    else if (r.kind === 'remote') {
+      // The remote's own row is the first level, so its segment is not part of the key (GC-051).
+      const rem = remotes.find((x) => r.name.startsWith(`${x.name}/`));
+      if (rem) add(`remote:${rem.name}`, r.name.slice(rem.name.length + 1));
+    }
+  }
+  return out;
 }
 
 interface SectionProps {
@@ -208,9 +258,25 @@ export function LeftPanel(p: Props): JSX.Element {
   const drag = useRefDrag(p.refDrag);
   const f = filter.trim().toLowerCase();
   const hidden = useMemo(() => new Set(p.hidden), [p.hidden]);
-  // Which folders the user has closed, keyed `<section>/<folder path>` and kept for the session
-  // only (GC-051). Closed rather than open, so a folder that appears later starts expanded.
-  const [closedFolders, setClosedFolders] = useState<ReadonlySet<string>>(new Set());
+  // Which folders the user has closed, keyed `<section>/<folder path>` and remembered per
+  // repository (GC-051, GC-139). Closed rather than open, so a folder that appears later starts
+  // expanded. The path it was read for is held beside it because this component is not keyed by
+  // repository: a switch is noticed during render, the way `DiffView` derives rather than clears
+  // from an effect, so no frame is painted with the previous repository's folders.
+  const [folded, setFolded] = useState<{ path: string; set: ReadonlySet<string> }>(() => ({ path: p.repoPath, set: readFolded(p.repoPath) }));
+  if (folded.path !== p.repoPath) setFolded({ path: p.repoPath, set: readFolded(p.repoPath) });
+  const closedFolders = folded.set;
+
+  // Pruned against the refs actually present, so a folder that no longer exists stops being
+  // remembered (GC-139). Only ever shrinks, so it settles in one pass.
+  useEffect(() => {
+    const keys = folderKeys(p.refs, p.remotes);
+    const kept = [...folded.set].filter((k) => keys.has(k));
+    if (kept.length === folded.set.size) return;
+    const next = new Set(kept);
+    writeFolded(p.repoPath, next);
+    setFolded({ path: p.repoPath, set: next });
+  }, [p.refs, p.remotes, p.repoPath, folded]);
 
   // ---- the four sections share the column (GC-153) -------------------------------------------
   // Which are open is the panel's business now rather than each section's own state, because the
@@ -304,12 +370,12 @@ export function LeftPanel(p: Props): JSX.Element {
     );
   };
   const toggleSection = (id: SectionId): void => setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
-  const toggleFolder = (key: string): void =>
-    setClosedFolders((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
+  const toggleFolder = (key: string): void => {
+    const next = new Set(closedFolders);
+    if (!next.delete(key)) next.add(key);
+    writeFolded(p.repoPath, next);
+    setFolded({ path: p.repoPath, set: next });
+  };
 
   const { local, tags, remoteGroups, remoteCount } = useMemo(() => {
     const match = (name: string): boolean => !f || name.toLowerCase().includes(f);
