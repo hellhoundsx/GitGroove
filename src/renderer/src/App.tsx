@@ -702,16 +702,28 @@ export function App(): JSX.Element {
         return;
       }
       if (!(await ui.confirm({ title: `Delete branch ${r.name}?`, okLabel: 'Delete', danger: true }))) return;
+      const wasPinned = r.name === pinned;
+      let deleted = false;
       try {
         await run(`Deleting ${r.name}`, () => window.api.deleteBranch(repo!, r.name, false), { rethrow: true });
+        deleted = true;
       } catch (e) {
         if (/not fully merged/i.test(msg(e))) {
-          if (await ui.confirm({ title: `${r.name} is not fully merged`, message: 'Deleting it will lose the commits that are not reachable from another branch.', okLabel: 'Force delete', danger: true }))
-            await run(`Deleting ${r.name}`, () => window.api.deleteBranch(repo!, r.name, true));
+          if (await ui.confirm({ title: `${r.name} is not fully merged`, message: 'Deleting it will lose the commits that are not reachable from another branch.', okLabel: 'Force delete', danger: true })) {
+            try {
+              await run(`Deleting ${r.name}`, () => window.api.deleteBranch(repo!, r.name, true), { rethrow: true });
+              deleted = true;
+            } catch {
+              /* the message is already on the status bar */
+            }
+          }
         }
       }
+      // The pin is stored by name, so one left behind by a deleted branch never resolves again
+      // and its key outlives the repository's history (GC-021).
+      if (deleted && wasPinned) pinBranch(null);
     },
-    [repo, run, ui],
+    [pinBranch, pinned, repo, run, ui],
   );
 
   /**
@@ -796,7 +808,15 @@ export function App(): JSX.Element {
           label: `Rename ${r.name}…`,
           onClick: async () => {
             const res = await ui.prompt({ title: 'Rename branch', label: 'New name', defaultValue: r.name, okLabel: 'Rename' });
-            if (res && res.value !== r.name) await run('Renaming branch', () => window.api.renameBranch(repo!, r.name, res.value));
+            if (!res || res.value === r.name) return;
+            try {
+              await run('Renaming branch', () => window.api.renameBranch(repo!, r.name, res.value), { rethrow: true });
+            } catch {
+              return; // the message is already on the status bar, and the old name still stands
+            }
+            // The pin is stored by name, so without this the graph silently falls back to HEAD
+            // in column 0 and the branch has to be pinned again (GC-021).
+            if (isPinned) pinBranch(res.value);
           },
         });
         if (remotes.length > 1) {
