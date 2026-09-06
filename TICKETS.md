@@ -248,7 +248,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-098 | A failed git call in the e2e suite is silent, so a lost race reads as a UI bug | tests | S | P2 | done |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | done |
 | GC-013 | Light theme | ui | M | P3 | done |
-| GC-014 | Side-by-side diff | diff | L | P3 | todo |
+| GC-014 | Side-by-side diff | diff | L | P3 | in-progress |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | todo |
@@ -868,7 +868,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-014 Side-by-side diff
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** L | **Priority:** P3
 - **Depends on:** GC-002
 - **Why:** The unified view is the only one. GitKraken offers a split view and a toggle.
@@ -883,6 +883,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Files:** `parseDiff.ts`, `DiffView.tsx`, `app.css`, tests.
 - **Verify:** `npm test`, e2e, screenshot.
 - **Log:**
+  - 2026-09-06 05:00 claimed
 
 ### GC-015 Drag-and-drop merge and rebase between chips
 
