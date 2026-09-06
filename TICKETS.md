@@ -261,6 +261,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | done |
 | GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | done |
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
+| GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-125 | Radio buttons are the last unstyled OS control, now that the checkboxes are ours | ui | S | P3 | in-progress |
 | GC-126 | Nothing guards the toolbar popovers or the context menu height in the e2e suite | tests | S | P3 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
@@ -306,11 +307,13 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | todo |
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
 | GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | todo |
+| GC-129 | A stash message cannot be edited once the stash is made | actions | S | P3 | todo |
 | GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | todo |
 | GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | todo |
 | GC-122 | The graph does not scroll while a branch is being dragged | graph | S | P3 | todo |
 | GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | todo |
 | GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | todo |
+| GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
 | GC-017 | Interactive rebase editor | actions | L | P3 | blocked |
 | GC-018 | Undo and Redo | actions | L | P3 | blocked |
@@ -6713,6 +6716,139 @@ decision is missing.
   - 2026-09-06 proposed by GC-015 (this ticket): found while composing the checkout and the
     sequencer guard into one gesture.
 
+### GC-127 A chip offers a grab cursor it cannot honour, and lights up less than the row beside it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-015 (`done`)
+- **Why:** GC-015 gave one gesture two surfaces, and the affordances that say so came out uneven
+  at both ends of it.
+  - **The cursor promises a drag that cannot start.** `.ref-chip` has carried
+    `cursor: grab` since before the drag existed, and it is set on every chip. Only branches are
+    draggable (`canDragRef`), so a tag chip — `v0.1.0` and `v0.2.0` on the scratch fixture — and
+    the synthetic `HEAD` chip a detached checkout draws both report `draggable=false` while the
+    pointer over them says grab. Measured in the built app: `v0.2.0 draggable=false cursor=grab`,
+    `v0.1.0 draggable=false cursor=grab`, against `main draggable=true cursor=grab`. The `+N` chip
+    is the one that gets this right, at `cursor: default`.
+  - **And the two surfaces disagree about what a draggable ref looks like.** Every left-panel
+    `.ref-row` is `cursor: pointer`, draggable or not; every chip is `grab`. Two elements standing
+    for the same `GitRef`, offering the same gesture, under two different cursors.
+  - **The drop highlight is weaker on the surface that receives most drops.** `.ref-chip.drop-over`
+    and `.ref-row.drop-over` share a 1px accent outline, and then `.ref-row.drop-over` alone adds
+    `background: var(--accent-hover)`. A row therefore lights up with a tint and an outline; a chip
+    gets the outline only, over a background that is already a 30% mix of its lane colour, inside a
+    column of coloured lanes. At 100% on a 1400px window the ring on `main`'s chip is hard to pick
+    out at all; at 3x it is plainly there. The graph is where a drag usually ends, so the weaker of
+    the two feedbacks is on the busier surface.
+- **Scope:**
+  - `cursor: grab` belongs to a chip that can actually be picked up, not to `.ref-chip` as a class.
+    Drive it from the same predicate the `draggable` attribute is: a chip that is not draggable
+    keeps the pointer the rest of the row has.
+  - Settle on one cursor for a draggable ref and use it on both surfaces.
+  - Give `.ref-chip.drop-over` feedback of the same strength the row has — a tint over the chip's
+    own background, a thicker ring, or both — so a drop target reads at 100% without hunting.
+- **Out of scope:** what a drop offers (`canDropRef` is right), reachability of a folded or
+  off-screen ref (GC-123, GC-122), and the `opacity: 0.45` on the drag source, which reads
+  correctly on both surfaces already.
+- **Acceptance:**
+  - [ ] A tag chip and the detached-HEAD chip report the same cursor as the row around them; a
+        branch chip and a branch row report the same cursor as each other.
+  - [ ] A chip under a drag is distinguishable from its neighbours in a 100% screenshot, not only
+        under magnification.
+  - [ ] No colour reaches `app.css`: any new tint is a token (`grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css`
+        still prints nothing).
+- **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/graph/CommitGraph.tsx`,
+  `src/renderer/src/ui/refDrag.ts`.
+- **Verify:** `npm run typecheck`, `npm run build`, then over CDP: read `draggable` and the computed
+  `cursor` off every chip and every left-panel row and assert they agree, and screenshot a chip
+  mid-`dragover` at 100% beside the same chip at rest.
+- **Log:**
+  - 2026-09-06 proposed by GR-014: found in the screenshot pass over GC-015's first build, from
+    measurements in the running app rather than from reading the CSS.
+
+### GC-128 The app can only open a repository that already exists: no clone, no init
+
+- **Status:** todo
+- **Area:** actions | **Size:** M | **Priority:** P2
+- **Depends on:** GC-026 (`todo`, for the two-field dialog clone needs)
+- **Why:** `TitleBar` has exactly one repository entry point, "Open repository", and `grep -rn
+  "clone" src/` finds nothing. Every repository the app has ever shown was cloned or created by
+  something else first. The study's own recommendation for this area is "Build open/clone/init"
+  (`06-feature-inventory.md`, RepoManagement row), and GitKraken's new-tab page offers the three
+  side by side. It is the largest capability the client is missing that is not deferred by
+  design — everything else open on the board is polish on repositories the user already has — and
+  it is the difference between a client someone can start their day in and one that assumes a
+  terminal did the first step.
+- **Scope:**
+  - `git.ts`: `cloneRepo(url, parentDir, name?)` and `initRepo(dir)`. Both run through `runGit`
+    with a `cwd` that exists — the clone's is the parent directory, not the target — and both
+    answer the absolute path of the repository they made, which is what `openPath` takes.
+  - `ipc.ts` + preload: `repo:clone` and `repo:init`, arguments validated like every other
+    handler. Neither takes a repository path, so neither goes through `repoFile()`.
+  - Two entries beside "Open repository" — the same button's menu, or two more buttons — each
+    opening one dialog: clone asks for the URL and the parent folder, init asks for the folder.
+    Both then `openPath` the result, so the new repository lands in `recentRepos` and
+    `lastRepo` like any other.
+  - A clone that fails (bad URL, existing directory, auth) reports through the same error path a
+    failed action does, with git's stderr, and leaves the open repository alone.
+- **Out of scope:** progress reporting and cancellation — `runGit` buffers rather than streams, and
+  a clone of a large repository will sit on the busy spinner until it finishes; say so in the log
+  and let it be its own ticket if it turns out to matter. Also out: shallow clones, submodule
+  recursion, choosing a branch to clone, and cloning from a hosting service's repository list
+  (that is the deferred Services area).
+- **Acceptance:**
+  - [ ] Cloning the e2e fixture's bare `origin` into a new folder produces a working repository the
+        app opens, with its branches and remote drawn.
+  - [ ] Initialising an empty folder produces a repository the app opens on an unborn HEAD without
+        error — `--ignore-missing` already covers the graph's side of that (GC-095).
+  - [ ] A clone into a folder that already exists reports git's own message and changes nothing.
+  - [ ] Both new repositories appear in the recents dropdown.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
+  `src/shared/types.ts`, `src/renderer/src/App.tsx`, `src/renderer/src/components/TitleBar.tsx`.
+- **Verify:** `npm run typecheck`, `npm run build`, `npm test`, then an e2e step that clones the
+  fixture's bare `origin` into a folder under the scratch root, asserts the graph draws it, and
+  removes the folder again so the run stays re-entrant. Screenshot both dialogs and the freshly
+  cloned repository.
+- **Log:**
+  - 2026-09-06 proposed by GR-014: from the what's-next pass over `06-feature-inventory.md`. The
+    RepoManagement row is the only "Build" row with nothing shipped against it at all.
+
+### GC-129 A stash message cannot be edited once the stash is made
+
+- **Status:** todo
+- **Area:** actions | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `stashMenuItems` offers Apply, Pop and Drop. The study's Stash row lists Apply, Pop,
+  Delete, **Edit stash message** and Share as cloud patch; the last is a hosting feature and out,
+  which leaves the message as the one thing on that row we do not have. A stash saved in a hurry
+  keeps whatever it was called — or git's own `WIP on main: …` when GC-029 let the message be
+  empty — and the list is the only thing telling the user which stash is which.
+- **Scope:**
+  - `git.ts`: `stashRename(cwd, index, message)`. git has no command for this, so it is
+    `git stash store -m <message> <sha>` followed by `git stash drop stash@{index}` — read the sha
+    **before** either, and drop only after the store has succeeded, or a failure loses the stash.
+  - The re-stored entry lands at `stash@{0}`, so **editing a message moves that stash to the top of
+    the list**. That is what GitKraken's own edit does and it is acceptable, but it must not be a
+    surprise: the dialog says it, or the ticket is not done.
+  - `ipc.ts`, preload, and an "Edit message…" row in `stashMenuItems` above the separator, opening
+    `ui.prompt` with the current message as the default value.
+- **Out of scope:** editing the message of anything else, partial stashes, and any change to how a
+  stash is applied or popped (`--index` and `restoreStashWith` are GC-092's and stay untouched).
+- **Acceptance:**
+  - [ ] Editing the message of `stash@{1}` leaves two stashes, the edited one carrying the new
+        message and holding exactly the tree and index it held before.
+  - [ ] The dialog says the stash will move to the top of the list.
+  - [ ] A store that fails leaves the original stash in place and reports git's message.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
+  `src/shared/types.ts`, `src/renderer/src/App.tsx`.
+- **Verify:** `npm run typecheck`, `npm test`, then an e2e step against the fixture's two stashes:
+  edit the older one's message, assert `git stash list` shows the new message at `stash@{0}` and
+  that `git stash show --stat stash@{0}` matches what the old entry held, then put the fixture back
+  the way step 29 does.
+- **Log:**
+  - 2026-09-06 proposed by GR-014: from the what's-next pass; the last unshipped entry on the
+    study's Stash row, and small enough to ride along in a batch of P3s.
+
 ---
 
 ### GC-125 Radio buttons are the last unstyled OS control, now that the checkboxes are ours
@@ -7780,3 +7916,109 @@ appends its own section here.
     `TICKETS.md` was clean in `git status` before this write and is the only file staged. The
     review's Electron on 9334 was found by command line and stopped by PID; the e2e run had the
     port to itself on 9335.
+
+### GR-014 Backlog review 2026-09-06 09:20
+
+- **Status:** done
+- **Window:** adfd245..416d357
+- **Log:**
+  - 2026-09-06 09:20 shipped: five commits, two worker batches and one review. `adfd245` is
+    GR-013. `08695d7` implements **GC-015** alone, the last size-L feature row on the board.
+    `649aeaa` claims GC-118, GC-119, GC-120 and GC-101 and `1a57042` implements all four.
+    `416d357` is the worker's claim of GC-125, GC-126, GC-107 and GC-112, all four `in-progress`
+    and none of them touched here. Read as a reviewer: **GC-015** is the best-shaped piece in the
+    window. Putting the whole gesture in `ui/refDrag.ts` rather than twice is right, and
+    `canDropRef` refusing a pair before the `dragover` `preventDefault` is what makes "a drop that
+    opens no empty menu" a property of the browser's own drag machinery rather than a check
+    somewhere downstream. `runOnBranch` composing `checkoutRef` and `runSequencer` — two busy
+    tokens deliberately, and `git status` asked between them because a cancelled prompt and a
+    failed checkout both return quietly — is the part that would have been easy to get wrong, and
+    the reasoning is written beside it. The three follow-ups the ticket filed against itself
+    (GC-122 scrolling, GC-123 folded refs, GC-124 the stale snapshot) are the honest ones; I found
+    nothing in the diff they do not already cover. **GC-118**'s `reachedWidth` is one rule where
+    two special cases were heading: I checked all four corners by hand — released inward past
+    `min`, released outward past a wall from inside it, from on it, and with a wall that has come
+    out below `min` — and each lands where the comment says. **GC-119** collapsing two booleans
+    into `'pull' | 'push' | null` removes the state rather than guarding it, which is the stronger
+    fix, and the `setPullOpen`/`setPushOpen` shims closing only the popover they name is what keeps
+    `Toolbar`'s outside-click listener from closing the one that was clicked in. **GC-120** and
+    **GC-101** are small and correct; `ContextMenu`'s wheel listener now distinguishing a wheel
+    inside the menu from one on the page is the load-bearing half of GC-120, and it is commented as
+    such. Nothing in the window drifts from `CLAUDE.md`; every acceptance box I spot-checked has
+    evidence in its log.
+  - health: at `416d357`, in the detached worktree at `%TEMP%/gitclient-review/wt` with
+    `node_modules` junctioned — **typecheck ok, 184 tests passed (17 files)** in 1.76s, **build
+    ok**. e2e was run too, because the window added a step and touched `App.tsx`, `CommitGraph`,
+    `LeftPanel` and `run.mjs`: on port **9335** with `GITCLIENT_E2E_ROOT=%TEMP%/gitclient-review/e2e`,
+    **ALL PASSED, 178 assertions across 30 steps**, `total: 29.3s | git: 267 calls, 7.1s`, and
+    step 30 confirmed the fixture was left exactly as found. Step 29 — GC-015's own — passes
+    including its negative case. `MAIN` was never built, tested or launched; its only change from
+    this session is `TICKETS.md`.
+  - app: the `416d357` build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, fixture
+    recreated first, every `gitclient.*` key except `lastRepo`/`recentRepos` cleared over CDP.
+    Screenshots in `%TEMP%/gitclient-review/GR-014/`, all looked at. `01-graph-1400.png`: nine rows,
+    lanes continuous, right-angle joins, `wip-branch +1`, `main +4`, the WIP row's `+1 ✏3 −1`
+    agreeing with the panel's 3 unstaged and 2 staged. `02-drag-highlight.png`, `03-drop-menu.png`
+    and `04-drop-affordance-zoom.png` are GC-015 driven for real: a left-panel row dragged onto a
+    graph chip, the source dimmed on **both** surfaces at once because `isSource` compares full
+    names, the caption `RELEASE ONTO MAIN` over exactly two rows with `checks out release` on the
+    rebase and no hint on the merge because `main` is already HEAD. The zoom is where this review's
+    ticket came from — see below. `05a`/`05b` are the same chip at rest and mid-`dragover`.
+    `06-preferences-dark.png` is GC-101 landed: six checkboxes all measured at 14x14, three selects
+    all computing Open Sans, the app's own chevron on each, and the Amend box behind the modal now
+    the same 14px as the rest. `10-branch-menu-600.png` and `10-/11-branch-menu-500*.png` are
+    GC-120: at the app's own 600px minimum the one-remote branch menu is 586px and fits untouched;
+    forced to 500 it caps at `clientHeight` 490 against `scrollHeight` 584, lands at `top: 4`, and
+    scrolls to its last two rows. That shot also shows GC-074 still true — "keep changes in the
+    working dir…" — which is fresh evidence for a ticket already open. `12-commit-view.png` is the
+    merge commit with both parents listed. `13-wip-diff-unified.png` is `a.txt` open from the WIP
+    row with `Stage hunk` / `Discard hunk` live and the `Unified | Split` switch beside them.
+  - rotation: **the light theme**, which no review had looked at since GC-013 shipped it.
+    `07-preferences-light.png`, `08-light-app.png` and `09-chips-light-zoom.png`. It is healthy:
+    every panel, the toolbar and the status bar repaint, `--text-bright` flips to `#14161a`, the
+    lane tokens darken (`--lane-0 #0f7f99`), and the chips come out as pale tints of them with dark
+    text rather than keeping their dark-theme fill. GC-101's two new tokens survive the flip —
+    `--on-accent` is only defined on bare `:root`, which is correct here because white on the
+    accent blue is right in both themes, and the checkbox and the select read the same in light as
+    in dark. **A method note for the next reviewer, not a defect:** under `offscreen: true` the
+    compositor hands `Page.captureScreenshot` stale pixels for regions that only changed colour —
+    after switching the theme I twice photographed a light DOM as a dark app, and only the computed
+    values caught it. Reload the page after a theme change and re-shoot; trust
+    `getComputedStyle` over the image.
+  - what's next: `grep -rn "clone" src/` finds nothing and `TitleBar` has one repository entry
+    point, "Open repository". The RepoManagement row of `06-feature-inventory.md` says
+    "Build open/clone/init" and it is the only **Build** row with nothing shipped against it at
+    all — every other open row on the board is polish on a repository the user already has. That
+    became GC-128. From the same pass, the Stash row's "Edit stash message" is the last unshipped
+    entry on a row that is otherwise complete, and it is small: GC-129. Still unticketed and worth
+    a later look, named once here rather than carried: Compare against working directory (Commit
+    row) and Blame / History / Export changes to patch (Files row).
+  - tickets: added **GC-127** (ui, S, P3, from the screenshot pass: `.ref-chip` sets
+    `cursor: grab` on every chip including the tags and the synthetic HEAD chip that
+    `canDragRef` refuses — measured `v0.1.0 draggable=false cursor=grab` — while every
+    left-panel row is `cursor: pointer` draggable or not, and `.ref-row.drop-over` gets a tint
+    the chip does not), **GC-128** (actions, M, **P2**, from the what's-next pass) and **GC-129**
+    (actions, S, P3, from the what's-next pass). Board: GC-128 goes directly under GC-101, at the
+    head of the open work — every other open row is P3 polish, and a worker run picking in board
+    order would otherwise reach GC-016, a size-L P3, first. GC-127 goes under GC-124 with the
+    other three GC-015 follow-ups, which is where a session picking up the drag will find them
+    together. GC-129 goes under GC-097 with the other P3 `actions` rows. Nothing else moved and no
+    existing ticket was edited.
+  - hygiene: no `todo` ticket has gone vague; GC-122, GC-123 and GC-124 are the newest and are the
+    most concrete rows on the board. `blocked` is GC-017, GC-018 and GC-081; none can be unblocked
+    from here, all three want a decision from Ricardo. Dependencies read correctly: GC-127 on
+    GC-015, GC-128 on GC-026 (the two-field dialog its clone form needs, and GC-026's own Why
+    already names "clone with a URL and a target folder" as the shape it was written for),
+    GC-129 on nothing. GR-013's write-off of the two carried-over re-reads holds: nothing was
+    carried into this review and nothing is carried out of it.
+  - notes: `CLAUDE.md` is current at `416d357` and its numbers were checked rather than trusted —
+    "184 tests today" matches the run exactly, and "30 steps, 178 assertions, ~27s" with
+    `total: 27.4s | git: 267 calls, 6.8s` matches this machine's 178 assertions and 267 calls to the
+    number, the seconds being 29.3 here. The new "a drop that opens no empty menu", `runOnBranch`,
+    `reachedWidth`, the single popover value and the capped context menu all appear in the
+    handover and all match the code. This review did not edit `CLAUDE.md`.
+  - isolation: GC-125, GC-126, GC-107 and GC-112 were `in-progress` throughout and were not
+    touched. `MAIN` was never built, tested or launched and its working tree was left exactly as
+    found; `TICKETS.md` was clean in `git status` before this write and is the only file staged.
+    The review's Electron on 9334 was found by command line and stopped by PID before the e2e run
+    took 9335, and both ports were confirmed free afterwards.
