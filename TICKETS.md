@@ -255,13 +255,13 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-179 | The left panel’s ref filter follows a tab switch, and the other repository looks empty | ui | S | P1 | todo |
-| GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
+| GC-179 | The left panel’s ref filter follows a tab switch, and the other repository looks empty | ui | S | P1 | in-progress |
+| GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-143 | The detail panel’s file-kind icons are hairlines, and the commit view draws them as text instead | ui | S | P3 | todo |
-| GC-146 | A local branch’s chip carries no icon, and an absorbed chip shows only the remote’s | graph | S | P3 | todo |
-| GC-147 | Nothing joins a ref chip to its node across the 30px between them | graph | S | P3 | todo |
-| GC-149 | The tab bar has no answer for more tabs than fit across it | ui | S | P3 | todo |
+| GC-143 | The detail panel’s file-kind icons are hairlines, and the commit view draws them as text instead | ui | S | P3 | in-progress |
+| GC-146 | A local branch’s chip carries no icon, and an absorbed chip shows only the remote’s | graph | S | P3 | in-progress |
+| GC-147 | Nothing joins a ref chip to its node across the 30px between them | graph | S | P3 | in-progress |
+| GC-149 | The tab bar has no answer for more tabs than fit across it | ui | S | P3 | in-progress |
 | GC-151 | A repository tab is the one row in the app a right-click does nothing on | ui | S | P3 | todo |
 | GC-150 | A stash row in the left panel is inert on a single click, and never says which commit it came from | ui | S | P3 | todo |
 | GC-152 | A commit can only be read against its parent, never against the working directory | diff | M | P3 | todo |
@@ -404,7 +404,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-128 The app can only open a repository that already exists: no clone, no init
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** M | **Priority:** P2
 - **Depends on:** GC-026 (`todo`, for the two-field dialog clone needs)
 - **Why:** `TitleBar` has exactly one repository entry point, "Open repository", and `grep -rn
@@ -448,12 +448,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GR-014: from the what's-next pass over `06-feature-inventory.md`. The
     RepoManagement row is the only "Build" row with nothing shipped against it at all.
+  - 2026-09-06 16:08 claimed
 
 ---
 
 ### GC-143 The detail panel's file-kind icons are hairlines, and the commit view draws them as text instead
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `Icon` renders every lucide glyph at `strokeWidth={1.75}` and `FileKindIcon` draws the
@@ -491,12 +492,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
     found the second, unrelated rendering of the same three states in the readout while doing it —
     which is the stronger half of the ticket, since the two cannot be made consistent by weight
     alone.
+  - 2026-09-06 16:08 claimed
 
 ---
 
 ### GC-146 A local branch's chip carries no icon, and an absorbed chip shows only the remote's
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `renderChip` gives a remote chip a leading `Cloud`, a tag a `Tag`, the checked-out
@@ -541,12 +543,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
     icon order is included because the study puts the kind icons after the name and we already
     disagree with ourselves about it — the same cloud leads a remote chip and trails an absorbed
     one.
+  - 2026-09-06 16:08 claimed
 
 ---
 
 ### GC-147 Nothing joins a ref chip to its node across the 30px between them
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** Measured on `main`'s row at the default column width: `.col-ref` runs from x 220 to
@@ -595,12 +598,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-016, from Ricardo's inbox: measured rather than eyeballed, because a
     hairline does exist — it is 9px long inside the graph cell and starts 30px after the chip
     ends, which is why the row reads as having nothing between the two.
+  - 2026-09-06 16:08 claimed
 
 ---
 
 ### GC-149 The tab bar has no answer for more tabs than fit across it
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-016
 - **Why:** `.titlebar .tabs` is a plain flex row with `min-width: 0` and no scrolling. A tab is
@@ -633,6 +637,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-016 (this ticket): the bar was built for one tab and now holds as
     many as the user opens. Two repositories is where the ticket's acceptance stops and where the
     verification stopped too, so this is the untested end of the same control.
+  - 2026-09-06 16:08 claimed
 
 ---
 
@@ -1242,7 +1247,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-179 The left panel's ref filter follows a tab switch, and the other repository looks empty
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-016
 - **Why:** `LeftPanel`'s `filter` is component state and the panel is not keyed by repository, so a
@@ -1276,6 +1281,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-139 (this ticket): found while giving the closed-folder set a
     per-repository key — the folded set now follows the path and the filter beside it does not.
+  - 2026-09-06 16:08 claimed
 
 ---
 
