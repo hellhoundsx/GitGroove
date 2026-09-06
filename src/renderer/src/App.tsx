@@ -144,6 +144,8 @@ export function App(): JSX.Element {
   // background work already in flight. Dropping is silent: whatever superseded it is already on
   // screen, so there is nothing to report and no spinner to clear.
   const generation = useRef(0);
+  /** Which `run()` call owns the status bar: the counterpart of `generation`, for the writes (GC-084). */
+  const busyToken = useRef(0);
 
   // What the app has actually put on screen, as opposed to the invalidation counter above: bumped
   // every time a snapshot or a status is applied to state, whether that came from `run()`'s reload
@@ -336,6 +338,11 @@ export function App(): JSX.Element {
       // The user acted, so whatever a background load is about to return was captured before this
       // and must not land on top of the reload below (GC-068).
       generation.current += 1;
+      // The writes need an identity of their own, the way GC-068 gave the reads one (GC-084):
+      // without it, of two actions overlapping, whichever finishes first clears the status bar
+      // while the other is still running, and its own error lands over the other's state.
+      const token = (busyToken.current += 1);
+      const owns = (): boolean => busyToken.current === token;
       setBusy(label);
       setError(null);
       let failure: unknown = null;
@@ -353,13 +360,16 @@ export function App(): JSX.Element {
         } catch (e) {
           failure ??= e;
         } finally {
-          setBusy(null);
+          if (owns()) setBusy(null);
         }
       }
       if (failure !== null) {
         // git often exits non-zero while leaving the repo in a state the panels now show (conflicts,
-        // an empty cherry-pick, a stopped rebase), so keep the message visible after the reload
-        setError(msg(failure));
+        // an empty cherry-pick, a stopped rebase), so keep the message visible after the reload —
+        // unless a later action owns the bar by now, whose state this message would not describe.
+        if (owns()) setError(msg(failure));
+        // The caller asked to handle the failure itself, and its own logic does not depend on
+        // which action currently owns the status bar.
         if (opts.rethrow) throw failure;
       }
     },

@@ -30,12 +30,17 @@ const REPO = '/repo';
 interface Deferred<T> {
   promise: Promise<T>;
   resolve(value: T): void;
+  reject(reason: unknown): void;
 }
 
 function defer<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => (resolve = r));
-  return { promise, resolve };
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 /** Every `loadRepo` call, oldest first, waiting to be resolved. */
@@ -84,6 +89,7 @@ beforeEach(() => {
       statuses.push(d);
       return d.promise;
     },
+    stageAll: async () => undefined,
     watchRepo: async () => undefined,
     onRepoChanged: (listener: (change: RepoChange) => void) => {
       repoChanged = listener;
@@ -218,5 +224,52 @@ describe('App applies the stored hidden set to a path\'s first load (GC-099)', (
     expect(loadArgs[0]?.exclude).toEqual([]);
     await settle(() => loads[0]?.resolve(withRefs(UNSTAGED, ['refs/heads/main'])));
     expect(loads).toHaveLength(1);
+  });
+});
+
+// GC-084: the actions writing `busy` and `error` had no identity of their own, so of two that
+// overlap, whichever finished first cleared the status bar while the other was still running.
+describe('App keeps the status bar with the action that still owns it (GC-084)', () => {
+  /** The label the status bar is showing, or null when it shows no operation at all. */
+  const busyLabel = (): string | null => document.querySelector('.statusbar .busy')?.textContent?.replace(/…\s*$/, '').trim() ?? null;
+
+  /** Refresh, then Stage all while it is still running: two `run()` calls in flight at once. */
+  async function overlap(): Promise<void> {
+    await mount();
+    await settle(() => fireEvent.click(screen.getByTitle('Refresh')));
+    expect(busyLabel()).toBe('Refreshing');
+    expect(loads).toHaveLength(2);
+    // The detail panel's buttons are gated on its own busy flag, not the toolbar's, so this one
+    // is live while the refresh runs — which is exactly the overlap the bug needs.
+    await settle(() => fireEvent.click(screen.getByText('Stage all changes')));
+    expect(busyLabel()).toBe('Staging all');
+    expect(statuses).toHaveLength(1);
+  }
+
+  it('leaves the spinner up until the later of two overlapping actions finishes', async () => {
+    await overlap();
+
+    // The refresh comes back first. It no longer owns the bar, so it must not clear it.
+    await settle(() => loads[1]?.resolve(snapshot(UNSTAGED)));
+    expect(busyLabel()).toBe('Staging all');
+
+    // Only the action that still owns it does.
+    await settle(() => statuses[0]?.resolve(status(STAGED)));
+    expect(busyLabel()).toBeNull();
+    expect(groupCount('Staged')).toBe(1);
+  });
+
+  it('does not raise the earlier action\'s error over the later one', async () => {
+    await overlap();
+
+    // The refresh fails while the staging is still running: its message describes a state the
+    // bar is no longer reporting on, so it is dropped rather than shown.
+    await settle(() => loads[1]?.reject(new Error('fatal: could not read the repository')));
+    expect(document.querySelector('.statusbar .err')).toBeNull();
+    expect(busyLabel()).toBe('Staging all');
+
+    await settle(() => statuses[0]?.resolve(status(STAGED)));
+    expect(busyLabel()).toBeNull();
+    expect(document.querySelector('.statusbar .err')).toBeNull();
   });
 });
