@@ -288,7 +288,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-131 | A confirmation that carries an option has to be written as a prompt with no input | ui | S | P3 | done |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
-| GC-016 | Multi-tab repositories | ui | L | P3 | todo |
+| GC-016 | Multi-tab repositories | ui | L | P3 | in-progress |
 | GC-021 | The pin follows a renamed branch and is dropped with a deleted one | graph | S | P3 | done |
 | GC-083 | A diff that fails to load shows an empty body | diff | S | P3 | done |
 | GC-104 | Changed lines have no intra-line highlight, so a one-character edit reads as a whole new line | diff | M | P3 | done |
@@ -1041,7 +1041,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 
 ### GC-016 Multi-tab repositories
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** L | **Priority:** P3
 - **Depends on:** GC-011
 - **Why:** The tabs bar draws a single tab. Switching repos means reopening.
@@ -1055,6 +1055,7 @@ Priority: P0 do first, P3 nice to have. Size: S under two hours, M half a day, L
 - **Files:** `TitleBar.tsx`, `App.tsx` (state becomes per-tab), `app.css`.
 - **Verify:** build, screenshot with two tabs.
 - **Log:**
+  - 2026-09-06 10:17 claimed
 
 ### GC-017 Interactive rebase editor
 
