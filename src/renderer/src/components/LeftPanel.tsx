@@ -4,6 +4,7 @@ import type { GitRef, RepoInfo, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
 import type { DragHandleProps } from '../ui/useDragWidth';
 import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
+import { formatDateTimeSeconds, relativeTime } from '../time';
 
 interface Props {
   /** Where HEAD is, which is what the header says (GC-094). The same `info` the breadcrumb reads. */
@@ -359,10 +360,15 @@ export function LeftPanel(p: Props): JSX.Element {
         </Section>
         <Section title="Stashes" icon={Archive} count={stashes.length} defaultOpen={stashes.length > 0}>
           {stashes.map((s) => (
-            <div key={s.sha} className="ref-row" title={s.message} onContextMenu={(e) => p.onStashMenu(e, s)} onDoubleClick={() => p.onStashActivate(s)}>
+            // `Stash.date` has been on every snapshot since the stash list existed and was drawn
+            // nowhere; "how old is this" is the question a stash list is read for (GC-135). The
+            // relative form is on the row and the absolute joins the message on its title, so the
+            // exact instant is a hover away rather than gone.
+            <div key={s.sha} className="ref-row" title={`${s.message}\n${formatDateTimeSeconds(s.date)}`} onContextMenu={(e) => p.onStashMenu(e, s)} onDoubleClick={() => p.onStashActivate(s)}>
               <Icon of={Archive} size={12} className="row-icon" />
               <span className="stash-idx">{s.index}</span>
               <span className="row-name">{s.message}</span>
+              <span className="row-when">{relativeTime(s.date)}</span>
             </div>
           ))}
         </Section>

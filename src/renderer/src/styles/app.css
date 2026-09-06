@@ -2144,6 +2144,15 @@ input[type='radio']:disabled {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
+/* How long ago the stash was made (GC-135). `margin-left: auto` puts it on the right edge the way
+   a branch row's ahead/behind sits, and `flex: none` means the message is what ellipsises: the age
+   is four or five characters and the message is the part with room to give. */
+.ref-row .row-when {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
 
 /* ---- Status bar ----------------------------------------------------------- */
 

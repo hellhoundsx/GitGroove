@@ -29,3 +29,33 @@ export function formatDateTimeSeconds(iso: string): string {
   if (isNaN(d.getTime())) return iso;
   return `${day(d)}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
+
+/** Past this, a distance stops being readable as one and the absolute date says more. */
+const RELATIVE_DAYS = 30;
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+const plural = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+
+/**
+ * How long ago, in words (GC-135). `now` is injected so the test does not depend on the clock, and
+ * the absolute form is what a distance turns into past `RELATIVE_DAYS` — a year-old commit read as
+ * "412 days ago" is a number to do arithmetic on, not an answer.
+ *
+ * A timestamp in the **future** is "just now" rather than a negative count: a commit made under a
+ * skewed clock, or one authored in another zone and read before the offset catches up, is common
+ * enough that "-1 minutes ago" would be a real thing to see. It shares the branch with the first
+ * minute, which is what "just now" already means.
+ */
+export function relativeTime(iso: string, now: number = Date.now()): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const ms = now - d.getTime();
+  if (ms < MINUTE) return 'just now';
+  if (ms < HOUR) return plural(Math.floor(ms / MINUTE), 'minute');
+  if (ms < DAY) return plural(Math.floor(ms / HOUR), 'hour');
+  const days = Math.floor(ms / DAY);
+  return days < RELATIVE_DAYS ? plural(days, 'day') : day(d);
+}

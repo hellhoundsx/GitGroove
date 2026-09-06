@@ -9,7 +9,7 @@ import { Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
 import { usePrefs } from '../prefs';
-import { formatDateTimeSeconds } from '../time';
+import { formatDateTimeSeconds, relativeTime } from '../time';
 import { matches } from '../shortcuts';
 import { useUi, type ConfirmOptions } from '../ui/UiContext';
 import type { DragHandleProps } from '../ui/useDragWidth';
@@ -411,7 +411,13 @@ function CommitView({
           <Avatar name={commit.authorName} email={commit.authorEmail} size={40} />
           <div>
             <div className="name">{commit.authorName}</div>
-            <div className="when">authored {formatDateTimeSeconds(commit.authorDate)}</div>
+            {/* A history is read for the distance, not the instant, so the relative form is on the
+                row and the absolute one is its title (GC-135). This is also what takes the pressure
+                off the middle column of the `.author` grid at a narrow panel — the absolute form
+                wanted 172px of a track that can resolve to 165px (GC-157). */}
+            <div className="when" title={formatDateTimeSeconds(commit.authorDate)}>
+              authored {relativeTime(commit.authorDate)}
+            </div>
           </div>
           <div className="parents">
             {commit.parents.length > 0 ? 'parent' + (commit.parents.length > 1 ? 's' : '') + ': ' : 'root commit'}
