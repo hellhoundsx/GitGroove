@@ -1,6 +1,6 @@
 import type { Commit } from '@shared/types';
 import { describe, expect, it } from 'vitest';
-import { continuesRange, layoutGraph, type RowLayout } from './lanes';
+import { continuesRange, layoutGraph, wipDashFor, type RowLayout } from './lanes';
 
 /** A commit with only the fields the layout reads; everything else is filler. */
 const commit = (sha: string, ...parents: string[]): Commit => ({
@@ -286,5 +286,53 @@ describe('layoutGraph', () => {
       const touched = [r.lane, ...r.through.map((s) => s.lane), ...r.incoming.map((s) => s.lane), ...r.outgoing.map((s) => s.lane)];
       expect(r.maxLane).toBe(Math.max(...touched));
     }
+  });
+});
+
+describe('wipDashFor', () => {
+  // The run has to be dashed for its whole length, and the rows it crosses are exactly the ones
+  // whose lane 0 is the seed `layoutGraph` reserved for HEAD — a through segment, which is what
+  // the old "only a lane nothing is using" rule refused, leaving the WIP row's 14px stub alone
+  // dashed (GC-144).
+  const dashes = (rows: RowLayout[], headSha: string, owns = true): (string | null)[] => {
+    const at = rows.findIndex((r) => r.sha === headSha);
+    return rows.map((r, i) => wipDashFor(r, i, at, rows[at]!.lane, owns));
+  };
+
+  it('dashes the row between the WIP node and HEAD, and above HEAD s node', () => {
+    // `a` sits above HEAD's commit `b`; both reach the root `c`, so lane 0 carries HEAD's seed
+    // through row `a` and `b` has a child line above it.
+    const { rows } = layoutGraph([commit('a', 'c'), commit('b', 'c'), commit('c')], 'b');
+    expect(row(rows, 'a').through.map((s) => s.lane)).toContain(0); // the lane the run travels in
+    expect(row(rows, 'b').hasChildAbove).toBe(true); // and it is the seed, not a real child
+    expect(dashes(rows, 'b')).toEqual(['through', 'toNode', null]);
+  });
+
+  it('dashes every row in between when HEAD is several rows down', () => {
+    const history = [commit('a', 'e'), commit('b', 'e'), commit('c', 'e'), commit('d', 'e'), commit('e')];
+    const { rows } = layoutGraph(history, 'd');
+    expect(rows.findIndex((r) => r.sha === 'd')).toBe(3);
+    expect(dashes(rows, 'd')).toEqual(['through', 'through', 'through', 'toNode', null]);
+  });
+
+  it('never dashes below HEAD s node or when HEAD is not in the loaded range', () => {
+    const { rows } = layoutGraph([commit('a', 'b'), commit('b')], 'a');
+    expect(wipDashFor(row(rows, 'b'), 1, 0, 0, true)).toBe(null);
+    // headRowIndex of -1 is HEAD past the end of the page: nothing may be dashed at all.
+    expect(rows.map((r, i) => wipDashFor(r, i, -1, 0, true))).toEqual([null, null]);
+  });
+
+  it('with another branch pinned to column 0, only a lane nothing else uses carries the run', () => {
+    // `p` is pinned, so HEAD's `h` opens a lane of its own and the seed in column 0 is not its.
+    const { rows } = layoutGraph([commit('p', 'r'), commit('h', 'r'), commit('r')], 'p');
+    const headLane = row(rows, 'h').lane;
+    expect(headLane).not.toBe(0);
+    // Row `p` has nothing in HEAD's lane yet, so the run may pass through it.
+    expect(wipDashFor(row(rows, 'p'), 0, 1, headLane, false)).toBe('through');
+    // But a row already using that lane keeps its own line: `p`'s own lane is not HEAD's to dash.
+    expect(wipDashFor(row(rows, 'p'), 0, 1, row(rows, 'p').lane, false)).toBe(null);
+    // HEAD's row opens its lane there, so there is no line above the node to dash.
+    expect(row(rows, 'h').hasChildAbove).toBe(false);
+    expect(wipDashFor(row(rows, 'h'), 1, 1, headLane, false)).toBe('toNode');
   });
 });

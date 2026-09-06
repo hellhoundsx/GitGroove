@@ -1,5 +1,5 @@
 import { useState, type JSX } from 'react';
-import type { RowLayout } from './lanes';
+import type { RowLayout, WipDash } from './lanes';
 import { avatarFailed, markAvatarFailed, useGravatar } from '../ui/avatars';
 
 export const ROW_H = 28;
@@ -19,12 +19,15 @@ export function laneColor(index: number): string {
   return `var(--lane-${index % 10})`;
 }
 
-export type WipDash = 'through' | 'toNode' | null;
-
 interface Props {
   row: RowLayout | null; // null for the WIP row
   width: number;
-  wip?: { lane: number; color: number };
+  /**
+   * The WIP row's own node. `linked` is false when HEAD's commit is not in the loaded range: the
+   * run has nowhere to land, so the node keeps its dashed outline and draws no stub rather than
+   * starting a dash that runs off the bottom of the graph (GC-144).
+   */
+  wip?: { lane: number; color: number; linked: boolean };
   /** Draw the dashed WIP-to-HEAD link in this lane: straight through the row, or down into this row's node. */
   wipDash?: WipDash;
   wipDashLane?: number;
@@ -80,7 +83,7 @@ export function GraphCell({ row, width, wip, wipDash = null, wipDashLane, connec
     const color = laneColor(wip.color);
     return (
       <svg width={width} height={ROW_H} aria-hidden="true">
-        <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />
+        {wip.linked && <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
         <circle cx={x} cy={mid} r={NODE / 2 - 1} fill="var(--bg-app)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
       </svg>
     );
@@ -106,17 +109,22 @@ export function GraphCell({ row, width, wip, wipDash = null, wipDashLane, connec
     // The mirror image below the node: centre line out, corner down, then the lane.
     return `M ${x} ${mid} H ${right ? tx - r : tx + r} A ${r} ${r} 0 0 ${right ? 1 : 0} ${tx} ${mid + r} V ${ROW_H}`;
   };
-  const dashX = wipDashLane !== undefined ? laneX(wipDashLane) : x;
+  const dashLane = wipDashLane ?? row.lane;
+  const dashX = laneX(dashLane);
   const dashColor = wipDashLane !== undefined ? laneColor(wipDashLane % 10) : color;
+  // The dash replaces the solid line in that lane rather than being drawn over it (GC-144): a
+  // through segment for the row it passes, the node's own line above it for HEAD's row. Drawn on
+  // top, the two together read as a solid line with a dash on it.
+  const through = wipDash === 'through' ? row.through.filter((s) => s.lane !== dashLane) : row.through;
 
   return (
     <svg width={width} height={ROW_H} aria-hidden="true">
-      {row.through.map((s) => (
+      {through.map((s) => (
         <line key={`t${s.lane}`} x1={laneX(s.lane)} y1={0} x2={laneX(s.lane)} y2={ROW_H} stroke={laneColor(s.color)} strokeWidth={2} />
       ))}
       {wipDash === 'through' && <line x1={dashX} y1={0} x2={dashX} y2={ROW_H} stroke={dashColor} strokeWidth={2} strokeDasharray={DASH} />}
       {wipDash === 'toNode' && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
-      {row.hasChildAbove && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} />}
+      {row.hasChildAbove && wipDash !== 'toNode' && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} />}
       {row.hasParentBelow && <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} />}
       {row.incoming.map((s) => (
         <path key={`i${s.lane}`} d={curveIn(s.lane)} fill="none" stroke={laneColor(s.color)} strokeWidth={2} />

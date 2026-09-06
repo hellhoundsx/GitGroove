@@ -23,6 +23,9 @@ interface Props {
   onCollapse(): void;
   onRefMenu(e: MouseEvent, ref: GitRef): void;
   onRefActivate(ref: GitRef): void; // double-click: checkout
+  onRefSelect(ref: GitRef): void; // single click: select the ref's tip commit (GC-141)
+  /** The selected commit, so a row standing at it is marked the way the graph's row is (GC-141). */
+  selected: string | null;
   /** Dragging a branch row onto another branch, in this panel or in the graph (GC-015). */
   refDrag: RefDragHandlers;
   onStashMenu(e: MouseEvent, stash: Stash): void;
@@ -163,6 +166,14 @@ export function LeftPanel(p: Props): JSX.Element {
   const anyLocalHidden = local.some((r) => hidden.has(r.fullName));
   const anyRemoteHidden = [...remoteGroups.values()].flat().some((r) => hidden.has(r.fullName));
 
+  /**
+   * Whether a row stands at the selected commit (GC-141). By sha rather than by which row was
+   * clicked, because the selection is a commit and both panels have to agree on it: selecting a
+   * commit in the graph marks its rows here too, and every ref sitting on that commit is, in
+   * fact, at the selection.
+   */
+  const atSelected = (r: GitRef): boolean => p.selected !== null && r.sha === p.selected;
+
   /** The eye that hides a branch from the graph. The checked-out branch has none: it can never be hidden. */
   const eye = (r: GitRef): JSX.Element | null =>
     r.isHead ? null : (
@@ -213,10 +224,11 @@ export function LeftPanel(p: Props): JSX.Element {
   const localLeaf: LeafRow = (r, label, depth) => (
     <div
       key={r.fullName}
-      className={`ref-row ${r.isHead ? 'head' : ''} ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
+      className={`ref-row ${r.isHead ? 'head' : ''} ${atSelected(r) ? 'selected' : ''} ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
       style={{ '--row-depth': depth } as CSSProperties}
       title={`${r.upstream ? `${r.name} tracks ${r.upstream}` : r.name}${r.name === p.pinnedName ? '\npinned to the left column' : ''}`}
       onContextMenu={(e) => p.onRefMenu(e, r)}
+      onClick={() => p.onRefSelect(r)}
       onDoubleClick={() => p.onRefActivate(r)}
       {...drag.attrs(r)}
     >
@@ -231,10 +243,11 @@ export function LeftPanel(p: Props): JSX.Element {
   const remoteLeaf: LeafRow = (r, label, depth) => (
     <div
       key={r.fullName}
-      className={`ref-row nested ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
+      className={`ref-row nested ${atSelected(r) ? 'selected' : ''} ${hidden.has(r.fullName) ? 'ref-hidden' : ''} ${drag.isSource(r) ? 'drag-src' : ''} ${drag.isOver(r) ? 'drop-over' : ''}`}
       style={{ '--row-depth': depth } as CSSProperties}
       title={r.name}
       onContextMenu={(e) => p.onRefMenu(e, r)}
+      onClick={() => p.onRefSelect(r)}
       onDoubleClick={() => p.onRefActivate(r)}
       {...drag.attrs(r)}
     >
@@ -247,10 +260,11 @@ export function LeftPanel(p: Props): JSX.Element {
   const tagLeaf: LeafRow = (r, label, depth) => (
     <div
       key={r.fullName}
-      className="ref-row"
+      className={`ref-row ${atSelected(r) ? 'selected' : ''}`}
       style={{ '--row-depth': depth } as CSSProperties}
       title={r.name}
       onContextMenu={(e) => p.onRefMenu(e, r)}
+      onClick={() => p.onRefSelect(r)}
       onDoubleClick={() => p.onRefActivate(r)}
     >
       <Icon of={Tag} size={12} className="row-icon" />

@@ -79,6 +79,8 @@ function renderPanel(status: RepoStatus, onSelectSha: (sha: string) => void = no
         }
         resize={{} as never}
         focusSummary={0}
+        draft={{ summary: '', body: '', amend: false }}
+        onDraft={noop}
         onSelectSha={onSelectSha}
         onOpenFile={noop}
         onFileMenu={noop}

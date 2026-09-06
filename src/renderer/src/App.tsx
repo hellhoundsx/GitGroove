@@ -91,7 +91,22 @@ interface TabState {
   hasMore: boolean;
   search: { open: boolean; tick: number; query: string };
   graphTop: number;
+  draft: CommitDraft;
 }
+
+/**
+ * The staging form's contents (GC-148). It lives here rather than in `StagingView` for the reason
+ * the find bar's query does (GC-030): the component unmounts — behind a file view, and on every
+ * tab switch, since `DetailPanel` is keyed by repository — and the user's own typing has to
+ * outlive it. Being part of `TabState` is what parks it with the tab instead of dropping it.
+ */
+export interface CommitDraft {
+  summary: string;
+  body: string;
+  amend: boolean;
+}
+
+const EMPTY_DRAFT: CommitDraft = { summary: '', body: '', amend: false };
 
 /** The tabs to start with: the stored list, or the one remembered repository for a profile that predates them. */
 const initialTabs = (): Tab[] => {
@@ -249,11 +264,15 @@ export function App(): JSX.Element {
   const closeSearch = useCallback(() => setSearch((s) => ({ ...s, open: false, query: '' })), []);
   const setSearchQuery = useCallback((query: string) => setSearch((s) => ({ ...s, query })), []);
 
+  // The staging form's contents, held here so they survive the panel unmounting and are parked
+  // with the tab they were written in (GC-148).
+  const [draft, setDraft] = useState<CommitDraft>(EMPTY_DRAFT);
+
   // What the showing tab would be parked with, mirrored into a ref on every render — the shape
   // `panelW` above already uses. Keeping it here rather than in the switch callback's closure is
   // what stops that callback from being rebuilt on every keystroke in the find bar (GC-016).
-  const live = useRef<TabState>({ snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current });
-  live.current = { snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current };
+  const live = useRef<TabState>({ snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current, draft });
+  live.current = { snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current, draft };
 
   // The recents list is state here and one JSON blob in localStorage; writing it from an effect
   // keeps the updaters below pure (GC-044).
@@ -484,6 +503,9 @@ export function App(): JSX.Element {
       generation.current += 1;
       setFileView(null);
       setSelected(WIP);
+      // A message written for another repository must never appear over these staged files: the
+      // panel's key no longer clears it, because the draft outlives the panel now (GC-148).
+      setDraft(EMPTY_DRAFT);
       graphTop.current = 0; // a repository being opened starts at the top of its history
       const owns = takeBusy('Loading repository');
       setError(null);
@@ -517,6 +539,7 @@ export function App(): JSX.Element {
       paged.current = back.paged;
       setHasMore(back.hasMore);
       setSearch(back.search);
+      setDraft(back.draft);
       graphTop.current = back.graphTop;
       setRepoPath(back.snapshot.info.path);
       setError(null);
@@ -1843,6 +1866,10 @@ export function App(): JSX.Element {
               onCollapse={() => setLeftCollapsed(true)}
               onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
               onRefActivate={(r) => void checkoutRef(r)}
+              // A single click selects the ref's tip, which costs no git call: the sha is already
+              // on the `GitRef` and the graph's own effect brings the row into view (GC-141).
+              onRefSelect={(r) => select(r.sha)}
+              selected={selected}
               refDrag={refDrag}
               onStashMenu={(e, s) => onMenu(e, stashMenuItems(s))}
               onStashActivate={(s) => void run('Applying stash', () => window.api.stashApply(repo, s.index))}
@@ -1886,6 +1913,11 @@ export function App(): JSX.Element {
                 onWipMenu={(e) => onMenu(e, wipMenuItems())}
                 onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
                 onRefActivate={(r) => void checkoutRef(r)}
+                // The same two gestures and the same menu the left panel's stash row offers, from
+                // the same source, so the two surfaces cannot drift apart (GC-140).
+                stashes={snapshot.stashes}
+                onStashMenu={(e, s) => onMenu(e, stashMenuItems(s))}
+                onStashActivate={(s) => void run('Applying stash', () => window.api.stashApply(repo, s.index))}
                 refDrag={refDrag}
                 detached={!snapshot.info.branch}
                 hasMore={hasMore}
@@ -1898,9 +1930,9 @@ export function App(): JSX.Element {
             {!detailCollapsed && (
               <DetailPanel
                 // Keyed by repository for the same reason the graph is, and prefixed for the same
-                // reason too: the commit message being written belongs to the repository it is
-                // about, and carrying it into another tab's staging view would put it on the wrong
-                // commit (GC-016).
+                // reason: two siblings under one key is not a swap (GC-016). The commit message is
+                // no longer what the key is protecting — it is parked with its tab now (GC-148) —
+                // but everything else this panel keeps for itself is still about one repository.
                 key={`detail-${repo}`}
                 repo={repo}
                 commit={selectedCommit}
@@ -1910,6 +1942,8 @@ export function App(): JSX.Element {
                 actions={actions}
                 resize={detailW.handle}
                 focusSummary={focusSummary}
+                draft={draft}
+                onDraft={(patch) => setDraft((d) => ({ ...d, ...patch }))}
                 onSelectSha={select}
                 onOpenFile={setFileView}
                 onFileMenu={(e, t) => onMenu(e, fileMenuItems(t))}

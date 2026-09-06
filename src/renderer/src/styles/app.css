@@ -503,6 +503,12 @@ input[type='radio']:disabled {
   background: var(--head-row);
   color: var(--text-bright);
 }
+/* A row standing at the selected commit takes the graph row's own tint, so both panels say the
+   same thing about what is selected (GC-141). After `.head` so the checked-out branch, which is
+   usually the one being selected, still shows it. */
+.ref-row.selected {
+  background: var(--accent-soft);
+}
 .ref-row .ab {
   margin-left: auto;
   color: var(--text-dim);
@@ -1037,6 +1043,26 @@ input[type='radio']:disabled {
 }
 .ref-row.drop-over {
   background: var(--accent-hover);
+}
+/* A stash on the commit it was taken from (GC-140). Same family as a chip — the same height,
+   radius and raised background a tag or a `+N` uses — but square and icon-only, so it never reads
+   as a ref: it carries no name, and nothing that folds. `flex: none` keeps it in place while the
+   chip beside it gives way, since it is the whole marker and has no ellipsis to fall back on. */
+.stash-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.stash-chip:hover {
+  color: var(--text-bright);
+  background: var(--hover-overlay);
 }
 .ref-line {
   flex: 1;

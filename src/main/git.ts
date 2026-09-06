@@ -311,14 +311,17 @@ export async function getStatus(cwd: string): Promise<RepoStatus> {
 }
 
 export async function getStashes(cwd: string): Promise<Stash[]> {
-  const out = await runGit(cwd, ['stash', 'list', `--format=%gd${FIELD}%H${FIELD}%gs${FIELD}%ci`]);
+  // `%P` on the same walk gives the parents of the stash commit; the first is the commit the
+  // stash was taken from, which is the row the graph marks (GC-140) — no second call, no spawn
+  // per stash.
+  const out = await runGit(cwd, ['stash', 'list', `--format=%gd${FIELD}%H${FIELD}%gs${FIELD}%ci${FIELD}%P`]);
   return out
     .split('\n')
     .filter((l) => l.trim())
     .map((line) => {
-      const [ref, sha, message, date] = line.split(FIELD);
+      const [ref, sha, message, date, parents] = line.split(FIELD);
       const m = /stash@\{(\d+)\}/.exec(ref ?? '');
-      return { index: m ? Number(m[1]) : 0, sha: sha ?? '', message: message ?? '', date: date ?? '' };
+      return { index: m ? Number(m[1]) : 0, sha: sha ?? '', message: message ?? '', date: date ?? '', parent: (parents ?? '').split(' ')[0] ?? '' };
     });
 }
 

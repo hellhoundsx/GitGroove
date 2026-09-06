@@ -1,8 +1,9 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import type { Commit, GitRef } from '@shared/types';
+import type { ComponentProps } from 'react';
+import type { Commit, GitRef, Stash } from '@shared/types';
 import type { RefDragHandlers } from '../ui/refDrag';
-import { CommitGraph } from './CommitGraph';
+import { CommitGraph, rowIndexOf, stashesByParent } from './CommitGraph';
 import { DEFAULT_PREFS, setPrefs } from '../prefs';
 
 // GC-058: a guard for GC-022's folded-refs dropdown. `onMoreEnter` decides the direction from
@@ -62,6 +63,42 @@ const refs: GitRef[] = [
 /** A drag nobody is watching: the flip cases below say nothing about GC-015. */
 const noDrag: RefDragHandlers = { dragging: null, onDragStart: () => {}, onDragEnd: () => {}, onDrop: () => {} };
 
+/** The one commit, its six refs and no handlers, with whatever the case cares about on top. */
+function renderGraph(over: Partial<ComponentProps<typeof CommitGraph>> = {}): ReturnType<typeof render> {
+  return render(
+    <CommitGraph
+      commits={[commit]}
+      refs={refs}
+      status={null}
+      headSha={commit.sha}
+      pinnedSha={null}
+      pinnedName={null}
+      selected={null}
+      searchOpen={false}
+      searchTick={0}
+      searchQuery=""
+      onSearchQuery={() => {}}
+      onCloseSearch={() => {}}
+      onSelect={() => {}}
+      onCommitMenu={() => {}}
+      onWipMenu={() => {}}
+      onRefMenu={() => {}}
+      onRefActivate={() => {}}
+      stashes={[]}
+      onStashMenu={() => {}}
+      onStashActivate={() => {}}
+      refDrag={noDrag}
+      detached={false}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+      scrollTop={0}
+      onScrollTop={() => {}}
+      {...over}
+    />,
+  );
+}
+
 type Rect = { top: number; bottom: number; height: number };
 
 /** jsdom returns an all-zero rect for everything, so the geometry has to be supplied by hand. */
@@ -97,6 +134,9 @@ function flipsUp(body: Rect, chipRect: Rect, listHeight: number): boolean {
       onWipMenu={() => {}}
       onRefMenu={() => {}}
       onRefActivate={() => {}}
+      stashes={[]}
+      onStashMenu={() => {}}
+      onStashActivate={() => {}}
       refDrag={noDrag}
       detached={false}
       hasMore={false}
@@ -204,6 +244,9 @@ function renderDrag(dragging: GitRef | null, dropped: { src: GitRef | null; dst:
       onWipMenu={() => {}}
       onRefMenu={() => {}}
       onRefActivate={() => {}}
+      stashes={[]}
+      onStashMenu={() => {}}
+      onStashActivate={() => {}}
       refDrag={refDrag}
       detached={false}
       hasMore={false}
@@ -257,5 +300,75 @@ describe('CommitGraph branch drag and drop (GC-015)', () => {
     expect(feature.className).not.toContain('drop-over');
     fireEvent.drop(feature, { dataTransfer: dt });
     expect(dropped.dst).toBe(null);
+  });
+});
+
+describe('stash markers in the graph (GC-140)', () => {
+  const stash = (index: number, parent: string): Stash => ({ index, sha: `s${index}`.padEnd(40, '0'), message: `WIP ${index}`, date: '2026-01-02T03:04:05Z', parent });
+
+  it('keys stashes by the commit they were taken from, and keeps two on one commit', () => {
+    const m = stashesByParent([stash(0, 'aaa'), stash(1, 'bbb'), stash(2, 'aaa')]);
+    expect([...m.keys()].sort()).toEqual(['aaa', 'bbb']);
+    expect(m.get('aaa')!.map((s) => s.index)).toEqual([0, 2]);
+  });
+
+  it('a stash whose parent is not in the loaded range is simply never looked up', () => {
+    // The not-loaded case costs nothing and throws nothing: the map is keyed by parent sha, and
+    // no row asks for a sha it does not have.
+    const m = stashesByParent([stash(0, 'not-loaded')]);
+    expect(m.get(commit.sha)).toBe(undefined);
+    // A stash on an unborn HEAD has no parent at all, and marks nothing.
+    expect(stashesByParent([{ ...stash(0, ''), parent: '' }]).size).toBe(0);
+  });
+
+  it('draws one marker per stash on its commit, outside the chip fold', () => {
+    const { container } = renderGraph({ stashes: [stash(0, commit.sha), stash(1, commit.sha)] });
+    expect(container.querySelectorAll('.graph-row .stash-chip')).toHaveLength(2);
+    // The row's single chip slot and its `+N` are untouched: a stash is not a ref (GC-078).
+    expect(container.querySelectorAll('.graph-row .col-ref > .ref-chip:not(.more)')).toHaveLength(1);
+    expect(container.querySelector('.graph-row .ref-chip.more')?.textContent).toBe('+5');
+    // And it is not a `.ref-chip`, so no chip rule — drag, grow-on-hover, fold — can reach it.
+    expect(container.querySelector('.stash-chip')?.classList.contains('ref-chip')).toBe(false);
+  });
+
+  it('draws nothing when the stash belongs to a commit that is not on screen', () => {
+    const { container } = renderGraph({ stashes: [stash(0, 'z'.repeat(40))] });
+    expect(container.querySelectorAll('.stash-chip')).toHaveLength(0);
+  });
+
+  it('offers the same two gestures the left panel s stash row does', () => {
+    const seen = { menu: 0, applied: null as number | null };
+    const { container } = renderGraph({
+      stashes: [stash(3, commit.sha)],
+      onStashMenu: () => seen.menu++,
+      onStashActivate: (s) => (seen.applied = s.index),
+    });
+    const marker = container.querySelector('.stash-chip')!;
+    fireEvent.contextMenu(marker);
+    fireEvent.doubleClick(marker);
+    expect(seen).toEqual({ menu: 1, applied: 3 });
+  });
+});
+
+describe('rowIndexOf (GC-141)', () => {
+  const commits = [commit, { ...commit, sha: 'b'.repeat(40) }];
+
+  it('offsets by the WIP row when there is one', () => {
+    expect(rowIndexOf(commits, commit.sha, false)).toBe(0);
+    expect(rowIndexOf(commits, commit.sha, true)).toBe(1);
+    expect(rowIndexOf(commits, 'b'.repeat(40), true)).toBe(2);
+  });
+
+  it('answers -1 for a sha the loaded range does not hold, with and without a WIP row', () => {
+    // The case that was silently wrong: -1 + the WIP offset came to 0, so the `index < 0` guard
+    // never fired and the graph scrolled to the WIP row instead of staying put.
+    expect(rowIndexOf(commits, 'z'.repeat(40), true)).toBe(-1);
+    expect(rowIndexOf(commits, 'z'.repeat(40), false)).toBe(-1);
+  });
+
+  it('places the WIP selection on row 0, and nowhere at all without a WIP row', () => {
+    expect(rowIndexOf(commits, 'WIP', true)).toBe(0);
+    expect(rowIndexOf(commits, 'WIP', false)).toBe(-1);
+    expect(rowIndexOf(commits, null, true)).toBe(-1);
   });
 });

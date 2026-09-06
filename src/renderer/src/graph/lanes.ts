@@ -65,6 +65,38 @@ export interface GraphLayout {
   state: LaneState;
 }
 
+/** What a row draws of the dashed WIP-to-HEAD run: the whole lane, the stretch above its node, or nothing. */
+export type WipDash = 'through' | 'toNode' | null;
+
+/** Whether `lane` is untouched by this row — no node, no through line, nothing curving in or out. */
+export function laneFree(row: RowLayout, lane: number): boolean {
+  return row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
+}
+
+/**
+ * Which part of HEAD's lane one row draws dashed (GC-144). The dash says "the node above is not a
+ * commit yet", so it has to cover the whole distance from the WIP node down to HEAD's node,
+ * however many rows that spans — it used to be the WIP row's own 14px stub and nothing else,
+ * because the only rule here refused a lane that any line was already using, and the lane between
+ * WIP and HEAD always has one: HEAD's own.
+ *
+ * `headOwnsLane` is what tells those two apart. Column 0 is reserved for HEAD's lineage from the
+ * first row (`layoutGraph` seeds `active[0]`), so while that holds, the line in it above HEAD's
+ * row *is* the run and is drawn dashed in place of the solid one. A commit reaching HEAD's tip
+ * from above cannot take that lane — the seed is holding it — so it arrives as an `incoming`
+ * curve and never turns a real child's line into a dash. With another branch pinned to column 0
+ * the seed is that branch's, HEAD's lane is an ordinary one, and only a lane nothing else is
+ * using may carry the run.
+ *
+ * @param index the row's index into the laid-out rows, not the display index the WIP row shifts.
+ */
+export function wipDashFor(row: RowLayout, index: number, headRowIndex: number, headLane: number, headOwnsLane: boolean): WipDash {
+  if (headRowIndex < 0 || index > headRowIndex) return null;
+  // HEAD's own row: dashed above the node, and solid below it — that segment leaves a real commit.
+  if (index === headRowIndex) return headOwnsLane || !row.hasChildAbove ? 'toNode' : null;
+  return headOwnsLane || laneFree(row, headLane) ? 'through' : null;
+}
+
 /**
  * @param pinnedSha commit whose lineage must occupy column 0 (the checked-out branch). Column 0 is
  *   reserved for it from the first row, so the WIP row and the dashed link to HEAD always sit at the left.

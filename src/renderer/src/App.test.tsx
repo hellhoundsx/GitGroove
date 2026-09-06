@@ -447,3 +447,53 @@ describe('App keeps a tab pointing at its own repository while it loads (GC-016)
     expect(JSON.parse(localStorage.getItem('gitclient.tabs') ?? '[]')).toEqual([REPO, REPO2]);
   });
 });
+
+describe('App parks the commit message with the tab it was written in (GC-148)', () => {
+  const summaryField = (): HTMLInputElement => screen.getByPlaceholderText('Commit summary') as HTMLInputElement;
+  const bodyField = (): HTMLTextAreaElement => screen.getByPlaceholderText('Description') as HTMLTextAreaElement;
+
+  /** Both repositories open, a half-written message in the first, showing the second. */
+  async function draftThenSwitch(): Promise<void> {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withCommits(REPO, ['first commit'])));
+    // The working-directory row is what a repository opens on, so the staging form is on screen.
+    await settle(() => fireEvent.change(summaryField(), { target: { value: 'half a message' } }));
+    await settle(() => fireEvent.change(bodyField(), { target: { value: 'and its body' } }));
+
+    (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = async () => REPO2;
+    await settle(() => fireEvent.click(screen.getByTitle('New tab')));
+    await settle(() => loads[1]?.resolve(withCommits(REPO2, ['other repository'])));
+  }
+
+  it('gives the draft back when the tab returns, and never shows it over another repository', async () => {
+    await draftThenSwitch();
+    // GC-016's promise, which the panel's key used to keep on its own: the other repository's
+    // staging view is empty, not carrying a message written for the first one.
+    expect(summaryField().value).toBe('');
+    expect(bodyField().value).toBe('');
+
+    const before = loads.length;
+    await settle(() => fireEvent.click(screen.getAllByTitle(REPO)[0]!));
+    // Back in the same commit as the switch, before the refresh that follows it lands.
+    expect(summaryField().value).toBe('half a message');
+    expect(bodyField().value).toBe('and its body');
+    await settle(() => loads[before]?.resolve(withCommits(REPO, ['first commit'])));
+    expect(summaryField().value).toBe('half a message');
+  });
+
+  it('clears the draft when a repository is opened into the showing tab', async () => {
+    await draftThenSwitch();
+    await settle(() => fireEvent.click(screen.getAllByTitle(REPO)[0]!));
+    expect(summaryField().value).toBe('half a message');
+    // Not a tab switch: the same tab is pointed at another repository, so the message written for
+    // the one being left must not sit over the new one's staged files.
+    (window.api as unknown as { openRepoDialog: () => Promise<string> }).openRepoDialog = async () => '/third-repo';
+    await settle(() => fireEvent.click(screen.getByTitle('Open repository')));
+    await settle(() => loads[loads.length - 1]?.resolve(withCommits('/third-repo', ['third'])));
+    expect(summaryField().value).toBe('');
+  });
+});

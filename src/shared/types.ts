@@ -32,6 +32,8 @@ export interface Stash {
   sha: string;
   message: string;
   date: string; // ISO-ish from %ci
+  /** The commit the stash was taken from — its first parent, which is where the graph marks it (GC-140). */
+  parent: string;
 }
 
 export interface Remote {

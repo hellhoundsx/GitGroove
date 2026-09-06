@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import type { GitRef } from '@shared/types';
 import { LeftPanel, buildRefTree } from './LeftPanel';
 import type { RefDragHandlers } from '../ui/refDrag';
@@ -75,7 +76,7 @@ const noResize = {
   onDoubleClick: () => {},
 };
 
-function panel(refs: GitRef[]): HTMLElement {
+function panel(refs: GitRef[], over: Partial<ComponentProps<typeof LeftPanel>> = {}): HTMLElement {
   const { container } = render(
     <LeftPanel
       refs={refs}
@@ -92,11 +93,14 @@ function panel(refs: GitRef[]): HTMLElement {
       onCollapse={() => {}}
       onRefMenu={() => {}}
       onRefActivate={() => {}}
+      onRefSelect={() => {}}
+      selected={null}
       refDrag={noDrag}
       onStashMenu={() => {}}
       onStashActivate={() => {}}
       onRemoteMenu={() => {}}
       onAddRemote={() => {}}
+      {...over}
     />,
   );
   return container;
@@ -150,5 +154,32 @@ describe('LeftPanel folders (GC-051)', () => {
   it('keeps "Viewing" counting refs rather than folders', () => {
     const c = panel([head('main', true), head('feat/a'), head('feat/b')]);
     expect(c.querySelector('.viewing b')!.textContent).toBe('3');
+  });
+});
+
+describe('LeftPanel selection (GC-141)', () => {
+  const tag = (name: string): GitRef => ({ name, fullName: `refs/tags/${name}`, kind: 'tag', sha: name.padEnd(40, '0'), isHead: false });
+  const remote = (name: string): GitRef => ({ name, fullName: `refs/remotes/${name}`, kind: 'remote', sha: name.padEnd(40, '0'), isHead: false });
+
+  it('a single click on a local, remote or tag row hands its tip to App', () => {
+    const picked: string[] = [];
+    const refs = [head('main', true), remote('origin/main'), tag('v1')];
+    // Tags are behind a closed section by default, so the header is opened first.
+    const c = panel(refs, { onRefSelect: (r: GitRef) => picked.push(r.fullName) });
+    fireEvent.click([...c.querySelectorAll('.section-toggle')].find((b) => b.textContent?.includes('Tags'))!);
+    for (const row of c.querySelectorAll('.ref-row:not(.folder):not(.remote-group):not(.dim)')) fireEvent.click(row);
+    expect(picked).toEqual(['refs/heads/main', 'refs/remotes/origin/main', 'refs/tags/v1']);
+  });
+
+  it('marks every row standing at the selected commit, and no other', () => {
+    const refs = [head('main', true), head('other')];
+    const c = panel(refs, { selected: 'main'.padEnd(40, '0') });
+    expect(names(c, '.ref-row.selected')).toEqual(['main']);
+    expect(c.querySelectorAll('.ref-row.selected')).toHaveLength(1);
+  });
+
+  it('marks nothing while the working directory is what is selected', () => {
+    const c = panel([head('main', true)], { selected: 'WIP' });
+    expect(c.querySelectorAll('.ref-row.selected')).toHaveLength(0);
   });
 });

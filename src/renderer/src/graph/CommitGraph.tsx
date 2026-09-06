@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react';
-import { Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus, Search, Tag, TriangleAlert, X } from 'lucide-react';
-import type { Commit, GitRef, RepoStatus } from '@shared/types';
-import { continuesRange, layoutGraph, type GraphLayout, type RowLayout } from './lanes';
-import { GraphCell, LANE_W, ROW_H, laneColor, type WipDash } from './GraphCell';
+import { Archive, Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus, Search, Tag, TriangleAlert, X } from 'lucide-react';
+import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
+import { continuesRange, layoutGraph, wipDashFor, type GraphLayout } from './lanes';
+import { GraphCell, LANE_W, ROW_H, laneColor } from './GraphCell';
 import { Icon } from '../ui/icons';
 import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
@@ -33,6 +33,10 @@ interface Props {
   onWipMenu(e: MouseEvent): void;
   onRefMenu(e: MouseEvent, ref: GitRef): void;
   onRefActivate(ref: GitRef): void;
+  /** Marked on the commit each was taken from, with the left panel's own menu on it (GC-140). */
+  stashes: Stash[];
+  onStashMenu(e: MouseEvent, stash: Stash): void;
+  onStashActivate(stash: Stash): void; // double-click: apply, as the left panel's row does
   /** Dragging a chip onto another branch, here or in the left panel (GC-015). */
   refDrag: RefDragHandlers;
   /** No branch is checked out: the graph marks HEAD itself, since no ref carries the check (GC-061). */
@@ -95,6 +99,42 @@ function chipsFor(refs: GitRef[]): Chip[] {
   const absorbed = new Set<string>();
   for (const r of refs) if (r.kind === 'head' && r.upstream && refs.some((o) => o.kind === 'remote' && o.name === r.upstream)) absorbed.add(r.upstream);
   return refs.filter((r) => !(r.kind === 'remote' && absorbed.has(r.name))).map((r) => ({ ref: r, upstreamHere: r.kind === 'head' && !!r.upstream && absorbed.has(r.upstream) }));
+}
+
+/**
+ * Which displayed row a selection sits on, or -1 for one that is not on screen (GC-141).
+ *
+ * The WIP row shifts every commit down by one, and adding that offset to a `findIndex` that
+ * answered -1 gave row 0 — so a selection the loaded range does not hold scrolled the graph to
+ * the WIP row instead of leaving it where it was. "Not found" is therefore settled before the
+ * offset, not after it. Reachable today from a commit's parent link, and the ordinary case now
+ * that a hidden branch's row in the left panel is clickable.
+ */
+export function rowIndexOf(commits: Commit[], selected: string | null, hasWip: boolean): number {
+  if (selected === null) return -1;
+  if (selected === WIP) return hasWip ? 0 : -1;
+  const at = commits.findIndex((c) => c.sha === selected);
+  return at < 0 ? -1 : at + (hasWip ? 1 : 0);
+}
+
+/**
+ * The stashes to mark on each row, keyed by the commit they were taken from (GC-140). A stash is
+ * a commit whose first parent is that commit, and `refs/stash` stays out of the log traversal
+ * (GC-095), so the marker is the only thing that puts a stash on the graph at all.
+ *
+ * Nothing here filters against the loaded range: a stash whose parent is not on screen — hidden,
+ * or past the last page — is simply never looked up, which is what makes the not-loaded case cost
+ * nothing and throw nothing. Two stashes taken from one commit keep their order in the list.
+ */
+export function stashesByParent(stashes: Stash[]): Map<string, Stash[]> {
+  const m = new Map<string, Stash[]>();
+  for (const s of stashes) {
+    if (!s.parent) continue; // a stash on an unborn HEAD has no parent to mark
+    const list = m.get(s.parent);
+    if (list) list.push(s);
+    else m.set(s.parent, [s]);
+  }
+  return m;
 }
 
 /**
@@ -165,10 +205,7 @@ function useLaneLayout(commits: Commit[], pinnedSha: string | null | undefined):
   return layout;
 }
 
-const laneFree = (row: RowLayout, lane: number): boolean =>
-  row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
-
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, stashes, onStashMenu, onStashActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop }: Props): JSX.Element {
   // The optional columns after the message; all off by default (GC-032). What the preference asks
   // for is not always what fits: `fitOptCols` below drops them once the panel is too narrow to
   // draw them and a commit message both (GC-116).
@@ -193,10 +230,16 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     return m;
   }, [refs, pinnedName, detached, headSha]);
 
+  const stashesOn = useMemo(() => stashesByParent(stashes), [stashes]);
+
   const graphWidth = Math.max(3, layout.laneCount) * LANE_W + 16;
   const headRowIndex = headSha ? layout.rows.findIndex((r) => r.sha === headSha) : -1;
   const headRow = headRowIndex >= 0 ? layout.rows[headRowIndex]! : null;
-  const wipLane = headRow ? { lane: headRow.lane, color: headRow.color } : { lane: 0, color: 0 };
+  const wipLane = headRow ? { lane: headRow.lane, color: headRow.color, linked: true } : { lane: 0, color: 0, linked: false };
+  // Whether the lane the WIP-to-HEAD run travels in belongs to HEAD's lineage the whole way down,
+  // which is what lets the run be drawn in place of the line already there (GC-144). It does when
+  // nothing else is pinned: `layoutGraph` then reserves column 0 for HEAD from the first row.
+  const headOwnsLane = headRow !== null && headRow.lane === 0 && (pinnedSha === null || pinnedSha === headSha);
 
   const counts = useMemo(() => {
     const c = { add: 0, mod: 0, del: 0, conflict: 0 };
@@ -371,7 +414,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
       restored.current = false;
       return;
     }
-    const index = selected === WIP ? 0 : commits.findIndex((c) => c.sha === selected) + (hasWip ? 1 : 0);
+    const index = rowIndexOf(commits, selected, hasWip);
     if (index < 0) return;
     const top = index * ROW_H;
     if (top < el.scrollTop) el.scrollTop = top;
@@ -444,6 +487,30 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     );
   };
 
+  /**
+   * A stash on the commit it was taken from (GC-140). Deliberately not a `.ref-chip`: it stands
+   * for no `GitRef`, so none of the chip rules — the drag attributes, the grow-to-full-name
+   * hover, the fold — may reach it, and it is `flex: none` so it keeps its place while the chip
+   * beside it gives way. Same two gestures as the left panel's stash row, from the same menu.
+   */
+  const renderStash = (s: Stash): JSX.Element => (
+    <span
+      key={s.sha}
+      className="stash-chip"
+      title={`stash@{${s.index}}: ${s.message}\nDouble-click to apply, right-click for actions`}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onStashMenu(e, s);
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onStashActivate(s);
+      }}
+    >
+      <Icon of={Archive} size={11} />
+    </span>
+  );
+
   const renderRow = (index: number): JSX.Element | null => {
     const style = { top: index * ROW_H };
     if (hasWip && index === 0) {
@@ -495,12 +562,12 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     if (!row || !c) return null;
     const rowRefs = refsBySha.get(c.sha) ?? [];
     const chips = chipsFor(rowRefs);
+    const rowStashes = stashesOn.get(c.sha) ?? [];
+    // The line out of the ref column and the connector into the node are the same join, so a row
+    // carrying only a stash marker gets both rather than a marker floating on its own (GC-140).
+    const joined = rowRefs.length > 0 || rowStashes.length > 0;
     const color = laneColor(row.color);
-    let wipDash: WipDash = null;
-    if (hasWip && headRow) {
-      if (i < headRowIndex && laneFree(row, headRow.lane)) wipDash = 'through';
-      else if (i === headRowIndex && !row.hasChildAbove) wipDash = 'toNode';
-    }
+    const wipDash = hasWip && headRow ? wipDashFor(row, i, headRowIndex, headRow.lane, headOwnsLane) : null;
     return (
       <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''} ${!filtering ? '' : matchSet.has(c.sha) ? 'match' : 'unmatched'}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
         <div className="col-ref" onMouseEnter={(e) => onMoreEnter(e, c.sha)} onMouseLeave={() => setMoreUp(null)}>
@@ -520,7 +587,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
               </span>
             </>
           )}
-          {rowRefs.length > 0 && <span className="ref-line" style={{ background: color }} />}
+          {/* after the chips and outside the fold: a stash is not a ref, so it never spends the
+              row's one chip slot and never changes the `+N` count (GC-140) */}
+          {rowStashes.map(renderStash)}
+          {joined && <span className="ref-line" style={{ background: color }} />}
         </div>
         <div className="col-graph" style={{ width: graphWidth }}>
           <GraphCell
@@ -528,7 +598,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
             width={graphWidth}
             wipDash={wipDash}
             wipDashLane={wipDash === 'through' ? headRow!.lane : undefined}
-            connector={rowRefs.length > 0}
+            connector={joined}
             author={{ name: c.authorName, email: c.authorEmail, initials: initialsOf(c.authorName) }}
           />
         </div>

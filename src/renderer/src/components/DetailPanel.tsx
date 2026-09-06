@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type MouseEvent, type ReactNode } from 'react';
 import type { Commit, CommitFile, FileChangeKind, RepoStatus, StatusEntry } from '@shared/types';
+import type { CommitDraft } from '../App';
 import type { FileViewSource } from '../diff/DiffView';
 // The sentinel for the working-directory row: the commit view's banner selects it (GC-045).
 import { WIP } from '../graph/CommitGraph';
@@ -50,6 +51,13 @@ interface Props {
   resize: DragHandleProps;
   /** Bumped every time Ctrl+Shift+M asks for the commit summary field, so it refocuses (GC-033). */
   focusSummary: number;
+  /**
+   * The staging form's contents, owned by `App` (GC-148). This component unmounts behind a file
+   * view and on every tab switch, so a half-written message cannot live in its own state and
+   * survive; `App` parks it with the tab it belongs to.
+   */
+  draft: CommitDraft;
+  onDraft(patch: Partial<CommitDraft>): void;
   onSelectSha(sha: string): void;
   onOpenFile(view: FileViewSource): void;
   onFileMenu(e: MouseEvent, target: FileMenuTarget): void;
@@ -86,7 +94,7 @@ function FileRow({ path, origPath, kind, active, onClick, onContextMenu, childre
 const isActive = (open: FileViewSource | null, path: string, staged?: boolean): boolean =>
   !!open && open.path === path && (open.source === 'commit' || staged === undefined || open.staged === staged);
 
-function StagingView({ status, headCommit, openFile, actions, focusSummary, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'repo' | 'onSelectSha' | 'resize'>): JSX.Element {
+function StagingView({ status, headCommit, openFile, actions, focusSummary, draft, onDraft, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'repo' | 'onSelectSha' | 'resize'>): JSX.Element {
   const ui = useUi();
   const prefs = usePrefs();
   const entries = status?.entries ?? [];
@@ -95,8 +103,7 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, onOp
   const unstaged = entries.filter((e): e is StatusEntry & { unstaged: FileChangeKind } => e.unstaged !== null && e.unstaged !== 'conflicted');
   const staged = entries.filter((e): e is StatusEntry & { staged: FileChangeKind } => e.staged !== null && e.staged !== 'conflicted');
 
-  const [summary, setSummary] = useState('');
-  const [body, setBody] = useState('');
+  const { summary, body, amend } = draft;
   // Ctrl+Shift+M focuses the summary; the tick is what makes asking twice focus twice (GC-033).
   const summaryInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -104,7 +111,6 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, onOp
     summaryInput.current?.focus();
     summaryInput.current?.select();
   }, [focusSummary]);
-  const [amend, setAmend] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -120,22 +126,17 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, onOp
     }
   };
 
-  const toggleAmend = (on: boolean): void => {
-    setAmend(on);
-    if (on && headCommit && !summary.trim() && !body.trim()) {
-      setSummary(headCommit.summary);
-      setBody(headCommit.body);
-    }
-  };
+  // The pre-fill rule is exactly as it was: turning Amend on over an empty form borrows HEAD's
+  // message, and one patch carries both so no render sees the flag on with the fields still empty.
+  const toggleAmend = (on: boolean): void =>
+    onDraft(on && headCommit && !summary.trim() && !body.trim() ? { amend: on, summary: headCommit.summary, body: headCommit.body } : { amend: on });
 
   const concludingMerge = operation === 'merge' && conflicted.length === 0;
   const canCommit = !busy && conflicted.length === 0 && (concludingMerge || ((staged.length > 0 || amend) && summary.trim().length > 0));
   const doCommit = (): void =>
     void run(async () => {
       await actions.commit(summary, body, amend);
-      setSummary('');
-      setBody('');
-      setAmend(false);
+      onDraft({ summary: '', body: '', amend: false });
     });
 
   return (
@@ -270,7 +271,7 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, onOp
               ref={summaryInput}
               placeholder="Commit summary"
               value={summary}
-              onChange={(e) => setSummary(e.target.value)}
+              onChange={(e) => onDraft({ summary: e.target.value })}
               onKeyDown={(e) => {
                 if (matches('commit', e) && canCommit) doCommit();
               }}
@@ -281,7 +282,7 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, onOp
           <textarea
             placeholder="Description"
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => onDraft({ body: e.target.value })}
             onKeyDown={(e) => {
               if (matches('commit', e) && canCommit) doCommit();
             }}
