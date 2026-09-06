@@ -571,6 +571,65 @@ in the Why; an invariant goes in `CLAUDE.md`.
     as GC-191, GC-192 and GC-197 so this one is the judgement call that is left — with the
     finding list as its first deliverable, which is what Ricardo asked for.
   - 2026-09-06 19:43 claimed
+  - 2026-09-06 20:05 **the audit**, written before any change this ticket makes, from the built app
+    on the scratch repository at panel widths 400 and 300 — `docs/screenshots/gc196-{staging,commit}-before-{400,300}.png`
+    — with every number read back over CDP. One line per finding: surface, what `04-panels.md`
+    says, what ours does, the measurement, and the verdict.
+    - **Staging header, centring.** Study line 66: "centred 'N file change(s) on <branch chip>'".
+      Ours is `justify-content: space-between` over three children — a 24px trash button, the
+      label, and an **empty `<span/>`** standing where GitKraken's AI button is. An empty item is
+      0px, so the slack is split around 24px on one side and 0 on the other and the label's centre
+      lands 12px — exactly half the button — right of the head's: measured head centre 1200.5,
+      label centre 1212.5 at 400px, and 1250.5 / 1262.5 at 300px, so the error is the button's
+      half-width at every width. **Fix here.**
+    - **Staging header, the branch.** Study says the branch is a chip; ours is `on **main**` in
+      bold text. **Not done here**: the head already draws real chips in the commit view, and
+      making this one a `RefChip` is a behaviour question (does it take the ref menu?) rather than
+      a spacing one. Left, with no ticket — it is one word of styling and reads correctly today.
+    - **Group heads, weight.** Ours is 14px at weight **400** on `--bg-panel` over the body's
+      `--bg-app` (measured rgb(39,42,49) on rgb(28,30,35), so GC-142's band does exist and reads).
+      The weight does not: at 400 it is body text one size up rather than a heading, and every
+      other heading in the app — the left panel's section heads — is bold. **Fix here.**
+    - **Group heads, the count.** Ours is inside the label string, `Unstaged Files (3)`, where the
+      left panel's section head has the count as its own right-aligned element. Same kind of thing,
+      two renderings. **Fix here**, taking the left panel's shape.
+    - **Group heads, the action button.** One per head, `Stage all changes` / `Unstage all`, which
+      is the study's own pair, and the commit view's head carries none because there is nothing to
+      stage in a commit. **Correct as it is.**
+    - **File rows.** 26px, 12px type, `0 8px` padding, 8px gap, and the actions are `display: none`
+      until `:hover` — measured `none` on an unhovered row. That is the study's line 70 exactly.
+      **Correct as it is.**
+    - **The two lists' share.** Both are `flex: 1 1 auto`, so they take an **equal** share whatever
+      they hold: measured at 400px, Unstaged 260px for 112px of content and Staged 247px for 86px,
+      309px of the 756px body — 41% — ruled empty under five rows. The study has the lists sharing
+      the vertical space, so filling the panel is right; sharing it *equally* is not, and the app's
+      own answer is one panel over (`fitSections`, GC-153: what each asks for, then level by
+      level). **Not done here**: it is behaviour, not appearance, and M-shaped. Filed as GC-207.
+    - **Commit form.** Summary input 38px, description 70px, 8px gaps, 201px in total, and the
+      primary button already reads `Commit changes to N files` when it can commit and
+      `Stage changes to commit` / `Enter a summary to commit` when it cannot — which is the
+      study's line 79 requirement, met. The study's own section is ~275px and **resizable**; ours
+      is fixed. **Not done here**: GC-205 owns the resize.
+    - **Commit view, the author block at 300px.** `parent: 7774cac` is given a **46px** column for
+      49px of wrapped text and comes out 2.5 lines and 40px tall inside a 53px block, with the sha
+      cut at the panel's edge (`gc196-commit-before-300.png`). GC-157 made the parents column the
+      one that gives way; the measurement says it gives way past legibility while the date, which
+      can ellipsise, keeps 165px and wants exactly 165 — so there is nothing to take from it
+      either. At 300px the row simply does not hold three things. **Fix here**, by letting the
+      parents fall to a line of its own instead of being crushed on this one.
+    - **Commit view, the ref chips.** Two chips, 92.3 and 126.4px, right edge 1388 against a
+      content edge of 1388: overflow **0** at both widths, wrapping to a second line at 300px and
+      growing the head to 57px, which is what GC-087 designed. **Correct as it is.**
+    - **Commit view, the change readout.** `1 added`, one `svg.kind` mark, the same one the file
+      row below it draws (GC-143). **Correct as it is.**
+    - **Vertical rhythm.** `.detail-body` gap 12px, and each section 1px rule plus 12px
+      padding-top, so between two sections it is 12px, rule, 12px — symmetric, and the cards carry
+      their own border. **Correct as it is.**
+    - **Type scale.** Head bar 12px, group heads 14px, rows 12px, readout 12px: the panel's own
+      title is the smallest text in it while a list's heading is the largest. **Considered and
+      left**: the head bar is chrome and the group heads are content, so a content heading
+      outranking a chrome label is defensible, and moving either moves a metric three surfaces
+      share. Recorded here so the next pass does not have to measure it again.
 
 ---
 
