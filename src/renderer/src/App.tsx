@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type JSX, type MouseEvent } from 'react';
+import { ChevronLeft } from 'lucide-react';
+import { Icon } from './ui/icons';
 import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, RepoStatus, Stash, StatusEntry } from '@shared/types';
 import { ADVISORY } from '@shared/types';
 import { defaultRemote, remoteCopyOf } from '@shared/remotes';
@@ -2069,6 +2071,15 @@ export function App(): JSX.Element {
                 onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
                 onRefActivate={(r) => void checkoutRef(r)}
               />
+            )}
+            {detailCollapsed && (
+              // The one reversible action in the app with nothing on screen to reverse it: the
+              // left panel leaves a 44px rail that is clickable, and Ctrl+K left the graph running
+              // to the window edge with no affordance at all (GC-136). A strip where the panel was
+              // rather than a toolbar button, so it is absent exactly while the panel is showing.
+              <button className="detail-reveal" title="Show the detail panel (Ctrl+K)" onClick={() => setDetailCollapsed(false)}>
+                <Icon of={ChevronLeft} size={14} />
+              </button>
             )}
           </>
         ) : (

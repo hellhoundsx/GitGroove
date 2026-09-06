@@ -938,7 +938,6 @@ input[type='radio']:disabled {
   font-weight: 500;
   color: var(--text-bright);
   white-space: nowrap;
-  cursor: grab;
 }
 .ref-chip.head {
   font-weight: 600;
@@ -952,7 +951,11 @@ input[type='radio']:disabled {
 }
 /* hovering a chip lets it grow to its full name, overlapping the graph like a tooltip; the cell
    stops clipping while hovered so the expanded chip and the +N list can spill over */
-.graph-row .col-ref:hover {
+/* `.more-drag` is the same state reached by a drag rather than by the pointer (GC-123): opening the
+   block is not enough on its own, because this is where the cell stops clipping — without it the
+   block opened and was cut to the row's 28px, one line of it showing. */
+.graph-row .col-ref:hover,
+.graph-row .col-ref.more-drag {
   overflow: visible;
   z-index: 3;
 }
@@ -1044,15 +1047,31 @@ input[type='radio']:disabled {
    before the dragover preventDefault that makes an element a target at all — so the outline is
    the whole of the feedback saying a drop here will do something. `outline`, not `border`:
    a border would resize the chip and shift the name under the pointer. */
+/* One cursor for a ref that can be picked up, on both surfaces, and the row's own for one that
+   cannot (GC-127). Keyed on `draggable` rather than on a class of its own, because that attribute
+   *is* `canDragRef`'s answer — written by the same `attrs()` a chip and a row both spread — so the
+   promise the pointer makes cannot drift from what the element will actually do. A tag chip and
+   the synthetic detached-HEAD chip therefore inherit `.graph-row`'s pointer, which is what they
+   used to contradict at every width. */
+.ref-chip[draggable='true'],
+.ref-row[draggable='true'] {
+  cursor: grab;
+}
 .ref-chip.drag-src,
 .ref-row.drag-src {
   opacity: 0.45;
 }
+/* The graph is where a drag usually ends, and a 1px ring was the weaker of the two feedbacks: a
+   chip sits on a 30% mix of its lane colour, inside a column of coloured lanes, and at 100% on a
+   wide window the ring on it could not be picked out without magnification (GC-127). A 2px ring
+   with a soft halo outside it reads on both surfaces, and the halo is what carries a chip whose
+   own background is set inline from the lane and cannot be tinted from here. */
 .ref-chip.drop-over,
 .ref-row.drop-over {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
   border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .ref-row.drop-over {
   background: var(--accent-hover);
@@ -1148,6 +1167,27 @@ input[type='radio']:disabled {
   background: var(--bg-app);
   border-left: 1px solid var(--border);
   min-height: 0;
+}
+/* What is on screen in the detail panel's place while it is hidden (GC-136). The left panel
+   collapses to a 44px rail with icons to keep; this one has none, so it is the narrowest thing
+   that can still be clicked — the same border the panel drew, made into a control. */
+.detail-reveal {
+  flex: none;
+  width: 16px;
+  display: grid;
+  place-items: center;
+  /* The panel's own background, not the graph's: at `--bg-app` the strip was the border and the
+     chevron alone, which is not enough to read as something to click on a 3440px window. */
+  background: var(--bg-panel);
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.detail-reveal:hover {
+  background: var(--bg-panel-raised);
+  color: var(--text-bright);
 }
 .detail-head {
   min-height: 36px;

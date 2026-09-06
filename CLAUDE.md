@@ -253,11 +253,24 @@ under it the moment git answers with its canonical form.
   — the find bar's author chip, the lane-layout cache, the commit message being written — belongs
   to the tab it was made in. The two keys are **prefixed** (`graph-`, `detail-`) because they are
   siblings: two siblings under one key is not a swap, and React left both graphs on screen at once.
-- `+` opens the folder dialog and puts the repository in a tab of its own; "Open repository" and the
-  recents list still land in the showing tab. Either way a repository already in the bar takes the
-  user to its tab rather than opening a second copy of it. Closing a tab falls to its right
-  neighbour, then its left, then the empty state. The graph's scroll offset reaches `App` as a ref
-  (`graphTop`) reported by `CommitGraph`, so a wheel event re-renders nothing.
+- **A tab may hold no repository, and that is what `+` makes** (GC-163). `Tab.path` is
+  `string | null`; `storedPaths(tabs)` is what `gitclient.tabs` is written from, so an empty tab is
+  never remembered, and `showEmpty()` — extracted from `closeTab`'s last-tab branch — is its
+  content: the empty state, now a tab's page rather than only the whole window's. `+` (and Ctrl+T)
+  appends one, parks the showing tab and selects it, and opens no dialog; the bar draws it as a real
+  tab labelled "New Tab", with its close button and middle-click, and with no tabs at all draws
+  nothing — the inert placeholder that used to stand there was not a tab. Giving it a repository
+  fills **that** tab, which is `openPath`'s existing `activeId !== null` path.
+- **A recents row opens a tab; the folder button and "Open repository…" replace one** (GC-164).
+  Both surfaces that draw the list — `openRepoMenu`, which the title-bar chevron and the branch
+  breadcrumb share, and the empty state's `.recent-row` buttons — go through `openRecent`, which is
+  `openNewTab` unless the showing tab holds nothing, in which case it fills it in place. `openPath`
+  rewrote the active tab's path, so a second repository silently replaced the first and dropped
+  everything it had parked. Either way a repository already in the bar takes the user to its tab
+  rather than opening a second copy of it. Closing a tab falls to its right neighbour, then its
+  left, then the empty state. The graph's scroll offset reaches `App` as a ref (`graphTop`)
+  reported by `CommitGraph`, so a wheel event re-renders nothing — though it is not yet *restored*
+  on a switch, which is GC-172.
 
 - **`run(label, fn, opts)` is the only way git actions execute.** It sets busy, runs, reloads the
   snapshot (or only the status for staging actions), and **re-applies the error after the reload**,
@@ -282,7 +295,11 @@ under it the moment git answers with its canonical form.
 - Every checkout goes through `runCheckout(name, doCheckout)`, which asks first and offers "Stash
   and check out" whenever a **tracked** file has staged, unstaged or conflicted changes. A tree
   holding only untracked files checks out silently — git carries those across untouched — and the
-  prompt names the number of files actually at risk.
+  prompt names the number of files actually at risk. **That count, and the sequencer's below, come
+  from `statusRef`, not from the closure's `snapshot`** (GC-124): the ref mirrors
+  `snapshot?.status` on every render the way `live` does, because `runOnBranch` awaits a checkout
+  before the sequencer's guard runs, and a guard that measures the tree from before it would offer
+  to stash nothing and then pop an unrelated stash.
 - **Cherry-pick, revert, merge and rebase go through `runSequencer(what, label, action)`** (GC-090),
   the same shape one step further on: git refuses all four outright while anything is staged, so the
   guard asks first, naming the staged count, and offers Cancel or "Stash and continue" — never
@@ -341,9 +358,12 @@ handler's `hit(id)` is `matches(id, e) && (firesWhileTyping(id) || !isEditable(e
 one `isEditable` check placed halfway down the ladder. Ctrl+F and Ctrl+Shift+M are the two that
 carry it: both are how a field is *reached*. The body-scope bindings are Ctrl+B (branch at HEAD),
 Ctrl+L (fetch), Ctrl+J / Ctrl+K (the two panels), Ctrl+Alt+F (the ref filter), Ctrl+Shift+S /
-Ctrl+Shift+U (stage and unstage all), Ctrl+Shift+M and Ctrl+Tab / Ctrl+Shift+Tab (the repository
-tabs, GC-016); the four that run git follow the toolbar's own disabled states. Ctrl+K's `detailCollapsed` hides the detail panel outright and `select()`
-brings it back, and the two focus bindings reach their field through a **tick** prop
+Ctrl+Shift+U (stage and unstage all), Ctrl+Shift+M and Ctrl+T / Ctrl+Tab / Ctrl+Shift+Tab (the
+repository tabs, GC-016, GC-163); the four that run git follow the toolbar's own disabled states.
+Ctrl+K's `detailCollapsed` hides the detail panel outright, and what brings it back is `select()`
+or the 16px `.detail-reveal` strip standing where the panel was (GC-136) — a strip rather than a
+toolbar button, so it is absent exactly while the panel is showing, which is the left panel's rail
+answered for the one panel that has no icons to keep. The two focus bindings reach their field through a **tick** prop
 (`focusFilter`, `focusSummary`) rather than a boolean, the shape `searchTick` already used, so
 asking twice focuses twice. A hidden detail panel goes into `fitPanels` as a zero-width panel with
 a zero floor, exactly as the collapsed left rail does.
@@ -458,6 +478,12 @@ a zero floor, exactly as the collapsed left rail does.
   lurch. Only a drag carrying `REF_DRAG_TYPE` scrolls anything, and a `dragleave` into one of the
   container's own children is not a leave — that event bubbles from every chip the pointer
   crosses, so `relatedTarget` decides.
+  **What the two surfaces say about the gesture is keyed to `draggable`, not to a class** (GC-127):
+  `cursor: grab` is `.ref-chip[draggable='true'], .ref-row[draggable='true']`, which is `attrs()`'
+  own answer, so a tag chip and the synthetic HEAD chip keep `.graph-row`'s pointer instead of
+  promising a drag they refuse. `.drop-over` is a 2px accent ring with a 2px `--accent-soft` halo
+  on both surfaces: a chip's background is a lane-colour mix set inline and cannot be tinted from
+  CSS, so the halo is what carries it, and a 1px ring on it was unreadable at 100%.
 
 ### Graph (`graph/`)
 
@@ -512,6 +538,16 @@ the block opens; and the grow-to-full-name hover is `.col-ref > .ref-chip:hover`
 child**, or the block's own lines resize under the pointer. It flips above the row when hanging
 below would cross `.graph-body`'s bottom edge, decided on each `mouseenter` against live rects
 because the rows are virtualised.
+
+**And it opens for a drag too, which `:hover` never does** (GC-123). Chromium does not update
+`:hover` while an HTML5 drag is in flight, so a folded ref could be neither picked up nor dropped
+on — four of the seven refs on the fixture's `main`. `moreDrag` in `CommitGraph` holds the sha of
+the row a drag is over, set from `dragover` when it carries `REF_DRAG_TYPE`, cleared when the
+pointer leaves the cell for something outside it (`relatedTarget` decides, as `useDragScroll`
+already has it) or when the ref in flight goes. It takes **both** halves of the hover state:
+`.col-ref.more-drag` joins the rule that sets `display: flex` *and* the one that sets
+`overflow: visible; z-index: 3`. The second is the load-bearing one — `.col-ref` is
+`overflow: hidden`, so a block opened without it is cut to the row's 28px and shows one line.
 
 **A stash is marked on the commit it was taken from** (GC-140). `getStashes` reads the first
 field of `%P` on the same `git stash list` walk, so `Stash.parent` costs no extra spawn, and
@@ -796,7 +832,7 @@ Remembered **state** deliberately stays on its own keys, never in the blob:
 
 | Key | Holds |
 | --- | --- |
-| `gitclient.tabs` | the open repositories as a JSON array of paths, in bar order (GC-016) |
+| `gitclient.tabs` | the open repositories as a JSON array of paths, in bar order; a tab holding none contributes nothing (GC-016, GC-163) |
 | `gitclient.lastRepo` | which of those tabs was showing, so a restart comes back to it |
 | `gitclient.recentRepos` | ten absolute paths, newest first, deduplicated on the normalised path |
 | `gitclient.refColW` | ref column width in px (100–400, default 150) |
@@ -877,7 +913,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-306 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+329 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
 the 82% of the backlog GC-145 moved into it cannot fall out of rule 6's guard again with nothing
@@ -1074,7 +1110,12 @@ where it happened, and step 1 clearing every remembered key by prefix rather tha
 own `whileTyping` (App state); a tab switch restoring in one commit and refreshing underneath, the
 tab keyed by id rather than by its path, `gitclient.lastRepo` following the active tab while git's
 canonical spelling is adopted only within one repository, and two keyed siblings never sharing a
-key (App state);
+key (App state); a tab allowed to hold no repository and never remembered when it does,
+a recents row opening a tab beside the showing one rather than replacing it, and the guards reading
+the tree from a ref rather than from the render they were built in (App state); the folded block
+opening for a drag by taking both halves of the hover state, and what a drag promises keyed to
+`draggable` rather than to a class (Graph, UI layer); a hidden detail panel leaving a strip that is
+absent exactly while it shows (App state);
 a single click selecting a tip and an unloaded one moving nothing, one boundary treatment for both
 detail views with the parents column giving way before the authored date, the commit draft parked
 with its tab, the left panel header naming HEAD rather than

@@ -731,3 +731,26 @@ describe('the checkout guard counts the tree as it is when it runs (GC-124)', ()
     expect(checkouts).toEqual(['feature']);
   });
 });
+
+// GC-136: Ctrl+K hides the detail panel outright, and until now nothing on screen brought it back
+// — the left panel's Ctrl+J at least leaves a clickable rail. This is the only reversible action
+// in the app whose reverse was keyboard-only.
+describe('a hidden detail panel has something on screen to bring it back (GC-136)', () => {
+  it('shows a strip where the panel was, and one click restores it', async () => {
+    await mount();
+    expect(document.querySelector('.detail-panel')).not.toBeNull();
+    // Absent while the panel is showing: it stands in the panel's place, not beside it.
+    expect(document.querySelector('.detail-reveal')).toBeNull();
+
+    await settle(() => fireEvent.keyDown(window, { key: 'k', ctrlKey: true }));
+    expect(document.querySelector('.detail-panel')).toBeNull();
+    const strip = document.querySelector<HTMLElement>('.detail-reveal');
+    expect(strip).not.toBeNull();
+    // It says what it does, which is the other half of "reachable with the mouse alone".
+    expect(strip!.getAttribute('title')).toMatch(/detail panel/i);
+
+    await settle(() => fireEvent.click(strip!));
+    expect(document.querySelector('.detail-panel')).not.toBeNull();
+    expect(document.querySelector('.detail-reveal')).toBeNull();
+  });
+});

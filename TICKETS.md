@@ -311,8 +311,9 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
 | GC-145 | TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible | infra | M | P1 | done |
 | GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | done |
-| GC-164 | A repository picked from the recents list replaces the tab it was picked from | ui | S | P2 | in-progress |
-| GC-163 | The `+` button opens a folder dialog instead of a new tab | ui | M | P2 | in-progress |
+| GC-172 | A tab returned to comes back scrolled to the top, whatever it was left at | graph | S | P1 | todo |
+| GC-164 | A repository picked from the recents list replaces the tab it was picked from | ui | S | P2 | done |
+| GC-163 | The `+` button opens a folder dialog instead of a new tab | ui | M | P2 | done |
 | GC-169 | Pull, push and fetch cannot survive a credential the helper cannot fix, and report one line of the reason | actions | M | P1 | todo |
 | GC-170 | A stash is a chip on its parent, where GitKraken gives it a row of its own above the tip | graph | M | P2 | todo |
 | GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P2 | todo |
@@ -381,10 +382,10 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-102 | The window is built dark whatever the theme is, so a light start flashes and keeps dark controls | ui | S | P3 | done |
 | GC-117 | A graph column switched on in Preferences can be silently absent | ui | S | P3 | done |
 | GC-122 | The graph does not scroll while a branch is being dragged | graph | S | P3 | done |
-| GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | in-progress |
-| GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | in-progress |
-| GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | in-progress |
-| GC-136 | A hidden detail panel has nothing on screen to bring it back | ui | S | P3 | in-progress |
+| GC-123 | A ref folded behind +N can neither be dragged nor dropped on | graph | S | P3 | done |
+| GC-124 | The staged-changes guard reads the snapshot from before a drop’s checkout | actions | S | P3 | done |
+| GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | done |
+| GC-136 | A hidden detail panel has nothing on screen to bring it back | ui | S | P3 | done |
 | GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | todo |
 | GC-138 | The diff’s hunk navigation is inline in the component and untested | tests | S | P3 | todo |
 | GC-167 | stashRename's index shift is the one piece of stash arithmetic with no unit test | tests | S | P3 | todo |
@@ -400,6 +401,7 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-152 | A commit can only be read against its parent, never against the working directory | diff | M | P3 | todo |
 | GC-159 | The remote menu can copy a URL but cannot open the remote on its hosting service | actions | S | P3 | todo |
 | GC-165 | The empty state’s recents paths ellipsise at the wrong end, unlike the menu’s | ui | S | P3 | todo |
+| GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | todo |
 | GC-166 | A file can be diffed but never followed: no history for one path | graph | M | P3 | todo |
 | GC-171 | A stash row spends 66px on its age and leaves its message 77px of the 192 it wants | ui | S | P3 | todo |
 | GC-026 | One dialog with several fields instead of chained prompts | ui | S | P3 | todo |
@@ -560,120 +562,6 @@ decision is missing.
 
 ---
 
-### GC-123 A ref folded behind +N can neither be dragged nor dropped on
-
-- **Status:** in-progress
-- **Area:** graph | **Size:** S | **Priority:** P3
-- **Depends on:** GC-015
-- **Why:** The ref column shows one chip and folds the rest into `+N` (GC-078); the folded block
-  opens on `:hover` over `.col-ref`. Chromium does not update `:hover` while an HTML5 drag is in
-  flight, so during a drag the block never opens: a folded ref is not reachable as a drop target,
-  and it cannot be picked up either, because opening the block needs a hover the pointer cannot
-  give once a drag has started. On the e2e fixture that is four of the seven refs on `main`'s tip.
-  The left-panel row is the only way to reach them, which is the same workaround GC-122 names.
-- **Scope:**
-  - Keep the folded block open while a drag is in flight over the row it belongs to, so its chips
-    are drop targets like any other.
-- **Out of scope:** changing the fold budget (`MAX_CHIPS` is one deliberately, GC-078), and
-  turning the block into a real popover.
-- **Acceptance:**
-  - [ ] With a drag in flight, hovering a `+N` opens the block and one of its chips takes a drop.
-  - [ ] With no drag in flight the block behaves exactly as it does now.
-- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
-- **Verify:** an e2e assertion that a chip inside `.more-list` accepts a dragover mid-drag, plus a
-  screenshot of the open block during a drag.
-- **Log:**
-  - 2026-09-06 proposed by GC-015 (this ticket): four of the fixture's seven refs on `main` are
-    unreachable by drag, and the negative case in step 29 had to be built from a chip on itself
-    because no remote chip is ever the visible one.
-  - 2026-09-06 09:12 claimed
-
----
-
-### GC-124 The staged-changes guard reads the snapshot from before a drop’s checkout
-
-- **Status:** in-progress
-- **Area:** actions | **Size:** S | **Priority:** P3
-- **Depends on:** GC-015
-- **Why:** `runOnBranch` (GC-015) checks a branch out and then calls `runSequencer`, but the
-  `runSequencer` it calls is the one built by the render the drop happened in: the staged list its
-  guard counts is the working tree as it was **before** the checkout. Nothing is wrong today —
-  git carries staged changes across a checkout, and `runCheckout`'s "Stash and check out" pops the
-  stash back — so both paths leave the same index the guard measured. It is a latent trap rather
-  than a bug: the day a checkout path stops restoring the index, the guard will offer to stash
-  nothing and the pop that follows will take an unrelated stash off the list. The same staleness
-  is in `runCheckout` itself, which reads `snapshot` for its at-risk count.
-- **Scope:**
-  - Give `App` a ref mirroring the current snapshot's status, the way `hiddenRef` mirrors the
-    hidden set, and have `runSequencer` and `runCheckout` read it instead of the closure's
-    `snapshot`.
-- **Out of scope:** changing what either guard asks or when it asks it.
-- **Acceptance:**
-  - [ ] A guard invoked after an awaited checkout counts the files that are staged at that moment.
-  - [ ] The existing guard steps in the e2e suite (12 and 29) still pass unchanged.
-- **Files:** `src/renderer/src/App.tsx`.
-- **Verify:** unit or e2e coverage of a drop onto a branch that is not checked out, and the full
-  e2e run.
-- **Log:**
-  - 2026-09-06 proposed by GC-015 (this ticket): found while composing the checkout and the
-    sequencer guard into one gesture.
-  - 2026-09-06 09:12 claimed
-
----
-
-### GC-127 A chip offers a grab cursor it cannot honour, and lights up less than the row beside it
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-015 (`done`)
-- **Why:** GC-015 gave one gesture two surfaces, and the affordances that say so came out uneven
-  at both ends of it.
-  - **The cursor promises a drag that cannot start.** `.ref-chip` has carried
-    `cursor: grab` since before the drag existed, and it is set on every chip. Only branches are
-    draggable (`canDragRef`), so a tag chip — `v0.1.0` and `v0.2.0` on the scratch fixture — and
-    the synthetic `HEAD` chip a detached checkout draws both report `draggable=false` while the
-    pointer over them says grab. Measured in the built app: `v0.2.0 draggable=false cursor=grab`,
-    `v0.1.0 draggable=false cursor=grab`, against `main draggable=true cursor=grab`. The `+N` chip
-    is the one that gets this right, at `cursor: default`.
-  - **And the two surfaces disagree about what a draggable ref looks like.** Every left-panel
-    `.ref-row` is `cursor: pointer`, draggable or not; every chip is `grab`. Two elements standing
-    for the same `GitRef`, offering the same gesture, under two different cursors.
-  - **The drop highlight is weaker on the surface that receives most drops.** `.ref-chip.drop-over`
-    and `.ref-row.drop-over` share a 1px accent outline, and then `.ref-row.drop-over` alone adds
-    `background: var(--accent-hover)`. A row therefore lights up with a tint and an outline; a chip
-    gets the outline only, over a background that is already a 30% mix of its lane colour, inside a
-    column of coloured lanes. At 100% on a 1400px window the ring on `main`'s chip is hard to pick
-    out at all; at 3x it is plainly there. The graph is where a drag usually ends, so the weaker of
-    the two feedbacks is on the busier surface.
-- **Scope:**
-  - `cursor: grab` belongs to a chip that can actually be picked up, not to `.ref-chip` as a class.
-    Drive it from the same predicate the `draggable` attribute is: a chip that is not draggable
-    keeps the pointer the rest of the row has.
-  - Settle on one cursor for a draggable ref and use it on both surfaces.
-  - Give `.ref-chip.drop-over` feedback of the same strength the row has — a tint over the chip's
-    own background, a thicker ring, or both — so a drop target reads at 100% without hunting.
-- **Out of scope:** what a drop offers (`canDropRef` is right), reachability of a folded or
-  off-screen ref (GC-123, GC-122), and the `opacity: 0.45` on the drag source, which reads
-  correctly on both surfaces already.
-- **Acceptance:**
-  - [ ] A tag chip and the detached-HEAD chip report the same cursor as the row around them; a
-        branch chip and a branch row report the same cursor as each other.
-  - [ ] A chip under a drag is distinguishable from its neighbours in a 100% screenshot, not only
-        under magnification.
-  - [ ] No colour reaches `app.css`: any new tint is a token (`grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css`
-        still prints nothing).
-- **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/graph/CommitGraph.tsx`,
-  `src/renderer/src/ui/refDrag.ts`.
-- **Verify:** `npm run typecheck`, `npm run build`, then over CDP: read `draggable` and the computed
-  `cursor` off every chip and every left-panel row and assert they agree, and screenshot a chip
-  mid-`dragover` at 100% beside the same chip at rest.
-- **Log:**
-  - 2026-09-06 proposed by GR-014: found in the screenshot pass over GC-015's first build, from
-    measurements in the running app rather than from reading the CSS.
-  - 2026-09-06 09:12 claimed
-
----
-
 ### GC-128 The app can only open a repository that already exists: no clone, no init
 
 - **Status:** todo
@@ -720,40 +608,6 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-014: from the what's-next pass over `06-feature-inventory.md`. The
     RepoManagement row is the only "Build" row with nothing shipped against it at all.
-
----
-
-### GC-136 A hidden detail panel has nothing on screen to bring it back
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-033
-- **Why:** Ctrl+K (GC-033) hides the detail panel outright, and the left panel's own Ctrl+J leaves
-  a 44px icon rail that is clickable — `onExpand` on the rail is how it comes back without the
-  keyboard. The detail panel has no such thing: once hidden, the only ways back are the same
-  shortcut and selecting a row, neither of which is visible. A user who presses Ctrl+K by accident
-  sees a panel vanish with no affordance at all, and `docs/screenshots/shortcuts-panels.png` is
-  what that looks like — the graph simply runs to the window edge.
-- **Scope:**
-  - Either a rail for the detail panel the way the left panel has one, or a persistent control that
-    reopens it: a button on the toolbar's right, or a thin clickable strip on the window edge where
-    the panel was. One of the two, not both.
-  - Whatever it is, it says what it does on hover and is reachable with the mouse alone.
-- **Out of scope:** remembering the collapsed state across restarts (it is deliberately session
-  state, like the left panel's), a rail with icons and counts, and any change to Ctrl+K itself.
-- **Acceptance:**
-  - [ ] With the detail panel hidden, a mouse-only user can bring it back in one click.
-  - [ ] The control is absent while the panel is showing.
-  - [ ] Screenshot of the hidden state, looked at beside `shortcuts-panels.png`.
-- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/styles/app.css`, and whichever of
-  `components/Toolbar.tsx` or `components/DetailPanel.tsx` the chosen control lands in.
-- **Verify:** typecheck, build, then over CDP: Ctrl+K, click the control, assert `.detail-panel`
-  is back.
-- **Log:**
-  - 2026-09-06 proposed by GC-033 (this ticket): the binding shipped and the panel it hides is the
-    one panel with no rail, so hiding it is the only reversible action in the app with nothing on
-    screen to reverse it.
-  - 2026-09-06 09:12 claimed
 
 ---
 
@@ -1404,132 +1258,84 @@ decision is missing.
 
 ---
 
-### GC-163 The `+` button opens a folder dialog instead of a new tab
+### GC-172 A tab returned to comes back scrolled to the top, whatever it was left at
 
-- **Status:** in-progress
-- **Area:** ui | **Size:** M | **Priority:** P2
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P1
 - **Depends on:** GC-016
-- **Why:** `newTab` in `App.tsx` is `const path = await window.api.openRepoDialog(); if (path) await
-  openNewTab(path)` — so `+` is "Open repository, but in a new tab", and the only way past it is to
-  browse the file system. It is also the second control in the title bar that does exactly that:
-  the folder button beside it is the same dialog into the showing tab, so the bar spends two of its
-  three buttons on one gesture and none on the one people actually want. The usual reason to press
-  `+` is to get back to a repository already worked on, and that list exists — it is the recents,
-  one button further right, behind a chevron nobody has a reason to look under.
-  **The page this ticket needs is already built.** Closing the last tab draws the empty state
-  (verified at `ae3a492`, screenshot `08-empty-state.png`): the app name, "Open a repository to see
-  its commit graph.", a RECENTLY OPENED list of name + path rows, and an "Open repository…" button
-  — precisely the three choices asked for, minus Clone, which is GC-128's. What is missing is not
-  the page but the ability for a **tab to hold no repository**: `Tab` in `tabs.ts` is
-  `{ id: number; path: string }` with `path` required, `readTabs` drops any entry that is not a
-  non-empty string, and the bar's empty case is a single inert `div.tab` reading "New Tab" that is
-  not a tab at all. The study records GitKraken's answer under the same name —
-  `06-feature-inventory.md`, "TabsBar / NewTabView | 32 | Multi-repo tabs, **new tab page with
-  recent repos**" — and `05-menus-shortcuts.md` gives it `Ctrl+T`, which we do not bind.
+- **Why:** GC-016 promised that a tab switch preserves the scroll position, and it does not. The
+  offset is parked correctly — `graphTop` is in `TabState`, `showTab` puts it back and hands it to
+  `CommitGraph` as `scrollTop` — but `CommitGraph`'s "scroll the selected row into view" layout
+  effect runs on the same mount and wins, because a remount is exactly when `selected` is new to
+  it. With the selection on the working-directory row, which is what a repository opens on, that
+  means row 0: the graph comes back at the top however far down the user had scrolled.
+  Measured on the built app at `be96b22`, on a 300px-tall viewport so the fixture's nine rows
+  overflow: scrolled to 84, clicked the second tab, clicked back, `scrollTop` 0. The same on the
+  recents path (GC-164) and on a plain click between two tabs, so it is the restore that is broken
+  and not one route into it. The selection and the commit draft do come back, which is why this
+  reads as a small thing and is not: the scroll position is the one part of GC-016's promise a user
+  notices immediately on a repository with more than a screenful of history.
 - **Scope:**
-  - `tabs.ts`: `Tab.path` becomes `string | null`, null meaning a tab that has not been given a
-    repository yet. `readTabs` and the write-back skip null paths, so `gitclient.tabs` stays an
-    array of real paths and an empty tab is simply not remembered across a restart — it holds
-    nothing worth remembering. `makeTabs`, `neighbourOf` and `cycle` are unaffected; their tests
-    gain a null-path case.
-  - `App`: `newTab()` stops calling `openRepoDialog` and instead appends a tab with `path: null`,
-    parks the showing tab's state as `openNewTab` already does, and makes the new one active. With
-    a null-path tab showing, `snapshot` is null and the existing empty state renders underneath it
-    unchanged — that is the whole of the new page.
-  - The bar draws a null-path tab as a real tab, labelled "New Tab", with its close button and
-    middle-click close working like any other. The inert placeholder `div` goes: with no tabs at
-    all the bar shows nothing and the empty state still fills the window, exactly as it does today.
-  - Giving a null-path tab a repository — from its own recents list, its "Open repository…" button,
-    or GC-163's rows — fills that tab in place rather than opening another one: it is the tab the
-    user is standing in. `openPath` already does this for `activeId !== null`; the only new case is
-    that the tab it fills had no path before.
-  - A shortcut-table entry `newTab` bound to `Ctrl+T`, body scope, calling the same handler `+`
-    does — an entry in `shortcuts.ts` and a `matches('newTab', e)` call in `App`'s window handler,
-    the way `CLAUDE.md` says a shortcut is added, so the `?` overlay documents it for free.
-- **Out of scope:** Clone and Init, which are GC-128's — this ticket only has to leave the page a
-  place to put them, and GC-128's log should say it lands there. Also out: the tab overflow the bar
-  still has no answer for (GC-149), the tab context menu (GC-151), and any redesign of the empty
-  state's own layout beyond making it a tab's content.
+  - Make the two agree on a remount: the selection effect must not override an offset that was
+    deliberately restored. Either it skips the mount it is handed a `scrollTop` for, or the restore
+    happens after it, or the effect only scrolls when the selected row is genuinely outside the
+    range being shown — the third is closest to what it is for, and would also stop it fighting the
+    user's own scrolling.
+  - Whatever it is, a tab whose selection *is* off-screen at the restored offset must still end up
+    somewhere sensible rather than at a blank stretch of graph.
+- **Out of scope:** remembering the offset across a restart (it is session state, like the parked
+  snapshot), and the offset of a file view (there is no graph behind one to restore).
 - **Acceptance:**
-  - [ ] Pressing `+` opens no OS dialog: a new tab appears, is selected, and shows the recents page.
-  - [ ] The tab that was showing keeps its scroll position and selection when it is returned to,
-        which is GC-016's promise and must survive the new tab being made.
-  - [ ] Picking a repository on that page fills **that** tab; the tab count does not change.
-  - [ ] A null-path tab is not written to `gitclient.tabs`, and a restart with one open comes back
-        with only the real repositories.
-  - [ ] Closing a null-path tab falls to its right neighbour then its left, like any other tab.
-  - [ ] `Ctrl+T` does what `+` does, and appears in the `?` overlay because it is in the table.
-  - [ ] `tabs.test.ts` covers a null path through `readTabs`, `makeTabs`, `neighbourOf` and `cycle`.
-- **Files:** `src/renderer/src/tabs.ts`, `src/renderer/src/tabs.test.ts`,
-  `src/renderer/src/App.tsx`, `src/renderer/src/components/TitleBar.tsx`,
-  `src/renderer/src/shortcuts.ts`, `src/renderer/src/styles/app.css`.
-- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, then drive the built app over CDP:
-  press `+`, assert no dialog and a second tab whose content is `.graph-empty`, pick a recent from
-  it and assert the tab count is still 2 and `gitclient.tabs` holds one path. Screenshot the new
-  tab page and the bar with an empty tab beside a real one, and look at both.
+  - [ ] A tab scrolled part-way down, switched away from and returned to, comes back at that offset.
+  - [ ] True on both routes: clicking another tab, and opening a second repository from the recents
+        list (GC-164).
+  - [ ] Selecting a commit that is off-screen still scrolls it into view, which is what the effect
+        exists for.
+  - [ ] The unticked acceptance boxes in GC-163 and GC-164 can be ticked against this build.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, possibly `src/renderer/src/App.tsx`.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, then over CDP with
+  `Emulation.setDeviceMetricsOverride` at a height short enough that the fixture's graph overflows
+  — the fixture is nine rows, so a full-height window cannot show this at all: scroll, switch,
+  switch back, read `scrollTop`. A component test in `CommitGraph.test.tsx` can pin the decision
+  itself if the fix is a predicate rather than a lifecycle change.
 - **Log:**
-  - 2026-09-06 proposed by GR-019, from Ricardo's inbox: `+` goes straight to the folder dialog,
-    and the page it should open instead already exists as the empty state — what is missing is a
-    tab that may hold no repository.
-  - 2026-09-06 09:12 claimed
+  - 2026-09-06 proposed by GC-164 (this ticket): its second acceptance criterion could not be
+    ticked, and the same measurement on a plain tab switch showed the criterion had never held —
+    so this is GC-016's bug surfacing, not GC-164's regression, and it is filed rather than folded
+    into a ticket that did not cause it.
 
 ---
 
-### GC-164 A repository picked from the recents list replaces the tab it was picked from
+### GC-173 An empty tab given a repository that is already open is left behind
 
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P2
-- **Depends on:** GC-016
-- **Why:** Every recents row calls `openPath`, and `openPath` with a tab showing rewrites **that
-  tab's** path: `setTabs(prev => prev.map(t => t.id === activeId ? { ...t, path } : t))`. The
-  repository the user was on is not moved aside, it is gone — its parked state is dropped and
-  `gitclient.tabs` is written without it. Reproduced in the running app at `ae3a492`: with
-  `testrepo` open, picking `catena-feed` from the title bar's recents dropdown left the bar at
-  **one** tab whose label had changed, `gitclient.tabs` holding only `catena-feed`, and picking
-  `testrepo` straight back left it at one tab again — two repositories opened in a row and the bar
-  never grew past one. That is the opposite of what the tabs exist for, and it is a silent loss:
-  nothing was closed, so nothing warned. `openNewTab` is right there and already handles every case
-  this needs, including `activeId === null`, where it appends the first tab; the recents rows
-  simply call the wrong one of the two.
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-163
+- **Why:** `+` makes a tab holding no repository (GC-163) and its recents page is where one is
+  chosen. Choosing a repository that is **already in the bar** goes through `openPath`, which
+  finds the tab already holding it and switches to it — the right answer to "take me there", and
+  the rule every tabbed application follows. But the empty tab the user was standing in is still
+  open behind them, and nothing closed it: the bar grows by one tab that holds nothing, for a
+  gesture that opened no repository. Reachable in two clicks from a cold start.
 - **Scope:**
-  - The recents rows in `openRepoMenu` call `openNewTab` instead of `openPath`. That menu is opened
-    by both the title bar's chevron and the repository breadcrumb, and both mean the same thing —
-    "take me to that repository" — so both change together.
-  - The empty state's `.recent-row` buttons change with them. `openNewTab` covers the no-tab case
-    already, so the first repository still lands in the first tab and nothing else happens there;
-    with GC-163's empty tab showing, see below.
-  - "Open repository…" in that same menu, and the title bar's folder button, keep `openPath`: the
-    bar already distinguishes the two gestures with two buttons, and this ticket does not merge
-    them.
-  - A path already in the bar still takes the user to its tab rather than opening a second copy —
-    `openNewTab` does that first, before it makes anything.
-  - The row for the repository already showing stays disabled, as it is today.
-- **Out of scope:** where a new tab is inserted (it goes at the end, as `+` does) and whether it
-  becomes the showing tab (it does, as `+` does) — both are GC-016's existing behaviour and are not
-  reopened here. Also out: GC-163's `+` page, which is a separate ticket; if it has landed first,
-  a recents row inside a null-path tab fills **that** tab rather than making another, which is
-  GC-163's rule and needs no second answer here.
+  - An empty tab that ends up handing the user to another tab closes itself, since it was made for
+    a repository it did not get. Only that case: an empty tab the user leaves by clicking another
+    tab is still theirs and stays.
+- **Out of scope:** any change to what `openPath` does with a repository already in the bar
+  (GC-016's rule, and it is right), and closing an empty tab on any other trigger.
 - **Acceptance:**
-  - [ ] With one repository open, picking a different one from the title bar's recents dropdown
-        leaves two tabs, the new one showing and the old one still in the bar.
-  - [ ] The old tab, returned to, still has its scroll position, selection and commit draft — the
-        parked state was never dropped.
-  - [ ] `gitclient.tabs` holds both paths, in bar order.
-  - [ ] The same is true of the recents rows in the repository breadcrumb's menu.
-  - [ ] From the empty state with no tabs at all, a recents row still opens exactly one tab.
-  - [ ] Picking a repository already in the bar switches to its tab and adds nothing.
+  - [ ] With one repository open, `+` then picking that same repository from the new tab's recents
+        page leaves exactly one tab, showing it.
+  - [ ] `+` then picking a repository that is **not** open still fills the empty tab in place, as
+        GC-163 has it.
+  - [ ] `+` then clicking the first tab leaves the empty tab in the bar.
 - **Files:** `src/renderer/src/App.tsx`.
-- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, then over CDP against the scratch
-  repository plus a second folder: open one, pick the other from the dropdown, assert
-  `document.querySelectorAll('.titlebar .tab').length === 2` and that `gitclient.tabs` holds both;
-  switch back and assert the graph's scroll offset survived. An e2e step is worth it here — step 1
-  already asserts the run starts from exactly one tab (GC-155), so a second tab appearing is
-  directly observable.
+- **Verify:** `npm run typecheck`, `npm test`, then over CDP: press `+`, pick the showing
+  repository from the page, assert `document.querySelectorAll('.titlebar .tab').length === 1`.
 - **Log:**
-  - 2026-09-06 proposed by GR-019, from Ricardo's inbox: picking from "recently opened" replaces
-    the active tab. Reproduced in the app — two repositories opened in a row and the bar never grew
-    past one tab, with `gitclient.tabs` overwritten each time.
-  - 2026-09-06 09:12 claimed
+  - 2026-09-06 proposed by GC-163 (this ticket): found while driving the new tab page — the empty
+    tab is filled in place for a repository that is new to the bar, and left standing for one that
+    is not.
 
 ---
 
