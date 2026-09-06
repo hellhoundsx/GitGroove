@@ -262,15 +262,15 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-191 | With many changed files the commit message is a clipped line and the commit form is off the panel | ui | S | P1 | todo |
-| GC-192 | A file row prints its folder and its name as two things, and cuts the name rather than the folder | ui | S | P2 | todo |
-| GC-193 | A tab and a toolbar button answer the pointer with 25% of alpha and nothing else | ui | S | P2 | todo |
-| GC-194 | The two crumbs open menus and draw nothing that says so | ui | S | P2 | todo |
-| GC-195 | A scrolling modal puts its scrollbar 17px inside its own border | ui | S | P2 | todo |
+| GC-191 | With many changed files the commit message is a clipped line and the commit form is off the panel | ui | S | P1 | in-progress |
+| GC-192 | A file row prints its folder and its name as two things, and cuts the name rather than the folder | ui | S | P2 | in-progress |
+| GC-193 | A tab and a toolbar button answer the pointer with 25% of alpha and nothing else | ui | S | P2 | in-progress |
+| GC-194 | The two crumbs open menus and draw nothing that says so | ui | S | P2 | in-progress |
+| GC-195 | A scrolling modal puts its scrollbar 17px inside its own border | ui | S | P2 | in-progress |
 | GC-197 | The staging view's two file lists cannot be collapsed, so Staged is unreachable past 20 files | ui | S | P2 | todo |
 | GC-196 | The detail panel's second design pass: an audit against the study before anything changes | ui | M | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-177 | Which left-panel sections are open is forgotten on every reload | ui | S | P3 | todo |
+| GC-177 | Which left-panel sections are open is forgotten on every reload | ui | S | P3 | in-progress |
 | GC-178 | A selected stash says what it is and offers nothing to do with it | ui | S | P3 | todo |
 | GC-183 | The graph row's own change readout is the text glyphs GC-143 took out of the panel | ui | S | P3 | todo |
 | GC-184 | The folded +N block cannot be opened by any driver, so nothing covers it end to end | tests | S | P3 | todo |
@@ -407,7 +407,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-177 Which left-panel sections are open is forgotten on every reload
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-153
 - **Why:** the open set is `LeftPanel` state seeded from a default — LOCAL and REMOTE open, TAGS
@@ -439,6 +439,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-153 (this ticket): its share is decided by which sections are open,
     and that set is the one piece of the panel's arrangement nothing remembers.
+  - 2026-09-06 19:03 claimed
 
 ---
 
@@ -550,7 +551,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-191 With many changed files the commit message is a clipped line and the commit form is off the panel
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** `.detail-body` is a flex column with `overflow: auto`, and a flex item whose overflow is
@@ -608,12 +609,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
     — the message box gets 12px of the 160 it wants and the staging view's commit form sits 328px
     below the fold, both because `overflow: auto` on a flex item makes it the only block that can
     shrink.
+  - 2026-09-06 19:03 claimed
 
 ---
 
 ### GC-192 A file row prints its folder and its name as two things, and cuts the name rather than the folder
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `FileRow` in `DetailPanel.tsx` splits a path into a `.dir` and a `.name` span — which is
@@ -662,12 +664,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-024, from Ricardo's inbox: measured the 8px gap and confirmed the
     ellipsis is on the filename rather than the folder; the file view's own header shares the
     ellipsis half but not the gap, since its two spans sit inside one `.path`.
+  - 2026-09-06 19:03 claimed
 
 ---
 
 ### GC-193 A tab and a toolbar button answer the pointer with 25% of alpha and nothing else
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `.titlebar .tab:hover`, `.titlebar .tab-icon-btn:hover` and `.tool-btn:hover` all do
@@ -714,12 +717,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-024, from Ricardo's inbox: measured both rows — a toolbar button's
     hover is a 0.75-to-1.0 alpha lift with a transparent background, and the selected tab's
     hovered and idle styles are identical.
+  - 2026-09-06 19:03 claimed
 
 ---
 
 ### GC-194 The two crumbs open menus and draw nothing that says so
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** Both crumbs in the toolbar are `.crumb.as-button` and both open a real dropdown — the
@@ -755,12 +759,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-024, from Ricardo's inbox: confirmed in the built app that both
     crumbs are `owner`-anchored dropdowns with no glyph, while the same window draws
     `ChevronDown` on three other controls that open something.
+  - 2026-09-06 19:03 claimed
 
 ---
 
 ### GC-195 A scrolling modal puts its scrollbar 17px inside its own border
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** none
 - **Why:** `.modal` carries `padding: var(--sp-4)` and `.modal-body` — the only part that scrolls
@@ -803,6 +808,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-024, from Ricardo's inbox: measured the gutter — 17px of dead space
     right of the bar and 0px between the bar and the controls, because `.modal`'s padding is
     outside the scroll box.
+  - 2026-09-06 19:03 claimed
 
 ---
 
