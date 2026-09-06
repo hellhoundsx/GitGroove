@@ -259,14 +259,14 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-172 | A tab returned to comes back scrolled to the top, whatever it was left at | graph | S | P1 | todo |
-| GC-169 | Pull, push and fetch cannot survive a credential the helper cannot fix, and report one line of the reason | actions | M | P1 | todo |
-| GC-170 | A stash is a chip on its parent, where GitKraken gives it a row of its own above the tip | graph | M | P2 | todo |
-| GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P2 | todo |
+| GC-172 | A tab returned to comes back scrolled to the top, whatever it was left at | graph | S | P1 | in-progress |
+| GC-169 | Pull, push and fetch cannot survive a credential the helper cannot fix, and report one line of the reason | actions | M | P1 | in-progress |
+| GC-170 | A stash is a chip on its parent, where GitKraken gives it a row of its own above the tip | graph | M | P2 | in-progress |
+| GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P2 | in-progress |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | todo |
-| GC-138 | The diff’s hunk navigation is inline in the component and untested | tests | S | P3 | todo |
+| GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | in-progress |
+| GC-138 | The diff’s hunk navigation is inline in the component and untested | tests | S | P3 | in-progress |
 | GC-167 | stashRename's index shift is the one piece of stash arithmetic with no unit test | tests | S | P3 | todo |
 | GC-168 | The fixture's graph fits at every height, so nothing guards the drag auto-scroll | tests | S | P3 | todo |
 | GC-162 | A launcher stop loses whatever the page wrote to localStorage last | infra | S | P3 | todo |
@@ -496,7 +496,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-137 The author chip is dropped when a diff opens, while the query survives
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P3
 - **Depends on:** GC-027
 - **Why:** GC-030 moved the search query into `App` precisely because `CommitGraph` unmounts behind
@@ -522,12 +522,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-027 (this ticket): the chip was deliberately left as component state
     to keep the change inside `CommitGraph.tsx`, and the asymmetry with the query it sits next to
     is worth its own ticket rather than a silent widening of that one.
+  - 2026-09-06 14:37 claimed
 
 ---
 
 ### GC-138 The diff's hunk navigation is inline in the component and untested
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** tests | **Size:** S | **Priority:** P3
 - **Depends on:** GC-052
 - **Why:** GC-052's `gotoHunk` (`src/renderer/src/diff/DiffView.tsx`) is a pure decision wearing a
@@ -557,6 +558,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 - **Log:**
   - 2026-09-06 proposed by GC-052 (this ticket): the navigation rule was written, got two answers
     wrong and was fixed twice, all without a test — and a throwaway script was what caught it.
+  - 2026-09-06 14:37 claimed
 
 ---
 
@@ -1001,7 +1003,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-153 The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** measured in the running app with `catena-feed` loaded read-only
@@ -1075,6 +1077,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
     `overflow: auto`, `display: block`, one scroll box over all four. Raised P3 -> P2: it is the
     only open ticket that makes the panel wrong on every real repository, and the stakeholder has
     now raised it twice.
+  - 2026-09-06 14:37 claimed
 ### GC-159 The remote menu can copy a URL but cannot open the remote on its hosting service
 
 - **Status:** todo
@@ -1143,7 +1146,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-172 A tab returned to comes back scrolled to the top, whatever it was left at
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** S | **Priority:** P1
 - **Depends on:** GC-016
 - **Why:** GC-016 promised that a tab switch preserves the scroll position, and it does not. The
@@ -1186,6 +1189,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
     ticked, and the same measurement on a plain tab switch showed the criterion had never held —
     so this is GC-016's bug surfacing, not GC-164's regression, and it is filed rather than folded
     into a ticket that did not cause it.
+  - 2026-09-06 14:37 claimed
 
 ---
 
@@ -1410,7 +1414,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-169 Pull, push and fetch cannot survive a credential the helper cannot fix, and report one line of the reason
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** actions | **Size:** M | **Priority:** P1
 - **Depends on:** none
 - **Why:** Ricardo cannot pull `catena-feed` at all. GitHub's `Catena-Media` organisation enforces
@@ -1483,10 +1487,11 @@ in the Why; an invariant goes in `CLAUDE.md`.
     wrote, in a 45%-wide ellipsised button whose full text is a hover tooltip. P1 because it is the
     only open ticket that makes the app unusable against the repositories Ricardo actually works
     in, and it was found by the stakeholder rather than by a review.
+  - 2026-09-06 14:37 claimed
 
 ### GC-170 A stash is a chip on its parent, where GitKraken gives it a row of its own above the tip
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P2
 - **Depends on:** GC-140
 - **Why:** GC-140 shipped and the chip is genuinely there - confirmed at 23ce5c2 in the running app
@@ -1574,6 +1579,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
     selectable and takes a highlighted band across its full width, exactly like a commit row; and
     the message column reads `est`, so the `On <branch>: ` prefix is **stripped**. That capture is
     the observation `03-graph.md` is missing - describe it in our own words, copy nothing.
+  - 2026-09-06 14:37 claimed
 
 ### GC-171 A stash row spends 66px on its age and leaves its message 77px of the 192 it wants
 
