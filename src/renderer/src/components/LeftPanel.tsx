@@ -42,6 +42,8 @@ interface Props {
   selected: string | null;
   /** Dragging a branch row onto another branch, in this panel or in the graph (GC-015). */
   refDrag: RefDragHandlers;
+  /** Single click: select the stash, the way a ref row selects its tip (GC-141, GC-150). */
+  onStashSelect(stash: Stash): void;
   onStashMenu(e: MouseEvent, stash: Stash): void;
   onStashActivate(stash: Stash): void; // double-click: apply
   onRemoteMenu(e: MouseEvent, remote: Remote): void;
@@ -613,10 +615,25 @@ export function LeftPanel(p: Props): JSX.Element {
             // nowhere; "how old is this" is the question a stash list is read for (GC-135). The
             // relative form is on the row and the absolute joins the message on its title, so the
             // exact instant is a hover away rather than gone.
-            <div key={s.sha} className="ref-row" title={`${s.message}\n${formatDateTimeSeconds(s.date)}`} onContextMenu={(e) => p.onStashMenu(e, s)} onDoubleClick={() => p.onStashActivate(s)}>
+            // A single click selects it, which is the gesture every other row in this panel
+            // answers (GC-141, GC-150); double-click still applies it. The row is marked when
+            // either the stash or the commit it was taken from is the selection, so the panel and
+            // the graph agree however the user got there — the graph draws the stash on a row of
+            // its own directly above that commit (GC-170).
+            <div
+              key={s.sha}
+              className={`ref-row ${p.selected === s.sha || p.selected === s.parent ? 'selected' : ''}`}
+              title={`${s.message}\n${formatDateTimeSeconds(s.date)}\ntaken from ${s.parent.slice(0, 7)}`}
+              onClick={() => p.onStashSelect(s)}
+              onContextMenu={(e) => p.onStashMenu(e, s)}
+              onDoubleClick={() => p.onStashActivate(s)}
+            >
               <Icon of={Archive} size={12} className="row-icon" />
               <span className="stash-idx">{s.index}</span>
               <span className="row-name">{s.message}</span>
+              {/* Which commit it was taken from, in the graph's own vocabulary — a short sha —
+                  so the two surfaces say the same thing without a hover (GC-140, GC-150). */}
+              <span className="row-sha">{s.parent.slice(0, 7)}</span>
               <span className="row-when">{relativeTime(s.date)}</span>
             </div>
           ))}

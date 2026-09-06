@@ -7,6 +7,11 @@ export interface DiffLine {
   text: string; // without the leading marker
   oldNo: number | null;
   newNo: number | null;
+  /**
+   * A combined diff's per-parent marker columns, one character each — `'++'`, `' +'`, `'+ '`
+   * (GC-180). Absent on an ordinary diff, whose one marker is what `type` already says.
+   */
+  combined?: string;
 }
 
 export interface DiffHunk {
@@ -27,6 +32,12 @@ export interface FileDiff {
   headerLines: string[];
   hunks: DiffHunk[];
   binary: boolean;
+  /**
+   * git answered with the combined form — `diff --cc`, one prefix column per parent and `@@@` hunk
+   * headers — which is what an unmerged path produces (GC-180). It is a report about a merge, not
+   * a patch: nothing built from `hunk.raw` may be handed to `git apply`.
+   */
+  combined: boolean;
   isNew: boolean;
   isDeleted: boolean;
   adds: number;
@@ -34,11 +45,33 @@ export interface FileDiff {
 }
 
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+/**
+ * A combined hunk header: one `-` range per parent, then the result's `+` range, fenced by one
+ * more `@` than there are parents (GC-180). The parent count is read off the ranges themselves, so
+ * an octopus merge parses rather than crashing even though nothing here designs for one.
+ */
+const COMBINED_HUNK_RE = /^(@{3,}) ((?:-\d+(?:,\d+)? )+)\+(\d+)(?:,(\d+))? \1/;
 
 function stripPrefix(p: string): string | null {
   const t = p.trim();
   if (t === '/dev/null') return null;
   return t.replace(/^[ab]\//, '');
+}
+
+/**
+ * One body line of a combined hunk (GC-180). The first `parents` characters are the line's state
+ * against each parent: `'+'` means that parent does not have it, `'-'` means that parent has it
+ * and the merge result does not, and a space means both do. So the line is in the result unless
+ * some column says `-`, and it is unchanged only when every column is a space — which is what
+ * decides the tint and which of the two numberings it advances. The marker string stays on the
+ * line, so the view can say which side contributed it without re-reading the raw text.
+ */
+function combinedLine(line: string, parents: number, oldNo: number, newNo: number): DiffLine {
+  const marks = line.slice(0, parents);
+  const inResult = !marks.includes('-');
+  const inFirst = marks[0] !== '+';
+  const type: DiffLineType = !inResult ? 'del' : marks.includes('+') ? 'add' : 'context';
+  return { type, text: line.slice(parents), oldNo: inFirst ? oldNo : null, newNo: inResult ? newNo : null, combined: marks };
 }
 
 export function parseUnifiedDiff(text: string): FileDiff[] {
@@ -49,9 +82,11 @@ export function parseUnifiedDiff(text: string): FileDiff[] {
   let hunk: DiffHunk | null = null;
   let oldNo = 0;
   let newNo = 0;
+  /** How many parent columns each body line of the open hunk carries; 0 on an ordinary diff. */
+  let parents = 0;
 
   const startFile = (): FileDiff => {
-    file = { oldPath: null, newPath: null, headerLines: [], hunks: [], binary: false, isNew: false, isDeleted: false, adds: 0, dels: 0 };
+    file = { oldPath: null, newPath: null, headerLines: [], hunks: [], binary: false, combined: false, isNew: false, isDeleted: false, adds: 0, dels: 0 };
     hunk = null;
     files.push(file);
     return file;
@@ -68,10 +103,44 @@ export function parseUnifiedDiff(text: string): FileDiff[] {
       }
       continue;
     }
+    // `diff --cc <path>` / `diff --combined <path>`: one unprefixed path rather than an `a/`…`b/`
+    // pair (GC-180). The `---` and `+++` lines that follow are the ordinary ones, and the header
+    // branch below still reads them.
+    const cc = /^diff --(?:cc|combined) (.+)$/.exec(line);
+    if (cc) {
+      const f = startFile();
+      f.combined = true;
+      f.oldPath = cc[1]!;
+      f.newPath = cc[1]!;
+      f.headerLines.push(line);
+      continue;
+    }
     if (!file) file = startFile();
+
+    const cm = COMBINED_HUNK_RE.exec(line);
+    if (cm) {
+      const ranges = cm[2]!.trim().split(' ');
+      const first = /^-(\d+)(?:,(\d+))?$/.exec(ranges[0]!);
+      parents = ranges.length;
+      file.combined = true;
+      hunk = {
+        header: line,
+        oldStart: first ? Number(first[1]) : 0,
+        oldLines: first?.[2] === undefined ? 1 : Number(first[2]),
+        newStart: Number(cm[3]),
+        newLines: cm[4] === undefined ? 1 : Number(cm[4]),
+        lines: [],
+        raw: line + '\n',
+      };
+      oldNo = hunk.oldStart;
+      newNo = hunk.newStart;
+      file.hunks.push(hunk);
+      continue;
+    }
 
     const m = HUNK_RE.exec(line);
     if (m) {
+      parents = 0;
       hunk = {
         header: line,
         oldStart: Number(m[1]),
@@ -99,6 +168,19 @@ export function parseUnifiedDiff(text: string): FileDiff[] {
     }
 
     hunk.raw += line + '\n';
+    if (parents > 0) {
+      if (line.startsWith('\\')) {
+        hunk.lines.push({ type: 'meta', text: line, oldNo: null, newNo: null });
+        continue;
+      }
+      const l = combinedLine(line, parents, oldNo, newNo);
+      if (l.oldNo !== null) oldNo++;
+      if (l.newNo !== null) newNo++;
+      if (l.type === 'add') file.adds++;
+      else if (l.type === 'del') file.dels++;
+      hunk.lines.push(l);
+      continue;
+    }
     const marker = line[0];
     const body = line.slice(1);
     if (marker === '+') {
@@ -120,6 +202,19 @@ export function parseUnifiedDiff(text: string): FileDiff[] {
     if (f.isDeleted) f.newPath = null;
   }
   return files;
+}
+
+/**
+ * A hunk header split into the range itself and the context git appends after the closing fence
+ * (GC-180). Read off the fence rather than assuming two `@`s: a combined hunk is fenced with one
+ * more `@` than it has parents, so the pair of regexes this replaces matched nothing in one and
+ * both halves fell back to the whole header — `@@@ -1,3 -1,3 +1,7 @@@` printed twice, side by
+ * side, measured on screen in a real conflict.
+ */
+export function splitHunkHeader(header: string): [string, string] {
+  const m = /^(@{2,})(.*?)\1/.exec(header);
+  if (!m) return [header, ''];
+  return [header.slice(0, m[0].length), header.slice(m[0].length).trim()];
 }
 
 /**

@@ -2774,8 +2774,11 @@ await waitFor(`document.querySelectorAll('.left-panel .ref-row .row-when').lengt
 // GC-135: `Stash.date` has been on every snapshot since the list existed and was drawn nowhere.
 const ages = await ev(`[...document.querySelectorAll('.left-panel .ref-row .row-when')].map(x => x.textContent).join(' | ')`);
 check('a stash made a moment ago says so on its row', ages === 'just now | just now', ages);
-const stashTitle = await ev(`[...document.querySelectorAll('.left-panel .ref-row')].find(x => x.textContent.includes('older stash'))?.title.replace(String.fromCharCode(10), ' | ') ?? 'no row'`);
-check('and the exact instant is on the row title beside the message', /older stash \| \d\d\/\d\d\/\d{4}, \d\d:\d\d:\d\d$/.test(stashTitle), stashTitle);
+const stashTitle = await ev(`[...document.querySelectorAll('.left-panel .ref-row')].find(x => x.textContent.includes('older stash'))?.title.split(String.fromCharCode(10)).join(' | ') ?? 'no row'`);
+// The third line is GC-150's: which commit the stash was taken from, in the graph's own vocabulary.
+check('and the exact instant is on the row title beside the message', /older stash \| \d\d\/\d\d\/\d{4}, \d\d:\d\d:\d\d \| taken from [0-9a-f]{7}$/.test(stashTitle), stashTitle);
+const stashParent = await ev(`[...document.querySelectorAll('.left-panel .ref-row')].find(x => x.textContent.includes('older stash'))?.querySelector('.row-sha')?.textContent ?? 'no sha'`);
+check('and the row itself names that commit, so no hover is needed for it (GC-150)', stashParent === git(['rev-parse', '--short=7', 'stash@{1}^']), `${stashParent} | git: ${git(['rev-parse', '--short=7', 'stash@{1}^'])}`);
 
 
 // GC-170: those two stashes are also two rows in the graph, above the commit they were taken
@@ -2971,7 +2974,64 @@ await waitIdle();
 rmSync(MADE, { recursive: true, force: true });
 check('the step takes both repositories it made away with it', !existsSync(MADE), MADE);
 
-step(41, 'the run leaves the fixture exactly as it found it');
+step(41, 'a commit can be read against the working directory, not only against its parent');
+// GC-152. The commit view is `git show`, so a commit was only ever readable against its parent;
+// the ordinary question when reading history is how the disk differs from it, and the only way to
+// ask it was to check the commit out. The fixture's dirty working tree is what makes the
+// comparison non-empty, so this step asserts against git rather than against a fixed list.
+log(await selectCommitRow(DELETED_COMMIT));
+await waitFor(`!!document.querySelector('.detail-panel .commit-id .sha')`, 'the commit view');
+const cmpShort = String(await ev(`document.querySelector('.detail-panel .commit-id .sha')?.textContent ?? ''`));
+const cmpSha = git(['rev-parse', cmpShort]);
+await contextMenuOn('.graph-row', DELETED_COMMIT);
+check('the commit menu offers the comparison', (await menuList()).includes('Compare against working directory'), await menuList());
+log(await menuClick('Compare against working directory'));
+await waitFor(`!!document.querySelector('.detail-panel .banner.info') && document.querySelector('.detail-panel .banner.info').innerText.includes('Compared with')`, 'the comparison banner');
+// git's own answer, name only: `-z` here would need splitting on NULs for nothing this asserts.
+const cmpGit = git(['diff', '-M', '--name-status', cmpSha])
+  .split('\n')
+  .filter(Boolean)
+  .map((l) => l.split('\t').pop())
+  .sort();
+await waitFor(`document.querySelectorAll('.detail-panel .file-list .file-row').length > 0`, "the comparison's file list");
+const cmpRows = JSON.parse(String(await ev(`JSON.stringify([...document.querySelectorAll('.detail-panel .file-list .file-row')].map(r => r.title).sort())`)));
+check('the comparison lists exactly the files git says differ', JSON.stringify(cmpRows) === JSON.stringify(cmpGit), `${cmpRows.join(', ')} | git: ${cmpGit.join(', ')}`);
+check('and that is not the commit view it replaced', cmpGit.length > 0 && JSON.stringify(cmpGit) !== JSON.stringify(git(['diff-tree', '-r', '-M', '--name-only', '--no-commit-id', cmpSha]).split('\n').filter(Boolean).sort()), cmpGit.join(', '));
+await shot('commit-compare.png');
+// One file of it, byte for byte against the same command run by hand. The sub-header names the
+// comparison rather than the commit, and every hunk button is off (GC-152).
+// The first compared file whose diff actually adds a line: a file the commit and the working tree
+// happen to agree on would make the assertion below pass on two empty lists.
+const addedLines = (path) =>
+  git(['diff', '-M', '--no-ext-diff', cmpSha, '--', path])
+    .split('\n')
+    .filter((l) => l.startsWith('+') && !l.startsWith('+++'))
+    .map((l) => l.slice(1));
+const cmpPath = cmpGit.find((p) => addedLines(p).length > 0) ?? cmpGit[0];
+const cmpAdds = addedLines(cmpPath);
+check('at least one compared file has something to draw', cmpAdds.length > 0, `${cmpPath}: ${cmpAdds.length} added lines`);
+log(await liveClick(`the compared file row ${cmpPath}`, `(() => { const r = [...document.querySelectorAll('.detail-panel .file-list .file-row')].find(x => x.title === ${q(cmpPath)}); if (!r) return 'MISS no compared file row ' + ${q(cmpPath)}; r.click(); return 'opened ' + r.title; })()`));
+await waitFor(`(document.querySelector('.file-view .file-view-sub .chip')?.textContent ?? '').includes('working directory')` + LIVE_DIFF, 'the comparison diff');
+// The unified layout, whatever an earlier step left in `prefs.diffView`: a split row is one line
+// of each file, so `.line.add` matches nothing there (GC-014).
+log(await setLayout('Unified'));
+await waitFor(`document.querySelectorAll('.file-view .diff-body .hunk-lines.split').length === 0 && document.querySelectorAll('.file-view .diff-body .hunk').length > 0` + LIVE_DIFF, 'the unified layout with its hunks drawn');
+const shownAdds = JSON.parse(String(await ev(`JSON.stringify([...document.querySelectorAll('.file-view .diff-body .hunk .line.add .code')].map(c => c.textContent))`)));
+check('the file diff is the one `git diff <sha> -- <path>` prints', JSON.stringify(shownAdds) === JSON.stringify(cmpAdds), `${shownAdds.join(' | ')} || git: ${cmpAdds.join(' | ')}`);
+check('the sub-header says why nothing here can be staged', (await ev(`!!document.querySelector('.file-view .file-view-sub .note')`)) === true, String(await ev(`document.querySelector('.file-view .file-view-sub')?.innerText.replace(/\s+/g, ' ') ?? 'no sub-header'`)));
+check('and no hunk button is live over it', (await ev(`[...document.querySelectorAll('.file-view .hunk-actions .btn')].every(b => b.disabled)`)) === true, String(await ev(`[...document.querySelectorAll('.file-view .hunk-actions .btn')].map(b => b.innerText + (b.disabled ? ' (off)' : ' (LIVE)')).join(', ') || 'no hunk buttons at all'`)));
+// The file view has to come off before the graph can be reached again: it replaces the graph
+// while it is open, so a row selected through it would be a miss rather than a click.
+log(await liveClick('the file view close button', `(() => { const b = [...document.querySelectorAll('.file-view .file-view-head .icon-btn')].pop(); if (!b) return 'MISS no close button'; b.click(); return 'closed the file view'; })()`));
+await waitFor(`!document.querySelector('.file-view') && !!document.querySelector('.graph-body')`, 'the graph to come back');
+// Selecting another commit leaves the mode with no button pressed, which is the whole of why it is
+// held as the sha it belongs to rather than as a flag.
+await waitFor(`(() => { const b = document.querySelector('.graph-body'); if (!b) return false; if (b.scrollTop !== 0) b.scrollTop = 0; return [...document.querySelectorAll('.graph-row')].some(r => r.innerText.includes(${q(RESTORE_COMMIT)})); })()`, `the ${RESTORE_COMMIT} row to be rendered`);
+log(await selectCommitRow(RESTORE_COMMIT));
+await waitFor(`!document.querySelector('.detail-panel .banner.info')?.innerText.includes('Compared with')`, 'the comparison to be left behind');
+check('selecting another commit leaves compare mode', (await ev(`!!document.querySelector('.detail-panel .commit-id')`)) === true, String(await ev(`document.querySelector('.detail-panel .detail-head')?.innerText.replace(/\s+/g, ' ') ?? 'no head'`)));
+
+step(42, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

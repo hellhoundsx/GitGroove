@@ -5,6 +5,7 @@ import type {
   ApplyPatchOptions,
   CheckoutOptions,
   CommitRequest,
+  ConflictSide,
   CreateBranchRequest,
   CreateTagRequest,
   DiffOptions,
@@ -111,6 +112,7 @@ function rememberTheme(theme: ResolvedTheme): void {
 
 /** The three patterns the row menu can write, validated like every other enum argument (GC-093). */
 const IGNORE_KINDS: readonly IgnoreKind[] = ['file', 'extension', 'folder'];
+const CONFLICT_SIDES: readonly ConflictSide[] = ['ours', 'theirs'];
 
 /**
  * A repository-relative file path for the `shell:*` channels, resolved to an absolute one (GC-043).
@@ -199,6 +201,12 @@ export function registerIpc(): void {
     const o = (opts ?? {}) as Partial<DiffOptions>;
     return git.getCommitFileDiff(repoOf(repo), str(sha, 'A commit sha'), str(path, 'A file path'), { ignoreWhitespace: !!o.ignoreWhitespace });
   });
+  // The comparison against the working directory (GC-152): the same two shapes one source over.
+  ipcMain.handle('commit:compare', (_e, repo: unknown, sha: unknown) => git.getCompare(repoOf(repo), str(sha, 'A commit sha')));
+  ipcMain.handle('commit:compareFileDiff', (_e, repo: unknown, sha: unknown, path: unknown, opts: unknown) => {
+    const o = (opts ?? {}) as Partial<DiffOptions>;
+    return git.getCompareFileDiff(repoOf(repo), str(sha, 'A commit sha'), str(path, 'A file path'), { ignoreWhitespace: !!o.ignoreWhitespace });
+  });
   ipcMain.handle('workdir:fileDiff', (_e, repo: unknown, req: unknown) => {
     const r = (req ?? {}) as Partial<WorkdirDiffRequest>;
     return git.getWorkdirFileDiff(repoOf(repo), { path: str(r.path, 'A file path'), staged: !!r.staged, untracked: !!r.untracked, ignoreWhitespace: !!r.ignoreWhitespace });
@@ -219,6 +227,11 @@ export function registerIpc(): void {
     // from what comes back rather than from what the renderer sent (GC-093).
     return git.ignore(repoOf(repo), { path: repoRel(repo, r.path), kind: oneOf(r.kind, IGNORE_KINDS, 'An ignore kind') });
   });
+  // The path goes through `str` and not `repoRel`, unlike the shell channels: git resolves it
+  // against the repository itself, and an unmerged path is the only thing the command can act on.
+  ipcMain.handle('workdir:resolveConflict', (_e, repo: unknown, path: unknown, side: unknown) =>
+    git.resolveConflict(repoOf(repo), str(path, 'A file path'), oneOf(side, CONFLICT_SIDES, 'A conflict side')),
+  );
   ipcMain.handle('workdir:restoreFile', (_e, repo: unknown, sha: unknown, path: unknown) => git.restoreFile(repoOf(repo), str(sha, 'A commit sha'), str(path, 'A file path')));
   ipcMain.handle('workdir:applyPatch', (_e, repo: unknown, patch: unknown, opts: unknown) => {
     const o = (opts ?? {}) as ApplyPatchOptions;

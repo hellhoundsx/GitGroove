@@ -65,6 +65,16 @@ interface Props {
    * so the dialog and the graph cannot disagree (GC-117).
    */
   onDrawnCols(cols: OptCols): void;
+  /**
+   * The summary half of the commit draft `App` holds (GC-148, GC-182). The WIP row's field is the
+   * same value the staging form's summary box is, so typing in either types in both; it lives up
+   * there because this component unmounts behind a file view and on every tab switch, and an
+   * uncontrolled input would drop what was typed at each of them.
+   */
+  draftSummary: string;
+  onDraftSummary(summary: string): void;
+  /** Enter on that field: commits what is staged, and does nothing at all when it cannot (GC-182). */
+  onCommitDraft(): void;
 }
 
 export const WIP = 'WIP';
@@ -323,7 +333,7 @@ function useLaneLayout(commits: Commit[], pinnedSha: string | null | undefined):
   return layout;
 }
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, searchAuthor, onSearchAuthor, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, stashes, onStashMenu, onStashActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop, onDrawnCols }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, searchAuthor, onSearchAuthor, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, stashes, onStashMenu, onStashActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop, onDrawnCols, draftSummary, onDraftSummary, onCommitDraft }: Props): JSX.Element {
   // The optional columns after the message; all off by default (GC-032). What the preference asks
   // for is not always what fits: `fitOptCols` below drops them once the panel is too narrow to
   // draw them and a commit message both (GC-116).
@@ -731,7 +741,22 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
             <GraphCell row={null} width={graphWidth} wip={wipLane} />
           </div>
           <div className="col-msg">
-            <input className="wip-input" placeholder="// WIP" spellCheck={false} onClick={(e) => e.stopPropagation()} />
+            {/* Controlled by the draft `App` holds, so what is typed here is the staging form's
+                summary and survives this row being virtualised away, a file view and a tab switch
+                (GC-182). Enter is the table's `commitInline`, never a key name compared here. */}
+            <input
+              className="wip-input"
+              placeholder="// WIP"
+              spellCheck={false}
+              value={draftSummary}
+              onChange={(e) => onDraftSummary(e.target.value)}
+              onKeyDown={(e) => {
+                if (!isShortcut('commitInline', e)) return;
+                e.preventDefault();
+                onCommitDraft();
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
             {hasChanges ? (
               <span className="readout">
                 {counts.conflict > 0 && (

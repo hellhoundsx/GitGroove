@@ -187,6 +187,16 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   `src/shared/` is the only place code is shared both ways, so a menu label cannot promise a
   different remote from the one the push uses.
 
+- **A conflict can be resolved to a side, not only marked resolved** (GC-181).
+  `resolveConflictWith(run, path, side)` is `git checkout --ours|--theirs -- <path>` followed by
+  `git add -- <path>` — one function, so a resolved row leaves the Conflicted group in one action —
+  and the add runs only if the checkout did, or a half-resolved path is recorded. Which sides exist
+  is **`conflictSides` in `shared/types.ts`**, keyed by the two-letter porcelain code `getStatus`
+  now carries on an unmerged entry (`StatusEntry.unmerged`): `--ours` needs stage 2 and `--theirs`
+  stage 3, so a delete/add conflict has one of them and the menu leaves the other row out rather
+  than offering a call git will refuse (GC-072's rule). **The labels are derived from
+  `status.operation`, never from the flag** — during a rebase git replays your commits onto the
+  upstream, so "ours" is the branch being rebased *onto*, the reverse of what the word suggests.
 - **A local branch's delete can take its remote copy with it** (GC-112). `remoteCopyOf` answers
   where else the branch lives — its upstream first, then a remote-tracking ref of the same name,
   and only ever one the snapshot lists — and the confirmation carries a checkbox for it. It is a
@@ -267,7 +277,7 @@ under it the moment git answers with its canonical form.
 - **So is the left panel's ref filter** (GC-179), for the same reason and with the same fix.
   `LeftPanel` is not keyed by repository, so a query typed in one tab was still in the box when
   another was shown: measured with two tabs open, `release` in the fixture's panel left the second
-  repository drawing **zero** `.ref-row`s under section headers still counting its real branches,
+  repository drawing **zero** `.ref-row's under section headers still counting its real branches,
   which reads as a repository with no refs rather than as a filter. The panel is a controlled
   input now — it reports typing and narrows by nothing of its own — so the query has one home,
   `openIn` clears it and a switch away and back restores it.
@@ -276,7 +286,11 @@ under it the moment git answers with its canonical form.
   panel unmounts behind a file view and on every tab switch, so the user's own typing cannot live
   in it. GC-016's two promises are kept explicitly rather than by the panel's key: `openIn` clears
   the draft, which is the one path a repository takes into the showing tab, and a successful commit
-  still clears the form.
+  still clears the form. **The graph WIP row's field is that same summary** (GC-182): it reads the
+  draft and writes it, so typing in either types in both, and Enter there is the table's
+  `commitInline` binding, held to the staging form's own rule — nothing staged, or an empty
+  summary, does nothing and says nothing. It was an uncontrolled `<input>` wired to nothing, which
+  is exactly what GC-148 and GC-030 exist to prevent.
 - **The graph and the detail panel are keyed by repository**, so the state they keep for themselves
   — the find bar's author chip, the lane-layout cache, the commit message being written — belongs
   to the tab it was made in. The two keys are **prefixed** (`graph-`, `detail-`) because they are
@@ -297,6 +311,14 @@ under it the moment git answers with its canonical form.
   changes — including the first render, which is the restart case, since `gitclient.lastRepo`
   rarely names the leftmost tab. Measured with twenty tabs on a 1400px window: `+` and the chevron
   at 1180-1260, inside the reserve and answering `elementFromPoint`, narrowest tab 123px.
+- **A tab answers a right-click like every other repeated row** (GC-151): `tabMenuItems` gives it
+  Close tab, Close other tabs, Close tabs to the right, Reopen closed tab and Copy repository path,
+  each **absent** rather than disabled when it does not apply. `Ctrl+W` and `Ctrl+Shift+T` are the
+  two of those that are also bindings, in `shortcuts.ts` like every other. Closing several tabs is
+  one `closeTabs(ids)`, so `gitclient.tabs` is written once, and `survivorOf` in `tabs.ts` is
+  `neighbourOf` generalised to a set — a single close and a group close cannot then disagree about
+  what is left showing. The reopen stack (`pushClosed` / `popClosed`) is session-only and lives in a
+  ref: `gitclient.tabs` is the list of what is open, not a history.
 - **A recents row opens a tab; the folder button and "Open repository…" replace one** (GC-164).
   Both surfaces that draw the list — `openRepoMenu`, which the title-bar chevron and the branch
   breadcrumb share, and the empty state's `.recent-row` buttons — go through `openRecent`, which is
@@ -836,11 +858,38 @@ ahead/behind sits, with the absolute form joining the message on the row's `titl
 the message is the part with room to give. That costs the message about 43px at the 220px default
 panel; at 300px and above the name is back at its natural width.
 
+**And which commit it was taken from, in the graph's own vocabulary** (GC-150): a `.row-sha` beside
+the age. A single click selects the stash — the gesture every other row in the panel answers, and
+the stash's own sha rather than `Stash.parent`, because GC-170 gave it a graph row directly above
+that commit, so selecting it reaches both and opens the stash view. The row takes `.selected` on
+either sha, so the panel and the graph agree however the user got there; double-click still
+applies. An unloaded parent moves nothing, which `rowIndexOf` already answered (GC-141).
+
 ### Diff (`diff/`)
 
 `parseUnifiedDiff` handles `diff --git` headers, `@@` hunks with line numbers, `\ No newline` meta
 lines and binary markers; `buildHunkPatch(file, hunk)` rebuilds a patch with the file header minus
-the `index` line. `DiffView` replaces the graph while open, and the left panel collapses to an icon
+the `index` line. `splitHunkHeader` is the range/context split, read off the fence rather than
+assuming two `@`s (GC-180).
+
+**And it handles git's combined form, which is what an unmerged path answers with** (GC-180):
+`diff --cc <path>`, an `@@@` header whose parent count comes off its own `-` ranges, and one prefix
+column per parent on every line. `FileDiff.combined` says so and `DiffLine.combined` carries the
+marker string, so the view can say which parent a line came from: a line is in the result unless
+some column is `-`, and unchanged only when every column is a space. Two rules follow from it —
+**`DiffView` can never render an empty body**, so a parsed file with no hunks takes the same
+`.diff-empty` treatment as no file at all (the guard, not the fix: before it, an unmerged path drew
+a void under a header claiming a file, with `Stage file` and `Discard changes` live over it); and a
+combined diff is drawn as **one column** whatever `prefs.diffView` says, with every `hunk.raw`
+button off for the reason `-w` turns them off. On a conflicted file the file-view header follows the
+row menu's own rule: `Discard changes` is absent and staging says `Mark resolved`.
+
+**A commit can also be read against the working directory** (GC-152). `getCompare(cwd, sha)` and
+`getCompareFileDiff(cwd, sha, path, opts)` are `git diff <sha>` — a third diff **source**, not a
+flag on the commit one, so `compare` is part of `DiffView`'s *identity* and the same file at the
+same sha can never render under the other's header. Every patch button is off and the sub-header
+says why. `App` holds it as `compareSha`, the sha the mode belongs to rather than a flag, so
+"selecting another commit leaves the mode" needs no effect at all. `DiffView` replaces the graph while open, and the left panel collapses to an icon
 rail. What is loaded is **keyed to the view it was loaded for**, in two parts. The *identity*
 (`repo|source|path|sha`, or `repo|source|path|staged|kind`) decides what is on screen: only content
 whose identity matches the current view renders, so a hunk from the other side of a file can never
@@ -1095,7 +1144,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-417 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+466 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
 
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
@@ -1115,7 +1164,7 @@ closed, and a port nobody holds is the fallback.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 41 steps, 305 assertions, ~46s. It ends with
+asserting against git after each step. 42 steps, 314 assertions, ~46s. It ends with
 `total: 45.0s | git: 373 calls, 9.9s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
@@ -1334,6 +1383,13 @@ ask for several things with the single-field form unchanged underneath it, and t
 remembered per repository and pruned against the refs that exist (UI layer, Graph); every function
 that may ask for a credential named by a test rather than by a convention, and the stash rename's
 index shift held by unit tests rather than only by a 45-second run (Main process, Testing);
+a combined diff parsed rather than silently drawn as a void, a body that can never be empty and
+one column of code whatever the layout preference says, a conflict resolvable to a side git
+actually holds a blob for and labelled by the operation rather than by the flag, a commit readable
+against the working directory as a third source in the view identity with every patch button off,
+the WIP row's field the one commit draft rather than a decoy, a tab answering a right-click with
+several tabs closed through one path so the stored list is written once, and a stash row selecting
+the stash the graph draws a row for (Diff, Main process, App state, Graph);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control

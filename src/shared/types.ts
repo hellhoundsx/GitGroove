@@ -49,6 +49,38 @@ export interface StatusEntry {
   origPath?: string;
   staged: FileChangeKind | null;
   unstaged: FileChangeKind | null;
+  /**
+   * The two-letter porcelain code of an unmerged path — `UU`, `DU`, `AA` and the rest — set only
+   * on a conflicted entry (GC-181). `staged`/`unstaged` collapse all seven to `conflicted`, which
+   * is all the file list needs, but which side git actually holds a blob for is the difference
+   * between an action that works and one that fails, and only the code says.
+   */
+  unmerged?: string;
+}
+
+/** Which side of a conflict to keep: git's `--ours` (stage 2) or `--theirs` (stage 3). */
+export type ConflictSide = 'ours' | 'theirs';
+
+/**
+ * The stages an unmerged path actually has, by porcelain code (GC-181). `git checkout --ours`
+ * needs stage 2 and `--theirs` needs stage 3, and a conflict where one side deleted or only added
+ * the file has only one of them — so the code is what decides whether an action can be offered at
+ * all rather than offered and then failing. Both letters are needed: `UA` and `AU` differ only in
+ * which side the addition came from.
+ */
+const CONFLICT_STAGES: Record<string, ConflictSide[]> = {
+  UU: ['ours', 'theirs'], // both modified
+  AA: ['ours', 'theirs'], // both added
+  AU: ['ours'], // added by us, no stage 3
+  UD: ['ours'], // deleted by them, no stage 3
+  UA: ['theirs'], // added by them, no stage 2
+  DU: ['theirs'], // deleted by us, no stage 2
+  DD: [], // both deleted: neither side has a blob to keep
+};
+
+/** Which sides of a conflict can be checked out, given its porcelain code. */
+export function conflictSides(code: string | undefined): ConflictSide[] {
+  return code === undefined ? [] : (CONFLICT_STAGES[code] ?? []);
 }
 
 export type RepoOperation = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null;
@@ -207,12 +239,17 @@ export interface GitApi {
   onRepoChanged(listener: (change: RepoChange) => void): () => void;
   getCommitFiles(repo: string, sha: string): Promise<CommitFile[]>;
   getCommitFileDiff(repo: string, sha: string, path: string, opts?: DiffOptions): Promise<string>;
+  /** The files that differ between a commit and the working directory, and one file of them (GC-152). */
+  getCompare(repo: string, sha: string): Promise<CommitFile[]>;
+  getCompareFileDiff(repo: string, sha: string, path: string, opts?: DiffOptions): Promise<string>;
   getWorkdirFileDiff(repo: string, req: WorkdirDiffRequest): Promise<string>;
   stage(repo: string, paths: string[]): Promise<void>;
   unstage(repo: string, paths: string[]): Promise<void>;
   stageAll(repo: string): Promise<void>;
   unstageAll(repo: string): Promise<void>;
   discard(repo: string, req: DiscardRequest): Promise<void>;
+  /** Keep one side of a conflicted path and stage it, in one action (GC-181). */
+  resolveConflict(repo: string, path: string, side: ConflictSide): Promise<void>;
   ignore(repo: string, req: IgnoreRequest): Promise<void>;
   /** Write one file back to the way a commit had it, staged as git leaves it (GC-107). */
   restoreFile(repo: string, sha: string, path: string): Promise<void>;

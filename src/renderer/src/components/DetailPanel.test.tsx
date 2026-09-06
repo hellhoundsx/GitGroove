@@ -67,6 +67,8 @@ function renderPanel(status: RepoStatus, onSelectSha: (sha: string) => void = no
         status={status}
         openFile={null}
         refs={[]}
+        compare={false}
+        onExitCompare={noop}
         onRefMenu={noop}
         onRefActivate={noop}
         actions={

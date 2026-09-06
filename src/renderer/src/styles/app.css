@@ -1812,6 +1812,14 @@ input[type='radio']:disabled {
   color: var(--danger);
   user-select: text;
 }
+/* Why a view offers no staging at all, said once beside the chip that names it (GC-152). Dimmer
+   than an error, because nothing has gone wrong. */
+.file-view-sub .note {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .diff-body {
   flex: 1;
   overflow: auto;
@@ -1935,6 +1943,19 @@ input[type='radio']:disabled {
 .hunk-lines .line.meta {
   color: var(--text-dim);
   font-style: italic;
+}
+/* A combined diff's two sides (GC-180). The marker cell holds one column per parent rather than a
+   single character, so it needs the room; the coloured edge on the code cell is what makes a line
+   only one parent has read apart from one the merge itself produced, which carries neither. */
+.hunk-lines .mark {
+  white-space: pre;
+}
+.hunk-lines .line.p1 .code,
+.hunk-lines .line.p2 .code {
+  box-shadow: inset 2px 0 0 var(--success);
+}
+.hunk-lines .line.p2 .code {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* Picking lines out of a hunk (GC-121). A changed line on the unstaged side is clickable, and a
@@ -2298,6 +2319,19 @@ input[type='radio']:disabled {
   flex: none;
   color: var(--text-dim);
   font-size: var(--fs-xs);
+}
+/* The commit the stash was taken from (GC-150), in the graph's own vocabulary. `margin-left: auto`
+   sits on this one instead now, so the sha and the age are the pair on the right edge and the
+   message is still the part that ellipsises. */
+.ref-row .row-sha {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.ref-row .row-sha + .row-when {
+  margin-left: 0;
 }
 
 /* ---- Status bar ----------------------------------------------------------- */

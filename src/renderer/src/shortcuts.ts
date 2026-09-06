@@ -22,6 +22,8 @@ export type ShortcutId =
   | 'toggleDetail'
   | 'focusFilter'
   | 'newTab'
+  | 'closeTab'
+  | 'reopenTab'
   | 'nextTab'
   | 'prevTab'
   | 'stageAll'
@@ -33,6 +35,7 @@ export type ShortcutId =
   | 'searchPrev'
   | 'searchClose'
   | 'commit'
+  | 'commitInline'
   | 'dialogConfirm'
   | 'dialogCancel';
 
@@ -109,6 +112,20 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         keys: ['Ctrl+T'],
         description: 'Open a new repository tab',
         match: (e) => ctrlOnly(e, 't'),
+      },
+      {
+        id: 'closeTab',
+        keys: ['Ctrl+W'],
+        description: 'Close the repository tab that is showing',
+        // Not `whileTyping`, like the two below and for the same reason: closing the tab takes the
+        // commit message typed in it, so it must be deliberate (GC-016, GC-151).
+        match: (e) => ctrlOnly(e, 'w'),
+      },
+      {
+        id: 'reopenTab',
+        keys: ['Ctrl+Shift+T'],
+        description: 'Reopen the repository tab closed most recently',
+        match: (e) => ctrlShift(e, 't'),
       },
       {
         id: 'nextTab',
@@ -210,7 +227,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
   {
     title: 'Commit message',
-    hint: 'While the summary or description has focus',
+    hint: 'While the summary, the description or the WIP field in the graph has focus',
     items: [
       {
         id: 'commit',
@@ -218,6 +235,15 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
         description: 'Commit the staged changes',
         whileTyping: true,
         match: (e) => mod(e) && e.key === 'Enter',
+      },
+      {
+        // The WIP row's field is one line, so plain Enter can commit there where in the
+        // description it has to insert one (GC-182).
+        id: 'commitInline',
+        keys: ['Enter'],
+        description: 'Commit from the WIP row in the graph',
+        whileTyping: true,
+        match: (e) => !mod(e) && e.key === 'Enter',
       },
     ],
   },

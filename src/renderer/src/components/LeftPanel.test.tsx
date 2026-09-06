@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { useState, type ComponentProps, type JSX } from 'react';
-import type { GitRef } from '@shared/types';
+import type { GitRef, Stash } from '@shared/types';
 import { LeftPanel, buildRefTree, folderKeys, readFolded, readSectionHeights } from './LeftPanel';
 import type { RefDragHandlers } from '../ui/refDrag';
 
@@ -114,6 +114,7 @@ function Panel({ refs, ...over }: { refs: GitRef[] } & Partial<ComponentProps<ty
       onRefSelect={() => {}}
       selected={null}
       refDrag={noDrag}
+      onStashSelect={() => {}}
       onStashMenu={() => {}}
       onStashActivate={() => {}}
       onRemoteMenu={() => {}}
@@ -340,5 +341,61 @@ describe('the ref filter belongs to the tab (GC-179)', () => {
     // makes `App` the only place the query lives, and what parks it with the tab.
     expect(field.value).toBe('');
     expect(names(c, '.ref-row:not(.folder):not(.dim)')).toEqual(['1', '2', 'main']);
+  });
+});
+
+// A stash row was the one row kind in this panel a single click did nothing on (GC-150). GC-141
+// fenced them off because nothing on a `Stash` said which commit to select; GC-140 put
+// `Stash.parent` there and GC-170 gave the stash a graph row of its own, so both are reachable.
+describe('LeftPanel stash rows (GC-150)', () => {
+  const stash = (index: number, sha: string, parent: string): Stash => ({
+    index,
+    sha,
+    message: `WIP on main: ${index}`,
+    date: '2026-09-01T10:00:00+02:00',
+    parent,
+  });
+  const stashes = [stash(0, 's'.repeat(40), 'p'.repeat(40))];
+  const row = (c: HTMLElement): HTMLElement => c.querySelectorAll<HTMLElement>('.ref-row')[c.querySelectorAll('.ref-row').length - 1]!;
+
+  it('reports the stash on a single click, the way a ref row reports its tip', () => {
+    const picked: Stash[] = [];
+    const c = panel([head('main', true)], { stashes, onStashSelect: (s) => picked.push(s) });
+    fireEvent.click(row(c));
+    expect(picked).toEqual(stashes);
+  });
+
+  it('still applies on a double click', () => {
+    const applied: Stash[] = [];
+    const c = panel([head('main', true)], { stashes, onStashActivate: (s) => applied.push(s) });
+    fireEvent.doubleClick(row(c));
+    expect(applied).toEqual(stashes);
+  });
+
+  it('says which commit it was taken from, as a short sha', () => {
+    const c = panel([head('main', true)], { stashes });
+    expect(row(c).querySelector('.row-sha')!.textContent).toBe('ppppppp');
+    expect(row(c).getAttribute('title')).toContain('taken from ppppppp');
+  });
+
+  it('is marked selected by the stash and by the commit it came from, and by nothing else', () => {
+    // Either is how the user got here: the graph's stash row carries the stash's own sha, and the
+    // commit beneath it is what the stash was taken from (GC-170).
+    const bySelf = panel([head('main', true)], { stashes, selected: 's'.repeat(40) });
+    expect(row(bySelf).classList.contains('selected')).toBe(true);
+    const byParent = panel([head('main', true)], { stashes, selected: 'p'.repeat(40) });
+    expect(row(byParent).classList.contains('selected')).toBe(true);
+    const neither = panel([head('main', true)], { stashes, selected: 'z'.repeat(40) });
+    expect(row(neither).classList.contains('selected')).toBe(false);
+  });
+
+  it('reports a stash whose parent is not loaded exactly like any other', () => {
+    // Nothing here knows what the graph has loaded; `rowIndexOf` answers -1 for an unloaded sha
+    // and the graph then stays where it is (GC-141), so this row has no special case to carry.
+    const picked: Stash[] = [];
+    const orphan = [stash(0, 'a'.repeat(40), 'f'.repeat(40))];
+    const c = panel([head('main', true)], { stashes: orphan, onStashSelect: (s) => picked.push(s) });
+    fireEvent.click(row(c));
+    expect(picked.map((s) => s.parent)).toEqual(['f'.repeat(40)]);
   });
 });

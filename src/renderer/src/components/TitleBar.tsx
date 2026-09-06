@@ -16,6 +16,8 @@ interface Props {
   activeId: number | null;
   onSelectTab(id: number): void;
   onCloseTab(id: number): void;
+  /** Right-click on a tab: the bar is the last repeated row in the app to answer one (GC-151). */
+  onTabMenu(e: MouseEvent, tab: Tab): void;
   /** The `+` button: an empty tab, whose content is the recents page (GC-163). */
   onNewTab(): void;
   onOpenRepo(): void;
@@ -23,7 +25,7 @@ interface Props {
   onRepoMenu(at: MenuAnchor): void;
 }
 
-export function TitleBar({ tabs, activeId, onSelectTab, onCloseTab, onNewTab, onOpenRepo, onRepoMenu }: Props): JSX.Element {
+export function TitleBar({ tabs, activeId, onSelectTab, onCloseTab, onTabMenu, onNewTab, onOpenRepo, onRepoMenu }: Props): JSX.Element {
   /**
    * The bar scrolls once there are more tabs than fit, so the showing one has to be brought into
    * view or a restart with twenty repositories opens on whichever tabs happen to be leftmost
@@ -54,6 +56,7 @@ export function TitleBar({ tabs, activeId, onSelectTab, onCloseTab, onNewTab, on
             className={`tab ${t.id === activeId ? 'selected' : ''}`}
             title={t.path ?? 'New Tab'}
             onClick={() => onSelectTab(t.id)}
+            onContextMenu={(e: MouseEvent) => onTabMenu(e, t)}
             // Middle-click closes, the way every tabbed application does. `auxclick` is the only
             // event that reports button 1 on a div, and it fires after the browser has already
             // decided not to scroll, so nothing has to be prevented.

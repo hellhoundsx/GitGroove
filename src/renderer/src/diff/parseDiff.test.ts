@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignHunks, buildHunkPatch, buildLinePatch, hunkWordSpans, parseUnifiedDiff, wordDiff, type DiffHunk, type DiffLine, type DiffRow, type FileDiff } from './parseDiff';
+import { alignHunks, buildHunkPatch, buildLinePatch, hunkWordSpans, parseUnifiedDiff, splitHunkHeader, wordDiff, type DiffHunk, type DiffLine, type DiffRow, type FileDiff } from './parseDiff';
 
 /** Build a diff body the way `git diff` prints it: every line ends with \n. */
 const diff = (...lines: string[]): string => lines.join('\n') + '\n';
@@ -200,6 +200,106 @@ describe('parseUnifiedDiff', () => {
     expect(files.map((f) => f.newPath)).toEqual(['one.txt', 'two.txt']);
     expect([files[0]!.adds, files[0]!.dels]).toEqual([1, 0]);
     expect([files[1]!.adds, files[1]!.dels]).toEqual([0, 1]);
+  });
+});
+
+/**
+ * git's answer for an unmerged path (GC-180), copied verbatim out of a throwaway repository with
+ * one content conflict — `diff --cc`, an `@@@` header and two prefix columns per line. Before this
+ * ticket every one of these lines fell into `headerLines` and the file came back with zero hunks,
+ * which `DiffView` rendered as an empty body.
+ */
+const CONFLICT_DIFF = diff(
+  'diff --cc f.txt',
+  'index 90eb71e,6a9aab3..0000000',
+  '--- a/f.txt',
+  '+++ b/f.txt',
+  '@@@ -1,3 -1,3 +1,7 @@@',
+  '  alpha',
+  '++<<<<<<< HEAD',
+  ' +OURS',
+  '++=======',
+  '+ THEIRS',
+  '++>>>>>>> other',
+  '  gamma',
+);
+
+describe('parseUnifiedDiff, combined form (GC-180)', () => {
+  it('names the file and opens the hunk from the @@@ header', () => {
+    const files = parseUnifiedDiff(CONFLICT_DIFF);
+    expect(files).toHaveLength(1);
+    const f = files[0]!;
+    expect(f.combined).toBe(true);
+    expect(f.oldPath).toBe('f.txt');
+    expect(f.newPath).toBe('f.txt');
+    expect(f.binary).toBe(false);
+    // The zero-hunk guard's other half: there is something to draw, so `DiffView` never reaches it.
+    expect(f.hunks).toHaveLength(1);
+    expect([f.hunks[0]!.oldStart, f.hunks[0]!.oldLines]).toEqual([1, 3]);
+    expect([f.hunks[0]!.newStart, f.hunks[0]!.newLines]).toEqual([1, 7]);
+  });
+
+  it('reads each line against both parents', () => {
+    const lines = parseUnifiedDiff(CONFLICT_DIFF)[0]!.hunks[0]!.lines;
+    expect(lines.map((l) => [l.combined, l.type, l.text, l.oldNo, l.newNo])).toEqual([
+      ['  ', 'context', 'alpha', 1, 1],
+      ['++', 'add', '<<<<<<< HEAD', null, 2],
+      // In the first parent and not the second, so it advances both numberings.
+      [' +', 'add', 'OURS', 2, 3],
+      ['++', 'add', '=======', null, 4],
+      // In the second parent only: nothing in the first parent's numbering to advance.
+      ['+ ', 'add', 'THEIRS', null, 5],
+      ['++', 'add', '>>>>>>> other', null, 6],
+      ['  ', 'context', 'gamma', 3, 7],
+    ]);
+  });
+
+  it('counts what the merge result gained', () => {
+    const f = parseUnifiedDiff(CONFLICT_DIFF)[0]!;
+    expect([f.adds, f.dels]).toEqual([5, 0]);
+  });
+
+  it('counts a line no parent kept as a removal', () => {
+    // `- ` is in the first parent and not in the result, so it is a removal and the result's
+    // numbering does not advance over it.
+    const f = parseUnifiedDiff(diff('diff --cc f.txt', '@@@ -1,2 -1,2 +1,1 @@@', '- dropped', '  kept'))[0]!;
+    expect(f.hunks[0]!.lines.map((l) => [l.type, l.oldNo, l.newNo])).toEqual([
+      ['del', 1, null],
+      ['context', 2, 1],
+    ]);
+    expect([f.adds, f.dels]).toEqual([0, 1]);
+  });
+
+  it('parses an octopus merge without crashing', () => {
+    const f = parseUnifiedDiff(diff('diff --cc f.txt', '@@@@ -1,1 -1,1 -1,1 +1,2 @@@@', '+++new', '   same'))[0]!;
+    expect(f.combined).toBe(true);
+    expect(f.hunks[0]!.lines.map((l) => [l.combined, l.type, l.text])).toEqual([
+      ['+++', 'add', 'new'],
+      ['   ', 'context', 'same'],
+    ]);
+  });
+
+  it('leaves an ordinary diff alone after a combined one', () => {
+    // `parents` is hunk state, so an ordinary `@@` header following a combined file must clear it
+    // or every later line would be read two columns in.
+    const files = parseUnifiedDiff(
+      CONFLICT_DIFF + diff('diff --git a/two.txt b/two.txt', '--- a/two.txt', '+++ b/two.txt', '@@ -1,2 +1,2 @@', ' keep', '-old', '+new'),
+    );
+    expect(files.map((f) => f.combined)).toEqual([true, false]);
+    expect(files[1]!.hunks[0]!.lines.map((l) => [l.type, l.text, l.combined])).toEqual([
+      ['context', 'keep', undefined],
+      ['del', 'old', undefined],
+      ['add', 'new', undefined],
+    ]);
+  });
+
+  it('gives a payload it cannot read a file with no hunks, which is the empty body DiffView guards', () => {
+    // The pre-GC-180 behaviour on any unknown payload, kept as a test because the guard in
+    // `DiffView` is written against exactly this shape.
+    const files = parseUnifiedDiff(diff('diff --git a/f.txt b/f.txt', 'Something git prints that nothing here parses'));
+    expect(files).toHaveLength(1);
+    expect(files[0]!.hunks).toHaveLength(0);
+    expect(files[0]!.binary).toBe(false);
   });
 });
 
@@ -515,4 +615,22 @@ describe('buildLinePatch', () => {
     // Every removal is context and every addition is gone, so both sides are the old file.
     expect(bodyOf(buildLinePatch(file, hunk, new Set()))).toEqual(['@@ -1,2 +1,2 @@', ' kept', ' old']);
   });
+});
+
+// The hunk header's two halves (GC-180). A combined hunk is fenced with one more `@` than it has
+// parents, so the pair of regexes that assumed two matched nothing and printed the whole header
+// twice — the range beside itself, measured on screen in a real conflict.
+describe('splitHunkHeader', () => {
+  const cases: Array<[string, [string, string], string]> = [
+    ['@@ -1,2 +1,2 @@', ['@@ -1,2 +1,2 @@', ''], 'an ordinary hunk with no context after it'],
+    ['@@ -1,2 +1,2 @@ function foo() {', ['@@ -1,2 +1,2 @@', 'function foo() {'], 'and one with the enclosing line git found'],
+    ['@@@ -1,3 -1,3 +1,7 @@@', ['@@@ -1,3 -1,3 +1,7 @@@', ''], 'a two-parent combined hunk'],
+    ['@@@@ -1,1 -1,1 -1,1 +1,2 @@@@', ['@@@@ -1,1 -1,1 -1,1 +1,2 @@@@', ''], 'and an octopus one'],
+    ['not a hunk header', ['not a hunk header', ''], 'anything else is left whole rather than mangled'],
+  ];
+  for (const [header, expected, why] of cases) {
+    it(why, () => {
+      expect(splitHunkHeader(header)).toEqual(expected);
+    });
+  }
 });

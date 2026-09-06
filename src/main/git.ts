@@ -9,6 +9,7 @@ import type {
   Commit,
   CommitFile,
   CommitRequest,
+  ConflictSide,
   CreateBranchRequest,
   CreateTagRequest,
   DiffOptions,
@@ -379,6 +380,9 @@ export async function getStatus(cwd: string): Promise<RepoStatus> {
         origPath,
         staged: isUnmerged ? 'conflicted' : xy[0] === '.' ? null : kindFromCode(xy[0]),
         unstaged: isUnmerged ? 'conflicted' : xy[1] === '.' ? null : kindFromCode(xy[1]),
+        // Which stages the path has, which is what decides whether a side can be checked out at
+        // all (GC-181). Carried only on a conflict, where the two collapsed kinds above lose it.
+        unmerged: isUnmerged ? xy : undefined,
       };
       status.entries.push(entry);
     } else if (line.startsWith('? ')) {
@@ -442,6 +446,15 @@ export async function getCommitFiles(cwd: string, sha: string): Promise<CommitFi
     if (!(e instanceof GitError)) throw e;
     out = await runGit(cwd, ['diff-tree', '-r', '-M', '--name-status', '-z', '--root', '--no-commit-id', sha]);
   }
+  return parseNameStatus(out);
+}
+
+/**
+ * `--name-status -z` output, whatever produced it: a status code, then one path, or two when the
+ * code is a rename or a copy. Shared by the commit's own file list and the comparison against the
+ * working directory (GC-152), which differ only in the command that produced the bytes.
+ */
+function parseNameStatus(out: string): CommitFile[] {
   const tokens = out.split('\0');
   const files: CommitFile[] = [];
   for (let i = 0; i < tokens.length; ) {
@@ -476,6 +489,36 @@ export async function getCommitFileDiff(cwd: string, sha: string, path: string, 
     return runGit(cwd, ['show', '--format=', '-M', '--no-ext-diff', ...flags, sha, '--', path]);
   }
 }
+
+/**
+ * The files that differ between a commit and what is on disk right now (GC-152).
+ *
+ * A third diff **source** rather than a variation on the two that exist: the commit view is
+ * `git show`, so a commit is always read against its parent, and the ordinary question when
+ * reading history — how does my working copy differ from this commit — had no answer but checking
+ * the commit out, which is a working-tree operation to settle a read-only question.
+ *
+ * One command, `git diff <sha>`, which is the commit against the working tree with the index
+ * skipped, so a staged change and an unstaged one both count. The status codes are relative to the
+ * commit, which is the direction the file rows read in: `added` is a file the working tree has and
+ * the commit does not.
+ */
+export async function getCompareWith(run: GitRunner, sha: string): Promise<CommitFile[]> {
+  return parseNameStatus(await run(['diff', '-M', '--name-status', '-z', sha]));
+}
+
+/**
+ * One file of that comparison (GC-152), with `DiffOptions` so GC-052's `-w` reaches it too. There
+ * is no root-commit fallback here, unlike `getCommitFileDiff`: nothing dereferences `<sha>^`.
+ */
+export function getCompareFileDiffWith(run: GitRunner, sha: string, path: string, opts?: DiffOptions): Promise<string> {
+  return run(['diff', '-M', '--no-ext-diff', ...diffFlags(opts), sha, '--', path]);
+}
+
+/** The bound pair, matching `stashRename`: the seam is what `git.test.ts` drives (GC-167). */
+export const getCompare = (cwd: string, sha: string): Promise<CommitFile[]> => getCompareWith((args) => runGit(cwd, args), sha);
+export const getCompareFileDiff = (cwd: string, sha: string, path: string, opts?: DiffOptions): Promise<string> =>
+  getCompareFileDiffWith((args) => runGit(cwd, args), sha, path, opts);
 
 function looksBinary(buf: Buffer): boolean {
   const n = Math.min(buf.length, 8000);
@@ -704,6 +747,28 @@ export async function stashRenameWith(run: GitRunner, index: number, message: st
 
 /** The bound form, matching `restoreStash`: the runner seam is what `git.test.ts` drives (GC-167). */
 export const stashRename = (cwd: string, index: number, message: string): Promise<void> => stashRenameWith((args) => runGit(cwd, args), index, message);
+
+/**
+ * Resolve one conflicted path by keeping one side of it (GC-181).
+ *
+ * Two calls, and the order is the whole of it: the checkout writes that side's blob over the
+ * working-tree copy — conflict markers and all — and the add then records it as the merge result,
+ * which is what takes the path out of the unmerged state. One function rather than two actions, so
+ * a resolved row leaves the Conflicted group in one gesture instead of needing `Mark resolved`
+ * after it. Both calls end in `-- <path>`, so a file whose name reads like a revision cannot be
+ * taken for one.
+ *
+ * Which sides a given conflict has is `conflictSides` in `shared/types.ts`: `--ours` needs stage 2
+ * and `--theirs` stage 3, and a delete/add conflict is missing one of them, so the menu leaves the
+ * row out rather than offering a call git will refuse.
+ */
+export async function resolveConflictWith(run: GitRunner, path: string, side: ConflictSide): Promise<void> {
+  await run(['checkout', `--${side}`, '--', path]);
+  await run(['add', '--', path]);
+}
+
+/** The bound form, matching `stashRename`: the runner seam is what `git.test.ts` drives (GC-167). */
+export const resolveConflict = (cwd: string, path: string, side: ConflictSide): Promise<void> => resolveConflictWith((args) => runGit(cwd, args), path, side);
 
 // ---------------------------------------------------------------------------
 // Branches, tags, history

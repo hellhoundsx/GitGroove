@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, createEvent, fireEvent, render } from '@testing-library/react';
 import type { ComponentProps } from 'react';
-import type { Commit, GitRef, Stash } from '@shared/types';
+import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
 import type { RefDragHandlers } from '../ui/refDrag';
 import { chipMarksFit, chipRoom, CommitGraph, displayRows, rowIndexOf, shouldRevealSelection, stashesByParent, stashMessageText } from './CommitGraph';
 import { chipsFor, headChipFor, kindMarksOf } from './RefChip';
@@ -98,6 +98,9 @@ function renderGraph(over: Partial<ComponentProps<typeof CommitGraph>> = {}): Re
       scrollTop={0}
       onScrollTop={() => {}}
       onDrawnCols={() => {}}
+      draftSummary=""
+      onDraftSummary={() => {}}
+      onCommitDraft={() => {}}
       {...over}
     />,
   );
@@ -151,6 +154,9 @@ function flipsUp(body: Rect, chipRect: Rect, listHeight: number): boolean {
       scrollTop={0}
       onScrollTop={() => {}}
       onDrawnCols={() => {}}
+      draftSummary=""
+      onDraftSummary={() => {}}
+      onCommitDraft={() => {}}
     />,
   );
 
@@ -264,6 +270,9 @@ function renderDrag(dragging: GitRef | null, dropped: { src: GitRef | null; dst:
       scrollTop={0}
       onScrollTop={() => {}}
       onDrawnCols={() => {}}
+      draftSummary=""
+      onDraftSummary={() => {}}
+      onCommitDraft={() => {}}
     />,
   );
   return container as HTMLElement;
@@ -619,5 +628,54 @@ describe('what a chip says it is (GC-146)', () => {
     expect(chipMarksFit(chipRoom(100, true), 2)).toBe(false);
     // A chip with nothing to trail is never refused anything.
     expect(chipMarksFit(0, 0)).toBe(true);
+  });
+});
+
+// The WIP row's message cell is the summary half of the commit draft `App` holds (GC-182). Before
+// this it was an uncontrolled `<input>` with no `value` and no `onChange`, so what was typed there
+// reached nothing and was lost the moment the row was virtualised out, a file view opened or a tab
+// was switched. jsdom is enough for all of it: the field is controlled or it is not.
+describe('the WIP row commit field (GC-182)', () => {
+  const status: RepoStatus = { branch: 'main', upstream: null, ahead: 0, behind: 0, entries: [], operation: null };
+  const wipInput = (c: HTMLElement): HTMLInputElement => c.querySelector<HTMLInputElement>('.wip-input')!;
+
+  it('draws the draft summary rather than whatever the DOM node happens to hold', () => {
+    const { container } = renderGraph({ status, draftSummary: 'from the staging form' });
+    expect(wipInput(container).value).toBe('from the staging form');
+  });
+
+  it('reports typing rather than keeping it', () => {
+    const typed: string[] = [];
+    const { container } = renderGraph({ status, draftSummary: '', onDraftSummary: (s) => typed.push(s) });
+    fireEvent.change(wipInput(container), { target: { value: 'a summary' } });
+    expect(typed).toEqual(['a summary']);
+    // Controlled: the parent did not change the value, so the node still shows the old one.
+    expect(wipInput(container).value).toBe('');
+  });
+
+  it('commits on Enter, through the one handler `App` holds the rule in', () => {
+    let commits = 0;
+    const { container } = renderGraph({ status, draftSummary: 'ready', onCommitDraft: () => commits++ });
+    fireEvent.keyDown(wipInput(container), { key: 'Enter' });
+    expect(commits).toBe(1);
+  });
+
+  it('leaves Ctrl+Enter and every other key alone', () => {
+    // `commitInline` is the table's plain Enter; Ctrl+Enter is `commit`, which the staging form's
+    // own handler answers, and nothing here may claim both.
+    let commits = 0;
+    const { container } = renderGraph({ status, draftSummary: 'ready', onCommitDraft: () => commits++ });
+    fireEvent.keyDown(wipInput(container), { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(wipInput(container), { key: 'a' });
+    fireEvent.keyDown(wipInput(container), { key: 'Escape' });
+    expect(commits).toBe(0);
+  });
+
+  it('does not select the WIP row when the field is clicked', () => {
+    // The row's own click selects it; typing in the field is not that gesture.
+    const selected: string[] = [];
+    const { container } = renderGraph({ status, onSelect: (sha) => selected.push(sha) });
+    fireEvent.click(wipInput(container));
+    expect(selected).toEqual([]);
   });
 });

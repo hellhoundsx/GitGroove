@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { FileChangeKind } from '@shared/types';
-import { alignHunks, buildHunkPatch, buildLinePatch, hunkWordSpans, parseUnifiedDiff, type DiffHunk, type DiffLine, type FileDiff, type WordSpan } from './parseDiff';
+import { alignHunks, buildHunkPatch, buildLinePatch, hunkWordSpans, parseUnifiedDiff, splitHunkHeader, type DiffHunk, type DiffLine, type FileDiff, type WordSpan } from './parseDiff';
 import { ChevronDown, ChevronUp, Pilcrow, WrapText, X } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { useUi } from '../ui/UiContext';
@@ -13,6 +13,28 @@ const VIEW_MODES: { mode: DiffViewMode; label: string; title: string }[] = [
 
 /** Which tint a split cell takes. An empty side is padding, not an unchanged line. */
 const sideClass = (line: DiffLine | null): string => (line === null ? 'pad' : line.type);
+
+/**
+ * Which parent a combined diff's line came from (GC-180). The marker columns say it exactly: a
+ * line only the first parent has is `' +'`, only the second `'+ '`, and one neither has — the
+ * conflict markers git wrote into the working tree, and any line the merge itself produced — is
+ * `'++'`. The class is a coloured edge on the code cell, so the two sides read apart at a glance
+ * while the file's own `<<<<<<<` markers still say which is which in words.
+ */
+const combinedClass = (line: DiffLine): string => {
+  const m = line.combined;
+  if (m === undefined || m.length !== 2) return '';
+  if (m === ' +') return ' p1';
+  if (m === '+ ') return ' p2';
+  return '';
+};
+
+const combinedTitle = (line: DiffLine): string | undefined => {
+  const c = combinedClass(line);
+  if (c === ' p1') return 'Only in the first parent (HEAD)';
+  if (c === ' p2') return 'Only in the second parent (the branch being merged)';
+  return undefined;
+};
 
 /**
  * One line's text, with the part of it that actually changed marked (GC-104). Both layouts render
@@ -32,6 +54,13 @@ function code(line: DiffLine, spans: Map<DiffLine, WordSpan[]>): JSX.Element {
 
 export type FileViewSource =
   | { source: 'commit'; sha: string; path: string; kind: FileChangeKind }
+  /**
+   * The same file at the same sha, read against the working directory rather than against the
+   * commit's parent (GC-152). A **separate source** and not a flag on the one above, so it is part
+   * of the view identity: the two are different content under the same path and sha, and a diff is
+   * keyed to its identity precisely so one can never render under the other's header (GC-075).
+   */
+  | { source: 'compare'; sha: string; path: string; kind: FileChangeKind }
   | { source: 'wip'; path: string; staged: boolean; kind: FileChangeKind };
 
 interface Props {
@@ -98,7 +127,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   // for the action's own reload and once for the watcher's echo of the index write. What GC-075
   // needs is that no button is live over content whose load is not the newest, and `stale` says
   // exactly that: a pending reload disables every action without emptying the body.
-  const identityKey = `${repo}|${view.source}|${view.path}|${view.source === 'commit' ? view.sha : `${view.staged}|${view.kind ?? ''}`}`;
+  const identityKey = `${repo}|${view.source}|${view.path}|${view.source === 'wip' ? `${view.staged}|${view.kind ?? ''}` : view.sha}`;
   // `ignoreWs` belongs to the key and not to the identity (GC-052): it is the same file on the
   // same side, so the hunks on screen stay and dim while the reload runs, exactly as a watcher
   // echo does, rather than the body blanking to "Loading diff…" (GC-086).
@@ -130,7 +159,9 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     const load =
       view.source === 'commit'
         ? window.api.getCommitFileDiff(repo, view.sha, view.path, { ignoreWhitespace: ignoreWs })
-        : window.api.getWorkdirFileDiff(repo, { path: view.path, staged: view.staged, untracked: view.kind === 'untracked', ignoreWhitespace: ignoreWs });
+        : view.source === 'compare'
+          ? window.api.getCompareFileDiff(repo, view.sha, view.path, { ignoreWhitespace: ignoreWs })
+          : window.api.getWorkdirFileDiff(repo, { path: view.path, staged: view.staged, untracked: view.kind === 'untracked', ignoreWhitespace: ignoreWs });
     load.then(
       (t) => !cancelled && setLoaded({ key: viewKey, identity: identityKey, text: t, error: null }),
       // A failure is stored against the same key, so the file buttons come back rather than staying
@@ -155,6 +186,11 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   const [dir, name] = splitPath(view.path);
   const isWip = view.source === 'wip';
   const untracked = view.kind === 'untracked';
+  const conflicted = view.kind === 'conflicted';
+  // A payload nothing here understands parses to a file with no hunks, and `file.hunks.map` then
+  // draws a void under a header that still claims a file (GC-180). It takes the same `.diff-empty`
+  // treatment as no file at all: this is the guard, not the fix.
+  const empty = file !== undefined && !file.binary && file.hunks.length === 0;
   // Every action is aimed at what is on screen, so a load in flight disables them exactly like a
   // running one does: the header already claims the new side of the file (GC-075), and a stale
   // body is content the newest load has not confirmed yet (GC-086).
@@ -163,12 +199,25 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   // A `-w` diff is not a patch git can apply: the lines it left out are still in the file, so
   // `git apply` rejects it. Every button built from `hunk.raw` is therefore off while the
   // toggle is on, and says why; the file-level actions do not go through a patch and stay live.
-  const hunksDisabled = actionsDisabled || ignoreWs;
-  const hunkTitle = ignoreWs ? 'Not available while whitespace is ignored: the patch would not apply' : undefined;
+  // A combined diff is off for the same reason (GC-180): its lines carry one column per parent,
+  // which is a report about a merge rather than anything `git apply` will take.
+  const isCombined = file?.combined === true;
+  // A comparison against the working directory is the third (GC-152): `git diff <sha>` describes a
+  // distance the index has no part in, so it is not a patch git will take against it in either
+  // direction, and nothing about a commit's contents can be staged or discarded anyway.
+  const isCompare = view.source === 'compare';
+  const hunksDisabled = actionsDisabled || ignoreWs || isCombined || isCompare;
+  const hunkTitle = ignoreWs
+    ? 'Not available while whitespace is ignored: the patch would not apply'
+    : isCombined
+      ? 'Not available on a conflicted file: a combined diff is not a patch git can apply'
+      : isCompare
+        ? 'Not available in a comparison: this is a commit against your working directory, not a patch'
+        : undefined;
 
   // Lines are picked on the unstaged side only: unstaging a line is the reverse patch and its own
   // ticket (GC-121, out of scope), and a commit's diff stages nothing at all.
-  const canSelect = isWip && view.source === 'wip' && !view.staged && !ignoreWs;
+  const canSelect = isWip && view.source === 'wip' && !view.staged && !ignoreWs && !isCombined;
   const selection = sel !== null && sel.key === viewKey ? sel : null;
   const pickedIn = (hi: number): Set<DiffLine> | null => (selection && selection.hunk === hi && selection.lines.size > 0 ? selection.lines : null);
 
@@ -348,9 +397,13 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         </div>
         {isWip && view.source === 'wip' && !view.staged && (
           <>
+            {/* The header follows the rule the row's own menu already applies to a conflicted file
+                (GC-180): staging one is marking it resolved, and discarding is not offered at all,
+                because git refuses `checkout --` on an unmerged path. */}
             <button className="btn success" disabled={actionsDisabled} onClick={() => void run(() => onStageFile(view.path))}>
-              Stage file
+              {conflicted ? 'Mark resolved' : 'Stage file'}
             </button>
+            {!conflicted && (
             <button
               className="btn danger"
               disabled={actionsDisabled}
@@ -366,6 +419,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
             >
               {untracked ? 'Delete file' : 'Discard changes'}
             </button>
+            )}
           </>
         )}
         {isWip && view.source === 'wip' && view.staged && (
@@ -378,7 +432,12 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         </button>
       </div>
       <div className="file-view-sub">
-        <span className="chip">{view.source === 'commit' ? `commit ${view.sha.slice(0, 7)}` : view.staged ? 'Staged' : 'Unstaged'}</span>
+        <span className="chip">
+          {view.source === 'commit' ? `commit ${view.sha.slice(0, 7)}` : view.source === 'compare' ? `${view.sha.slice(0, 7)} ↔ working directory` : view.staged ? 'Staged' : 'Unstaged'}
+        </span>
+        {/* Why nothing here can be staged (GC-152). Said in the sub-header rather than as a
+            disabled button's title, because in this view there is no button to hover. */}
+        {isCompare && <span className="note">Read-only: a comparison is not a patch git can apply</span>}
         {error && <span className="err">{error}</span>}
       </div>
       <div ref={bodyRef} className={`diff-body${stale ? ' stale' : ''}${wrap ? ' wrap' : ''}`}>
@@ -386,17 +445,18 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         {loadError !== null && <div className="diff-empty">{loadError}</div>}
         {text !== null && !file && <div className="diff-empty">No textual changes.</div>}
         {file?.binary && <div className="diff-empty">Binary file.</div>}
+        {empty && <div className="diff-empty">No changes this view can show.</div>}
         {file &&
           !file.binary &&
           file.hunks.map((h, hi) => (
             <div className="hunk" key={hi}>
               <div className="hunk-head">
-                <span className="hunk-range">{h.header.replace(/ @@.*$/, ' @@')}</span>
-                <span className="hunk-ctx">{h.header.replace(/^@@[^@]*@@ ?/, '')}</span>
+                <span className="hunk-range">{splitHunkHeader(h.header)[0]}</span>
+                <span className="hunk-ctx">{splitHunkHeader(h.header)[1]}</span>
                 <span className="spacer" />
                 <span className="hunk-actions">{hunkAction(h, hi)}</span>
               </div>
-              {split ? (
+              {split && !isCombined ? (
                 // Six columns, so both halves keep the gutter the unified table has. The tint is on
                 // the cells rather than the row: a split row is one line of each file and the two
                 // sides are rarely the same kind (GC-014).
@@ -424,10 +484,15 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                 <table className="hunk-lines">
                   <tbody>
                     {h.lines.map((l, li) => (
-                      <tr key={li} className={`line ${l.type}${selClass(hi, l)}${pickable(l)}`} {...lineProps(hi, h, l)}>
+                      <tr
+                        key={li}
+                        className={`line ${l.type}${combinedClass(l)}${selClass(hi, l)}${pickable(l)}`}
+                        title={combinedTitle(l)}
+                        {...lineProps(hi, h, l)}
+                      >
                         <td className="no">{l.oldNo ?? ''}</td>
                         <td className="no">{l.newNo ?? ''}</td>
-                        <td className="mark">{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ''}</td>
+                        <td className="mark">{l.combined ?? (l.type === 'add' ? '+' : l.type === 'del' ? '−' : '')}</td>
                         <td className="code">{code(l, wordSpans)}</td>
                       </tr>
                     ))}

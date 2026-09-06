@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type JSX, type MouseEvent } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { Icon } from './ui/icons';
-import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, RepoStatus, Stash, StatusEntry } from '@shared/types';
-import { ADVISORY, AUTH_FAILURE } from '@shared/types';
+import type { CheckoutOptions, Commit, ConflictSide, GitRef, IgnoreKind, Remote, RepoChange, RepoOperation, RepoSnapshot, RepoStatus, Stash, StatusEntry } from '@shared/types';
+import { ADVISORY, AUTH_FAILURE, conflictSides } from '@shared/types';
 import { defaultRemote, remoteCopyOf } from '@shared/remotes';
 import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type OptCols, type PanelFit } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
@@ -21,7 +21,7 @@ import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
 import type { MenuAnchor } from './ui/UiContext';
 import { canDropRef, type RefDragHandlers } from './ui/refDrag';
-import { cycle, makeTabs, neighbourOf, readTabs, storedPaths, TABS_KEY, type Tab } from './tabs';
+import { cycle, makeTabs, neighbourOf, popClosed, pushClosed, readTabs, storedPaths, survivorOf, TABS_KEY, type Tab } from './tabs';
 
 /** Which tab was showing when the app was last closed, so a restart comes back to it. */
 const LAST_REPO_KEY = 'gitclient.lastRepo';
@@ -134,6 +134,31 @@ const isEditable = (t: EventTarget | null): boolean => t instanceof HTMLElement 
  * recreated is on disk again, and a staged edit the user then deleted is not.
  */
 const deletedFromTree = (e: StatusEntry): boolean => (e.unstaged ? e.unstaged === 'deleted' : e.staged === 'deleted');
+/**
+ * What `--ours` and `--theirs` actually name, which only the operation in progress can say
+ * (GC-181). During a merge, a cherry-pick or a revert "ours" is the branch that is checked out and
+ * "theirs" is what is coming in, which is what the words suggest. During a **rebase** it is the
+ * other way round: git replays your commits onto the upstream, so at each step the checked-out
+ * side is the branch being rebased *onto* and "theirs" is the commit of your own being replayed.
+ * The rows are therefore worded by what they mean and never by the flag, which is also why the
+ * flag itself is on the hint — a user who knows git can see which call it makes.
+ */
+const conflictSideLabels = (op: RepoOperation): Record<ConflictSide, string> => {
+  switch (op) {
+    case 'rebase':
+      return { ours: 'Resolve using the branch being rebased onto', theirs: 'Resolve using the commit being replayed' };
+    case 'cherry-pick':
+      return { ours: 'Resolve using this branch', theirs: 'Resolve using the commit being picked' };
+    case 'revert':
+      return { ours: 'Resolve using this branch', theirs: 'Resolve using the commit being reverted' };
+    case 'merge':
+      return { ours: 'Resolve using this branch', theirs: 'Resolve using the branch being merged' };
+    default:
+      // No operation in the git directory: a conflicting stash pop is the one that reaches here
+      // (GC-092), and there "theirs" is what the stash held.
+      return { ours: 'Resolve using this branch', theirs: 'Resolve using the incoming changes' };
+  }
+};
 /** The ahead/behind a branch row shows, in the toolbar badge's arrows; null when it tracks nothing (GC-088). */
 const aheadBehind = (r: GitRef): string | null => {
   const parts = [r.ahead ? `↑${r.ahead}` : '', r.behind ? `↓${r.behind}` : ''].filter(Boolean);
@@ -174,6 +199,12 @@ export function App(): JSX.Element {
   // below is what that tab has actually loaded, which is null while it is loading and stays null
   // if it fails, so the two cannot be collapsed into one.
   const [tabs, setTabs] = useState<Tab[]>(initialTabs);
+  /**
+   * The repositories closed in this session, newest first, for "Reopen closed tab" (GC-151). A ref
+   * rather than state: nothing renders from it, and the one thing that reads it — the tab menu —
+   * is built at the moment of the right-click, which is as current as it gets.
+   */
+  const closed = useRef<string[]>([]);
   const [activeId, setActiveId] = useState<number | null>(() => {
     const last = ((): string | null => {
       try {
@@ -763,12 +794,21 @@ export function App(): JSX.Element {
    * nothing on screen; closing the last one goes back to the empty state, which is where the app
    * starts before a repository has ever been opened.
    */
-  const closeTab = useCallback(
-    (id: number) => {
-      parked.current.delete(id);
-      const next = id === activeId ? neighbourOf(tabs, id) : null;
-      setTabs((prev) => prev.filter((t) => t.id !== id));
-      if (id !== activeId) return;
+  const closeTabs = useCallback(
+    (ids: number[]) => {
+      const closing = new Set(ids);
+      if (closing.size === 0) return;
+      // Everything each closed tab had parked goes with it, and each repository joins the reopen
+      // stack — so a middle-click, which is one gesture with no undo of its own, is recoverable
+      // (GC-151). One `setTabs` however many are closing, so `gitclient.tabs` is written once.
+      for (const t of tabs) {
+        if (!closing.has(t.id)) continue;
+        parked.current.delete(t.id);
+        closed.current = pushClosed(closed.current, t.path);
+      }
+      const next = activeId !== null && closing.has(activeId) ? survivorOf(tabs, closing, activeId) : null;
+      setTabs((prev) => prev.filter((t) => !closing.has(t.id)));
+      if (activeId === null || !closing.has(activeId)) return;
       if (next) {
         showTab(next);
         return;
@@ -779,6 +819,20 @@ export function App(): JSX.Element {
     },
     [activeId, showEmpty, showTab, tabs],
   );
+
+  const closeTab = useCallback((id: number) => closeTabs([id]), [closeTabs]);
+
+  /**
+   * Put back the repository closed most recently (GC-151). `openNewTab` is what does it, so a path
+   * that is somehow open again takes the user to its tab rather than opening a second copy of it,
+   * and the stack is popped either way — the entry has been answered.
+   */
+  const reopenTab = useCallback(async () => {
+    const { path, rest } = popClosed(closed.current);
+    if (path === null) return;
+    closed.current = rest;
+    await openNewTab(path);
+  }, [openNewTab]);
 
   const openRepo = useCallback(async () => {
     const path = await window.api.openRepoDialog();
@@ -1182,6 +1236,21 @@ export function App(): JSX.Element {
     setSelected(sha);
     setFileView(null);
     setDetailCollapsed(false);
+  }, []);
+
+  /**
+   * The commit the detail panel is comparing against the working directory, or null (GC-152).
+   *
+   * A **mode on the selection**, held as the sha it belongs to rather than as a flag: the graph's
+   * selection is untouched, and "selecting another commit, or the WIP row, leaves the mode" then
+   * needs no effect to enforce — a sha that is not the selection simply is not compare mode.
+   */
+  const [compareSha, setCompareSha] = useState<string | null>(null);
+  const comparing = compareSha !== null && compareSha === selected;
+  const exitCompare = useCallback(() => {
+    setCompareSha(null);
+    // A file view opened from the comparison is describing a distance that is no longer on screen.
+    setFileView((v) => (v?.source === 'compare' ? null : v));
   }, []);
 
   // ---- ref / commit / stash operations ------------------------------------------------
@@ -1666,6 +1735,17 @@ export function App(): JSX.Element {
       const tip = tipCommitActions(c.sha);
       return [
         { label: 'Checkout this commit (detached)', onClick: () => runCheckout(short, () => window.api.checkout(repo!, c.sha, { detach: true })) },
+        // The ordinary question when reading history — how does what is on my disk differ from
+        // this commit — which until now could only be asked by checking the commit out (GC-152).
+        // It is on this menu alone, so it is absent on the WIP row by construction: `wipMenuItems`
+        // is a different builder, and there it would compare the working directory with itself.
+        {
+          label: 'Compare against working directory',
+          onClick: () => {
+            select(c.sha);
+            setCompareSha(c.sha);
+          },
+        },
         { separator: true },
         { label: 'Create branch here…', onClick: () => createBranchAt(c.sha, `commit ${short}`) },
         tip.createTag,
@@ -1679,7 +1759,7 @@ export function App(): JSX.Element {
         { label: 'Copy commit summary', onClick: () => void navigator.clipboard.writeText(c.summary) },
       ];
     },
-    [createBranchAt, repo, runCheckout, tipCommitActions],
+    [createBranchAt, repo, runCheckout, select, tipCommitActions],
   );
 
   const stashChanges = useCallback(async () => {
@@ -1748,6 +1828,32 @@ export function App(): JSX.Element {
     [repo, run],
   );
 
+  /**
+   * Enter on the graph's WIP field (GC-182). It makes the same call the staging form's button
+   * makes and clears the same draft afterwards, because there is one draft and not two; and it is
+   * held to the same rule — nothing staged, or a summary that is only whitespace, does nothing at
+   * all and reports nothing, since a one-line field in the graph is no place to explain why. The
+   * count comes from `statusRef` rather than from this render's `snapshot`, for the reason every
+   * other guard here does (GC-124).
+   */
+  const commitDraft = useCallback((): void => {
+    const entries = statusRef.current?.entries ?? [];
+    const staged = entries.filter((e) => e.staged !== null && e.unstaged !== 'conflicted');
+    if (staged.length === 0 || entries.some((e) => e.unstaged === 'conflicted') || !draft.summary.trim()) return;
+    void actions
+      .commit(draft.summary, draft.body, draft.amend)
+      .then(() => setDraft(EMPTY_DRAFT))
+      .catch(() => undefined);
+  }, [actions, draft]);
+
+  // Keep one side of a conflicted path and stage it in one action (GC-181). A staging action like
+  // any other, so it goes through `run()` and reloads only the status.
+  const resolveConflict = useCallback(
+    (path: string, side: ConflictSide): Promise<void> =>
+      run(`Resolving ${path}`, () => window.api.resolveConflict(repo!, path, side), { statusOnly: true }),
+    [repo, run],
+  );
+
   const fileMenuItems = useCallback(
     (t: FileMenuTarget): MenuItem[] => {
       const path = t.source === 'wip' ? t.entry.path : t.file.path;
@@ -1755,7 +1861,20 @@ export function App(): JSX.Element {
       if (t.source === 'wip') {
         const e = t.entry;
         if (t.group === 'staged') items.push({ label: 'Unstage file', onClick: () => actions.unstage([path]).catch(() => undefined) });
-        else items.push({ label: t.group === 'conflicted' ? 'Mark resolved' : 'Stage file', hint: t.group === 'conflicted' ? 'stage the resolved file' : undefined, onClick: () => actions.stage([path]).catch(() => undefined) });
+        else {
+          // Picking a side comes above `Mark resolved`, because it is what a user is looking for
+          // on a conflicted row and marking one resolved is what is left when neither side will do
+          // (GC-181). Each is offered only when git has a blob for it — a delete/add conflict has
+          // one stage, not two — and an action that cannot work is absent rather than disabled,
+          // the rule the rest of this menu already follows (GC-072).
+          if (t.group === 'conflicted') {
+            const labels = conflictSideLabels(snapshot?.status.operation ?? null);
+            for (const side of conflictSides(e.unmerged)) {
+              items.push({ label: labels[side], hint: `git checkout --${side}`, onClick: () => void resolveConflict(path, side) });
+            }
+          }
+          items.push({ label: t.group === 'conflicted' ? 'Mark resolved' : 'Stage file', hint: t.group === 'conflicted' ? 'stage the resolved file' : undefined, onClick: () => actions.stage([path]).catch(() => undefined) });
+        }
         // Discarding is offered exactly where the row's ✕ button is, and for the same reason: it
         // throws the working-tree change away, so a staged-only row has nothing for it to take and
         // a conflicted one has to be resolved or the whole operation aborted instead. The action
@@ -1841,6 +1960,36 @@ export function App(): JSX.Element {
     const { name, url } = r.values;
     await run(`Adding remote ${name}`, () => window.api.remoteAdd(repo!, name, url));
   }, [repo, run, ui]);
+
+  /**
+   * The tab bar's own menu (GC-151). Every other repeated row in the app answers a right-click and
+   * the tab was the one that did not, which mattered most for the gesture it already had: a
+   * middle-click closes a tab in one move and nothing brought it back.
+   *
+   * An action that does not apply is **absent**, the rule the file and ref menus already follow —
+   * with one tab open there is nothing to close beside it, with the last tab showing there is
+   * nothing to its right, and with nothing closed yet there is nothing to reopen.
+   */
+  const tabMenuItems = useCallback(
+    (tab: Tab): MenuItem[] => {
+      const i = tabs.findIndex((t) => t.id === tab.id);
+      const others = tabs.filter((t) => t.id !== tab.id).map((t) => t.id);
+      const toRight = tabs.slice(i + 1).map((t) => t.id);
+      const items: MenuItem[] = [{ label: 'Close tab', hint: 'Ctrl+W', onClick: () => closeTabs([tab.id]) }];
+      if (others.length > 0) items.push({ label: 'Close other tabs', onClick: () => closeTabs(others) });
+      if (toRight.length > 0) items.push({ label: 'Close tabs to the right', onClick: () => closeTabs(toRight) });
+      items.push({ separator: true });
+      if (closed.current.length > 0) items.push({ label: 'Reopen closed tab', hint: 'Ctrl+Shift+T', onClick: () => void reopenTab() });
+      // A tab with no repository has no path to copy, so the row is left out rather than copying
+      // an empty string (GC-163).
+      if (tab.path !== null) {
+        const path = tab.path;
+        items.push({ label: 'Copy repository path', hint: path, hintPath: true, onClick: () => void navigator.clipboard.writeText(path) });
+      }
+      return items;
+    },
+    [closeTabs, reopenTab, tabs],
+  );
 
   const remoteMenuItems = useCallback(
     (rem: Remote): MenuItem[] => [
@@ -2014,6 +2163,19 @@ export function App(): JSX.Element {
         newTab();
         return;
       }
+      // Closing and reopening are the tab menu's two rows that are also bindings (GC-151), so they
+      // sit with the rest of the bar's and need no repository open either. Ctrl+W on an empty bar
+      // is still swallowed rather than reaching the browser.
+      if (hit('closeTab')) {
+        e.preventDefault();
+        if (activeId !== null) closeTabs([activeId]);
+        return;
+      }
+      if (hit('reopenTab')) {
+        e.preventDefault();
+        void reopenTab();
+        return;
+      }
       // Cycling the tabs costs nothing and needs no repository open (GC-016). It is deliberately
       // above the bindings that do, so a window with one tab still swallows Ctrl+Tab rather than
       // letting the focus ring walk the toolbar.
@@ -2077,7 +2239,7 @@ export function App(): JSX.Element {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch, tabs, activeId, selectTab, newTab]);
+  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch, tabs, activeId, selectTab, newTab, closeTabs, reopenTab]);
 
   return (
     <div
@@ -2089,6 +2251,7 @@ export function App(): JSX.Element {
         activeId={activeId}
         onSelectTab={selectTab}
         onCloseTab={closeTab}
+        onTabMenu={(e, t) => onMenu(e, tabMenuItems(t))}
         onNewTab={newTab}
         onOpenRepo={openRepo}
         onRepoMenu={openRepoMenu}
@@ -2163,6 +2326,7 @@ export function App(): JSX.Element {
               onRefSelect={(r) => select(r.sha)}
               selected={selected}
               refDrag={refDrag}
+              onStashSelect={(s) => select(s.sha)}
               onStashMenu={(e, s) => onMenu(e, stashMenuItems(s))}
               onStashActivate={(s) => void run('Applying stash', () => window.api.stashApply(repo, s.index))}
               onRemoteMenu={(e, rem) => onMenu(e, remoteMenuItems(rem))}
@@ -2220,6 +2384,9 @@ export function App(): JSX.Element {
                 scrollTop={graphTop.current}
                 onScrollTop={(top) => (graphTop.current = top)}
                 onDrawnCols={onDrawnCols}
+                draftSummary={draft.summary}
+                onDraftSummary={(summary) => setDraft((d) => ({ ...d, summary }))}
+                onCommitDraft={commitDraft}
               />
             )}
             {!detailCollapsed && (
@@ -2238,6 +2405,8 @@ export function App(): JSX.Element {
                 actions={actions}
                 resize={detailW.handle}
                 focusSummary={focusSummary}
+                compare={comparing}
+                onExitCompare={exitCompare}
                 draft={draft}
                 onDraft={(patch) => setDraft((d) => ({ ...d, ...patch }))}
                 onSelectSha={select}

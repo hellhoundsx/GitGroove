@@ -56,9 +56,49 @@ export function storedPaths(tabs: Tab[]): string[] {
  * Answered here so it is a test rather than a comment.
  */
 export function neighbourOf(tabs: Tab[], id: number): Tab | null {
-  const i = tabs.findIndex((t) => t.id === id);
+  return survivorOf(tabs, new Set([id]), id);
+}
+
+/**
+ * The same question when several tabs close at once (GC-151): the nearest tab to the right of the
+ * showing one that is *not* closing, then the nearest to its left, then none at all.
+ *
+ * "Close other tabs" and "Close tabs to the right" both go through it rather than each having an
+ * answer of its own, and `neighbourOf` is the one-id case of it — closing one tab and closing five
+ * cannot then disagree about what is left showing.
+ */
+export function survivorOf(tabs: Tab[], closing: ReadonlySet<number>, activeId: number): Tab | null {
+  const i = tabs.findIndex((t) => t.id === activeId);
   if (i < 0) return null;
-  return tabs[i + 1] ?? tabs[i - 1] ?? null;
+  for (let j = i + 1; j < tabs.length; j++) if (!closing.has(tabs[j]!.id)) return tabs[j]!;
+  for (let j = i - 1; j >= 0; j--) if (!closing.has(tabs[j]!.id)) return tabs[j]!;
+  return null;
+}
+
+/**
+ * How many closed repositories "Reopen closed tab" can walk back through (GC-151). A session-only
+ * stack, so a cap is about not growing without bound rather than about what is worth keeping.
+ */
+export const CLOSED_MAX = 20;
+
+/**
+ * Remember a closed tab's repository, newest first (GC-151).
+ *
+ * Deliberately **not** persisted: `gitclient.tabs` is the list of what is open, not a history, and
+ * a stack that outlived a restart would offer to reopen repositories from a session the user has
+ * no memory of — the same choice the left panel's collapsed folders made before GC-139 gave them a
+ * reason to be remembered. A tab holding no repository contributes nothing, because there is
+ * nothing to put back; and a path already in the stack moves to the front rather than appearing
+ * twice, so closing one repository three times does not cost three reopens to get past.
+ */
+export function pushClosed(stack: readonly string[], path: string | null): string[] {
+  if (path === null) return [...stack];
+  return [path, ...stack.filter((p) => p !== path)].slice(0, CLOSED_MAX);
+}
+
+/** The most recently closed repository and the stack without it; a null path means there is none. */
+export function popClosed(stack: readonly string[]): { path: string | null; rest: string[] } {
+  return stack.length === 0 ? { path: null, rest: [...stack] } : { path: stack[0]!, rest: stack.slice(1) };
 }
 
 /** The tab Ctrl+Tab (`dir` 1) or Ctrl+Shift+Tab (`dir` -1) moves to, wrapping at either end. */

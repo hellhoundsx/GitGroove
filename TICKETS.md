@@ -255,15 +255,11 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-180 | A conflicted file opens a diff pane that is blank, with live buttons over it | diff | M | P1 | in-progress |
 | GC-186 | The row band GC-147 added is on the wrong side of the node, and on four rows in nine | graph | M | P1 | todo |
 | GC-185 | The clone dialog’s folder picker is disabled until the folder is typed by hand | ui | S | P1 | todo |
-| GC-181 | A conflict can be marked resolved but never resolved | actions | S | P2 | in-progress |
-| GC-182 | The graph’s WIP row has a text field wired to nothing | graph | S | P2 | in-progress |
+| GC-187 | A file compared against the working directory cannot be restored from the commit it is being read against | ui | S | P3 | todo |
+| GC-188 | The Unified / Split switch stays pressed on Split while a conflicted file is drawn unified | diff | S | P3 | todo |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-151 | A repository tab is the one row in the app a right-click does nothing on | ui | S | P3 | in-progress |
-| GC-150 | A stash row in the left panel is inert on a single click, and never says which commit it came from | ui | S | P3 | in-progress |
-| GC-152 | A commit can only be read against its parent, never against the working directory | diff | M | P3 | in-progress |
 | GC-159 | The remote menu can copy a URL but cannot open the remote on its hosting service | actions | S | P3 | todo |
 | GC-165 | The empty state’s recents paths ellipsise at the wrong end, unlike the menu’s | ui | S | P3 | todo |
 | GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | todo |
@@ -402,175 +398,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
       reports, not a refactor, so it is Ricardo's to make.
 
 ---
-
-### GC-150 A stash row in the left panel is inert on a single click, and never says which commit it came from
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-140
-- **Why:** GC-141 gave every LOCAL, REMOTE and TAG row an `onClick` that selects the ref's tip, and
-  put the stash rows out of scope because nothing on a `Stash` said which commit to select. GC-140
-  has since put it there: `Stash.parent` is the commit the stash was taken from, read off `%P` on
-  the same `git stash list` call and already in the snapshot. So the one row kind in the panel that
-  is still inert on a single click is inert for a reason that no longer holds, and the marker
-  GC-140 draws in the graph is now the only place the user can see where a stash came from —
-  reachable only by finding the right row, which is the thing the left panel exists to avoid.
-- **Scope:**
-  - A single click on a stash row selects its parent commit, exactly as a branch row selects its
-    tip; double-click still applies the stash.
-  - The row says which commit it belongs to, in the vocabulary the graph's other rows already use
-    (a short sha), so the two surfaces agree without the user hovering for a title.
-  - A parent outside the loaded range leaves the graph where it is — `rowIndexOf` already answers
-    -1 for that (GC-141), so this is a case to cover, not one to write.
-  - The stash row takes the same `selected` marking a ref row does when its commit is selected.
-- **Out of scope:** the stash marker in the graph (GC-140 owns it), editing a stash message
-  (GC-129), and a stash node or lane of its own in the graph.
-- **Acceptance:**
-  - [ ] Clicking a stash row selects the commit `git rev-parse 'stash@{N}^'` names, and the graph
-        scrolls to it.
-  - [ ] Double-click still applies the stash.
-  - [ ] A stash whose parent is not loaded does not move the graph.
-  - [ ] The row shows the parent's short sha.
-  - [ ] A component test covers the click and the not-loaded case.
-- **Files:** `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/App.tsx`,
-  `src/renderer/src/components/LeftPanel.test.tsx`, `src/renderer/src/styles/app.css`.
-- **Verify:** `npm test`, build, launch on the scratch repository, take a stash, click its row over
-  CDP and assert the detail panel's sha against `git rev-parse --short 'refs/stash^'`.
-- **Log:**
-  - 2026-09-06 proposed by GC-141 (this batch): GC-141 fenced the stash rows off because a stash
-    had no commit to select. GC-140, in the same batch, gave it one, so the two tickets together
-    left a gap neither of them owns.
-  - 2026-09-06 16:44 claimed
-
-### GC-151 A repository tab is the one row in the app a right-click does nothing on
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-016
-- **Why:** GC-016 shipped the tab bar with a close button and middle-click-to-close and no context
-  menu at all. Verified over CDP at `f85d213`: dispatching `contextmenu` on `.tab` leaves
-  `document.querySelectorAll('.ctx-menu').length` at 0, both before and after. Every other
-  repeated row in the app answers a right-click - a commit, a ref, a stash, a remote, a file row -
-  so the tab is the one surface that does not, which is an inconsistency and a real gap besides:
-  middle-click closes a tab in one gesture, nothing brings it back, and the repository then has to
-  be found again through the recents list. `05-menus-shortcuts.md` records GitKraken's tabs group
-  as Close tab, Close other tabs, Close tabs to the right, Reopen closed tab, Rename tab, Alias
-  repository, Favorite repository; the first four need nothing the bar does not already hold.
-- **Scope:**
-  - `onContextMenu` on a tab row, through `useUi().openMenu` like every other menu, built by a
-    `tabMenuItems(tab)` in `App.tsx` beside the other `*MenuItems` builders.
-  - Rows: Close tab, Close other tabs, Close tabs to the right, Reopen closed tab, Copy repository
-    path (the path is already the tab's `title`).
-  - Two of those rows are also bindings, from `05-menus-shortcuts.md`'s tabs group: `Ctrl+W`
-    closes the showing tab and `Ctrl+Shift+T` reopens the last one closed. Each is an entry in
-    `shortcuts.ts` and a `matches('<id>', e)` call in `App`'s window handler, never a bare key
-    comparison, so the `?` overlay documents them for free (`CLAUDE.md`, App state). Body scope:
-    neither fires from inside a text field. `Ctrl+T` is GC-163's, for the same reason.
-  - An action that does not apply is **absent, not disabled**, the way `fileMenuItems` omits one:
-    with one tab open there is nothing to close beside it, and with the last tab active there is
-    nothing to its right.
-  - Reopen closed tab: a session-only stack of the paths closed in this run, newest first, held in
-    `App`. Not persisted - the same choice the left panel's collapsed-folder set makes (GC-051),
-    and `gitclient.tabs` is the list of what is open, not a history. Reopening puts the repository
-    back in a tab of its own at the end of the bar and takes the user to it, exactly as `+` does,
-    which means a path already in the bar takes the user to that tab rather than opening a second
-    copy of it.
-  - Closing several tabs goes through the one close path, so `neighbourOf` still decides what is
-    left showing, the parked state of each closed tab is dropped, and `gitclient.tabs` is written
-    once rather than once per tab.
-- **Out of scope:** Rename tab, Alias repository and Favorite repository - all three need a
-  per-tab name, and the stored list is an array of paths that cannot hold one; drag-to-reorder;
-  the overflow the bar still has no answer for (GC-149).
-- **Acceptance:**
-  - [ ] Right-clicking a tab opens a menu, and Escape closes that menu and nothing else - it is a
-        `ContextMenu`, so `layerOpen` already covers it and no new listener appears.
-  - [ ] With one tab open, neither "Close other tabs" nor "Close tabs to the right" is in the menu.
-  - [ ] With three tabs and the first active, "Close tabs to the right" leaves one tab and it is
-        still the active one.
-  - [ ] Closing a tab and then "Reopen closed tab" puts that repository back, shows it, and
-        `gitclient.tabs` holds its path again.
-  - [ ] Reopening a path that is already in the bar takes the user to the existing tab and does not
-        add a second copy of it.
-  - [ ] `tabs.test.ts` covers the closed stack as pure functions: push, pop, and the
-        already-open case.
-  - [ ] `Ctrl+W` and `Ctrl+Shift+T` do what their menu rows do, appear in the `?` overlay, and
-        do nothing while a text field has focus.
-  - [ ] `npm run typecheck` and `npm test` pass.
-- **Files:** `src/renderer/src/components/TitleBar.tsx`, `src/renderer/src/App.tsx`,
-  `src/renderer/src/tabs.ts`, `src/renderer/src/tabs.test.ts`,
-  `src/renderer/src/styles/app.css`
-- **Verify:** build, launch through `tools/launch-app.mjs`, drive the four rows over CDP against a
-  two- and a three-tab bar, screenshot the open menu into `docs/screenshots/`, and read
-  `gitclient.tabs` back out of `localStorage` after each close and each reopen.
-- **Log:**
-  - 2026-09-06 proposed by GR-017: right-clicking a tab opens nothing at all (measured over CDP:
-    0 menus before the event and 0 after), and a middle-click close has no undo.
-  - 2026-09-06 extended by GR-019: `Ctrl+W` and `Ctrl+Shift+T` join the rows they belong to. The
-    study lists all three tab bindings together and our table carries none of them; `Ctrl+T` went
-    to GC-163 with the `+` behaviour it names, and these two belong with the actions this ticket
-    is already building rather than in a bindings ticket of their own.
-  - 2026-09-06 16:44 claimed
-
-### GC-152 A commit can only be read against its parent, never against the working directory
-
-- **Status:** in-progress
-- **Area:** diff | **Size:** M | **Priority:** P3
-- **Depends on:** none
-- **Why:** the commit view's file list is `git show`, so a commit is always read against its
-  parent. GitKraken's commit context menu carries "Compare against working directory" and we have
-  no equivalent: `grep -rn 'Compare against' src/` returns nothing. That is the ordinary question
-  when reading history - how does what is on my disk differ from this commit - and the only way to
-  ask it today is to check the commit out, which is a working-tree operation to answer a read-only
-  question. Most of the plumbing exists: `getCommitFileDiff` already diffs one path at one sha,
-  `DiffView` already keys its content to a view identity, and the detail panel already renders a
-  file list with a per-row menu. What is missing is a third diff **source** - `git diff <sha>`
-  rather than `git show <sha>`.
-- **Scope:**
-  - `git.ts`: `getCompare(cwd, sha)` answering the existing `CommitFile[]` shape from
-    `git diff --name-status <sha>`, and `getCompareFileDiff(cwd, sha, path, opts)` from
-    `git diff <sha> -- <path>`. Both take `DiffOptions`, so GC-052's `-w` reaches them and the
-    header's whitespace toggle behaves the same here as anywhere else.
-  - Handlers in `ipc.ts` and entries in `preload/index.ts`, in the `commit:*` group, arguments
-    validated like every other.
-  - A compare **mode** on the commit selection: `selected` stays the sha and a second piece of
-    state says the panel is showing the comparison, so nothing about the graph's selection changes.
-    The commit menu's row sets it; the panel says which mode it is in and offers the way back to
-    the commit's own changes. Selecting another commit, or the WIP row, leaves the mode.
-  - The file view opened from a compared row carries that source in `DiffView`'s **identity**, not
-    only its load key, so the same file at the same sha read as a commit and read as a comparison
-    can never render one under the other's header (GC-075, GC-086).
-  - Every hunk button is **off** in this mode and the sub-header says why: `git diff <sha>` is not
-    a patch `git apply` will take against the index in either direction. Same shape as the
-    whitespace flag's disabled buttons, and Stage file / Discard changes are off too, because
-    neither means anything about a commit's contents.
-- **Out of scope:** comparing two arbitrary commits with each other, or a commit against a branch
-  tip - both want a picker this ticket does not build; Blame and History, the other two file-view
-  features `06-feature-inventory.md` lists, each of which is its own ticket.
-- **Acceptance:**
-  - [ ] The commit context menu carries "Compare against working directory", and it is absent on
-        the WIP row, where it would compare the working directory with itself.
-  - [ ] Choosing it lists the files that differ between that commit and the working tree, and the
-        list matches `git diff --name-status <sha>` run by hand.
-  - [ ] Opening one of those rows shows the diff of that file, and it matches `git diff <sha> --
-        <path>` byte for byte.
-  - [ ] Every patch button in that view is disabled and the sub-header says why.
-  - [ ] Turning "Ignore whitespace" on reloads the comparison with `-w` and the hunks on screen
-        stay and dim rather than blanking (GC-086).
-  - [ ] Selecting another commit leaves compare mode and the panel is the ordinary commit view.
-  - [ ] Unit tests for the two new `git.ts` functions' argument construction, and an e2e step that
-        opens the comparison on a fixture commit and asserts the file list against git.
-  - [ ] `npm run typecheck`, `npm test` and `npm run e2e` pass.
-- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
-  `src/shared/types.ts`, `src/renderer/src/App.tsx`,
-  `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/diff/DiffView.tsx`,
-  `tools/e2e/run.mjs`
-- **Verify:** `npm run e2e` for the new step; then launch, compare a fixture commit two commits
-  back against the fixture's own dirty working tree, and check the list and one file's diff against
-  `git diff` run by hand in the scratch repository.
-- **Log:**
-  - 2026-09-06 proposed by GR-017: the one commit action in the study's list that is neither
-    blocked behind interactive rebase nor a worktree feature, and GR-016 named it unticketed.
-  - 2026-09-06 16:44 claimed
 
 ### GC-159 The remote menu can copy a URL but cannot open the remote on its hosting service
 
@@ -1010,166 +837,6 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
-### GC-180 A conflicted file opens a diff pane that is blank, with live buttons over it
-
-- **Status:** in-progress
-- **Area:** diff | **Size:** M | **Priority:** P1
-- **Depends on:** —
-- **Why:** Reproduced at `3def19a` in a throwaway repository (one file, one content conflict on a
-  merge), driven over CDP: clicking the row in Conflicted Files opens the file view and
-  `.diff-body`'s `innerHTML` is the **empty string** — not "No textual changes.", not "Binary
-  file.", not an error, nothing at all — while the header still reads `f.txt +0 -0` and both
-  `Stage file` and `Discard changes` are enabled over it. The cause is that git answers an
-  unmerged path with a **combined** diff: `diff --cc f.txt`, `@@@ -1,3 -1,3 +1,7 @@@`, and two
-  prefix columns instead of one. `parseUnifiedDiff` keys on `diff --git ` and on `HUNK_RE`, so
-  neither matches: its `if (!file) file = startFile()` fallback still creates a file, every line
-  falls into `headerLines`, and the result is one file with **zero hunks** and `binary: false`.
-  `DiffView`'s four `.diff-empty` branches are `loading`, `loadError`, `text !== null && !file`
-  and `file.binary` — a truthy file with no hunks falls through all four and `file.hunks.map`
-  renders nothing. So the one screen a user needs during a merge is the one screen that shows
-  nothing, and it shows nothing silently. `Discard changes` compounds it: `fileMenuItems`
-  deliberately withholds discarding from a conflicted row because git refuses `checkout --` on an
-  unmerged path, and the file-view header offers it anyway.
-- **Scope:**
-  - `DiffView` can never render an empty body: a parsed file with no hunks takes the same
-    `.diff-empty` treatment as no file at all, so a payload nothing understands says so rather
-    than drawing a void. This is the guard, not the fix.
-  - `parseUnifiedDiff` learns the combined form: a `diff --cc <path>` (and `diff --combined`)
-    header names the file, an `@@@ -a,b -c,d +e,f @@@` header opens a hunk, and a line carries one
-    prefix column per parent plus the merged column. What the view draws from it is one column of
-    code with each side's contribution marked; the conflict markers git wrote into the working
-    tree are part of the file and are shown as they are.
-  - The file-view header follows the rule the row's menu already applies to a conflicted file:
-    `Discard changes` is absent, and the staging button says what `fileMenuItems` says
-    ("Mark resolved").
-  - Every button built from `hunk.raw` stays off for a combined diff, for the reason `-w` turns
-    them off (GC-086): it is not a patch `git apply` will take.
-- **Out of scope:** a three-way merge editor (the study's own "Later"), line picking on a
-  conflicted file, resolving a conflict (GC-181), and the octopus case of more than two parents —
-  parse it without crashing, do not design for it.
-- **Acceptance:**
-  - [ ] Opening a conflicted file never leaves `.diff-body` empty: a driver reading `innerHTML`
-        finds either hunks or a `.diff-empty` message.
-  - [ ] The conflicted file's hunks are drawn, with both sides' lines distinguishable.
-  - [ ] The file-view header on a conflicted file does not offer `Discard changes`.
-  - [ ] `parseDiff.test.ts` covers a real `diff --cc` payload as a fixture string, including the
-        zero-hunk guard, and no test calls git.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
-- **Files:** `src/renderer/src/diff/parseDiff.ts`, `src/renderer/src/diff/parseDiff.test.ts`,
-  `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css`.
-- **Verify:** build, then in a **throwaway** repository under `%TEMP%` (never the fixture, never a
-  real repository) make two branches change one line and merge them; launch through
-  `tools/launch-app.mjs`, open the conflicted file and read `.diff-body` `innerHTML` over CDP.
-- **Log:**
-  - 2026-09-06 proposed by GR-022: reproduced at `3def19a` — the conflicted file's diff body is the
-    empty string, because git's combined diff parses to a file with no hunks and `DiffView` has no
-    branch for that.
-  - 2026-09-06 16:44 claimed
-
----
-
-### GC-181 A conflict can be marked resolved but never resolved
-
-- **Status:** in-progress
-- **Area:** actions | **Size:** S | **Priority:** P2
-- **Depends on:** —
-- **Why:** The staging banner says "merge in progress with 1 conflicted file. Resolve them, then
-  mark as resolved." and the app offers no way to resolve one. Read off the running app at
-  `3def19a`, a conflicted row's context menu is exactly `Mark resolved`, `Open file`, `Show in
-  folder`, `Copy file path` — so the only resolution this client supports is leaving for an
-  external editor, or `Abort merge`. Every operation that reaches this state is one the app itself
-  starts: merge and rebase from a drag (GC-015), cherry-pick and revert from the commit menu, a
-  conflicting stash pop (GC-092). Git already has the two answers that cover most conflicts,
-  `checkout --ours` and `--theirs`, and neither is reachable from anywhere in the UI. The study
-  lists a built-in three-way merge tool as "Later" (`06-feature-inventory.md`); picking a side is
-  not that tool, and it is what turns a dead end into a workflow.
-- **Scope:**
-  - `git.ts` gains `resolveConflict(cwd, path, side)`: `git checkout --ours|--theirs -- <path>`
-    followed by `git add -- <path>`, one function making both calls, so a resolved row leaves the
-    Conflicted group in one action rather than needing `Mark resolved` afterwards.
-  - A conflicted row's context menu gains the two, above `Mark resolved`, worded by what they mean
-    rather than by git's flag. During a rebase "ours" and "theirs" are the reverse of what a user
-    expects, so the labels must be derived from the operation the snapshot reports, not hard-coded.
-  - Both are **absent, not disabled**, on a conflict `--ours` cannot answer (GC-072's rule): a
-    delete/modify or add/add conflict where one side has no blob makes `checkout --ours` fail, so
-    those rows keep `Mark resolved` alone.
-  - The actions go through `App`'s `run()` like every other git action.
-- **Out of scope:** a three-way merge editor, resolving a whole group at once, showing the
-  conflict's two sides (GC-180), and any change to `Mark resolved` or to Abort.
-- **Acceptance:**
-  - [ ] A content conflict can be resolved to either side from the row's menu, and the row moves
-        to Staged in one action.
-  - [ ] The two labels name the right side during a rebase as well as during a merge, and the
-        ticket log says how that was checked.
-  - [ ] A conflict `--ours` cannot answer offers neither row rather than a failing one.
-  - [ ] Unit tests cover `resolveConflict`'s two calls and their order through the `GitRunner`
-        seam, as `stashRenameWith` is covered (GC-167).
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
-- **Files:** `src/main/git.ts`, `src/main/git.test.ts`, `src/main/ipc.ts`,
-  `src/preload/index.ts`, `src/shared/types.ts`, `src/renderer/src/App.tsx`.
-- **Verify:** `npm test`, build, then in a **throwaway** repository under `%TEMP%` (never the
-  fixture, never a real repository) create a content conflict, resolve it each way through the
-  menu, and assert with `git status --porcelain` and `git show :0:<path>` that the staged blob is
-  the side that was asked for.
-- **Log:**
-  - 2026-09-06 proposed by GR-022: the conflicted row's menu was read off the running app and
-    offers nothing that resolves anything, on a state four of the app's own actions produce.
-  - 2026-09-06 16:44 claimed
-
----
-
-### GC-182 The graph's WIP row has a text field wired to nothing
-
-- **Status:** in-progress
-- **Area:** graph | **Size:** S | **Priority:** P2
-- **Depends on:** GC-148
-- **Why:** `CommitGraph.tsx` renders the WIP row's message cell as
-  `<input className="wip-input" placeholder="// WIP" spellCheck={false} onClick={stopPropagation} />`
-  — no `value`, no `onChange`, no `onKeyDown`, no ref. Measured at `3def19a` over CDP: typing
-  `typed into the graph` into it leaves the staging form's Commit summary empty, pressing Enter
-  opens nothing and reports nothing, and the text is still sitting in the row after a Refresh that
-  bumped `data-gen`. It is an uncontrolled DOM node, so what was typed is lost the moment the row
-  is virtualised out of a long history, a file view opens, or a tab is switched — which is exactly
-  the reason GC-148 moved the commit draft out of the panel and into `App` state, and GC-030 moved
-  the find bar's query before it. The study describes this field as GitKraken's inline commit
-  input (`03-graph.md`, "WIP row"): a summary typed in the graph, committed from there. Ours looks
-  like that and is a decoy — a field that accepts input and silently drops it is worse than no
-  field, and screenshot `10-conflict-staging.png`'s predecessor in `%TEMP%/gitclient-review/GR-022`
-  shows the two side by side, the graph holding text while the summary box below is empty.
-- **Scope:**
-  - The field becomes the summary half of the commit draft `App` already holds (GC-148): it reads
-    that value and writes it, so typing here types in the staging form and the other way round,
-    and it is parked and restored with its tab as the rest of `TabState` is.
-  - Enter commits what is staged, through the same call the staging form's button makes and under
-    the same rule — nothing staged, or an empty summary, does nothing and says nothing.
-  - The commit clears the draft exactly as a commit from the panel does; there is one draft, not
-    two.
-- **Out of scope:** the description body and the 72-character counter (the row is one line),
-  amend, inline branch and tag creation on the row (the study lists those separately), and any
-  change to the staging form itself.
-- **Acceptance:**
-  - [ ] Typing in the graph's WIP field puts the same text in the staging form's summary, and the
-        reverse, measured over CDP.
-  - [ ] The text survives opening a file view, switching tabs and coming back, and a reload that
-        bumps `data-gen`.
-  - [ ] Enter with something staged and a non-empty summary makes the commit; with nothing staged
-        it does nothing.
-  - [ ] `CommitGraph.test.tsx` covers the field being controlled, and `npm run typecheck`,
-        `npm test` and `npm run build` pass.
-- **Files:** `src/renderer/src/graph/CommitGraph.tsx`,
-  `src/renderer/src/graph/CommitGraph.test.tsx`, `src/renderer/src/App.tsx`,
-  `src/renderer/src/styles/app.css`.
-- **Verify:** `npm test`, build, launch on the scratch repository, type in the graph field and read
-  the staging form's input over CDP; commit with Enter and assert with `git log -1`.
-- **Log:**
-  - 2026-09-06 proposed by GR-022: measured over CDP at `3def19a` — the field takes typing, the
-    staging summary stays empty, Enter does nothing, and the text lives only in an uncontrolled DOM
-    node. If Ricardo would rather the graph did not commit at all, the alternative is to make the
-    cell a non-interactive `// WIP` label; what is not acceptable is a field that keeps nothing.
-  - 2026-09-06 16:44 claimed
-
----
-
 ### GC-183 The graph row's own change readout is the text glyphs GC-143 took out of the panel
 
 - **Status:** todo
@@ -1361,6 +1028,80 @@ in the Why; an invariant goes in `CLAUDE.md`.
     of the node and on too few rows; the study's own lines 45 and 58 put the band right of the node
     and make the chip connector a 2px line, and the running app measures 4 bands on 9 rows with a
     transparent message column.
+
+---
+
+### GC-187 A file compared against the working directory cannot be restored from the commit it is being read against
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-152
+- **Why:** GC-152's comparison lists the files that differ between a commit and the working tree,
+  and its rows carry `fileMenuItems` with `source: 'commit'` — so "Restore file from this commit"
+  (GC-107) is on them, which is right: it is the one action that reaches a version of the file
+  other than the working tree's, and a comparison is precisely where a user is looking at that
+  difference. But the row is left out on `kind === 'deleted'`, and in a comparison the codes are
+  relative to the **commit**: `deleted` there means the working tree no longer has the file the
+  commit does, which is exactly the case restoring exists for. So the action is absent on the one
+  row it would help most, and present on rows where it only rewrites a file the user already has.
+  The guard was written for the commit view, where `deleted` means the commit removed the file and
+  there is genuinely nothing at that sha — the same word, two directions.
+- **Scope:**
+  - `FileMenuTarget` says which of the two lists the row came from, so `fileMenuItems` can read the
+    kind in the right direction; the compare row's `Restore file from this commit` is offered on a
+    `deleted` row and left out on an `added` one, which is the mirror of today's rule.
+  - The confirmation still says that it overwrites the working-tree copy and stages it (GC-107).
+- **Out of scope:** any other row of that menu, and restoring more than one file at a time.
+- **Acceptance:**
+  - [ ] In a comparison, a file the working tree no longer has offers "Restore file from this commit".
+  - [ ] A file the working tree has and the commit does not offers no restore.
+  - [ ] The commit view's own rule is unchanged.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/App.tsx`
+- **Verify:** launch on the scratch repository, compare a commit that added a file the working tree
+  has since lost, and check the row is offered and restores it.
+- **Log:**
+  - 2026-09-06 proposed by GC-152 (this ticket): the compare list reuses the commit list's menu, and
+    the one guard in it reads its kind in the opposite direction from the one the comparison means.
+
+---
+
+### GC-188 The Unified / Split switch stays pressed on Split while a conflicted file is drawn unified
+
+- **Status:** todo
+- **Area:** diff | **Size:** S | **Priority:** P3
+- **Depends on:** GC-180
+- **Why:** GC-180 draws a combined diff as one column of code, because that is what a combined diff
+  is — the split layout pairs one file's removals with another's additions, and a combined line
+  belongs to neither side. So `DiffView` renders the unified table whatever `prefs.diffView` says.
+  The switch above it does not know that: with Split remembered, its button keeps `aria-pressed`
+  and the `on` class while a single column is drawn beneath it. That is the disagreement GC-117
+  fixed for the graph's optional columns — a control showing a setting that is not what is on
+  screen — one component over, and it is worth fixing the same way rather than by making a
+  conflicted file honour a layout it cannot express.
+- **Scope:**
+  - The switch reflects what is **drawn**, not the preference: on a combined diff, Unified is the
+    pressed button.
+  - Split says why it is not available on this file, the way the whitespace-disabled hunk buttons
+    say why (GC-052, GC-086) — disabled with a title, rather than absent, because it comes back the
+    moment another file is opened.
+  - The preference itself is untouched, so the next ordinary file opens in the layout the user chose.
+- **Out of scope:** a split rendering of a combined diff, and any change to `prefs.diffView`.
+- **Acceptance:**
+  - [ ] With Split remembered, opening a conflicted file leaves Unified pressed and Split disabled
+        with a title saying why.
+  - [ ] Opening an ordinary file after it comes back to Split, from the untouched preference.
+  - [ ] A component test covers both.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/diff/DiffView.test.tsx` (new),
+  `src/renderer/src/styles/app.css`
+- **Verify:** build, make a conflict in a throwaway repository under `%TEMP%`, set
+  `prefs.diffView` to split and read the two buttons' `aria-pressed` over CDP.
+- **Log:**
+  - 2026-09-06 proposed by GC-180 (this ticket): the combined diff is drawn unified by construction
+    and the segmented control above it still shows Split as the pressed button.
+
+---
 
 ---
 

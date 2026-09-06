@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { authSummary, cloneRepo, cloneTargetName, GitError, ignorePattern, isAuthMessage, restoreStashWith, runGit, stashRenameWith, type GitRunner } from './git';
-import { ADVISORY, AUTH_FAILURE } from '@shared/types';
+import { authSummary, cloneRepo, cloneTargetName, getCompareFileDiffWith, getCompareWith, GitError, ignorePattern, isAuthMessage, resolveConflictWith, restoreStashWith, runGit, stashRenameWith, type GitRunner } from './git';
+import { ADVISORY, AUTH_FAILURE, conflictSides } from '@shared/types';
 
 // `restoreStashWith` is the whole of GC-092's decision: whether a failed `stash apply --index`
 // left the repository alone, and may be retried without `--index`, or merged and conflicted, where
@@ -141,6 +141,111 @@ describe('stashRenameWith', () => {
     await expect(stashRenameWith(run, 0, 'x')).rejects.toBe(failed);
     expect(calls.some((c) => c[1] === 'drop')).toBe(false);
   });
+});
+
+// Resolving a conflict is two calls in one order (GC-181): the checkout writes the side's blob
+// over the working-tree copy and the add records it, and only both together take the path out of
+// the unmerged state. The seam is the same one `stashRenameWith` is driven through (GC-167).
+describe('resolveConflictWith', () => {
+  /** A scripted git that records what it was asked to run, and can fail the first call. */
+  function fakeResolve(outcomes: Array<string | Error> = []): { run: GitRunner; calls: string[][] } {
+    const calls: string[][] = [];
+    const run: GitRunner = async (args) => {
+      calls.push(args);
+      const next = outcomes.shift();
+      if (next instanceof Error) throw next;
+      return next ?? '';
+    };
+    return { run, calls };
+  }
+
+  it('checks the side out and then stages it', async () => {
+    const { run, calls } = fakeResolve();
+    await resolveConflictWith(run, 'src/f.txt', 'ours');
+    expect(calls).toEqual([
+      ['checkout', '--ours', '--', 'src/f.txt'],
+      ['add', '--', 'src/f.txt'],
+    ]);
+  });
+
+  it('passes the side straight through as the flag', async () => {
+    const { run, calls } = fakeResolve();
+    await resolveConflictWith(run, 'f.txt', 'theirs');
+    expect(calls[0]).toEqual(['checkout', '--theirs', '--', 'f.txt']);
+  });
+
+  it('stages nothing when the checkout fails, so a half-resolved path is never recorded', async () => {
+    const failed = new GitError("error: path 'f.txt' does not have our version", ['checkout', '--ours'], '', 1);
+    const { run, calls } = fakeResolve([failed]);
+    await expect(resolveConflictWith(run, 'f.txt', 'ours')).rejects.toBe(failed);
+    expect(calls.some((c) => c[0] === 'add')).toBe(false);
+  });
+
+  it('ends both calls with -- so a path that reads like a revision cannot be taken for one', async () => {
+    const { run, calls } = fakeResolve();
+    await resolveConflictWith(run, 'main', 'ours');
+    for (const c of calls) expect(c[c.length - 2]).toBe('--');
+  });
+});
+
+// A commit read against the working directory rather than against its parent (GC-152). One
+// command each, so what these pin is the arguments: the wrong ones here are a diff of something
+// else entirely, reported as though it were this comparison.
+describe('getCompareWith and getCompareFileDiffWith', () => {
+  const record = (out = ''): { run: GitRunner; calls: string[][] } => {
+    const calls: string[][] = [];
+    return { run: async (args) => (calls.push(args), out), calls };
+  };
+
+  it('lists the files with one `git diff <sha>`, name-status and NUL-separated', () => {
+    const { run, calls } = record();
+    void getCompareWith(run, 'abc1234');
+    // No second revision and no `--cached`: that is what makes it the working tree, index and all.
+    expect(calls).toEqual([['diff', '-M', '--name-status', '-z', 'abc1234']]);
+  });
+
+  it('reads the codes as being relative to the commit', async () => {
+    // `A` is a file the working tree has and the commit does not, which is the direction the file
+    // rows are read in; a rename carries both paths, as it does in a commit's own list.
+    const out = ['A', 'new.txt', 'M', 'edited.txt', 'D', 'gone.txt', 'R100', 'was.txt', 'now.txt', ''].join('\0');
+    const files = await getCompareWith(record(out).run, 'abc1234');
+    expect(files).toEqual([
+      { path: 'new.txt', kind: 'added' },
+      { path: 'edited.txt', kind: 'modified' },
+      { path: 'gone.txt', kind: 'deleted' },
+      { path: 'now.txt', origPath: 'was.txt', kind: 'renamed' },
+    ]);
+  });
+
+  it('diffs one file with the path after `--`, and takes -w like every other diff', () => {
+    const { run, calls } = record();
+    void getCompareFileDiffWith(run, 'abc1234', 'src/f.ts');
+    expect(calls[0]).toEqual(['diff', '-M', '--no-ext-diff', 'abc1234', '--', 'src/f.ts']);
+    const w = record();
+    void getCompareFileDiffWith(w.run, 'abc1234', 'src/f.ts', { ignoreWhitespace: true });
+    expect(w.calls[0]).toEqual(['diff', '-M', '--no-ext-diff', '-w', 'abc1234', '--', 'src/f.ts']);
+  });
+});
+
+// Which sides a conflict actually has, which is what decides whether the menu offers a row at all
+// rather than offering one git will refuse (GC-181).
+describe('conflictSides', () => {
+  const cases: Array<[string | undefined, string[], string]> = [
+    ['UU', ['ours', 'theirs'], 'both modified: three stages, either side works'],
+    ['AA', ['ours', 'theirs'], 'both added: stages 2 and 3'],
+    ['AU', ['ours'], 'added by us: no stage 3 for --theirs to find'],
+    ['UD', ['ours'], 'deleted by them: no stage 3'],
+    ['UA', ['theirs'], 'added by them: no stage 2 for --ours to find'],
+    ['DU', ['theirs'], 'deleted by us: no stage 2'],
+    ['DD', [], 'both deleted: neither side has a blob to keep'],
+    [undefined, [], 'not a conflict at all'],
+    ['M.', [], 'an ordinary porcelain code is not an unmerged one'],
+  ];
+  for (const [code, expected, why] of cases) {
+    it(`${code ?? 'no code'}: ${why}`, () => {
+      expect(conflictSides(code)).toEqual(expected);
+    });
+  }
 });
 
 // One row per path the three "Ignore …" entries have to get right (GC-093). Null is the entry

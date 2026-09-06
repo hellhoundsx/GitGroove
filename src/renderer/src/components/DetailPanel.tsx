@@ -61,6 +61,13 @@ interface Props {
    */
   draft: CommitDraft;
   onDraft(patch: Partial<CommitDraft>): void;
+  /**
+   * The commit view is showing the comparison against the working directory rather than the
+   * commit's own changes (GC-152). It is a mode on the selection, not a selection of its own, so
+   * the graph is untouched; `App` drops it whenever the selection moves.
+   */
+  compare: boolean;
+  onExitCompare(): void;
   onSelectSha(sha: string): void;
   onOpenFile(view: FileViewSource): void;
   onFileMenu(e: MouseEvent, target: FileMenuTarget): void;
@@ -103,7 +110,7 @@ function FileRow({ path, origPath, kind, active, onClick, onContextMenu, childre
 }
 
 const isActive = (open: FileViewSource | null, path: string, staged?: boolean): boolean =>
-  !!open && open.path === path && (open.source === 'commit' || staged === undefined || open.staged === staged);
+  !!open && open.path === path && (open.source !== 'wip' || staged === undefined || open.staged === staged);
 
 function StagingView({ status, headCommit, openFile, actions, focusSummary, draft, onDraft, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'stash' | 'repo' | 'onSelectSha' | 'resize'>): JSX.Element {
   const ui = useUi();
@@ -322,27 +329,36 @@ function CommitView({
   status,
   openFile,
   refs,
+  compare,
+  onExitCompare,
   onSelectSha,
   onOpenFile,
   onFileMenu,
   onRefMenu,
   onRefActivate,
-}: Pick<Props, 'repo' | 'status' | 'openFile' | 'refs' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu' | 'onRefMenu' | 'onRefActivate'> & { commit: Commit }): JSX.Element {
+}: Pick<Props, 'repo' | 'status' | 'openFile' | 'refs' | 'compare' | 'onExitCompare' | 'onSelectSha' | 'onOpenFile' | 'onFileMenu' | 'onRefMenu' | 'onRefActivate'> & {
+  commit: Commit;
+}): JSX.Element {
   const [files, setFiles] = useState<CommitFile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Which source the rows are drawn from, so the list and every row it opens cannot disagree. */
+  const source = compare ? 'compare' : 'commit';
 
   useEffect(() => {
     let cancelled = false;
     setFiles(null);
     setError(null);
-    window.api.getCommitFiles(repo, commit.sha).then(
+    // The one difference between the two modes on this side: which list the panel asks for
+    // (GC-152). Everything below reads `files` and `source` and knows nothing else about it.
+    const load = compare ? window.api.getCompare(repo, commit.sha) : window.api.getCommitFiles(repo, commit.sha);
+    load.then(
       (f) => !cancelled && setFiles(f),
       (e) => !cancelled && setError(e instanceof Error ? e.message : String(e)),
     );
     return () => {
       cancelled = true;
     };
-  }, [repo, commit.sha]);
+  }, [repo, commit.sha, compare]);
 
   // Only the refs sitting on this commit, run through the graph's own absorb rule so `main` + `origin/main` here is one chip carrying the cloud, exactly as the row shows it.
   const chips = useMemo(() => chipsFor(refs.filter((r) => r.sha === commit.sha)), [refs, commit.sha]);
@@ -392,10 +408,21 @@ function CommitView({
         )}
       </div>
       <div className="detail-body">
+        {/* Which of the two the list below is, and the way back (GC-152). The mode is stated
+            rather than implied, because the rows look identical either way and only their meaning
+            differs — the commit's own changes, or how the disk differs from it. */}
+        {compare && (
+          <div className="banner info">
+            <span>Compared with the working directory</span>
+            <button className="btn" onClick={onExitCompare}>
+              Show this commit
+            </button>
+          </div>
+        )}
         {/* What is waiting in the working directory, in the one panel that otherwise drops it
             (GC-045). The count is the staging header's own, conflicted entries included, and the
             button goes back to the row that owns them rather than making the user find row 0. */}
-        {pending > 0 && (
+        {!compare && pending > 0 && (
           <div className="banner info">
             <span>
               {pending} file change{pending === 1 ? '' : 's'} in the working directory
@@ -465,7 +492,7 @@ function CommitView({
           {files !== null && (
             <div className="group-head">
               <span>
-                {files.length} file{files.length === 1 ? '' : 's'} changed
+                {files.length} file{files.length === 1 ? '' : 's'} {compare ? 'differ' : 'changed'}
               </span>
             </div>
           )}
@@ -477,7 +504,7 @@ function CommitView({
               origPath={f.origPath}
               kind={f.kind}
               active={isActive(openFile, f.path)}
-              onClick={() => onOpenFile({ source: 'commit', sha: commit.sha, path: f.path, kind: f.kind })}
+              onClick={() => onOpenFile({ source, sha: commit.sha, path: f.path, kind: f.kind })}
               onContextMenu={(ev) => onFileMenu(ev, { source: 'commit', file: f })}
             />
           ))}
