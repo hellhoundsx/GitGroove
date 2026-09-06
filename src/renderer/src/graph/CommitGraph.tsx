@@ -12,7 +12,7 @@ import { usePrefs } from '../prefs';
 import { formatDateTime } from '../time';
 import { useUi } from '../ui/UiContext';
 import { fitOptCols, fitRefCol, useDragWidth, MIN_MSG_W, type OptCols } from '../ui/useDragWidth';
-import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
+import { useDragScroll, useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 
 interface Props {
   commits: Commit[];
@@ -301,6 +301,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   // `.graph-body` rather than `.graph-panel` because it is the box the rows are actually laid
   // out in — its client width already excludes the scrollbar they do not get.
   const bodyRef = useRef<HTMLDivElement>(null);
+  const dragScroll = useDragScroll(bodyRef);
   const [viewport, setViewport] = useState({ top: 0, height: 800 });
   const [bodyW, setBodyW] = useState(0);
   // The offset to come back to, taken once. A ref rather than the prop itself so this effect can
@@ -753,6 +754,9 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
       <div
         className="graph-body"
         ref={bodyRef}
+        // A drag held at either edge brings the rows past it into reach (GC-122). The handlers are
+        // spread rather than written here because stopping is four events, not one.
+        {...dragScroll}
         onScroll={(e) => {
           const top = e.currentTarget.scrollTop;
           setViewport({ top, height: e.currentTarget.clientHeight });
