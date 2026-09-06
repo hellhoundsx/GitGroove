@@ -253,14 +253,14 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | done |
 | GC-115 | A drag on a narrow window replaces the ref column’s stored width with the limit | ui | S | P1 | done |
 | GC-114 | The branch menu’s Push row names the upstream ref but pushes to the remote’s branch of the same name | ui | S | P1 | done |
-| GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | todo |
+| GC-118 | A drag released past the limit throws away the width the pointer did reach | ui | S | P1 | in-progress |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | done |
 | GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | done |
 | GC-116 | With the optional columns on, the commit message column is squeezed to nothing | graph | S | P2 | done |
-| GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | todo |
-| GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | todo |
-| GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | todo |
+| GC-119 | Both toolbar popovers can be open at once, and Escape then needs two presses | ui | S | P2 | in-progress |
+| GC-120 | A context menu taller than the window loses its last rows, with nothing to scroll | ui | S | P2 | in-progress |
+| GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | in-progress |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | done |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -5413,7 +5413,7 @@ decision is missing.
 
 ### GC-101 Checkboxes and the Preferences dropdown are unstyled OS controls
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** none
 - **Why:** `tokens.css` defines every colour, size and the Open Sans stack, and `app.css` puts them
@@ -5464,6 +5464,7 @@ decision is missing.
     review had captured before. Found by comparing computed styles rather than by eye — the Arial
     select is obvious once seen, the 13px OS-accent checkbox is the kind of thing that reads as
     "slightly off" without ever naming itself.
+  - 2026-09-06 07:35 claimed
 
 ### GC-103 The Preferences dialog outgrows a short window and its last rows cannot be reached
 
@@ -6359,7 +6360,7 @@ decision is missing.
 
 ### GC-118 A drag released past the limit throws away the width the pointer did reach
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P1
 - **Depends on:** GC-111, GC-115 (both `done`)
 - **Why:** GC-111 and GC-115 made a drag stop at the wall the window imposes and, crucially, stop
@@ -6404,12 +6405,13 @@ decision is missing.
   - 2026-09-06 08:20 proposed by GR-013: measured on the running `c98c10a` build, the numbers above.
     Not a duplicate of GC-111 or GC-115: both are `done` and both are about a width the pointer
     never reached being written; this is the mirror case, a width it did reach not being written.
+  - 2026-09-06 07:35 claimed
 
 ---
 
 ### GC-119 Both toolbar popovers can be open at once, and Escape then needs two presses
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-057 (`done`)
 - **Why:** GC-057 made Push a split button beside Pull's. The two are kept mutually exclusive by a
@@ -6446,12 +6448,13 @@ decision is missing.
   - 2026-09-06 08:20 proposed by GR-013: found in the app pass while screenshotting GC-057's two
     popovers, then confirmed with real key events rather than the synthetic `click()` that first
     showed it.
+  - 2026-09-06 07:35 claimed
 
 ---
 
 ### GC-120 A context menu taller than the window loses its last rows, with nothing to scroll
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** —
 - **Why:** `.ctx-menu` is `position: fixed` with a `max-width` and no `max-height`, and its
@@ -6490,6 +6493,7 @@ decision is missing.
   - 2026-09-06 08:20 proposed by GR-013: found in the app pass, measured at the app's own minimum
     window height. Named as its own ticket rather than folded into GC-074, which is about a row
     being too wide for the menu, not the menu being too tall for the window.
+  - 2026-09-06 07:35 claimed
 
 ---
 
