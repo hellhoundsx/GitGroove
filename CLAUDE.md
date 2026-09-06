@@ -93,7 +93,13 @@ worker (9333), the e2e suite (`GITCLIENT_E2E_PORT`) and the reviewer (9334) each
 `localStorage` that persists between runs on that port and never reaches the one Ricardo sees. An
 explicit `GITCLIENT_USER_DATA` wins; only a start outside the launcher uses the real profile.
 
-**Stopping the app**: `launchApp` resolves with `stop()`, `stopApp(child)` does the same from a
+**Stopping the app is automatic** (GC-154): the app a `launchApp` spawns belongs to the process
+that spawned it — `ownChild` registers an `exit` handler plus SIGINT/SIGTERM — and is stopped
+however that process ends, so a driver that throws where `await app.stop()` should have been leaves
+nothing holding the port for the next launch to attach to and measure a stale build. `stop()` stops
+it now and `release()` hands it over, and both take the handlers off; the CLI calls `release()`
+before it exits, because that command exists to leave an app running, and the `--keep-running`
+attach path spawns nothing and so owns nothing. `stopApp(child)` stops one from a
 child handle, and `stopPort(port)` stops the one process listening on a DevTools port. By hand:
 `netstat -ano -p tcp | grep 9333`, then `taskkill //F //T //PID <pid>`.
 `tools/e2e/foreground.ps1` proves a launch was invisible by printing the foreground window handle
@@ -264,7 +270,9 @@ under it the moment git answers with its canonical form.
 - **Cherry-pick, revert, merge and rebase go through `runSequencer(what, label, action)`** (GC-090),
   the same shape one step further on: git refuses all four outright while anything is staged, so the
   guard asks first, naming the staged count, and offers Cancel or "Stash and continue" — never
-  "continue anyway", which git would only refuse. On failure the stash goes back **unless git
+  "continue anyway", which git would only refuse. That stash carries **no `-u`** (GC-097), unlike the
+  checkout guard it was copied from: what git refuses these four for is the index, and it carries
+  untracked files through all of them untouched, so the message says as much in the same sentence. On failure the stash goes back **unless git
   stopped mid-operation**: a pop runs `git reset`, which deletes `CHERRY_PICK_HEAD`, so putting the
   index back would quietly clear the state the banner and Abort exist for; the error then says which
   stash holds the changes.
@@ -359,6 +367,14 @@ a zero floor, exactly as the collapsed left rail does.
   hint ellipsised at its *start*, so the folder naming an entry survives) and `caption` (a
   non-interactive heading rendered as `div.ctx-caption`, so no menu selector picks it up). In a row
   the label gives way last: `.ctx-label` is `flex: 0 1 auto`, `.ctx-hint` `flex: 1 1 0`.
+- **A menu whose rows are a list rather than a set of actions carries `filter: true`** (GC-096): one
+  `.ctx-filter` input at the top, focused when the menu opens, and `filterMenuItems(items, query)` —
+  pure and exported — is what the rows narrow by. A caption goes when its group empties, a separator
+  when it divides nothing, and a query matching nothing says "No matches" rather than collapsing the
+  menu to a bare field. The narrowing is `ContextMenu`'s own state, never the caller's: reopening
+  the menu is what would move it and take the focus off the field. Enter takes the first row still
+  standing, off `matches('dialogConfirm', e)` like the modal's input, so no key name is compared
+  here either; Escape is still `App's`. The branch crumb is the one menu that has it.
 - `useDragWidth({ key, def, min, max, dir, limit })` is the one drag-to-resize implementation —
   clamp, persist, double-click reset — used by the ref column and both side panels. It computes the
   released width from the release position rather than from state: the pointerup arrives before
@@ -533,6 +549,13 @@ width is written as `--ref-col-w` on `.graph-panel` — `fitRefCol`'s answer, no
 (GC-110, see the UI layer) — and its 4px `.col-resize` handle is absolutely positioned on the
 column boundary so dragging reflows nothing.
 
+**The left panel header says where HEAD is** (GC-094): the checked-out branch, or `detached HEAD`
+with the short sha when `info.branch` is null — the wording the breadcrumb and the staging header
+already use, so the three agree, and the panel is no longer silent in the one case no row in LOCAL
+marks. It carries no number: the ref count it used to show repeated the section counts directly
+beneath it and, one line above the status bar's "N commits", read as a commit count that disagreed
+with it. What the graph is actually drawing is still visible per ref, on the eye of each hidden row.
+
 **Hiding branches.** A per-repository hidden set (`gitclient.hidden.<repoPath>`, full ref names)
 reaches `loadRepo(path, max, exclude)`. **One action hides exactly one ref**: hiding a local branch
 does not also hide the upstream its chip absorbs, because the row and its eye stand for one ref and
@@ -564,7 +587,7 @@ row carries its own `--row-depth`, and `app.css` turns that into 16px of padding
 with no slash renders exactly where it always did. The collapsed set is component state keyed
 `<section>/<folder path>` and lasts the session; it stores what is **closed**, so a folder that
 appears later starts open. A filter forces every drawn folder open, which is sound because the tree
-is built from the matches alone. "Viewing" still counts refs.
+is built from the matches alone. The section counts still count refs, never folders.
 
 ### Diff (`diff/`)
 
@@ -787,19 +810,21 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-269 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+282 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — **and on a backlog whose two files disagree** (GC-145):
 `backlogProblems` is pure and reports one sentence per problem, so a `done` section left in
 `TICKETS.md` or a board row resolving to nothing fails `npm test` rather than being noticed months
-later. `tools/launch-app` covers the attach path against a fake CDP endpoint.
+later. `tools/launch-app` covers the attach path against a fake CDP endpoint, and the ownership a launch
+takes over the app it spawned (GC-154) against a sleeping node process — a unit test never starts
+Electron, and `ownChild` cares only that it was handed something with a pid.
 
 ### The e2e suite
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 38 steps, 251 assertions, ~40s. It ends with
-`total: 40.0s | git: 352 calls, 9.0s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 38 steps, 263 assertions, ~41s. It ends with
+`total: 41.2s | git: 359 calls, 9.2s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -876,8 +901,11 @@ here. Rules a new step must respect:
   loudly instead of silently healing drift it exists to report.
 - A step that changes the repository puts it back itself, with `git reset --soft` and never
   `--hard`: the index holds the fixture's own staged changes.
-- Step 1 clears `gitclient.prefs` and every `gitclient.hidden.*` key, because the per-port profile
-  persists between runs.
+- Step 1 clears `gitclient.prefs`, `gitclient.tabs` and every `gitclient.hidden.*` key, because the
+  per-port profile persists between runs, and asserts the run starts from exactly one tab, the
+  fixture's. `gitclient.tabs` is the one remembered key naming a **folder on disk** (GC-155): a tab
+  a hand-written driver left pointing at a folder it then deleted failed step 1 and cascaded into 30
+  failures about nothing in the code under test.
 - Screenshots land in `<root>/shots/`, whose directory is created on demand. A fixture that
   predates the current baseline format, or a missing or invalid `testrepo`, exits 2 with the
   `npm run e2e:setup` message.
@@ -951,7 +979,8 @@ drag starting from the drawn width and ending on the last width the pointer reac
 and only a strict extension counted as one (Graph); every modal `h3` + `.modal-body` +
 `.modal-buttons`, with only the body scrolling, and a context menu capped and scrolling the same way
 (UI layer); one toolbar popover open at a time because there is one value for which,
-every checkbox and every radio styled once by type (UI layer); `--index` on
+every checkbox and every radio styled once by type, a menu filter that is the menu's own state and
+narrows by one pure function (UI layer); `--index` on
 stash apply and pop, `defaultRemote` shared both ways, a remote tag delete fully qualified (Main process); the diff keyed to its view
 identity, the split layout a render of what is already loaded, a hunk patch built from
 `hunk.raw` whichever layout is showing, both layouts marking intra-line changes from one map, and
@@ -973,9 +1002,11 @@ tab keyed by id rather than by its path, `gitclient.lastRepo` following the acti
 canonical spelling is adopted only within one repository, and two keyed siblings never sharing a
 key (App state);
 a single click selecting a tip and an unloaded one moving nothing, one boundary treatment for both
-detail views, the commit draft parked with its tab (Graph, Detail panel, App state); the backlog
+detail views, the commit draft parked with its tab, the left panel header naming HEAD rather than
+counting what its sections already count (Graph, Detail panel, App state); the backlog
 split by status across two files, moved in the same commit as the status change (The backlog);
-stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control
+stealth launches, narrow stops, the per-port profile, and a launch owned by the process that made it
+until that process stops or releases it (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).
 
 Memory for this project lives in the Claude memory directory (`gitclient-project.md`) and points

@@ -310,12 +310,13 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
 | GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
 | GC-145 | TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible | infra | M | P1 | done |
-| GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | in-progress |
+| GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | done |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
-| GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | in-progress |
+| GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | done |
 | GC-156 | A stash marker on a row cuts the primary ref chip’s name down to one letter | graph | S | P2 | todo |
 | GC-157 | The authored timestamp is cut short at the default detail-panel width on any merge commit | ui | S | P2 | todo |
 | GC-158 | The backlog archive is outside the control-byte scan, so 82% of the backlog lost rule 6’s guard | tests | S | P2 | todo |
+| GC-160 | e2e step 1 clears three remembered keys by name, and a driver can leave any of the others | tests | S | P2 | todo |
 | GC-140 | Stashes never appear in the graph, only in the left panel’s list | graph | M | P2 | done |
 | GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | done |
 | GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | done |
@@ -364,10 +365,11 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | done |
 | GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | done |
 | GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | done |
-| GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | in-progress |
-| GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | in-progress |
-| GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | in-progress |
-| GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | in-progress |
+| GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | done |
+| GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | done |
+| GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | done |
+| GC-097 | The sequencer guard stashes untracked files git never objected to | actions | S | P3 | done |
+| GC-161 | The checkout guard stashes untracked files without saying so, now that its neighbour does | ui | S | P3 | todo |
 | GC-129 | A stash message cannot be edited once the stash is made | actions | S | P3 | todo |
 | GC-134 | remoteCopyOf is inline and untested, and its comment justifies a state git forbids | tests | S | P3 | todo |
 | GC-135 | Nothing says how long ago anything happened, and the stash date is fetched and thrown away | ui | M | P3 | todo |
@@ -406,6 +408,81 @@ that a session with no other context could finish it. Otherwise mark it `blocked
 decision is missing.
 
 ## Tickets
+
+### GC-160 e2e step 1 clears three remembered keys by name, and a driver can leave any of the others
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-155
+- **Why:** GC-155 added `gitclient.tabs` to the keys step 1 removes, because a driver had left one
+  naming a deleted folder. The list is still three names long — `gitclient.prefs`, every
+  `gitclient.hidden.*`, and now `gitclient.tabs` — while the suite shares the 9333 profile with
+  every hand-written driver, and the profile persists between runs (GC-060). Measured while
+  verifying GC-085 (2026-09-06): a screenshot driver set `gitclient.refColW` to 400 so it could
+  photograph the ref column at three widths, and after a full `npm run e2e` the profile still read
+  `["gitclient.lastRepo","gitclient.recentRepos","gitclient.refColW","gitclient.tabs"]` with
+  `refColW` at 400. The suite passed with it — no step asserts a column width in pixels — so this
+  is a latent inheritance, not a failure today: exactly the shape GC-155 had before a driver
+  happened to leave the one key that did break it.
+- **Scope:**
+  - Step 1 clears **every** `gitclient.*` key rather than a list of names, then writes back the two
+    the run needs (`gitclient.lastRepo`, and whatever else a later step depends on being present).
+    A key added to `prefs.ts` or to the remembered-state table in `CLAUDE.md` then costs the suite
+    nothing to stay isolated from.
+  - The keys the run itself creates are unaffected: they are written after the clear.
+  - An assertion that the profile holds nothing unexpected at step 1, in the shape GC-155's tab
+    assertion has — a named failure rather than a silent inheritance.
+- **Out of scope:** giving the suite its own port by default (GC-155 ruled it out and
+  `GITCLIENT_E2E_PORT` already allows it); anything about what a driver ought to clean up after
+  itself — the suite is the thing that must be re-entrant against its own leftovers.
+- **Acceptance:**
+  - [ ] Seed the 9333 profile with `gitclient.refColW`, `gitclient.leftPanelW` and a
+        `gitclient.pinned.<path>` key, run `npm run e2e`, and none of them survives step 1.
+  - [ ] `npm run e2e` passes whole on a clean profile.
+  - [ ] The new assertion fails loudly if the clear is narrowed again.
+- **Files:** `tools/e2e/run.mjs`
+- **Verify:** the seeded-profile run above, then a clean `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-085 (this ticket): a screenshot driver's `gitclient.refColW=400`
+    survived a whole e2e run, which is GC-155's bug one key over.
+
+---
+
+### GC-161 The checkout guard stashes untracked files without saying so, now that its neighbour does
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-097
+- **Why:** GC-097 gave the sequencer guard's prompt a clause saying what it will stash — "Stash your
+  tracked changes — untracked files stay where they are" — because what it stashes is narrower than
+  the refusal it works around. The checkout guard beside it still says only "You have uncommitted
+  changes in N files. Check out <branch> anyway?" with a "Stash and check out" button, and that one
+  genuinely does pass `includeUntracked: true` (GC-004's reason still holds: untracked files can be
+  in the way of a checkout). So the two adjacent prompts now offer the same-sounding action with
+  opposite scope and only one of them says which. The count is already careful here — GC-019 made it
+  name the files actually at risk, untracked ones excluded — which makes the silence sharper: the
+  sentence counts tracked files and the button then moves untracked ones too.
+- **Scope:**
+  - The checkout guard's message says that stashing takes untracked files with it, in the same
+    sentence that names the count at risk, in the wording GC-097 used so the two read as one family.
+  - Only when there are untracked files to take: with none, the clause would describe nothing.
+  - `runCheckout`'s behaviour is unchanged — this is what the prompt says, not what it does.
+- **Out of scope:** changing what either guard stashes, a preference for it, and the drop path's
+  two prompts (GC-015), which are these two in sequence and inherit whatever they say.
+- **Acceptance:**
+  - [ ] With a tracked change and an untracked file, the prompt names the count at risk and says
+        untracked files go into the stash too.
+  - [ ] With no untracked file, the message is exactly what it is today.
+  - [ ] e2e step 15's assertions on the prompt's wording are extended rather than replaced.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`
+- **Verify:** `npm run typecheck`, `npm test`, `npm run e2e`, and the two prompts read side by side
+  in the running app.
+- **Log:**
+  - 2026-09-06 proposed by GC-097 (this ticket): the sequencer guard now says what it stashes and
+    the checkout guard next to it, which stashes more, still does not.
+
+---
+
 
 ### GC-017 Interactive rebase editor
 
@@ -582,156 +659,6 @@ decision is missing.
       weakening a single condition, but it also stops passing lines from printing their measured values,
       and those values are what tickets in this file cite as evidence. That is a trade about what the run
       reports, not a refactor, so it is Ricardo's to make.
-
----
-
-### GC-085 Dead CSS and an unreachable tooltip left over from the one-chip ref column
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-078
-- **Why:** GC-078 fixed the ref column at one chip, which left two things behind that no longer
-  describe anything. `.ref-chip:not(:first-child):not(.more) { flex-shrink: 50 }` in `app.css` is
-  GC-023's rule for making the second and later chips give way at the same weight; there is never
-  a second chip in a row now, and the only elements it still matches are the lines inside the
-  expanded block, where `flex: none` overrides it — so it is dead either way, but a reader has to
-  work that out, and a future change to the block's flex could wake it up. And the `+N` chip's
-  `title="More refs on this commit"` can never be shown: the chip is `visibility: hidden` from the
-  moment the cell is hovered, which is the moment a tooltip would begin its delay.
-- **Scope:**
-  - Remove the `.ref-chip:not(:first-child):not(.more)` rule and GC-023's comment above it, which
-    describes a fold that no longer exists.
-  - Drop the `+N` chip's `title`, or move whatever it should say onto the ref cell, which is the
-    element the user is actually pointing at.
-- **Out of scope:** the block itself, the one-chip rule, the flip (GC-022), and the `.ref-chip`
-  base rule's own `flex: 0 1 auto`, which the single visible chip still needs.
-- **Acceptance:**
-  - [ ] Neither the rule nor the dead comment is in `app.css`; the ref column and the expanded
-        block render identically before and after, compared on a CDP screenshot of the scratch
-        repository at 100px, 150px and 400px column widths.
-  - [ ] No element carries a `title` that cannot be shown.
-  - [ ] `npm test` and `npm run e2e` pass.
-- **Files:** `src/renderer/src/styles/app.css`, `src/renderer/src/graph/CommitGraph.tsx`.
-- **Verify:** build, the three screenshots above compared against
-  `docs/screenshots/gc078-ref-expansion.png`, `npm test`, `npm run e2e`.
-- **Log:**
-  - 2026-09-06 02:22 proposed by GC-078 (this ticket): pinning the column at one chip left GC-023's
-    shrink rule matching nothing in the row and the `+N` tooltip behind a chip that hides itself
-    before the tooltip can appear.
-  - 2026-09-06 12:22 claimed
-
----
-
-### GC-094 The left panel header counts refs and never says which branch is checked out
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-061
-- **Why:** The left panel's header is `Viewing <N>`, where N is `local + remotes + tags` — 7 on
-  the scratch repository. It sits directly above sections reading LOCAL 3, REMOTE 3, TAGS 1,
-  STASHES 0, which are the same numbers again, and directly above a status bar reading
-  "8 commits", so the one number that is not a repeat of something adjacent reads as a commit
-  count and disagrees with it. Nothing is served by it. The slot it occupies is where the
-  panel should say where HEAD is, which matters most in the case GC-061 shipped for: with a
-  detached HEAD no row in LOCAL carries the check mark and the panel goes silent about it
-  (`GR-009/05b-detached-head-refs.png` — three unmarked branches, the only "detached HEAD" on
-  screen being the toolbar breadcrumb). GC-061 reasoned it could leave the panel alone because
-  "the header already says so"; the header it meant is the toolbar's, not this one.
-- **Scope:**
-  - The header names the checked-out branch, and reads `detached HEAD` with the short sha when
-    `info.branch` is null, using the wording the breadcrumb and the staging header already use so
-    the three agree.
-  - The ref count goes; the per-section counts already carry it.
-  - The collapsed icon rail is unchanged.
-- **Out of scope:** a left-panel row for HEAD (GC-061 ruled that out and this does not reopen it),
-  ahead/behind in the header, the filter box, the Hide/Solo controls (GC-073).
-- **Acceptance:**
-  - [ ] On a normal checkout the header names the branch and matches the breadcrumb.
-  - [ ] After `git checkout --detach HEAD` + Refresh the header says `detached HEAD` with the
-        short sha, and matches the breadcrumb and the staging header.
-  - [ ] No number in the header; LOCAL / REMOTE / TAGS / STASHES counts unchanged.
-  - [ ] Collapsing and reopening the panel is unaffected.
-- **Files:** `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/App.tsx` (the props
-  it needs), `src/renderer/src/styles/app.css`.
-- **Verify:** `npm run typecheck`, `npm run build`, both states screenshotted over CDP against
-  `docs/reference/gitkraken/08-left-panel-expanded.md`/`.png`.
-- **Log:**
-  - 2026-09-06 proposed by GR-009 (screenshot pass): the header's number repeats its own sections
-    and contradicts the status bar, and the panel is the one place that stays silent when HEAD
-    detaches.
-  - 2026-09-06 note from GC-073: "Viewing" now counts only the refs the graph is drawing, so a
-    hidden branch leaves the number. The header still repeats its sections and still says nothing
-    about HEAD, so this ticket stands; its "N is local + remotes + tags" is out of date.
-  - 2026-09-06 12:22 claimed
-
----
-
-### GC-096 The branch crumb menu lists every branch, with nothing to narrow it
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-088
-- **Why:** GC-088 wired the branch breadcrumb and left the study's search box out of scope, on the
-  grounds that a `MenuItem` hosting an input is a new UI primitive and the left panel's
-  `Filter refs` is the filter today. On the e2e fixture the menu is eight rows and reads well; on a
-  repository with fifty branches and their remotes it is a list nobody can use, and the control it
-  replaces — finding the row in the left panel — is the one with a filter. The study has the search
-  box at the top of this exact menu (`05-menus-shortcuts.md`, "Toolbar dropdowns").
-- **Scope:**
-  - A filter row at the top of the branch crumb's menu: a `MenuItem` kind that renders an input,
-    focused when the menu opens, narrowing the rows beneath it as it is typed (name substring, both
-    groups, captions hidden when their group empties).
-  - Enter checks the first remaining row out; Escape closes the menu, which is `App.tsx`'s Escape
-    and not a listener of its own.
-  - The rows stay what they are today, so nothing about `openBranchMenu` changes but the list it
-    hands over.
-- **Out of scope:** the same input in every other menu, fuzzy matching, favourites, remembering the
-  last filter, the study's fixed 250px width.
-- **Acceptance:**
-  - [ ] Typing narrows the list and hides a group's caption when that group has no rows left.
-  - [ ] Enter checks the first row out through `checkoutRef`, so the dirty-tree guard still applies.
-  - [ ] Escape closes exactly the menu, with the field focused and non-empty.
-  - [ ] A component test over the filtering, and an e2e step that types and lands on a branch.
-- **Files:** `src/renderer/src/ui/ContextMenu.tsx`, `src/renderer/src/App.tsx`,
-  `src/renderer/src/styles/app.css`, `tools/e2e/run.mjs`.
-- **Verify:** typecheck, build, `npm test`, `npm run e2e`, and a screenshot of the filtered menu.
-- **Log:**
-  - 2026-09-06 proposed by GC-088 (this ticket): the follow-up its Out of scope invited, filed now
-    that the menu exists and its length is a real repository's problem rather than a hypothetical.
-  - 2026-09-06 12:22 claimed
-
----
-
-### GC-097 The sequencer guard stashes untracked files git never objected to
-
-- **Status:** in-progress
-- **Area:** actions | **Size:** S | **Priority:** P3
-- **Depends on:** GC-090
-- **Why:** GC-090's "Stash and continue" runs `stashSave({ includeUntracked: true })`, copied from
-  the checkout guard, where untracked files genuinely can be in the way. Here they cannot: git
-  refuses a cherry-pick, revert, merge or rebase for the **index**, and carries untracked files into
-  all four untouched. So the guard moves files it had no reason to move, and in the case GC-090
-  found — the action leaving git mid-operation, where the stash is deliberately kept — the user's
-  untracked files sit in that stash too, out of the working tree, until they pop it.
-- **Scope:**
-  - The guard stashes without `-u`, so untracked files stay where they are.
-  - Its message says what it will stash, in the same sentence that names the staged count.
-  - The checkout guard is not touched: its own reason for `-u` still holds.
-- **Out of scope:** `--keep-index`, stashing only the staged half (git has no such push), the
-  checkout guard, GC-091's message classification.
-- **Acceptance:**
-  - [ ] Scratch repository with a staged file and an untracked one: "Stash and continue" leaves the
-        untracked file on disk throughout, and the staged file comes back staged.
-  - [ ] The mid-operation case keeps only the staged half in the stash; the untracked file is still
-        in the working tree while the operation is in progress.
-  - [ ] `npm run e2e` passes: step 12's assertions on the fixture's untracked `new.txt` are
-        extended to say it never left.
-- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`.
-- **Verify:** typecheck, build, `npm run e2e`, and the two CDP checks above.
-- **Log:**
-  - 2026-09-06 proposed by GC-090 (this ticket): noticed while driving the guard — the stash it
-    makes is wider than the refusal it works around, and the mid-operation path makes that visible.
-  - 2026-09-06 12:22 claimed
 
 ---
 
@@ -1631,92 +1558,6 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-017: found in the UI pass, on a real repository rather than the
     fixture - the scratch repo's nine refs cannot produce it.
-### GC-154 A driver script that throws leaves its Electron alive, so the next run verifies a stale build
-
-- **Status:** in-progress
-- **Area:** infra | **Size:** S | **Priority:** P1
-- **Depends on:** none
-- **Why:** GC-040 gave `tools/e2e/run.mjs` a `stopOnce()` on `process.on('exit')`, so a throw or a
-  Ctrl+C still stops the Electron it started. Nothing gives that guarantee to the *other* things
-  that call `launchApp` — the short CDP drivers a ticket writes to measure or screenshot
-  something. They end with `await app.stop()`, which is exactly the line a throw skips.
-  Hit twice while verifying GC-091 (2026-09-06): a driver died on a syntax error, its Electron kept
-  listening on 9333, and the next three `launchApp` calls attached to that process instead of
-  starting the freshly built one. Every measurement for twenty minutes described a build from
-  before the change under test — the advisory status line read as an ordinary red error, which is
-  precisely the bug the ticket had just fixed. Nothing said so: the driver printed plausible
-  failures and the only clue was the process start time being older than `out/main/index.js`.
-  A launcher that owned this would make the whole class of mistake impossible.
-- **Scope:**
-  - `launchApp` registers its own `process.on('exit')` handler that stops the child it spawned,
-    and the `stop()` it resolves with removes that handler, so a caller that stops cleanly is
-    unchanged and one that throws is covered. SIGINT/SIGTERM exit explicitly so they reach it,
-    the way `run.mjs` already does.
-  - `run.mjs` keeps its own `stopOnce`: it is the same guarantee, and a second registration that
-    stops an already-stopped child is harmless. Say so in a comment rather than removing it.
-  - A launch that *attached* to an existing app (`--keep-running`) must not stop it on exit: the
-    handler belongs to the process this call spawned, and only that.
-- **Out of scope:** anything about the port being busy — `launchApp` already frees it by default,
-  and it did so here; the problem was that freeing it happened before the *previous* run's
-  Electron was noticed, not that the mechanism is missing. Also out: warning when `out/` is newer
-  than the running app, which is a different ticket if it turns out to be wanted.
-- **Acceptance:**
-  - [ ] A driver that calls `launchApp` and then throws leaves no `electron.exe` behind: run one
-        that throws immediately after the launch, then check `pidOnPort` answers null.
-  - [ ] The ordinary path is unchanged: a driver that calls the resolved `stop()` and exits
-        normally still stops exactly one app, and the exit handler does not fire twice.
-  - [ ] `npm run e2e` passes, and a run interrupted with SIGINT still stops its own Electron
-        (GC-040's property, re-checked rather than assumed).
-  - [ ] `tools/launch-app.test.ts` covers the handler being registered and removed.
-- **Files:** `tools/launch-app.mjs`, `tools/launch-app.test.ts`, `tools/e2e/run.mjs`
-- **Verify:** the three checks above by hand against the scratch repository, then `npm test` and
-  `npm run e2e`.
-- **Log:**
-  - 2026-09-06 proposed by GC-091 (this ticket): a driver that threw left its Electron on 9333, and
-    three later runs silently measured that stale build instead of the one just built.
-  - 2026-09-06 12:22 claimed
-
----
-
-### GC-155 e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite
-
-- **Status:** in-progress
-- **Area:** tests | **Size:** S | **Priority:** P2
-- **Depends on:** GC-016
-- **Why:** step 1 clears `gitclient.prefs` and every `gitclient.hidden.*` key, because the per-port
-  profile persists between runs (GC-060). It does not clear `gitclient.tabs`, which GC-016 added
-  and which is the one remembered key naming a **folder on disk**. The e2e port defaults to 9333,
-  the same profile any hand-written driver uses, so a tab left pointing at a folder that has since
-  been deleted comes back on the next run. Hit on 2026-09-06: a GC-091 driver opened a throwaway
-  repository, removed it at the end, and the following `npm run e2e` failed step 1 with
-  `Repository folder not found: …/gc091-probe` and then cascaded — 30 failures across steps 1-5,
-  none of them about the code under test, and the run stopped on a stash pop that had nothing to
-  pop. The suite is meant to be re-entrant against its own leftovers; this is the one piece of
-  remembered state it does not reset.
-- **Scope:**
-  - Step 1 clears `gitclient.tabs` and `gitclient.lastRepo` alongside the keys it already clears,
-    before the reload that opens the fixture — so the run starts from exactly one tab, the
-    fixture's, whatever the profile held.
-  - An assertion that it did: after the reload, the tab bar has one tab and it is `testrepo`.
-    Cheap, and it is what turns a silent inherited state into a named failure.
-- **Out of scope:** giving the suite its own port by default (that is a bigger change and
-  `GITCLIENT_E2E_PORT` already allows it); anything about how the app handles a tab whose folder
-  has gone, which it already reports correctly — the bug is that the suite inherits one at all.
-- **Acceptance:**
-  - [ ] Seed the 9333 profile with `gitclient.tabs` holding a path that does not exist, run
-        `npm run e2e`, and it passes from step 1 with no reference to that path.
-  - [ ] The new assertion fails loudly if the clear is removed again (check by removing it once).
-  - [ ] `npm run e2e` passes whole on a clean profile too.
-- **Files:** `tools/e2e/run.mjs`
-- **Verify:** the seeded-profile run above, then a clean `npm run e2e`.
-- **Log:**
-  - 2026-09-06 proposed by GC-091 (this ticket): a deleted probe repository left in
-    `gitclient.tabs` failed step 1 and cascaded into 30 failures unrelated to any code change.
-  - 2026-09-06 12:22 claimed
-
----
-
-
 ### GC-156 A stash marker on a row cuts the primary ref chip's name down to one letter
 
 - **Status:** todo
