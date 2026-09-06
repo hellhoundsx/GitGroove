@@ -153,6 +153,13 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   conflicting pop — and git's own error propagates untouched; only an unchanged status means it
   refused before touching anything, and then the plain form is retried and the result **rejected**,
   because the working directory came back and the staging did not.
+- **`stashRename` drops `index + 1`, not `index`** (GC-129). git has no command for editing a
+  stash's message, so it is `git stash store -m <new> <sha>` and then a drop of the old entry —
+  and `store` **prepends** a reflog entry, so every stash already in the list has shifted down one
+  by the time the drop runs. Dropping `index` takes the neighbour that moved into it and leaves
+  both messages standing. The sha is read first, because the drop is what makes it unreachable,
+  and the drop only runs once the store has resolved, or a failure loses the stash outright. The
+  re-stored entry lands at `stash@{0}`, which is why the dialog says the stash moves to the top.
 - **`pull(cwd, mode, remote?)` names the branch whenever it names a remote** (GC-057): `git pull
   <remote>` with no refspec still merges `branch.<name>.merge`, which is the upstream the caller
   asked to bypass, so a named remote becomes `git pull <flag> <remote> <branch>`.
@@ -163,10 +170,13 @@ the last six stdout lines when stderr is empty — conflicts report on stdout. I
   `src/shared/` is the only place code is shared both ways, so a menu label cannot promise a
   different remote from the one the push uses.
 
-- **A local branch's delete can take its remote copy with it** (GC-112). `remoteCopyOf` in
-  `App.tsx` answers where else the branch lives — its upstream first, then a remote-tracking ref of
-  the same name, and only ever one the snapshot lists — and the confirmation carries a checkbox for
-  it. The local delete runs first and the remote one only if it succeeded; the remote half goes
+- **A local branch's delete can take its remote copy with it** (GC-112). `remoteCopyOf` answers
+  where else the branch lives — its upstream first, then a remote-tracking ref of the same name,
+  and only ever one the snapshot lists — and the confirmation carries a checkbox for it. It is a
+  pure function in `shared/remotes.ts` beside `defaultRemote`, under `remotes.test.ts`, and
+  `App.tsx` keeps only a `copyOf` callback passing the snapshot in (GC-134). The split is at the
+  remote's name rather than the first slash because a **branch** name may carry slashes; git makes
+  the nested-*remote* case unreachable, refusing `origin/fork` beside `origin` in both directions. The local delete runs first and the remote one only if it succeeded; the remote half goes
   through a plain `run()`, so its failure reports on the status bar and leaves the local delete
   standing. `deleteRemoteTag` is the tag equivalent and is `git push <remote> --delete
   refs/tags/<name>`, **fully qualified**: a bare name is ambiguous when a branch and a tag share it,
@@ -188,8 +198,14 @@ pure fs.
 `remote:*`, `stash:*`, `shell:*`, `window:*`. `ipc.ts` validates every argument (`str`, `strs`,
 `int`, `oneOf`); `repo:checkGit` is the only handler taking none. `window:theme` is the other
 handler that never touches git: it repaints the OS window controls for the theme the renderer
-resolved, and `TITLE_BAR_OVERLAY` with it lives in `ipc.ts` rather than `index.ts` because
-`index.ts` already imports `registerIpc` and the other direction would be a cycle (GC-013). Adding an API means: type in
+resolved **and remembers it**, and `TITLE_BAR_OVERLAY` with it lives in `ipc.ts` rather than
+`index.ts` because `index.ts` already imports `registerIpc` and the other direction would be a
+cycle (GC-013). Remembering is what lets `createWindow` build the window in the right theme at all
+(GC-102): the setting lives in the renderer's `localStorage`, which does not exist yet, so the main
+process keeps its own copy in `window-theme.json` under the profile's `userData` — per Electron
+profile, so a launcher run cannot change what Ricardo's own window opens as (GC-060) — and
+`rememberedTheme()` feeds both `WINDOW_BACKGROUND` and `TITLE_BAR_OVERLAY` where two dark literals
+used to sit. Nothing remembered still means dark. Adding an API means: type in
 `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`.
 `shell:*` is the group that never touches git: its two handlers live in `ipc.ts` itself, go through
 `repoFile()` — which resolves a repository-relative path against the repository and **refuses one
@@ -433,6 +449,15 @@ a zero floor, exactly as the collapsed left rail does.
   so the `dragover` does not `preventDefault`, and no highlight and no drop follow — merge needs
   the target checked out, so the target must be a local branch, and rebase checks the source
   out, so the source must be one. That is what keeps a drop from ever opening an empty menu.
+  **`useDragScroll` in the same module scrolls a container while a drag is over its edges**
+  (GC-122), spread onto `.graph-body`, without which a drag could only ever reach a chip already
+  drawn. `dragover` sets a speed and one `requestAnimationFrame` loop does the scrolling, so the
+  rate comes from the clock and not from how often the browser fires the event — a pointer held
+  still at the edge would otherwise crawl or stop. `dragScrollSpeed` is the pure half and ramps
+  with the distance into the band rather than switching on, so crossing the band's edge is not a
+  lurch. Only a drag carrying `REF_DRAG_TYPE` scrolls anything, and a `dragleave` into one of the
+  container's own children is not a leave — that event bubbles from every chip the pointer
+  crosses, so `relatedTarget` decides.
 
 ### Graph (`graph/`)
 
@@ -537,7 +562,12 @@ default, fixed at 140/150/80px with `flex: none` so the message column absorbs t
 `OPT_COL_W` in `CommitGraph.tsx` mirrors those three widths, because `fitRefCol` has to know what
 they take before it can leave the message its own minimum (GC-110). What the preference asks for is
 not always what is drawn: `fitOptCols` runs first and `cols` is its answer, so every render site —
-header, rows and `restW` — reads one set and they cannot disagree (GC-116). In that column the
+header, rows and `restW` — reads one set and they cannot disagree (GC-116). **Preferences reads it
+too** (GC-117): `CommitGraph` hands the set up through `onDrawnCols`, so a row that is checked but
+not drawn carries a `.pref-note` saying the window is why, rather than showing a setting that
+appears to do nothing. It must stay that set and never a second reading of the width, or the
+dialog and the graph can disagree; with a file view open there is no graph to have an answer and
+the dialog is handed `null`, which claims nothing either way. In that column the
 **summary wins**: the body preview sits in a `.body-wrap` with `flex: 1 1 0` and
 `container-type: inline-size`, so it only gets space the summary did not need, and a
 `@container (max-width: 40px)` rule drops it rather than leaving a lone ellipsis.
@@ -599,6 +629,14 @@ with no slash renders exactly where it always did. The collapsed set is componen
 `<section>/<folder path>` and lasts the session; it stores what is **closed**, so a folder that
 appears later starts open. A filter forces every drawn folder open, which is sound because the tree
 is built from the matches alone. The section counts still count refs, never folders.
+
+**A stash row says how old it is** (GC-135). `Stash.date` had been on every snapshot since the list
+existed and was drawn nowhere, while "how old is this" is the question a stash list is read for.
+`relativeTime` renders it into a `.row-when` on the right edge of the row, the way a branch row's
+ahead/behind sits, with the absolute form joining the message on the row's `title`. It is
+`flex: none` at 39px, so the **message** is what ellipsises: the age is four or five characters and
+the message is the part with room to give. That costs the message about 43px at the 220px default
+panel; at 300px and above the name is back at its natural width.
 
 ### Diff (`diff/`)
 
@@ -697,7 +735,15 @@ shrink-to-fit and `fit-content` floors at its own min-content whatever the track
 cap a 31px track still drew a 52px box that reached back over the date. `--author-when-w` (180px)
 is a measured metric in `tokens.css`: the authored line wants 172px in the one format GC-133
 settled, and the 60% is what lets the floor yield at the panel's minimum instead of cutting the
-parents column to four characters.
+parents column to four characters. **The authored line reads the distance, not the instant**
+(GC-135): `relativeTime(iso, now)` in `time.ts` beside the two absolute formatters, with the
+absolute string on the line's `title`. `now` is injected so the boundaries are testable rather than
+raced against the clock, a timestamp in the **future** shares the "just now" branch rather than
+counting backwards — a commit made under a skewed clock is ordinary — and past 30 days the distance
+becomes the absolute date, since "412 days ago" is arithmetic rather than an answer. It is
+materially shorter than the format above, which is what takes the pressure off this grid at the
+panel's minimum. The graph's DATE / TIME column is deliberately untouched: a column exists to be
+read down and compared.
 
 Staging view (operation banner with Abort, Conflicted / Unstaged / Staged groups, commit form with
 amend and the 72-character counter) or commit view (sha, refs, message, author, parent links, file
@@ -831,7 +877,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-285 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+306 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
 the 82% of the backlog GC-145 moved into it cannot fall out of rule 6's guard again with nothing
@@ -846,8 +892,8 @@ Electron, and `ownChild` cares only that it was handed something with a pid.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 38 steps, 266 assertions, ~41s. It ends with
-`total: 41.2s | git: 359 calls, 9.2s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 39 steps, 276 assertions, ~43s. It ends with
+`total: 42.7s | git: 371 calls, 9.6s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -1000,14 +1046,14 @@ table, every confirmation on the modal and an option on one carried by `confirmW
 than by a prompt with its input switched off, the busy token every writer of `busy` takes (App state,
 UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
 message column keeping `MIN_MSG_W` while the ref column gives way, the optional columns giving way
-after it, and only the applied widths ever clamped — on the drag path as well as the resize one, a
+after it, a column dropped for want of width marked in Preferences from that same answer, and only the applied widths ever clamped — on the drag path as well as the resize one, a
 drag starting from the drawn width and ending on the last width the pointer reached (UI layer); a page continuing the previous range's `LaneState`,
 and only a strict extension counted as one (Graph); every modal `h3` + `.modal-body` +
 `.modal-buttons`, with only the body scrolling, and a context menu capped and scrolling the same way
 (UI layer); one toolbar popover open at a time because there is one value for which,
 every checkbox and every radio styled once by type, a menu filter that is the menu's own state and
 narrows by one pure function (UI layer); `--index` on
-stash apply and pop, `defaultRemote` shared both ways, a remote tag delete fully qualified (Main process); the diff keyed to its view
+stash apply and pop, a stash rename dropping the shifted index rather than the one it was given, `defaultRemote` and `remoteCopyOf` shared both ways, a remote tag delete fully qualified (Main process); the diff keyed to its view
 identity, the split layout a render of what is already loaded, a hunk patch built from
 `hunk.raw` whichever layout is showing, both layouts marking intra-line changes from one map, and
 the whitespace flag in the load key rather than the identity, with every patch button off while it
@@ -1019,8 +1065,8 @@ over its upstream marker in a narrow column, and the room it is drawn at counted
 sibling in the cell rather than the `+N` alone (Graph, Detail panel); an error and a notice never both
 on the status bar, with the advisory flag carried on the error's name because that is all IPC
 keeps (App state); every colour a token, the
-theme resolved in `prefs.ts`, one module answering how a timestamp is written so no component
-reaches for `toLocaleString` (Styling, Preferences); a failing e2e git call throwing, its Electron
+theme resolved in `prefs.ts` and remembered per profile by the main process so the window is built in it, one module answering how a timestamp is written so no component
+reaches for `toLocaleString` and one answering how long ago it was, with the graph column left absolute (Styling, Preferences); a drag scrolling the graph off the clock rather than off the browser's event rate (UI layer); a failing e2e git call throwing, its Electron
 stopped on every exit path, a wait before a click proving the control is live rather than only
 the content right, every click going through `liveClick` so a missing or dead control fails
 where it happened, and step 1 clearing every remembered key by prefix rather than a list of names

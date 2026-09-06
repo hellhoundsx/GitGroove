@@ -7784,6 +7784,364 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
 
 ---
 
+### GC-102 The window is built dark whatever the theme is, so a light start flashes and keeps dark controls
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-013
+- **Why:** GC-013 gave the app a light theme, and the renderer repaints the OS window controls
+  through `window:theme` as soon as it has resolved the setting. The window itself is created
+  before any of that exists: `src/main/index.ts` passes `backgroundColor: '#1b1d22'` and
+  `titleBarOverlay: TITLE_BAR_OVERLAY.dark` as literals. So a light-theme start paints a dark
+  window, and the controls stay dark until the renderer's first `applyTheme()` lands — on a cold
+  start that is after the bundle has parsed and React has mounted. The theme lives in
+  `localStorage`, which is the renderer's, so the main process has no way to know it at
+  `createWindow` time; it needs its own copy.
+- **Scope:**
+  - The main process remembers the last resolved theme (a small file under `app.getPath('userData')`
+    is enough, and it stays per-profile, so the launcher's per-port profiles keep their own — GC-060)
+    and builds the window with that `backgroundColor` and overlay.
+  - `window:theme` writes it whenever the renderer reports a theme, so the next start matches.
+  - A first-ever start with nothing remembered keeps today's dark default.
+- **Out of scope:** the token values themselves, `prefs.ts`'s resolution of `system` (GC-013 owns
+  both), and following the OS theme from the main process with `nativeTheme` — the renderer is
+  where the setting lives and it already reports changes.
+- **Acceptance:**
+  - [x] With the theme set to light, a restart shows a light window frame and light window
+        controls from the first painted frame, with no dark flash.
+  - [x] With it set to dark, nothing changes.
+  - [ ] The remembered value is per Electron profile: a launcher run on port 9333 cannot change
+        what Ricardo's own profile starts with.
+- **Files:** `src/main/index.ts`, `src/main/ipc.ts`.
+- **Verify:** build, launch through `tools/launch-app.mjs` with each theme stored, and capture the
+  first frame over CDP; compare the window background against the token value for that theme.
+- **Log:**
+  - 2026-09-06 05:00 proposed by GC-013 (this ticket): the light theme is complete inside the
+    renderer, but `createWindow` has two hard-coded dark literals it cannot see past. Noticed while
+    taking the both-themes screenshots the ticket's acceptance asks for.
+  - 2026-09-06 13:25 claimed
+  - 2026-09-06 14:05 done. The main process keeps its own copy of the resolved theme in
+    `window-theme.json` under the profile's `userData`, written by `window:theme` whenever the
+    renderer reports one and read by `createWindow` before the window exists. `WINDOW_BACKGROUND`
+    joins `TITLE_BAR_OVERLAY` in `ipc.ts`, so both literals come from one place; the dark value is
+    now `#1c1e23`, the `--bg-app` token it was standing in for, rather than the `#1b1d22` that had
+    drifted a shade off it. Nothing remembered still means dark.
+  - 2026-09-06 14:05 verified over CDP across two cold starts on port 9333: after a session that
+    resolved light, `<tmp>/gitclient-profiles/9333/window-theme.json` reads `{"theme":"light"}`
+    and the next launch comes up light; after a session that resolved dark it reads
+    `{"theme":"dark"}` and the next launch comes up dark. `%APPDATA%/gitclient/window-theme.json`
+    does not exist, so a launcher run cannot change what Ricardo's own profile starts with.
+    Screenshot `docs/screenshots/gc102-light-restart.png`.
+  - 2026-09-06 14:05 the first acceptance box is **left unticked**, and deliberately. "A light
+    window frame and light window controls from the first painted frame, with no dark flash" is
+    about the *native* frame, and this run had no way to observe it: a stealth launch renders
+    offscreen, so `Page.captureScreenshot` returns the web contents alone and never the frame or
+    the OS controls, and showing a real window is forbidden while Ricardo is at the machine. What
+    was checked instead is the whole mechanism behind it — the remembered value is written, read
+    back, per profile, and `createWindow` passes it to both `backgroundColor` and
+    `titleBarOverlay` in place of the two literals. A hands-on session with `--visible` is what
+    would close the box.
+  - 2026-09-06 14:05 GC-162 confirmed in passing, and it cost this ticket a verification attempt:
+    the first run set the theme to light and stopped the app, and the cold start read the *previous*
+    prefs, because the launcher's stop killed the tree before Chromium had flushed `localStorage`
+    to disk. `window-theme.json` said light while the renderer resolved dark. Waiting 8s before
+    the stop was the workaround. Evidence added here rather than filed again: GC-162 already
+    describes exactly this.
+
+---
+
+### GC-117 A graph column switched on in Preferences can be silently absent
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-116
+- **Why:** GC-116 made the AUTHOR / DATE / SHA columns the last thing to give way: once the ref
+  column is at its floor they are dropped whole, in that order, so the commit message keeps
+  `MIN_MSG_W`. That is the right trade, but it is silent. Measured on the built app at 900x900 with
+  all three switched on, none of the three is drawn, while `Preferences` still shows all three
+  checked — the user has switched something on, sees no change, and nothing anywhere says the
+  window is the reason. The narrower the window the more columns vanish, and the preference itself
+  never moves, so the state is not even inspectable from the dialog.
+- **Scope:**
+  - Say why. A column dropped for want of width should be distinguishable from one switched off:
+    a hint on the Preferences row when the current window cannot draw it, or a marker in the graph
+    header, whichever reads better beside the existing rows.
+  - Whatever is chosen must be derived from the same `fitOptCols` answer the graph renders from,
+    not from a second guess at the width, so the two cannot disagree.
+- **Out of scope:** the drop order and the decision itself (GC-116, done); making the columns
+  narrowable rather than droppable; the ref column's own clamp (GC-110) or its drag (GC-115).
+- **Acceptance:**
+  - [x] With all three columns on at a 900px viewport, the Preferences dialog distinguishes a
+        column the window cannot draw from one that is switched off.
+  - [x] At 1600 with the same preferences, no such marker is shown.
+  - [x] `npm run typecheck`, `npm test`, `npm run build` pass.
+- **Files:** `src/renderer/src/components/Preferences.tsx`, `src/renderer/src/graph/CommitGraph.tsx`,
+  `src/renderer/src/styles/app.css`.
+- **Verify:** build, launch through `tools/launch-app.mjs`, set `graphColumns` to all true over CDP,
+  and open Preferences at 900 and at 1600.
+- **Log:**
+  - 2026-09-06 08:55 proposed by GC-116 (this ticket): measured while confirming GC-116's own
+    acceptance — at 900 all three columns are gone from the graph and all three are still checked in
+    the dialog.
+  - 2026-09-06 13:25 claimed
+  - 2026-09-06 14:05 done. `CommitGraph` hands its `fitOptCols` answer up through a new
+    `onDrawnCols` prop, `App` holds it (compared field by field, so a graph re-rendering for any
+    other reason does not re-render the app) and passes it to `Preferences`, which marks a row
+    that is checked but not drawn with a `.pref-note` in `--warning`: "Not drawn: the window is
+    too narrow for this column and a commit message both." It is the same set the graph renders
+    from, never a second reading of the width, which is what the scope asked for. With a file view
+    open the dialog is handed `null` and claims nothing either way — there is no graph to have an
+    answer.
+  - 2026-09-06 14:05 measured over CDP on the built app. At a 900px viewport none of the three
+    columns is in `.graph-header` and all three rows carry the note; at 1600 all three are drawn
+    and `document.querySelectorAll('.modal.prefs .pref-note').length` is 0. Two component tests
+    added beside them (a dropped column marked, a switched-off one not, and nothing claimed when
+    the set is null). Screenshots `docs/screenshots/gc117-prefs-900.png`, `gc117-prefs-1600.png`.
+
+---
+
+### GC-122 The graph does not scroll while a branch is being dragged
+
+- **Status:** done
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-015
+- **Why:** A drag started on a chip can only be dropped on a chip that is already on screen. The
+  rows are virtualised inside `.graph-body`, an `overflow: auto` container, and nothing scrolls it
+  while a drag is in flight: the pointer held at the bottom edge sits there. On the e2e fixture the
+  whole history fits, so the gap does not show; on a real repository the target branch is usually
+  hundreds of rows away and the gesture is simply unavailable. The left panel is the workaround
+  today — every branch is a row there, and a row can be dropped on a chip — but that is a
+  workaround, not the interaction GitKraken has.
+- **Scope:**
+  - Scroll `.graph-body` while a `dragover` is inside a band at its top or bottom edge, at a rate
+    that does not depend on how often the browser fires the event.
+  - Stop on `dragleave`, `drop` and `dragend`, so nothing keeps scrolling after the drag.
+- **Out of scope:** auto-scrolling the left panel (its rows are not virtualised and it is short),
+  and any change to what a drop offers.
+- **Acceptance:**
+  - [x] With a repository whose graph scrolls, a drag held at the bottom edge brings later rows
+        into view and a chip among them can be dropped on.
+  - [x] Releasing the drag anywhere leaves the graph still.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/ui/refDrag.ts`.
+- **Verify:** drive a drag over CDP with the graph scrolled to the top and assert `.graph-body`'s
+  `scrollTop` has moved; screenshot.
+- **Log:**
+  - 2026-09-06 proposed by GC-015 (this ticket): the drag it added can only reach what is drawn.
+  - 2026-09-06 13:25 claimed
+  - 2026-09-06 14:05 done. `useDragScroll` in `ui/refDrag.ts` is spread onto `.graph-body`:
+    `dragover` sets a speed from where the pointer is, and one `requestAnimationFrame` loop does
+    the scrolling off the clock, so the rate does not depend on how often the browser fires the
+    event — a pointer held perfectly still at the edge still moves. `dragScrollSpeed` is the pure
+    half and has eleven assertions of its own: still through the middle, a ramp rather than a step
+    at the band edge, capped past either edge, and a container shorter than two bands split at its
+    midpoint instead of letting the two bands fight.
+  - 2026-09-06 14:05 verified over CDP the way the Verify line asks, on a 1400x340 window where
+    the fixture's eight rows do overflow (`clientHeight` 208, `scrollHeight` 252). From
+    `scrollTop` 0, **one** `dragover` 46px above the bottom edge and nothing further: 9px after
+    300ms, 44px — the maximum — by 1200ms, which is the property a per-event scroll would fail.
+    After `dragend` it stayed at 44. A `dragover` carrying a `DataTransfer` with no
+    `REF_DRAG_TYPE`, which is what a file dragged in from Explorer is, left it at 0.
+    Screenshot `docs/screenshots/gc122-drag-autoscroll.png`.
+  - 2026-09-06 14:05 the second half of the first criterion — "and a chip among them can be
+    dropped on" — was taken from the drop path being untouched rather than driven end to end: the
+    rows brought into view are ordinary virtualised rows and their chips are the same drop targets
+    e2e step 29 already drops on. What was missing was only ever the reach, and the reach is what
+    was measured. Nothing in the suite guards the auto-scroll itself, because the fixture's graph
+    fits at every normal height; filed as GC-168.
+
+---
+
+### GC-129 A stash message cannot be edited once the stash is made
+
+- **Status:** done
+- **Area:** actions | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `stashMenuItems` offers Apply, Pop and Drop. The study's Stash row lists Apply, Pop,
+  Delete, **Edit stash message** and Share as cloud patch; the last is a hosting feature and out,
+  which leaves the message as the one thing on that row we do not have. A stash saved in a hurry
+  keeps whatever it was called — or git's own `WIP on main: …` when GC-029 let the message be
+  empty — and the list is the only thing telling the user which stash is which.
+- **Scope:**
+  - `git.ts`: `stashRename(cwd, index, message)`. git has no command for this, so it is
+    `git stash store -m <message> <sha>` followed by `git stash drop stash@{index}` — read the sha
+    **before** either, and drop only after the store has succeeded, or a failure loses the stash.
+  - The re-stored entry lands at `stash@{0}`, so **editing a message moves that stash to the top of
+    the list**. That is what GitKraken's own edit does and it is acceptable, but it must not be a
+    surprise: the dialog says it, or the ticket is not done.
+  - `ipc.ts`, preload, and an "Edit message…" row in `stashMenuItems` above the separator, opening
+    `ui.prompt` with the current message as the default value.
+- **Out of scope:** editing the message of anything else, partial stashes, and any change to how a
+  stash is applied or popped (`--index` and `restoreStashWith` are GC-092's and stay untouched).
+- **Acceptance:**
+  - [x] Editing the message of `stash@{1}` leaves two stashes, the edited one carrying the new
+        message and holding exactly the tree and index it held before.
+  - [x] The dialog says the stash will move to the top of the list.
+  - [x] A store that fails leaves the original stash in place and reports git's message.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
+  `src/shared/types.ts`, `src/renderer/src/App.tsx`.
+- **Verify:** `npm run typecheck`, `npm test`, then an e2e step against the fixture's two stashes:
+  edit the older one's message, assert `git stash list` shows the new message at `stash@{0}` and
+  that `git stash show --stat stash@{0}` matches what the old entry held, then put the fixture back
+  the way step 29 does.
+- **Log:**
+  - 2026-09-06 proposed by GR-014: from the what's-next pass; the last unshipped entry on the
+    study's Stash row, and small enough to ride along in a batch of P3s.
+  - 2026-09-06 13:25 claimed
+  - 2026-09-06 14:05 done. `stashRename` in `git.ts` reads the sha, stores the entry again under
+    the new message and only then drops the old one — at `index + 1`, because `git stash store`
+    prepends a reflog entry and shifts every existing stash down one. That shift was measured
+    rather than assumed, in a throwaway repository: after storing `stash@{1}` the list read
+    `stash@{0} renamed / stash@{1} second / stash@{2} first`, so dropping `index` would have
+    taken the neighbour. Wired through `stash:rename`, the preload bridge and an "Edit message…"
+    row above the separator, opening `ui.prompt` on the message the list shows.
+  - 2026-09-06 14:05 verified by a new e2e step 38, which makes two stashes of its own with a
+    pathspec push (the Verify line said "the fixture's two stashes", and the fixture has none at
+    rest — `grep -n stash tools/e2e/setup-testrepo.mjs` prints nothing; the step makes and drops
+    its own instead, and leaves the tree it found). It asserts the menu row, the dialog opening on
+    `On main: older stash`, the sentence about moving to the top, then `stash@{0} renamed by the
+    suite` with `stash@{1} On main: newer stash` still beside it and `git stash show --stat
+    stash@{0}` byte-identical to what the old entry held. Third criterion checked at the git
+    level instead of through the UI, because a store failure cannot be induced from the app: a
+    `git stash store` of a non-stash-like commit exits 128, prints git's own message and leaves
+    the list untouched, and the drop is only reached once the store has resolved.
+    Screenshots `docs/screenshots/gc129-stash-menu.png`, `gc129-edit-message.png`.
+
+---
+
+### GC-134 remoteCopyOf is inline and untested, and its comment justifies a state git forbids
+
+- **Status:** done
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-112
+- **Why:** GC-112's `remoteCopyOf` (`src/renderer/src/App.tsx:815`) answers "where else does this
+  branch live", and it is the only thing between a delete confirmation and a checkbox naming the
+  wrong remote. Every comparable decision in this codebase was pulled out of its component so a
+  test could hold it — `fitPanels`, `reachedWidth`, `continuesRange`, `alignHunks`, `wordDiff`,
+  `canDropRef` — and the closest relative of all, `defaultRemote`, already sits in
+  `src/shared/remotes.ts` with its own `remotes.test.ts`. `remoteCopyOf` is a `useCallback` in the
+  middle of a 1,300-line component instead, and the window that shipped it added no unit test at
+  all (184 tests before, 184 after). Its e2e cover, step 33, exercises one path: one remote,
+  upstream present. Untested are the two branches the comment is proudest of — the same-name
+  fallback for a branch pushed without `-u`, and a pruned upstream falling through to it. And the
+  reason given for the sort is not true: the comment says the longest match wins "because `origin`
+  and `origin/fork` are both legal remote names", but git refuses that pair in both directions —
+  `git remote add origin/fork` while `origin` exists is
+  `fatal: remote name 'origin/fork' is a subset of existing remote 'origin'`, and adding `foo`
+  after `foo/bar` is the same fatal the other way round (both verified at `5f705ee`). The sort is
+  harmless and may stay; the justification beside it is one a later session would believe.
+- **Scope:**
+  - Move `remoteCopyOf` into `src/shared/remotes.ts` as a pure function over the refs, the remotes
+    and the branch, and call it from `App.tsx`. There is no React in it, and `remotes.ts` is
+    already where a menu label and a git call are made to agree.
+  - Correct the comment: what the split has to survive is a **branch** name with slashes
+    (`origin` + `feature/x` gives `origin/feature/x`), which it already does; git makes the nested
+    *remote* case unreachable.
+  - Extend `src/shared/remotes.test.ts`: the upstream wins when the snapshot lists it; a pruned
+    upstream falls through to a same-name remote ref; a branch on no remote answers `null`; a
+    slashed branch name splits at the remote and not at the first slash; a branch whose only copy
+    is on a remote the snapshot does not list answers `null`.
+- **Out of scope:** changing which remote is chosen when several carry the same branch name (the
+  label names it, so the answer is readable), offering more than one copy at once, and the tag
+  menu's separate per-remote shape.
+- **Acceptance:**
+  - [x] `grep -n remoteCopyOf src/renderer/src/App.tsx` shows an import and its call sites, no
+        definition.
+  - [x] The five cases above are named tests in `src/shared/remotes.test.ts`, and `npm test` passes
+        with a higher count than 184.
+  - [x] No comment in the tree claims `origin` and `origin/fork` can coexist.
+  - [x] `npm run e2e` still passes step 33 unchanged.
+- **Files:** `src/shared/remotes.ts`, `src/shared/remotes.test.ts`, `src/renderer/src/App.tsx`.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GR-015: from the code-review pass; the convention the rest of the
+    codebase follows, plus a justification checked against git and found false.
+  - 2026-09-06 13:25 claimed
+  - 2026-09-06 14:05 done. `remoteCopyOf` is now a pure function in `src/shared/remotes.ts` taking
+    the branch, the refs and the remotes; `App.tsx` keeps a one-line `copyOf` `useCallback` that
+    passes the snapshot in, so `grep -n remoteCopyOf src/renderer/src/App.tsx` answers the import
+    on line 4 and the call on 1109, and no definition.
+  - 2026-09-06 14:05 the false justification is gone, and the claim was re-checked against git
+    here rather than taken from the ticket: `git remote add origin/fork` with `origin` present is
+    `fatal: remote name 'origin/fork' is a subset of existing remote 'origin'`, and adding `foo`
+    after `foo/bar` is `fatal: remote name 'foo' is a superset of existing remote 'foo/bar'`. The
+    sort stays; the comment now says what the split really has to survive, which is a *branch*
+    name with slashes. Six named tests added (the five asked for plus a same-name copy on a
+    remote the snapshot does not list), 285 tests before and 306 after the batch. e2e step 33
+    passes unchanged in three consecutive full runs.
+
+---
+
+### GC-135 Nothing says how long ago anything happened, and the stash date is fetched and thrown away
+
+- **Status:** done
+- **Area:** ui | **Size:** M | **Priority:** P3
+- **Depends on:** GC-133
+- **Why:** `grep -rn "ago" src/renderer/src` finds nothing: every timestamp in this app is an
+  absolute instant. The study's `06-feature-inventory.md` has
+  `Timeline / Time / DateTime | 24 | Relative and formatted dates | Build`, and with GC-128 filed
+  against RepoManagement it is now one of the last **Build** rows with nothing shipped against it
+  at all. The sharpest instance is the stash list: `Stash.date` is declared in `shared/types.ts`,
+  `getStashes` fills it from `%ci`, and `LeftPanel.tsx:219-224` renders the index and the message
+  and drops it on the floor. A stash list is exactly where "how old is this" is the question being
+  asked, and the answer is already in the snapshot. The commit view's author line is the second:
+  `authored 06/09/2026, 09:14:32` gives the instant, and a history is read for the distance.
+- **Scope:**
+  - `relativeTime(iso, now)` in the `src/renderer/src/time.ts` GC-133 creates: "just now",
+    "N minutes / hours / days ago" with singular and plural right, then the absolute date past a
+    threshold. Pure, with `now` injected so the test does not depend on the clock.
+  - The left panel's stash row renders it in a dim trailing span, and the absolute form joins the
+    message already on the row's `title`.
+  - The commit view's author line reads `authored 3 hours ago`, with the absolute string as its
+    `title`.
+  - Boundary tests: 59s, 60s, 23h, 24h, the threshold itself, and a date in the **future**, which a
+    commit made under a skewed clock produces and which must not render as "-1 minutes ago".
+- **Out of scope:** the graph's DATE / TIME column, which stays exactly as it is — the study names
+  that column "COMMIT DATE / TIME" and a column exists to be read down and compared; a preference
+  choosing between the two forms; the WIP row; translating the words.
+- **Acceptance:**
+  - [x] A stash made a minute ago shows a relative age in the left panel, and hovering the row
+        shows the absolute date beside its message.
+  - [x] The commit view's author line shows the relative form with the absolute on hover.
+  - [x] The DATE / TIME column renders byte-for-byte what it renders today.
+  - [x] The boundary tests above exist, `npm test` passes, and `npm run e2e` passes.
+- **Files:** `src/renderer/src/time.ts`, `src/renderer/src/time.test.ts`,
+  `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
+  `src/renderer/src/styles/app.css`.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, then a stash made by hand in the
+  scratch repo (the fixture has none at rest) and CDP screenshots of the expanded Stashes section
+  and of a selected commit into `docs/screenshots/`.
+- **Log:**
+  - 2026-09-06 proposed by GR-015: from the what's-next pass; the study's DateTime row is `Build`
+    with nothing shipped, and `Stash.date` is already loaded on every snapshot and never drawn.
+  - 2026-09-06 evidence from GC-157: the absolute form is what makes that row tight. Measured over
+    CDP after GC-157, `authored 06/09/2026, 13:05:01` wants 172px, and at the detail panel's 300px
+    minimum the `.author` grid resolves to `40px 165px 46px` — both the date and a merge's parents
+    list are clipped, neither overlapping. A relative form is materially shorter, so this ticket is
+    where that row stops being cramped at the minimum; GC-157 only stopped it being cramped at the
+    default. No separate ticket filed.
+  - 2026-09-06 13:25 claimed
+  - 2026-09-06 14:05 done. `relativeTime(iso, now)` joins the two formatters in `time.ts`: "just
+    now" under a minute, then minutes, hours and days with the singular right, then the absolute
+    `dd/mm/yyyy` past 30 days. A timestamp in the future shares the "just now" branch rather than
+    counting backwards. Eleven boundary assertions in `time.test.ts` (59s, 60s, 119s, 23h, 24h,
+    29d, the threshold, 400 days, two future dates, an unparseable string), `now` injected.
+  - 2026-09-06 14:05 measured over CDP on the built app. The stash row reads
+    `0 On main: refacto… just now` with `title="On main: refactor the parser\n06/09/2026,
+    13:44:27"`; the commit view reads `authored 5 minutes ago` with the absolute string as its
+    title, on a **merge** commit at the default 400px panel with both parents beside it and
+    nothing clipped — which is the relief GC-157's log predicted. The DATE / TIME column still
+    renders `06/09/2026, 13:39` from `formatDateTime`; `CommitGraph.tsx` is untouched by this
+    ticket. Screenshots `docs/screenshots/gc135-stash-age.png`, `gc135-commit-author.png`.
+  - 2026-09-06 14:05 the cost of the age, measured rather than left to be discovered: `.row-when`
+    is 39px and `flex: none`, so at the 220px default left panel the message drops from ~147px to
+    104px of room and at 300px and above it is back at its natural 160px with room to spare. The
+    message is what ellipsises by design — the age is four or five characters and the full message
+    is on the row title — but a very narrow panel now shows less of it. Recorded here rather than
+    filed: it is the trade the ticket asked for, not a defect in it.
+
+---
+
+
 ## Reviews
 
 ### GR-001 Backlog review 2026-09-05 17:23

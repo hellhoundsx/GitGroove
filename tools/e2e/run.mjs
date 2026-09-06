@@ -2724,7 +2724,60 @@ writeFileSync(join(R, PICK_FILE), pickFileBefore);
 log(await act(() => tool('Refresh'), "put the step's own change back"));
 check('the step leaves the file exactly as it found it', shortOf(PICK_FILE) === pickShortBefore && readFileSync(join(R, PICK_FILE), 'utf8') === pickFileBefore, `${shortOf(PICK_FILE) || '(clean)'} | expected ${pickShortBefore || '(clean)'}`);
 
-step(38, 'the run leaves the fixture exactly as it found it');
+step(38, "a stash's message can be edited, and the list says how old each stash is");
+// The fixture carries no stashes at rest, so the step makes its own — two of them, because the
+// shift `git stash store` causes is only visible when there is a neighbour that could be lost
+// (GC-129). Each is pushed with a pathspec, so the fixture's own mixed working tree is untouched
+// and the step needs no reset to put anything back: dropping the two entries is the whole undo.
+const STASH_A = 'gc129-a.txt';
+const STASH_B = 'gc129-b.txt';
+writeFileSync(join(R, STASH_A), 'older stash content' + String.fromCharCode(10));
+git(['add', '--', STASH_A]);
+git(['stash', 'push', '-q', '-m', 'older stash', '--', STASH_A]);
+writeFileSync(join(R, STASH_B), 'newer stash content' + String.fromCharCode(10));
+git(['add', '--', STASH_B]);
+git(['stash', 'push', '-q', '-m', 'newer stash', '--', STASH_B]);
+const stashedA = git(['stash', 'show', '--stat', 'stash@{1}']);
+log(await act(() => tool('Refresh'), 'the two stashes to reach the left panel'));
+log(await openSection('Stashes'));
+await waitFor(`document.querySelectorAll('.left-panel .ref-row .row-when').length === 2`, 'both stash rows to draw an age');
+
+// GC-135: `Stash.date` has been on every snapshot since the list existed and was drawn nowhere.
+const ages = await ev(`[...document.querySelectorAll('.left-panel .ref-row .row-when')].map(x => x.textContent).join(' | ')`);
+check('a stash made a moment ago says so on its row', ages === 'just now | just now', ages);
+const stashTitle = await ev(`[...document.querySelectorAll('.left-panel .ref-row')].find(x => x.textContent.includes('older stash'))?.title.replace(String.fromCharCode(10), ' | ') ?? 'no row'`);
+check('and the exact instant is on the row title beside the message', /older stash \| \d\d\/\d\d\/\d{4}, \d\d:\d\d:\d\d$/.test(stashTitle), stashTitle);
+
+log(await contextMenuOn('.left-panel .ref-row', 'older stash'));
+const stashMenu = await menuList();
+check('the stash menu offers Edit message above the separator', stashMenu === 'Apply stash | Pop stash | Edit message… | --- | Drop stash', stashMenu);
+log(await menuClick('Edit message'));
+await waitModal();
+// Read before typing: `modal()` sets the field and then reports it, so its answer is the new value
+// whatever the default was.
+const editDefault = await ev(`document.querySelector('.modal .modal-field input')?.value ?? 'no input'`);
+check('the dialog opens on the message the list shows', editDefault === 'On main: older stash', editDefault);
+log(await modal('renamed by the suite', null));
+// The re-stored entry lands at stash@{0}, which is not something the user asked for, so it is said.
+check('and it says the stash will move to the top', /moves to the top/.test(await modalMessage()), await modalMessage());
+await shot('modal-stash-rename.png');
+log(await act(() => modalOk(), 'the rename to reload'));
+
+const list = git(['stash', 'list', '--format=%gd %gs']).split(String.fromCharCode(10)).filter(Boolean);
+check('the edited stash is at the top under exactly the message that was typed', list[0] === 'stash@{0} renamed by the suite', list.join(' | '));
+check('and the other stash is still there, once, unchanged', list.length === 2 && list[1] === 'stash@{1} On main: newer stash', list.join(' | '));
+check('the edited entry holds the tree the old one held', git(['stash', 'show', '--stat', 'stash@{0}']) === stashedA, git(['stash', 'show', '--stat', 'stash@{0}']));
+const rowNames = await ev(`[...document.querySelectorAll('.left-panel .ref-row .row-name')].map(x => x.textContent).join(' | ')`);
+check('and the panel shows the new message, with the old one gone', rowNames.includes('renamed by the suite') && !rowNames.includes('older stash'), rowNames);
+
+// The step's own two entries, and nothing else: dropped rather than popped, because neither holds
+// anything the fixture is asserted against — both are scratch files this step wrote itself.
+git(['stash', 'drop', '-q', 'stash@{0}']);
+git(['stash', 'drop', '-q', 'stash@{0}']);
+log(await act(() => tool('Refresh'), 'the emptied stash list'));
+check('the step leaves no stash behind', git(['stash', 'list']) === '', git(['stash', 'list']));
+
+step(39, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).
