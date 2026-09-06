@@ -1,7 +1,7 @@
 // The pair-wise clamp behind both side panels (GC-105). `fitPanels` is pure, so it is tested in
 // the node project: the hook around it is covered where the panels are rendered.
 import { describe, expect, it } from 'vitest';
-import { fitPanels, MIN_GRAPH_W } from './useDragWidth';
+import { fitPanels, fitRefCol, MIN_GRAPH_W, MIN_MSG_W } from './useDragWidth';
 
 const MIN = { left: 160, detail: 300 };
 const graph = (w: number, fit: { left: number; detail: number }): number => w - fit.left - fit.detail;
@@ -69,5 +69,51 @@ describe('fitPanels', () => {
     const fit = fitPanels(0, 720, 900 - 44, { left: 0, detail: 300 });
     expect(fit.left).toBe(0);
     expect(856 - fit.detail).toBeGreaterThanOrEqual(MIN_GRAPH_W);
+  });
+});
+
+// The same question one level in: the ref column inside the graph panel (GC-110). `rest` is the
+// lane column, 3 lanes at the fixture (3 * 20 + 16 = 76), plus any optional column.
+describe('fitRefCol', () => {
+  const LANES = 76;
+
+  it('leaves a width the panel can afford exactly as it is', () => {
+    expect(fitRefCol(150, 780, LANES, 100)).toBe(150);
+    expect(fitRefCol(400, 780, LANES, 100)).toBe(400);
+  });
+
+  it('gives the message column its minimum at the graph panel’s own minimum', () => {
+    // The ticket measured 10px of commit message and no summary at all here.
+    const w = fitRefCol(400, MIN_GRAPH_W, LANES, 100);
+    expect(MIN_GRAPH_W - w - LANES).toBe(MIN_MSG_W);
+  });
+
+  it('never touches the stored width: widening restores it', () => {
+    expect(fitRefCol(400, MIN_GRAPH_W, LANES, 100)).toBeLessThan(400);
+    expect(fitRefCol(400, 780, LANES, 100)).toBe(400);
+  });
+
+  it('counts the optional columns, which take their width from the message too', () => {
+    const opt = 140 + 150 + 80;
+    expect(fitRefCol(400, 1000, LANES + opt, 100)).toBe(1000 - LANES - opt - MIN_MSG_W);
+  });
+
+  it('never goes below the column’s own minimum, even when nothing fits', () => {
+    expect(fitRefCol(400, 300, LANES, 100)).toBe(100);
+  });
+
+  it('applies the stored width unchanged before the panel has been measured', () => {
+    expect(fitRefCol(400, 0, LANES, 100)).toBe(400);
+  });
+
+  it('holds the message column at or above its minimum across the panel’s range', () => {
+    for (let panel = MIN_GRAPH_W; panel <= 1200; panel += 10) {
+      for (const stored of [100, 150, 250, 400]) {
+        const w = fitRefCol(stored, panel, LANES, 100);
+        expect(w).toBeGreaterThanOrEqual(100);
+        expect(w).toBeLessThanOrEqual(stored); // only ever gives way
+        expect(panel - w - LANES).toBeGreaterThanOrEqual(MIN_MSG_W);
+      }
+    }
   });
 });

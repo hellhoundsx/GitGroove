@@ -43,6 +43,34 @@ export interface DragWidthOptions {
  */
 export const MIN_GRAPH_W = 440;
 
+/**
+ * What the commit message column keeps while the ref column gives way (GC-110). The ref column
+ * is a `useDragWidth` too, and it had exactly the defect `MIN_GRAPH_W` fixed one level out:
+ * 100-400 clamped against itself, with nothing asking how wide the panel holding it is. At the
+ * app's own 900px minimum window with the column dragged to 400, the message column measured 10px
+ * and the summary was not drawn at all.
+ *
+ * 200 to match the width GC-105 chose `MIN_GRAPH_W` to preserve, so the two answers agree: the
+ * centre keeps its share of the window, and inside it the message keeps its share of the centre.
+ */
+export const MIN_MSG_W = 200;
+
+/**
+ * The ref column width actually applied, for a graph panel this wide (GC-110). The same rule as
+ * `fitPanels` one level in, and the same promise: the **stored** number is never touched, only
+ * what reaches `--ref-col-w`, so widening the window or the panel brings back exactly what the
+ * user dragged. `rest` is everything a row spends outside these two columns — the lanes, and any
+ * optional column that is switched on.
+ *
+ * A `panelW` of 0 means the panel has not been measured yet (the first render, before the
+ * `ResizeObserver` fires): the stored width is applied unchanged rather than snapping to the
+ * minimum for one frame and back.
+ */
+export function fitRefCol(stored: number, panelW: number, rest: number, min: number, minMsg = MIN_MSG_W): number {
+  if (panelW <= 0) return stored;
+  return Math.max(min, Math.min(stored, panelW - rest - minMsg));
+}
+
 /** The widths `fitPanels` may reduce, and the floor each one has. */
 export interface PanelFit {
   left: number;

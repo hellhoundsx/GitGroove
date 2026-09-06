@@ -8,7 +8,7 @@ import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
 import { matches as isShortcut } from '../shortcuts';
 import { usePrefs } from '../prefs';
-import { useDragWidth } from '../ui/useDragWidth';
+import { fitRefCol, useDragWidth, MIN_MSG_W } from '../ui/useDragWidth';
 
 interface Props {
   commits: Commit[];
@@ -50,6 +50,13 @@ const REF_COL_KEY = 'gitclient.refColW';
 const REF_COL_DEFAULT = 150;
 const REF_COL_MIN = 100;
 const REF_COL_MAX = 400;
+/**
+ * The widths of the optional columns, mirroring `app.css` (GC-032). They are `flex: none`, so
+ * whatever they take comes out of the commit message column: the ref column has to know about
+ * them to leave the message its minimum (GC-110). Kept here rather than measured because they
+ * are constants in the stylesheet, not something the user can drag.
+ */
+const OPT_COL_W = { author: 140, date: 150, sha: 80 };
 /**
  * The ref column shows exactly one chip at every width; everything else folds into `+N`
  * (GC-078). A second chip took its space from the first, leaving the name that identifies the
@@ -169,8 +176,41 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   }, [status]);
   const hasChanges = counts.add + counts.mod + counts.del + counts.conflict > 0;
 
+  // ---- the scroll container, measured --------------------------------------
+  // One observer answers two questions: how tall the viewport is, which is what virtualises the
+  // rows, and how wide it is, which is what the ref column below is clamped against (GC-110).
+  // `.graph-body` rather than `.graph-panel` because it is the box the rows are actually laid
+  // out in — its client width already excludes the scrollbar they do not get.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ top: 0, height: 800 });
+  const [bodyW, setBodyW] = useState(0);
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const update = (): void => {
+      setViewport({ top: el.scrollTop, height: el.clientHeight });
+      setBodyW(el.clientWidth);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // ---- ref column width ---------------------------------------------------
-  const { width: refColW, resizing, handle: refColHandle } = useDragWidth({ key: REF_COL_KEY, def: REF_COL_DEFAULT, min: REF_COL_MIN, max: REF_COL_MAX });
+  // Everything a row spends outside the ref and message columns: the lanes, plus any optional
+  // column that is on. What is left over after `MIN_MSG_W` is as far as the column may be
+  // dragged; `fitRefCol` is what a window or panel narrowing under a width already stored does,
+  // and it leaves that stored width alone so widening brings it straight back.
+  const restW = graphWidth + (cols.author ? OPT_COL_W.author : 0) + (cols.date ? OPT_COL_W.date : 0) + (cols.sha ? OPT_COL_W.sha : 0);
+  const { width: refColW, resizing, handle: refColHandle } = useDragWidth({
+    key: REF_COL_KEY,
+    def: REF_COL_DEFAULT,
+    min: REF_COL_MIN,
+    max: REF_COL_MAX,
+    limit: bodyW > 0 ? bodyW - restW - MIN_MSG_W : undefined,
+  });
+  const refColApplied = fitRefCol(refColW, bodyW, restW, REF_COL_MIN);
 
   // ---- search -------------------------------------------------------------
   const searchInput = useRef<HTMLInputElement>(null);
@@ -223,18 +263,6 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   };
 
   // ---- virtualisation -----------------------------------------------------
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const [viewport, setViewport] = useState({ top: 0, height: 800 });
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    const update = (): void => setViewport({ top: el.scrollTop, height: el.clientHeight });
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   const hasWip = !!status;
   const total = layout.rows.length + (hasWip ? 1 : 0);
   const first = Math.max(0, Math.floor(viewport.top / ROW_H) - OVERSCAN);
@@ -446,7 +474,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   }
 
   return (
-    <div className={`graph-panel ${resizing ? 'resizing' : ''}`} style={{ '--ref-col-w': `${refColW}px` } as CSSProperties}>
+    <div className={`graph-panel ${resizing ? 'resizing' : ''}`} style={{ '--ref-col-w': `${refColApplied}px` } as CSSProperties}>
       {/* shared clip for the round avatars inside every row's svg */}
       <svg width={0} height={0} style={{ position: 'absolute' }} aria-hidden="true">
         <defs>
