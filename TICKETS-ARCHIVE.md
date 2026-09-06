@@ -184,6 +184,12 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
 | GC-168 | The fixture's graph fits at every height, so nothing guards the drag auto-scroll | tests | S | P3 | done |
 | GC-162 | A launcher stop loses whatever the page wrote to localStorage last | infra | S | P3 | done |
 | GC-139 | A folder closed in the left panel opens again on every reload | ui | S | P3 | done |
+| GC-179 | The left panel’s ref filter follows a tab switch, and the other repository looks empty | ui | S | P1 | done |
+| GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | done |
+| GC-143 | The detail panel’s file-kind icons are hairlines, and the commit view draws them as text instead | ui | S | P3 | done |
+| GC-146 | A local branch’s chip carries no icon, and an absorbed chip shows only the remote’s | graph | S | P3 | done |
+| GC-147 | Nothing joins a ref chip to its node across the 30px between them | graph | S | P3 | done |
+| GC-149 | The tab bar has no answer for more tabs than fit across it | ui | S | P3 | done |
 
 ## Tickets
 
@@ -9349,6 +9355,291 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
   - 2026-09-06 15:58 done: the closed set is `gitclient.folded.<repoPath>`, pruned against the refs the
     snapshot holds; driven in the app (closed `feat`, reloaded, still closed; deleted its two branches and
     the key went) and covered by seven new `LeftPanel.test.tsx` cases including the repository switch.
+
+---
+
+### GC-179 The left panel's ref filter follows a tab switch, and the other repository looks empty
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** GC-016
+- **Why:** `LeftPanel`'s `filter` is component state and the panel is not keyed by repository, so a
+  query typed in one tab is still in the box when another tab is shown — filtering a repository the
+  user never filtered. Measured over CDP at 28f0980 with two tabs open: with `release` typed in the
+  fixture's panel (3 rows drawn), clicking the second tab left `filter: "release"` in the field and
+  drew **zero** `.ref-row` elements, on a repository whose LOCAL section holds `main` and
+  `zebra-only`. Nothing on screen says why: the sections show their real counts in their headers
+  and no rows under them, which reads as a repository with no branches rather than as a filter.
+  It is the same lesson as GC-030 and GC-137 one panel over — a piece of the user's own input
+  living in a component whose lifetime is not the thing it describes — and GC-016's rule is that
+  what a tab was left with is parked with the tab. The find bar's query and its author chip are
+  both in `TabState` for exactly this reason; the ref filter is the one input that is not.
+- **Scope:**
+  - The ref filter belongs to the tab: either `App` holds it as part of `TabState` beside the find
+    bar's `search`, or it is cleared when the repository the panel is drawing changes. The first is
+    the one GC-016 asks for and the one that keeps a filter across a switch away and back.
+  - Whichever it is, `Ctrl+Alt+F`'s focus tick keeps working and no new `window` listener appears.
+- **Out of scope:** the folded set and the section heights, both already remembered (GC-139,
+  GC-153); the graph's find bar, which is already parked; and any change to what the filter matches.
+- **Acceptance:**
+  - [ ] With two repositories open and a query typed in the first, switching to the second shows an
+        unfiltered panel.
+  - [ ] Switching back shows the first tab's query and its filtered rows again.
+  - [ ] A component or `tabs.ts` test covers whichever half is pure.
+  - [ ] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/App.tsx`,
+  `src/renderer/src/components/LeftPanel.test.tsx`
+- **Verify:** `npm test`, build, then over CDP with two repositories in `gitclient.tabs`: type a
+  query in the first, click the second tab and read the field's value and the row count back.
+- **Log:**
+  - 2026-09-06 proposed by GC-139 (this ticket): found while giving the closed-folder set a
+    per-repository key — the folded set now follows the path and the filter beside it does not.
+  - 2026-09-06 16:08 claimed
+  - 2026-09-06 16:45 done: the ref filter is `App` state and part of `TabState`, so a switch shows the other repository unfiltered and a switch back restores the query — driven over CDP with two repositories in `gitclient.tabs` (tab 1 `release` -> 3 rows, tab 2 -> empty field and 11 rows, back -> `release` and 3 rows) and covered by two `LeftPanel.test.tsx` cases.
+
+---
+
+### GC-128 The app can only open a repository that already exists: no clone, no init
+
+- **Status:** done
+- **Area:** actions | **Size:** M | **Priority:** P2
+- **Depends on:** GC-026 (`todo`, for the two-field dialog clone needs)
+- **Why:** `TitleBar` has exactly one repository entry point, "Open repository", and `grep -rn
+  "clone" src/` finds nothing. Every repository the app has ever shown was cloned or created by
+  something else first. The study's own recommendation for this area is "Build open/clone/init"
+  (`06-feature-inventory.md`, RepoManagement row), and GitKraken's new-tab page offers the three
+  side by side. It is the largest capability the client is missing that is not deferred by
+  design — everything else open on the board is polish on repositories the user already has — and
+  it is the difference between a client someone can start their day in and one that assumes a
+  terminal did the first step.
+- **Scope:**
+  - `git.ts`: `cloneRepo(url, parentDir, name?)` and `initRepo(dir)`. Both run through `runGit`
+    with a `cwd` that exists — the clone's is the parent directory, not the target — and both
+    answer the absolute path of the repository they made, which is what `openPath` takes.
+  - `ipc.ts` + preload: `repo:clone` and `repo:init`, arguments validated like every other
+    handler. Neither takes a repository path, so neither goes through `repoFile()`.
+  - Two entries beside "Open repository" — the same button's menu, or two more buttons — each
+    opening one dialog: clone asks for the URL and the parent folder, init asks for the folder.
+    Both then `openPath` the result, so the new repository lands in `recentRepos` and
+    `lastRepo` like any other.
+  - A clone that fails (bad URL, existing directory, auth) reports through the same error path a
+    failed action does, with git's stderr, and leaves the open repository alone.
+- **Out of scope:** progress reporting and cancellation — `runGit` buffers rather than streams, and
+  a clone of a large repository will sit on the busy spinner until it finishes; say so in the log
+  and let it be its own ticket if it turns out to matter. Also out: shallow clones, submodule
+  recursion, choosing a branch to clone, and cloning from a hosting service's repository list
+  (that is the deferred Services area).
+- **Acceptance:**
+  - [ ] Cloning the e2e fixture's bare `origin` into a new folder produces a working repository the
+        app opens, with its branches and remote drawn.
+  - [ ] Initialising an empty folder produces a repository the app opens on an unborn HEAD without
+        error — `--ignore-missing` already covers the graph's side of that (GC-095).
+  - [ ] A clone into a folder that already exists reports git's own message and changes nothing.
+  - [ ] Both new repositories appear in the recents dropdown.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/preload/index.ts`,
+  `src/shared/types.ts`, `src/renderer/src/App.tsx`, `src/renderer/src/components/TitleBar.tsx`.
+- **Verify:** `npm run typecheck`, `npm run build`, `npm test`, then an e2e step that clones the
+  fixture's bare `origin` into a folder under the scratch root, asserts the graph draws it, and
+  removes the folder again so the run stays re-entrant. Screenshot both dialogs and the freshly
+  cloned repository.
+- **Log:**
+  - 2026-09-06 proposed by GR-014: from the what's-next pass over `06-feature-inventory.md`. The
+    RepoManagement row is the only "Build" row with nothing shipped against it at all.
+  - 2026-09-06 16:08 claimed
+  - 2026-09-06 16:45 done: `cloneRepo`/`initRepo` behind `repo:clone`/`repo:init`, reached from the repository menu and the empty state, both landing on `openRecent`; e2e step 40 clones the fixture's bare origin through the dialog and asserts the clone's `main` against origin's, git's own refusal on the second attempt, and the recents entry (41 steps, 305 assertions, ALL PASSED), with `cloneTargetName` and the two pre-spawn refusals covered by three unit tests.
+
+---
+
+### GC-143 The detail panel's file-kind icons are hairlines, and the commit view draws them as text instead
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `Icon` renders every lucide glyph at `strokeWidth={1.75}` and `FileKindIcon` draws the
+  file-kind icons at 12px, so at the size they are actually used the modified pencil and the added
+  plus are hairlines — measured on a staged file row: `lucide lucide-plus kind kind-added`,
+  `width 12`, `stroke-width 1.75`, `fill none`. The same three states are then drawn a second,
+  different way a few pixels above: the commit view's change readout is literal text —
+  `<span class="kind-added">+ 1 added</span>`, with `✎`, `−` and `→` for the other three — so a
+  modified file is a lucide pencil in the file list and the character `✎` in the readout over it.
+  The study has one form for both: the readout is a "pencil icon 'N modified'" and the file rows
+  are "a status icon (green + added, orange pencil modified, red - deleted, purple renamed)".
+- **Scope:**
+  - The modified pencil renders filled rather than outlined, and the added plus renders visibly
+    heavier, at the 12px the rows use.
+  - lucide-react stays the only icon source (rule 1), so a filled pencil is `fill: currentColor`
+    on the lucide glyph, not a new asset and not a copied path.
+  - Any per-icon weight is a prop on `Icon`, not a second icon component — there is one place the
+    app's stroke weight is decided and it stays that way.
+  - The commit view's readout renders `FileKindIcon` for each count instead of a text glyph, so
+    the same kind is the same mark wherever it appears in the panel.
+- **Out of scope:** the kind-to-icon mapping itself, the semantic colours (already tokens), and
+  icons anywhere outside the detail panel.
+- **Acceptance:**
+  - [ ] The pencil on a modified row is filled; the plus on an added row is heavier than today.
+  - [ ] The commit view's readout and the file rows draw the same mark for the same kind.
+  - [ ] No hex or `rgba()` literal is added to `app.css`.
+  - [ ] A component test asserts the readout renders the icon component rather than a text glyph.
+  - [ ] Both themes.
+- **Files:** `src/renderer/src/ui/icons.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
+  `src/renderer/src/styles/app.css`.
+- **Verify:** `npm test`, build, screenshot the staging view and a commit view over CDP and zoom on
+  the rows and the readout.
+- **Log:**
+  - 2026-09-06 proposed by GR-016, from Ricardo's inbox: measured the stroke weight and fill, and
+    found the second, unrelated rendering of the same three states in the readout while doing it —
+    which is the stronger half of the ticket, since the two cannot be made consistent by weight
+    alone.
+  - 2026-09-06 16:08 claimed
+  - 2026-09-06 16:45 done: `Icon` takes `weight` and `filled`, kind marks draw at 2.5 with the pencil filled instead, and the commit readout renders `FileKindIcon` rather than `+`/`✎`/`−`/`→` — measured in the app (pencil `fill=currentColor`, plus `stroke-width=2.5`) and covered by two `DetailPanel.test.tsx` cases; screenshots `detail-file-rows-zoom-dark.png` and `detail-readout-zoom-dark.png`.
+
+---
+
+### GC-146 A local branch's chip carries no icon, and an absorbed chip shows only the remote's
+
+- **Status:** done
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** `renderChip` gives a remote chip a leading `Cloud`, a tag a `Tag`, the checked-out
+  branch a `Check` and the pinned one a `Pin` — and a plain local branch nothing at all. Confirmed
+  in the running app on `wip-branch` and `feature`, whose chips are bare names. When a local
+  branch absorbs its upstream the chip gains a **trailing** `Cloud` and still no local mark, so
+  `main`'s chip reads `✓ main ☁`: the one icon on it belongs to the remote copy, and nothing says
+  a local branch is there. The study is specific about both the vocabulary and the order — chip
+  contents are "status icon (check mark = checked out), name (truncated with ellipsis), then small
+  icons: laptop = local branch, cloud or remote logo = remote" — so the kind icons trail the name,
+  the status icon leads it, and a local branch is a laptop. Ours puts the remote's cloud in front
+  of the name and the absorbed one behind it, which is the same icon on two sides of the same
+  chip. The vocabulary already exists in the app: the left panel's LOCAL section header is
+  `Laptop` and REMOTE is `Cloud`, while the rows under both use `GitBranch` for local and remote
+  branches alike, which is the same gap one level down.
+- **Scope:**
+  - A local branch chip gets the laptop; a chip that has absorbed its upstream gets laptop and
+    cloud side by side, in that order.
+  - Kind icons trail the name and status icons (check, pin) lead it, per the study, so the remote
+    chip's cloud moves behind the name and the absorbed chip's cloud stops being a special case.
+  - The left panel's branch rows take the same vocabulary, so a branch is marked the same way in
+    both surfaces.
+  - Check the extra glyph against the narrow case: `MAX_CHIPS` is 1 and the chip shrinks, so
+    confirm the name is not pushed out at the ref column's minimum width. It must not get worse
+    than today; making it better is GC-071.
+- **Out of scope:** GC-071 (the primary chip being unreadable at the minimum width); the avatar
+  the study puts on a chip for the ref's last committer; the tag and stash marks.
+- **Acceptance:**
+  - [ ] A local branch chip shows a laptop; a remote one shows a cloud; a chip that absorbed its
+        upstream shows both, side by side.
+  - [ ] Status icons lead the name and kind icons trail it, on every chip kind.
+  - [ ] The left panel marks a local and a remote branch row differently from each other.
+  - [ ] At the ref column's minimum width the chip's name is no more truncated than it is today.
+  - [ ] A component test covers the absorbed chip carrying both icons.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`,
+  `src/renderer/src/components/LeftPanel.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** `npm test`, build, launch on the scratch repository — whose `main` absorbs
+  `origin/main` and carries `+4` — screenshot the ref column at the default and the minimum width
+  and look at both.
+- **Log:**
+  - 2026-09-06 proposed by GR-016, from Ricardo's inbox: confirmed in the code and on screen. The
+    icon order is included because the study puts the kind icons after the name and we already
+    disagree with ourselves about it — the same cloud leads a remote chip and trails an absorbed
+    one.
+  - 2026-09-06 16:08 claimed
+  - 2026-09-06 16:45 done: `kindMarksOf` puts the laptop on a local branch, the cloud on a remote one and both on an absorbed chip, all trailing the name with the status icons leading it, and the left panel's rows take the same two icons — measured on the fixture (`✓ main 💻 ☁`, `origin/sandbox ☁`) and covered by four `CommitGraph.test.tsx` cases; at the 100px minimum column the marks drop and `main` renders unclipped at 29px, where GC-071 had recorded `ma…`.
+
+---
+
+### GC-147 Nothing joins a ref chip to its node across the 30px between them
+
+- **Status:** done
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** none
+- **Why:** Measured on `main`'s row at the default column width: `.col-ref` runs from x 220 to
+  354, the last chip on the row (`+4`) ends at x 324, `.col-graph` starts at 354, and the only
+  thing joining the chip to the node is
+  `<line x1="0" x2="9" stroke="var(--lane-0)" stroke-width="1" opacity="0.8">` inside the graph
+  cell — page x 354 to 363, meeting the node's left edge. So 30px of the ref column's free width
+  has nothing in it at all, and what does exist beyond it is a 1px hairline at 0.8 opacity. The
+  study records two things we do not have: "A 2px `hr` line in the lane colour connects the chip
+  to the node", and separately "A background band (`commit-bg-color`, 50% lane tint) fills the
+  graph cell to the right of the node on the selected row and WIP row". The join between a chip
+  and its node is what makes a row readable when several chips are folded and the lanes are
+  crowded, and at the moment the eye has to bridge the gap itself.
+- **Scope:**
+  - The connector runs from the last chip's right edge to the node: across the ref column's
+    remaining width and across the graph cell, meeting the node at the same y.
+  - It is a faint lane-tinted band with the lane-coloured line on it, per Ricardo — the stretch
+    between the node and the chip only, never across the whole row.
+  - Only rows that actually have a chip get one; a row with no refs gets neither band nor line.
+  - Two constraints that decide the implementation: `.col-ref` is `overflow: hidden`, and
+    `.more-list` is absolutely positioned against `.col-ref` and grows over it on hover (GC-022,
+    GC-078). The band must not be clipped away, and must not be what the hover expansion has to
+    paint over.
+  - The graph cell's half stays inside the row's SVG so it lines up with the node exactly, as the
+    existing hairline does.
+  - Any new colour is a token in `tokens.css`.
+- **Out of scope:** the selected-row and WIP-row background band that fills the graph cell to the
+  right of the node — the other half of that paragraph in `03-graph.md`, a different surface.
+  Also out: chip layout and the fold budget.
+- **Acceptance:**
+  - [ ] On a row with a chip, the stretch from the chip's right edge to the node is filled and
+        measurably continuous — no gap at the ref column / graph column boundary.
+  - [ ] A row with no chips has nothing drawn there.
+  - [ ] Hovering `+N` still opens the folded list, it is not clipped, and the band does not show
+        through it.
+  - [ ] The band takes the row's lane colour and is legible in both themes without competing with
+        the chip.
+  - [ ] `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' src/renderer/src/styles/app.css` prints nothing.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`,
+  `src/renderer/src/styles/tokens.css`.
+- **Verify:** build, launch on the scratch repository, measure the chip's right edge, the band's
+  rect and the node's left edge over CDP on a row with chips and on one without, then screenshot
+  both themes and look at them next to
+  `docs/reference/gitkraken/screenshots/02-main-1080.png`.
+- **Log:**
+  - 2026-09-06 proposed by GR-016, from Ricardo's inbox: measured rather than eyeballed, because a
+    hairline does exist — it is 9px long inside the graph cell and starts 30px after the chip
+    ends, which is why the row reads as having nothing between the two.
+  - 2026-09-06 16:08 claimed
+  - 2026-09-06 16:45 done: `.ref-line` is a 22px lane-tinted band with the line on it and `GraphCell` draws the matching rect, measured continuous over CDP (chip 345 -> band 349-370, svg rect 370-399, node left 399: no gap at the column boundary) with a refless row drawing neither; the folded `+N` block still opens over it opaque and unclipped, and `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing.
+
+---
+
+### GC-149 The tab bar has no answer for more tabs than fit across it
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-016
+- **Why:** `.titlebar .tabs` is a plain flex row with `min-width: 0` and no scrolling. A tab is
+  capped at 240px and its name ellipsises, but nothing stops the row itself from running out of
+  space: past roughly a dozen repositories the tabs squash toward nothing and then push `+` and the
+  recents chevron under the 140px reserved for the OS window controls, where they cannot be clicked
+  at all. The list is persisted now, so a bar that has grown too long comes back every start and
+  there is no way to shrink it except from a tab that can still be reached. The study records
+  GitKraken's answer in the same strip: "Right cluster (each 28x28): tabs list chevron, ..." — a
+  dropdown listing every open tab, which stays reachable however many there are.
+- **Scope:**
+  - Decide the overflow behaviour and implement one: the bar scrolls horizontally with the showing
+    tab kept in view, or tabs shrink to a floor and the rest fold behind a count.
+  - Whatever it is, `+` and the recents chevron keep their place and stay clickable at every tab
+    count, and no tab is ever narrower than its icon plus one character.
+  - The existing chevron button already opens the recents menu; if the answer is a tabs list, it is
+    a second control rather than a second meaning for that one.
+- **Out of scope:** drag to reorder and detaching a tab to its own window, both deliberately out of
+  GC-016; and any cap on how many repositories may be open.
+- **Acceptance:**
+  - [ ] With twenty tabs open, `+` and the chevron are inside the window and hit-testable, measured
+        over CDP against the 140px window-control reserve.
+  - [ ] Every tab is at least readable enough to be told apart, or is reachable through whatever
+        folds it.
+  - [ ] The showing tab is visible without the user having to look for it after a restart.
+- **Files:** `src/renderer/src/components/TitleBar.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** seed `gitclient.tabs` with twenty paths, launch, and measure the rects of `+`, the
+  chevron and the showing tab over CDP; screenshot and look at it.
+- **Log:**
+  - 2026-09-06 proposed by GC-016 (this ticket): the bar was built for one tab and now holds as
+    many as the user opens. Two repositories is where the ticket's acceptance stops and where the
+    verification stopped too, so this is the untested end of the same control.
+  - 2026-09-06 16:08 claimed
+  - 2026-09-06 16:45 done: the tab strip scrolls instead of spilling and the three bar buttons are `flex: none`, with the showing tab scrolled into view on every change — measured with twenty tabs on a 1400px window: `+` at 1180-1220 and the chevron at 1220-1260, both inside the 1260 the OS controls leave and both answering `elementFromPoint`, narrowest tab 123px, showing tab in view.
 
 ---
 

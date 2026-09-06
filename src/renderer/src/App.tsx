@@ -95,6 +95,8 @@ interface TabState {
   hasMore: boolean;
   /** Both halves of the find bar: the query and the author chip, which have one lifetime (GC-137). */
   search: { open: boolean; tick: number; query: string; author: string | null };
+  /** The left panel's ref filter, which is the same kind of input one panel over (GC-179). */
+  refFilter: string;
   graphTop: number;
   draft: CommitDraft;
 }
@@ -319,6 +321,13 @@ export function App(): JSX.Element {
   const setSearchQuery = useCallback((query: string) => setSearch((s) => ({ ...s, query })), []);
   const setSearchAuthor = useCallback((author: string | null) => setSearch((s) => ({ ...s, author })), []);
 
+  // The left panel's ref filter, held here for the reason the query above is (GC-179).
+  // `LeftPanel` is not keyed by repository, so its own state survived a tab switch and narrowed
+  // the repository the user had just moved to — drawing no rows at all under headers still
+  // counting the real ones, with nothing on screen saying a filter was why. Part of `TabState`,
+  // so a switch away and back brings the query and its rows back with the tab.
+  const [refFilter, setRefFilter] = useState('');
+
   // The staging form's contents, held here so they survive the panel unmounting and are parked
   // with the tab they were written in (GC-148).
   const [draft, setDraft] = useState<CommitDraft>(EMPTY_DRAFT);
@@ -326,8 +335,8 @@ export function App(): JSX.Element {
   // What the showing tab would be parked with, mirrored into a ref on every render — the shape
   // `panelW` above already uses. Keeping it here rather than in the switch callback's closure is
   // what stops that callback from being rebuilt on every keystroke in the find bar (GC-016).
-  const live = useRef<TabState>({ snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current, draft });
-  live.current = { snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current, draft };
+  const live = useRef<TabState>({ snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, refFilter, graphTop: graphTop.current, draft });
+  live.current = { snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, refFilter, graphTop: graphTop.current, draft };
 
   /**
    * What the showing tab is parked with, at the moment it is parked (GC-172).
@@ -421,6 +430,21 @@ export function App(): JSX.Element {
     const token = (busyToken.current += 1);
     setBusy(label);
     return () => busyToken.current === token;
+  }, []);
+
+  /**
+   * Put a failure on screen: the status bar's line, or — for a credential refusal — the dialog and
+   * the summary that opens it (GC-091, GC-169). Extracted from `run()` so the two entry points
+   * that make a repository rather than act on one report exactly the way an action does, without a
+   * second reading of the same two flags (GC-128).
+   */
+  const report = useCallback((failure: unknown) => {
+    if (isAuthFailure(failure)) {
+      const parts = authParts(failure);
+      setAuthFailure(parts);
+      setAuthOpen(true);
+      setError(parts.summary);
+    } else (isAdvisory(failure) ? setNotice : setError)(msg(failure));
   }, []);
 
   // What the app has actually put on screen, as opposed to the invalidation counter above: bumped
@@ -585,6 +609,8 @@ export function App(): JSX.Element {
       // A message written for another repository must never appear over these staged files: the
       // panel's key no longer clears it, because the draft outlives the panel now (GC-148).
       setDraft(EMPTY_DRAFT);
+      // A filter typed against another repository's refs must not narrow this one (GC-179).
+      setRefFilter('');
       graphTop.current = 0; // a repository being opened starts at the top of its history
       const owns = takeBusy('Loading repository');
       setError(null);
@@ -608,6 +634,7 @@ export function App(): JSX.Element {
     setFileView(null);
     setDraft(EMPTY_DRAFT);
     setSearch({ open: false, tick: 0, query: '', author: null });
+    setRefFilter('');
     paged.current = { path: '', loaded: 0 };
     graphTop.current = 0;
     setHasMore(false);
@@ -644,6 +671,7 @@ export function App(): JSX.Element {
       paged.current = back.paged;
       setHasMore(back.hasMore);
       setSearch(back.search);
+      setRefFilter(back.refFilter);
       setDraft(back.draft);
       graphTop.current = back.graphTop;
       setRepoPath(back.snapshot.info.path);
@@ -758,6 +786,74 @@ export function App(): JSX.Element {
   }, [openPath]);
 
   /**
+   * Making a repository rather than opening one (GC-128). Both land on `openRecent`, so what they
+   * made joins the tab bar and the recents list exactly as a repository picked from the list does,
+   * and neither replaces the repository the user was already looking at.
+   *
+   * Neither goes through `run()`: that reloads the repository already open, which is not the one
+   * either of these made. They take a busy token of their own instead, like `openIn` does
+   * (GC-108), and report a failure through the same `report` — a private clone refused for a
+   * credential is exactly the case GC-169 exists for.
+   */
+  const makeRepo = useCallback(
+    async (label: string, make: () => Promise<string>) => {
+      const owns = takeBusy(label);
+      setError(null);
+      setNotice(null);
+      setAuthFailure(null);
+      let made: string | null = null;
+      try {
+        made = await make();
+      } catch (e) {
+        report(e);
+      } finally {
+        // A clone that failed leaves the open repository alone, spinner included: nothing was
+        // loaded, so nothing but this line has changed.
+        if (owns()) setBusy(null);
+      }
+      // Opening it takes a busy token of its own, so this one is already finished with by here.
+      if (made) await openRecent(made);
+    },
+    [openRecent, report, takeBusy],
+  );
+
+  /**
+   * One dialog asks for both things a clone needs (GC-026, GC-128). "Browse…" is that same dialog
+   * again with the folder filled in by the OS picker, so picking a folder never costs the URL
+   * already typed — which is what two dialogs in sequence would have done.
+   */
+  const cloneRepository = useCallback(async () => {
+    let url = '';
+    let parent = '';
+    for (;;) {
+      const res = await ui.prompt({
+        title: 'Clone repository',
+        message: 'The repository is cloned into a new folder inside the one you choose.',
+        fields: [
+          { name: 'url', label: 'Repository URL', placeholder: 'https://github.com/owner/repo.git', defaultValue: url },
+          { name: 'parent', label: 'Clone into', placeholder: 'The folder to make it in', defaultValue: parent },
+        ],
+        okLabel: 'Clone',
+        secondary: { label: 'Browse…' },
+      });
+      if (!res) return;
+      url = res.values.url ?? '';
+      parent = res.values.parent ?? '';
+      if (res.choice !== 'secondary') break;
+      const picked = await window.api.chooseFolder('Clone into');
+      if (picked) parent = picked;
+    }
+    await makeRepo('Cloning repository', () => window.api.cloneRepo(url, parent));
+  }, [makeRepo, ui]);
+
+  /** Init asks for one thing, so the folder picker is the whole dialog (GC-128). */
+  const initRepository = useCallback(async () => {
+    const dir = await window.api.chooseFolder('Initialise a repository in');
+    if (!dir) return;
+    await makeRepo('Initialising repository', () => window.api.initRepo(dir));
+  }, [makeRepo]);
+
+  /**
    * `+` (and Ctrl+T): a tab with no repository in it yet, showing the recents page (GC-163). It
    * used to open the folder dialog, which made it a second copy of the folder button beside it and
    * left the list people actually want — the recents — one more button to the right. The tab that
@@ -861,18 +957,13 @@ export function App(): JSX.Element {
         // line everywhere else: the summary goes in the bar, the whole of git's message into the
         // dialog, which opens straight away because there is nothing the user can do until it is
         // read (GC-169).
-        if (owns() && isAuthFailure(failure)) {
-          const parts = authParts(failure);
-          setAuthFailure(parts);
-          setAuthOpen(true);
-          setError(parts.summary);
-        } else if (owns()) (isAdvisory(failure) ? setNotice : setError)(msg(failure));
+        if (owns()) report(failure);
         // The caller asked to handle the failure itself, and its own logic does not depend on
         // which action currently owns the status bar.
         if (opts.rethrow) throw failure;
       }
     },
-    [repo, load, refreshStatus, takeBusy],
+    [repo, load, refreshStatus, report, takeBusy],
   );
 
   // ---- hidden refs (GC-073) ----------------------------------------------------------
@@ -1809,9 +1900,14 @@ export function App(): JSX.Element {
       // "Open repository…" keeps `openPath`: the bar spends a button on each of the two gestures
       // and this ticket does not merge them (GC-164).
       items.push({ label: 'Open repository…', onClick: () => void openRepo() });
+      // The other two ways to arrive at a repository (GC-128). They sit under the same heading
+      // because they answer the same question the recents list does — "which repository" — and
+      // this menu is the one place both surfaces that ask it already share.
+      items.push({ label: 'Clone repository…', onClick: () => void cloneRepository() });
+      items.push({ label: 'Initialise repository…', onClick: () => void initRepository() });
       ui.openMenu(at, items);
     },
-    [openRecent, openRepo, recents, repoPath, ui],
+    [cloneRepository, initRepository, openRecent, openRepo, recents, repoPath, ui],
   );
 
   // The branch crumb's dropdown: the quickest way to switch branches without hunting for the row
@@ -2054,6 +2150,8 @@ export function App(): JSX.Element {
               onToggleHidden={toggleHidden}
               onShowAll={showAll}
               collapsed={leftCollapsed || fileView !== null}
+              filter={refFilter}
+              onFilter={setRefFilter}
               focusFilter={focusFilter}
               resize={leftW.handle}
               onExpand={() => (fileView ? setFileView(null) : setLeftCollapsed(false))}
@@ -2183,9 +2281,17 @@ export function App(): JSX.Element {
                     ))}
                   </div>
                 )}
-                <div className="primary">
+                <div className="empty-actions">
                   <button className="btn primary large" onClick={openRepo}>
                     Open repository…
+                  </button>
+                  {/* A first-ever start has no recents and no repository, so this is the one screen
+                      where clone and init are the only useful things on it (GC-128). */}
+                  <button className="btn large" onClick={() => void cloneRepository()}>
+                    Clone…
+                  </button>
+                  <button className="btn large" onClick={() => void initRepository()}>
+                    Initialise…
                   </button>
                 </div>
               </div>

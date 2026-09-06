@@ -3,7 +3,8 @@ import { cleanup, createEvent, fireEvent, render } from '@testing-library/react'
 import type { ComponentProps } from 'react';
 import type { Commit, GitRef, Stash } from '@shared/types';
 import type { RefDragHandlers } from '../ui/refDrag';
-import { chipRoom, CommitGraph, displayRows, rowIndexOf, shouldRevealSelection, stashesByParent, stashMessageText } from './CommitGraph';
+import { chipMarksFit, chipRoom, CommitGraph, displayRows, rowIndexOf, shouldRevealSelection, stashesByParent, stashMessageText } from './CommitGraph';
+import { chipsFor, headChipFor, kindMarksOf } from './RefChip';
 import { DEFAULT_PREFS, setPrefs } from '../prefs';
 
 // GC-058: a guard for GC-022's folded-refs dropdown. `onMoreEnter` decides the direction from
@@ -573,5 +574,50 @@ describe('chipRoom: what the primary chip is drawn at (GC-156, GC-170)', () => {
     // One ref: no `+N` at all, so the chip gets 26px plus a gap more.
     expect(chipRoom(150, false)).toBe(150 - 11);
     expect(chipRoom(150, false) - chipRoom(150, true)).toBe(30);
+  });
+});
+
+describe('what a chip says it is (GC-146)', () => {
+  const ref = (over: Partial<GitRef>): GitRef => ({ name: 'x', fullName: 'refs/heads/x', kind: 'head', sha: 'a'.repeat(40), isHead: false, ...over });
+  const local = ref({ name: 'feature', fullName: 'refs/heads/feature' });
+  const tracking = ref({ name: 'main', fullName: 'refs/heads/main', isHead: true, upstream: 'origin/main' });
+  const remote = ref({ name: 'origin/main', fullName: 'refs/remotes/origin/main', kind: 'remote' });
+  const tag = ref({ name: 'v1.0', fullName: 'refs/tags/v1.0', kind: 'tag' });
+  const names = (marks: ReturnType<typeof kindMarksOf>): string[] => marks.map((m) => m.displayName ?? m.name);
+
+  it('marks a local branch, a remote one and a tag each as what it is', () => {
+    // A plain local branch carried no mark at all before this: the one icon on `main`'s chip was
+    // the cloud belonging to its remote copy, and nothing said a local branch was there.
+    expect(names(kindMarksOf({ ref: local, upstreamHere: false }))).toEqual(['Laptop']);
+    expect(names(kindMarksOf({ ref: remote, upstreamHere: false }))).toEqual(['Cloud']);
+    expect(names(kindMarksOf({ ref: tag, upstreamHere: false }))).toEqual(['Tag']);
+  });
+
+  it('gives a chip that absorbed its upstream both marks, laptop first', () => {
+    // The chip stands for two refs — `main` and `origin/main` — so it is in both places and says
+    // so with both, in the study's order. `chipsFor` is what decides that it absorbed one.
+    const chips = chipsFor([tracking, remote]);
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.upstreamHere).toBe(true);
+    expect(names(kindMarksOf(chips[0]!))).toEqual(['Laptop', 'Cloud']);
+  });
+
+  it('leaves the synthetic HEAD chip unmarked, since it is on no branch', () => {
+    expect(kindMarksOf({ ref: headChipFor('b'.repeat(40)), upstreamHere: false })).toEqual([]);
+  });
+
+  it('drops the marks before the name, and needs more room for two of them than for one', () => {
+    // GC-071's threshold, unchanged for the one mark it was measured with.
+    expect(chipMarksFit(79, 1)).toBe(true);
+    expect(chipMarksFit(78, 1)).toBe(false);
+    // Two marks want one glyph and one gap more before they are worth what they cost the name.
+    expect(chipMarksFit(79, 2)).toBe(false);
+    expect(chipMarksFit(94, 2)).toBe(true);
+    // At the ref column's minimum, with a `+N` beside it, no chip keeps a mark — which is what
+    // makes the laptop free: the name has exactly the room it had before the laptop existed.
+    expect(chipMarksFit(chipRoom(100, true), 1)).toBe(false);
+    expect(chipMarksFit(chipRoom(100, true), 2)).toBe(false);
+    // A chip with nothing to trail is never refused anything.
+    expect(chipMarksFit(0, 0)).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import type { JSX, MouseEvent } from 'react';
+import { useEffect, useRef, type JSX, type MouseEvent } from 'react';
 import { ChevronDown, FolderOpen, GitBranch, Plus, X } from 'lucide-react';
 import { Icon } from '../ui/icons';
 import type { MenuAnchor } from '../ui/UiContext';
@@ -24,6 +24,20 @@ interface Props {
 }
 
 export function TitleBar({ tabs, activeId, onSelectTab, onCloseTab, onNewTab, onOpenRepo, onRepoMenu }: Props): JSX.Element {
+  /**
+   * The bar scrolls once there are more tabs than fit, so the showing one has to be brought into
+   * view or a restart with twenty repositories opens on whichever tabs happen to be leftmost
+   * (GC-149). It runs on the first render too, which is exactly that case: `gitclient.lastRepo`
+   * decides which tab is showing and it is rarely the first.
+   *
+   * `scrollIntoView` is called defensively because jsdom does not implement it, and a component
+   * test rendering this bar must not turn into a stub for one DOM method.
+   */
+  const activeTab = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    activeTab.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeId]);
+
   return (
     <header className="titlebar">
       <button className="tab-icon-btn" title="Open repository" onClick={onOpenRepo}>
@@ -36,6 +50,7 @@ export function TitleBar({ tabs, activeId, onSelectTab, onCloseTab, onNewTab, on
         {tabs.map((t) => (
           <div
             key={t.id}
+            ref={t.id === activeId ? activeTab : undefined}
             className={`tab ${t.id === activeId ? 'selected' : ''}`}
             title={t.path ?? 'New Tab'}
             onClick={() => onSelectTab(t.id)}

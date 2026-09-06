@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react';
-import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, Folder, GitBranch, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
+import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, Folder, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
 import type { GitRef, RepoInfo, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
 import { fitSections, useBoundaryDrag, type DragHandleProps } from '../ui/useDragWidth';
@@ -20,6 +20,15 @@ interface Props {
   onToggleHidden(ref: GitRef): void;
   onShowAll(kind: 'head' | 'remote'): void;
   collapsed: boolean;
+  /**
+   * What the ref filter is narrowing by, and how it is changed. It is `App` state and part of
+   * `TabState` (GC-179), for the reason the find bar's query is (GC-030, GC-137): this panel is
+   * not keyed by repository, so a query typed in one tab was still in the box when another was
+   * shown — filtering a repository the user never filtered, and drawing no rows under sections
+   * whose headers still counted the real ones.
+   */
+  filter: string;
+  onFilter(query: string): void;
   /** Bumped every time Ctrl+Alt+F asks for the ref filter, so it refocuses (GC-033). */
   focusFilter: number;
   /** The right-edge resize handle (GC-050). Not rendered while the panel is the icon rail. */
@@ -246,7 +255,7 @@ const abText = (r: GitRef): string => {
 type LeafRow = (ref: GitRef, label: string, depth: number) => JSX.Element;
 
 export function LeftPanel(p: Props): JSX.Element {
-  const [filter, setFilter] = useState('');
+  const filter = p.filter;
   // Ctrl+Alt+F focuses the filter; a tick rather than a flag, so asking twice focuses twice, and
   // the panel is already expanded by the time this runs — `App` un-collapses it first (GC-033).
   const filterInput = useRef<HTMLInputElement>(null);
@@ -463,7 +472,10 @@ export function LeftPanel(p: Props): JSX.Element {
       onDoubleClick={() => p.onRefActivate(r)}
       {...drag.attrs(r)}
     >
-      <Icon of={r.isHead ? Check : GitBranch} size={12} className="row-icon" />
+      {/* The same vocabulary the chip uses one panel over (GC-146): a laptop is a local branch,
+          and the check still says which one is checked out. One branch icon marked local and remote
+          rows alike, which is the gap the chips had, one level down. */}
+      <Icon of={r.isHead ? Check : Laptop} size={12} className="row-icon" />
       <span className="row-name">{label}</span>
       {r.name === p.pinnedName && <Icon of={Pin} size={11} className="row-pin" />}
       <span className="ab">{abText(r)}</span>
@@ -482,7 +494,7 @@ export function LeftPanel(p: Props): JSX.Element {
       onDoubleClick={() => p.onRefActivate(r)}
       {...drag.attrs(r)}
     >
-      <Icon of={GitBranch} size={12} className="row-icon" />
+      <Icon of={Cloud} size={12} className="row-icon" />
       <span className="row-name">{label}</span>
       {eye(r)}
     </div>
@@ -545,7 +557,7 @@ export function LeftPanel(p: Props): JSX.Element {
           </span>
           {p.info.branch === null && p.info.headSha && <b>{p.info.headSha.slice(0, 7)}</b>}
         </div>
-        <input ref={filterInput} className="filter" placeholder="Filter refs" value={filter} onChange={(e) => setFilter(e.target.value)} spellCheck={false} />
+        <input ref={filterInput} className="filter" placeholder="Filter refs" value={filter} onChange={(e) => p.onFilter(e.target.value)} spellCheck={false} />
       </div>
       <div className="sections" ref={sectionsRef}>
         <Section

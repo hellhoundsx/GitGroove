@@ -921,3 +921,60 @@ export async function push(cwd: string, req: PushRequest): Promise<void> {
   }
   await runRemote(cwd, args, named);
 }
+
+// ---------------------------------------------------------------------------
+// Making a repository (GC-128)
+// ---------------------------------------------------------------------------
+
+/**
+ * The folder `git clone <url>` would make, which is the last path segment of the URL with a
+ * trailing `.git` and any trailing slash taken off (GC-128). Pure, and exported so the name the
+ * dialog offers and the path the clone answers with come from one place rather than from git's
+ * own progress output, which `runGit` buffers and does not parse.
+ *
+ * `''` means the URL says nothing usable, and the caller has to be given a name instead — git
+ * would refuse such a clone anyway, but refusing it here says so before anything is spawned.
+ */
+export function cloneTargetName(url: string): string {
+  const trimmed = url.trim().replace(/[/\\]+$/, '');
+  // `scp`-style SSH (`git@host:owner/repo.git`) has no scheme to strip, and both forms end in the
+  // segment wanted, so the last separator of either kind is the only thing that has to be found.
+  const last = trimmed.split(/[/\\:]/).pop() ?? '';
+  return last.replace(/\.git$/i, '');
+}
+
+/**
+ * Clone `url` into a new folder under `parentDir`, and answer the absolute path of what was made,
+ * which is what `openPath` takes (GC-128).
+ *
+ * The `cwd` is the **parent**, because `runGit` refuses a cwd that does not exist and the target
+ * is precisely what does not exist yet. The target is named on the command line rather than left
+ * to git so that the path answered here is the path git used — deriving it from git's output
+ * would mean parsing a progress stream this never sees.
+ *
+ * It goes through `runRemote`, so a private repository can ask for a credential like every other
+ * command that reaches a remote (GC-169, GC-176).
+ */
+export async function cloneRepo(url: string, parentDir: string, name?: string): Promise<string> {
+  const folder = (name ?? cloneTargetName(url)).trim();
+  if (!folder) throw new GitError('Cannot tell what to call the clone: give it a folder name.', ['clone'], '', null);
+  if (folder !== basename(folder) || folder === '.' || folder === '..') {
+    throw new GitError(`"${folder}" is a folder name, not a path: the clone lands directly in the folder you chose.`, ['clone'], '', null);
+  }
+  const target = join(parentDir, folder);
+  // git refuses an existing non-empty directory itself, with a message worth showing; this is the
+  // one it cannot give, since the path is ours rather than its.
+  await runRemote(parentDir, ['clone', url, folder], null);
+  return (await runGit(target, ['rev-parse', '--show-toplevel'])).trim();
+}
+
+/**
+ * `git init` in `dir`, answering the absolute path of the repository (GC-128). The folder has to
+ * exist — the dialog that names it is a folder picker, so it always does — and initialising one
+ * that is already a repository is git's own no-op, which is the honest outcome for a button that
+ * only ever means "make this a repository".
+ */
+export async function initRepo(dir: string): Promise<string> {
+  await runGit(dir, ['init']);
+  return (await runGit(dir, ['rev-parse', '--show-toplevel'])).trim();
+}

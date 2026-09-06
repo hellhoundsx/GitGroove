@@ -9,6 +9,9 @@ const call =
 const api: GitApi = {
   checkGit: call('repo:checkGit'),
   openRepoDialog: call('repo:openDialog'),
+  chooseFolder: call('repo:chooseFolder'),
+  cloneRepo: call('repo:clone'),
+  initRepo: call('repo:init'),
   loadRepo: call('repo:load'),
   getLog: call('repo:log'),
   getStatus: call('repo:status'),

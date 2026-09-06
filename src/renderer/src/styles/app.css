@@ -197,10 +197,28 @@ input[type='radio']:disabled {
   -webkit-app-region: drag;
   padding-right: 140px; /* room for the OS window controls overlay */
 }
+/* What happens when there are more tabs than fit (GC-149). The row shrinks below its content and
+   scrolls inside itself, rather than letting its children spill to the right: they used to, because
+   a tab's padding, icon and close box are `flex: none` and stop it shrinking at about 40px, so past
+   a dozen repositories the overflow ran under the 140px reserved for the OS window controls and
+   `+` and the recents chevron could not be clicked at all.
+
+   The bar keeps the scrollbar off — it would take a quarter of a 34px title bar — so what makes the
+   overflow reachable is that the showing tab is scrolled into view whenever it changes, including
+   on the first render after a restart (`TitleBar`). A vertical wheel scrolls it: Chromium maps one
+   onto an element that scrolls only horizontally. */
 .titlebar .tabs {
   display: flex;
   align-items: stretch;
   min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* The one place a scroll container hides its bar rather than taking the global 8px one. Only the
+   `::-webkit-` rule, never `scrollbar-width`, which would make Chromium ignore the global rules
+   everywhere they are inherited from. */
+.titlebar .tabs::-webkit-scrollbar {
+  height: 0;
 }
 .titlebar .tab {
   display: flex;
@@ -214,6 +232,10 @@ input[type='radio']:disabled {
   white-space: nowrap;
   cursor: pointer;
   max-width: 240px;
+  /* The row scrolls now, so a tab no longer gives up its width to make room for the next one: it
+     is as wide as its name up to the cap, and the twentieth is reached by scrolling rather than by
+     squashing the other nineteen to their icons (GC-149). */
+  flex: none;
 }
 /* A repository with a long folder name gives way rather than pushing `+` off the bar. The name is
    the only part that may shrink: an icon at half width says less than no icon at all. */
@@ -249,8 +271,11 @@ input[type='radio']:disabled {
   background: var(--hover-overlay);
   color: var(--text-bright);
 }
+/* Never shrunk and never scrolled past: the three buttons of the bar keep their place at every
+   tab count, which is the whole of GC-149's promise (open, new tab, recents). */
 .titlebar .tab-icon-btn {
   width: 40px;
+  flex: none;
   display: grid;
   place-items: center;
   color: var(--text-muted);
@@ -1128,10 +1153,35 @@ input[type='radio']:disabled {
   color: var(--text-muted);
   font-style: italic;
 }
+/* The connector between the last chip on a row and its node (GC-147). It was a 1px hairline at
+   0.8 opacity, and the 30px of free ref column it crossed read as empty: the eye had to bridge
+   the chip and the node itself, which is hardest exactly where it matters — a crowded row whose
+   refs are folded behind `+N`.
+
+   It is a band with the line on it, in two halves that meet at the column boundary: this one, and
+   a rect in the row's SVG so its end lines up with the node to the pixel (`GraphCell`). Both take
+   the row's lane colour, set inline the way a chip's background is, so nothing here is a colour.
+   `color` carries the lane so the line can be drawn from `currentColor` in this stylesheet.
+
+   22px, the height `.col-msg` uses, so the band reads as part of the row rather than as a second
+   row treatment; rounded on the chip's side only, since its other end is the node. It stays a
+   normal-flow sibling, so the absolutely positioned `.more-list` still paints over it when the
+   folded block opens (GC-022, GC-078). */
 .ref-line {
   flex: 1;
   min-width: 4px;
+  height: 22px;
+  position: relative;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.ref-line::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
   height: 1px;
+  background: currentColor;
   opacity: 0.8;
 }
 .graph-empty {
@@ -1142,7 +1192,18 @@ input[type='radio']:disabled {
   text-align: center;
   gap: var(--sp-3);
 }
-.graph-empty .primary {
+/* Open, clone and initialise, side by side: the three ways to arrive at a repository, on the
+   one screen where none is open yet (GC-128). A row rather than a stack, so the two the user is
+   less likely to want do not push the primary one up the panel.
+
+   `.empty-actions` rather than the `.primary` this box used to be called: `.graph-empty .primary`
+   also matched the `.btn.primary` inside it, so the margin meant for the box was applied to that
+   one button as well — invisible while it was the only child, and a 12px step between it and its
+   two new neighbours the moment it was not. */
+.graph-empty .empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--sp-2);
   margin-top: var(--sp-3);
 }
 /* The recents the breadcrumb menu lists, repeated as clickable rows in the empty state (GC-044).
@@ -1623,6 +1684,13 @@ input[type='radio']:disabled {
   display: flex;
   gap: var(--sp-3);
   font-size: var(--fs-sm);
+}
+/* Each count is a mark and a number now rather than a character and a number (GC-143), so it is
+   laid out the way the graph row's own readout already lays its three out. */
+.detail-body .readout > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 .err-box {
   padding: var(--sp-2) var(--sp-3);

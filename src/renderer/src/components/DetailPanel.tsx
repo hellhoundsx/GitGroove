@@ -431,11 +431,31 @@ function CommitView({
             ))}
           </div>
         </div>
+        {/* The counts draw `FileKindIcon`, the same mark the rows a few pixels below them draw
+            (GC-143). They were literal text — `+`, `✎`, `−`, `→` — so a modified file was a lucide
+            pencil in the list and the character `✎` in the readout over it: two renderings of one
+            state, which no amount of weight could have reconciled. */}
         <div className="readout">
-          {counts.added > 0 && <span className="kind-added">+ {counts.added} added</span>}
-          {counts.modified > 0 && <span className="kind-modified">✎ {counts.modified} modified</span>}
-          {counts.deleted > 0 && <span className="kind-deleted">− {counts.deleted} deleted</span>}
-          {counts.renamed > 0 && <span className="kind-renamed">→ {counts.renamed} renamed</span>}
+          {counts.added > 0 && (
+            <span className="kind-added">
+              <FileKindIcon kind="added" /> {counts.added} added
+            </span>
+          )}
+          {counts.modified > 0 && (
+            <span className="kind-modified">
+              <FileKindIcon kind="modified" /> {counts.modified} modified
+            </span>
+          )}
+          {counts.deleted > 0 && (
+            <span className="kind-deleted">
+              <FileKindIcon kind="deleted" /> {counts.deleted} deleted
+            </span>
+          )}
+          {counts.renamed > 0 && (
+            <span className="kind-renamed">
+              <FileKindIcon kind="renamed" /> {counts.renamed} renamed
+            </span>
+          )}
           {files && files.length === 0 && <span style={{ color: 'var(--text-dim)' }}>No file changes</span>}
         </div>
         {error && <div className="err-box">{error}</div>}

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import type { ComponentProps, JSX } from 'react';
+import { useState, type ComponentProps, type JSX } from 'react';
 import type { GitRef } from '@shared/types';
 import { LeftPanel, buildRefTree, folderKeys, readFolded, readSectionHeights } from './LeftPanel';
 import type { RefDragHandlers } from '../ui/refDrag';
@@ -87,6 +87,10 @@ const noResize = {
 
 /** The panel with every prop filled in, as a component: a test that rerenders needs the element. */
 function Panel({ refs, ...over }: { refs: GitRef[] } & Partial<ComponentProps<typeof LeftPanel>>): JSX.Element {
+  // The ref filter is `App` state now (GC-179), so the harness plays `App`: it holds the query
+  // and hands it straight back down. That is what keeps `fireEvent.change` on the field changing
+  // the rows, and a test wanting to drive the prop itself still overrides both through `over`.
+  const [filter, setFilter] = useState('');
   return (
     <LeftPanel
       info={{ path: '/repo', name: 'repo', headSha: 'abc1234def', branch: 'main' }}
@@ -99,6 +103,8 @@ function Panel({ refs, ...over }: { refs: GitRef[] } & Partial<ComponentProps<ty
       onToggleHidden={() => {}}
       onShowAll={() => {}}
       collapsed={false}
+      filter={filter}
+      onFilter={setFilter}
       focusFilter={0}
       resize={noResize}
       onExpand={() => {}}
@@ -308,5 +314,31 @@ describe('the sections share the column (GC-153)', () => {
     expect(readSectionHeights()).toEqual({});
     localStorage.removeItem('gitclient.sectionHeights');
     expect(readSectionHeights()).toEqual({});
+  });
+});
+
+describe('the ref filter belongs to the tab (GC-179)', () => {
+  const refs = [head('main', true), head('release/1'), head('release/2')];
+
+  it('draws what the query it is given matches, and everything again when it is taken away', () => {
+    // The tab switch, at this level: the panel is handed another repository's empty query and has
+    // to draw an unfiltered list. It kept its own `filter` state before, so the query stayed and
+    // the new repository's rows were all filtered out with nothing saying why.
+    const r = render(<Panel refs={refs} filter="release" onFilter={() => {}} />);
+    expect(names(r.container, '.ref-row:not(.folder):not(.dim)')).toEqual(['1', '2']);
+    r.rerender(<Panel refs={refs} filter="" onFilter={() => {}} />);
+    expect(names(r.container, '.ref-row:not(.folder):not(.dim)')).toEqual(['1', '2', 'main']);
+  });
+
+  it('reports typing rather than narrowing on its own, so the query has one home', () => {
+    const seen: string[] = [];
+    const c = panel(refs, { filter: '', onFilter: (q) => seen.push(q) });
+    const field = c.querySelector<HTMLInputElement>('input.filter')!;
+    fireEvent.change(field, { target: { value: 'release' } });
+    expect(seen).toEqual(['release']);
+    // Controlled: with the prop unchanged the field and the rows are unchanged too. That is what
+    // makes `App` the only place the query lives, and what parks it with the tab.
+    expect(field.value).toBe('');
+    expect(names(c, '.ref-row:not(.folder):not(.dim)')).toEqual(['1', '2', 'main']);
   });
 });

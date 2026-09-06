@@ -3,7 +3,7 @@ import { Archive, Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus
 import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
 import { continuesRange, layoutGraph, wipDashFor, type GraphLayout } from './lanes';
 import { GraphCell, LANE_W, ROW_H, laneColor } from './GraphCell';
-import { chipsFor, headChipFor, HEAD_REF, RefChip, type Chip } from './RefChip';
+import { chipsFor, kindMarksOf, headChipFor, HEAD_REF, RefChip, type Chip } from './RefChip';
 import { Icon } from '../ui/icons';
 import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
@@ -128,6 +128,22 @@ export function chipRoom(refColW: number, more: boolean): number {
  * absorbing its upstream, and the title still says it in words. So the cloud is what gives way.
  */
 const CHIP_CLOUD_MIN = 79;
+/**
+ * What one more trailing mark costs a chip: an 11px glyph and the 4px gap before it, mirroring
+ * `app.css` the way the constants above do (GC-146).
+ */
+const CHIP_MARK_W = 15;
+/**
+ * Whether a chip drawn at `room` keeps its trailing kind marks (GC-071, GC-146). GC-071 measured
+ * the threshold for the one mark a chip could then carry; a branch that has absorbed its upstream
+ * carries two — the laptop and the cloud — and wants that much more before the pair is worth the
+ * name it costs. A chip with no marks to drop is never refused anything.
+ *
+ * Pure and exported, so the arithmetic is a test rather than a measurement made once by hand.
+ */
+export function chipMarksFit(room: number, marks: number): boolean {
+  return marks === 0 || room >= CHIP_CLOUD_MIN + (marks - 1) * CHIP_MARK_W;
+}
 /**
  * The widths of the optional columns, mirroring `app.css` (GC-032). They are `flex: none`, so
  * whatever they take comes out of the commit message column: the ref column has to know about
@@ -596,7 +612,8 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     setMoreDrag((n) => (n === sha ? null : n));
   };
 
-  const renderChip = ({ ref: r, upstreamHere }: Chip, color: string, room: number, commit?: Commit, plain?: boolean): JSX.Element => {
+  const renderChip = (chip: Chip, color: string, room: number, commit?: Commit, plain?: boolean): JSX.Element => {
+    const { ref: r, upstreamHere } = chip;
     const isPinned = r.kind === 'head' && r.name === pinnedName;
     // The synthetic HEAD chip is no ref: there is nothing to check out and nothing for the ref
     // menu to act on, so it opens the commit menu instead — "Create branch here…" being what a
@@ -608,15 +625,15 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     return (
       <RefChip
         key={r.fullName}
-        chip={{ ref: r, upstreamHere }}
+        chip={chip}
         color={color}
         pinned={isPinned}
         plain={plain}
-        // With little room the name wins over the marker (GC-071), and how much room there is
-        // depends on what else is on this row, not on the column alone (GC-156). The expanded
-        // `+N` block is not bound by the column's width, so a chip in it keeps the cloud whatever
-        // the column is.
-        upstreamMark={plain === true || room >= CHIP_CLOUD_MIN}
+        // With little room the name wins over the marks (GC-071, GC-146), and how much room there
+        // is depends on what else is on this row, not on the column alone (GC-156). The expanded
+        // `+N` block is not bound by the column's width, so a chip in it keeps them whatever the
+        // column is.
+        kindMarks={plain === true || chipMarksFit(room, kindMarksOf(chip).length)}
         dragAttrs={dragAttrs}
         className={`${!synthetic && drag.isSource(r) ? 'drag-src' : ''} ${!synthetic && drag.isOver(r) ? 'drop-over' : ''}`}
         title={synthetic ? 'Detached HEAD\nRight-click for actions on this commit' : `${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions${dragAttrs?.draggable ? '\nDrag onto another branch to merge or rebase' : ''}`}
@@ -792,7 +809,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
               </span>
             </>
           )}
-          {joined && <span className="ref-line" style={{ background: color }} />}
+          {/* The band and the line on it are one element; the lane colour reaches the line through
+              `color`, and the band is the same tint a chip takes, so no colour is added to the
+              stylesheet for either (GC-147). */}
+          {joined && <span className="ref-line" style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }} />}
         </div>
         <div className="col-graph" style={{ width: graphWidth }}>
           <GraphCell

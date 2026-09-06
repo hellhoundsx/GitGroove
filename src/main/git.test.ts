@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { authSummary, GitError, ignorePattern, isAuthMessage, restoreStashWith, runGit, stashRenameWith, type GitRunner } from './git';
+import { authSummary, cloneRepo, cloneTargetName, GitError, ignorePattern, isAuthMessage, restoreStashWith, runGit, stashRenameWith, type GitRunner } from './git';
 import { ADVISORY, AUTH_FAILURE } from '@shared/types';
 
 // `restoreStashWith` is the whole of GC-092's decision: whether a failed `stash apply --index`
@@ -250,8 +250,40 @@ describe('GIT_TERMINAL_PROMPT is no longer unconditional (GC-169)', () => {
       if (declared) owner = declared[1];
       if (line.includes('runRemote(') && !line.startsWith('async function runRemote') && owner) reaching.push(owner);
     }
-    // Five commands: a fetch (twice — `remoteAdd` fetches the remote it has just added), a pull,
-    // and three pushes, of which two are the deletes GC-176 brought in.
-    expect([...new Set(reaching)].sort()).toEqual(['deleteRemoteBranch', 'deleteRemoteTag', 'fetch', 'pull', 'push', 'remoteAdd']);
+    // Six commands: a fetch (twice — `remoteAdd` fetches the remote it has just added), a pull,
+    // three pushes, of which two are the deletes GC-176 brought in, and the clone GC-128 added,
+    // which is the one that reaches a remote before there is a repository to reach it from.
+    expect([...new Set(reaching)].sort()).toEqual(['cloneRepo', 'deleteRemoteBranch', 'deleteRemoteTag', 'fetch', 'pull', 'push', 'remoteAdd']);
+  });
+});
+
+describe('what a clone is called (GC-128)', () => {
+  // The name is derived rather than read back from git, because `runGit` buffers the clone's
+  // progress stream and parses none of it — so the path answered to `openPath` is the path the
+  // clone was told to use, and this is where that name is decided.
+  it('takes the last segment of every URL form git accepts, without its .git', () => {
+    expect(cloneTargetName('https://github.com/owner/repo.git')).toBe('repo');
+    expect(cloneTargetName('https://github.com/owner/repo')).toBe('repo');
+    expect(cloneTargetName('git@github.com:owner/repo.git')).toBe('repo');
+    expect(cloneTargetName('ssh://git@host:22/owner/repo.git')).toBe('repo');
+    expect(cloneTargetName('C:\\repos\\origin.git')).toBe('origin');
+    // A trailing slash is git's own no-op and must not become an empty folder name.
+    expect(cloneTargetName('https://github.com/owner/repo.git/  ')).toBe('repo');
+    // Only the final `.git` goes: a repository actually called `x.github` keeps its name.
+    expect(cloneTargetName('https://host/x.github')).toBe('x.github');
+  });
+
+  it('answers nothing for a URL with no segment, which is what refuses the clone', () => {
+    expect(cloneTargetName('')).toBe('');
+    expect(cloneTargetName('   ')).toBe('');
+    expect(cloneTargetName('https://host/')).toBe('host');
+  });
+
+  // The two refusals that happen before anything is spawned, so neither depends on a network or a
+  // folder: a name that cannot be derived, and one that is a path rather than a folder name.
+  it('refuses a target it cannot name, and one that would land outside the chosen folder', async () => {
+    await expect(cloneRepo('', process.cwd())).rejects.toThrow(/give it a folder name/);
+    await expect(cloneRepo('https://host/repo.git', process.cwd(), '../elsewhere')).rejects.toThrow(/folder name, not a path/);
+    await expect(cloneRepo('https://host/repo.git', process.cwd(), '..')).rejects.toThrow(/folder name, not a path/);
   });
 });

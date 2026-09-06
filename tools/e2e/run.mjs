@@ -25,6 +25,8 @@ const SHOTS = join(root, 'shots');
 const BASELINE = join(root, '.e2e-baseline.json');
 const PORT = Number(process.env.GITCLIENT_E2E_PORT ?? 9333);
 const runStart = Date.now();
+/** How a directory listing is joined into one comparable string in step 40 (GC-128). */
+const SEP = ' | ';
 
 // Claim the root for the length of the run, so a concurrent `e2e:setup` on the same root refuses
 // to wipe the repository out from under this suite instead of doing it silently (GC-064).
@@ -2896,7 +2898,80 @@ await send('Emulation.clearDeviceMetricsOverride');
 await waitFor(`window.innerHeight > 340`, 'the viewport to be restored');
 check('the step leaves the viewport and the graph where it found them', (await ev(`window.innerHeight`)) > 340 && (await graphTop()) === 0);
 
-step(40, 'the run leaves the fixture exactly as it found it');
+step(40, 'a repository can be made rather than only opened: clone and init');
+// GC-128. Everything the app has ever shown was cloned or created by something else first, so
+// this is the first step that makes one. The clone is driven entirely through the UI — its
+// dialog asks for the URL and the parent folder and both are typeable — into a folder of this
+// step's own under the scratch root, so nothing lands beside the fixture's two bare remotes.
+const MADE = join(root, 'gc128');
+rmSync(MADE, { recursive: true, force: true });
+mkdirSync(MADE, { recursive: true });
+const cloned = join(MADE, 'remote'); // cloneTargetName's answer for remote.git
+
+log(await liveClick('the recent-repositories chevron', `(() => { const b = [...document.querySelectorAll('.titlebar .tab-icon-btn')].find(x => x.title === 'Recent repositories'); if (!b) return 'MISS no recents chevron'; b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); b.click(); return 'opened the repository menu'; })()`));
+const repoMenu = await menuList();
+check('the menu offers the two ways to make a repository beside the one that opens one', repoMenu.includes('Open repository…') && repoMenu.includes('Clone repository…') && repoMenu.includes('Initialise repository…'), repoMenu);
+log(await menuClick('Clone repository'));
+await waitModal();
+// One dialog for both things a clone needs (GC-026, GC-128): two in sequence would have thrown
+// away the URL already typed the moment a folder had to be picked for it.
+log(await modalFill({ url: REMOTE.replace(/\\/g, '/'), parent: MADE.replace(/\\/g, '/') }));
+await shot('modal-clone.png');
+check('the clone dialog offers Browse beside Cancel and Clone', (await modalButtons()) === 'Cancel | Browse… | Clone', await modalButtons());
+log(await modalOk());
+// The clone opens in a tab of its own, so the wait is on the tab bar rather than on the graph:
+// the fixture's own rows are on screen throughout and would satisfy a row count immediately.
+await waitFor(`[...document.querySelectorAll('.tabs .tab')].some(t => t.classList.contains('selected') && t.textContent.includes('remote'))`, 'the clone to open in a tab of its own', 30000);
+await waitIdle();
+check('git made a repository where the dialog said', existsSync(join(cloned, '.git')), cloned);
+// Against the bare origin as it stands at this moment, not against the baseline: the fixture's
+// "another clone" commit is on origin by now and `restoreFixture()` in the step after this is
+// what puts both ends back. A clone is a copy of what was there when it ran.
+const originMain = git(['rev-parse', 'refs/heads/main'], REMOTE);
+check('carrying the history the bare origin holds', git(['rev-parse', 'main'], cloned) === originMain, git(['rev-parse', 'main'], cloned) + ' vs origin ' + originMain);
+check('and the remote it was cloned from', git(['remote', 'get-url', 'origin'], cloned).replace(/\\/g, '/') === REMOTE.replace(/\\/g, '/'), git(['remote', 'get-url', 'origin'], cloned));
+const clonedUi = await ev(`JSON.stringify({ rows: document.querySelectorAll('.graph-row').length, tabs: [...document.querySelectorAll('.tabs .tab')].map(t => t.textContent), refs: document.querySelectorAll('.left-panel .ref-row').length })`);
+const clonedState = JSON.parse(clonedUi);
+check('the app draws the clone: a second tab, selected, with its commits and its refs', clonedState.tabs.length === 2 && clonedState.rows > 5 && clonedState.refs > 1, clonedUi);
+await shot('20-cloned-repo.png');
+
+// The same clone again, into the same parent: git's own refusal, and nothing changed by it.
+const beforeRetry = readdirSync(MADE).sort().join(SEP);
+log(await liveClick('the recent-repositories chevron', `(() => { const b = [...document.querySelectorAll('.titlebar .tab-icon-btn')].find(x => x.title === 'Recent repositories'); if (!b) return 'MISS no recents chevron'; b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); b.click(); return 'opened the repository menu'; })()`));
+check('and the clone is on the recents list that menu draws', (await menuList()).includes('remote'), await menuList());
+log(await menuClick('Clone repository'));
+await waitModal();
+log(await modalFill({ url: REMOTE.replace(/\\/g, '/'), parent: MADE.replace(/\\/g, '/') }));
+log(await modalOk());
+await waitFor(`!!document.querySelector('.statusbar .err')`, 'the refused clone to report', 30000);
+const cloneErr = await ev(`document.querySelector('.statusbar .err')?.innerText ?? 'no error'`);
+check('a clone into a folder that already exists reports git s own message', /already exists/.test(cloneErr), cloneErr);
+check('and changes nothing on disk', readdirSync(MADE).sort().join(SEP) === beforeRetry, readdirSync(MADE).sort().join(SEP));
+check('leaving the repository that was open alone, since nothing was loaded', (await ev(`document.querySelectorAll('.tabs .tab').length`)) === 2, 'tab count');
+
+// Init cannot be driven the way the clone can: its one dialog is the OS folder picker, which no
+// synthetic event reaches — the suite opens the fixture through `gitclient.lastRepo` for exactly
+// that reason. So the picker is stepped over and the channel behind it is called with what the
+// picker would have answered: the handler, its validation and `initRepo` are covered here, the
+// native dialog is not.
+const fresh = join(MADE, 'fresh');
+mkdirSync(fresh, { recursive: true });
+const inited = await ev(`window.api.initRepo(${q(fresh.replace(/\\/g, '/'))}).then(p => 'made: ' + p, e => 'FAILED: ' + e.message)`);
+check('init answers the path of the repository it made', inited === 'made: ' + fresh.replace(/\\/g, '/'), inited);
+// `gitMay` answers a `GIT-ERROR:` string when git exits non-zero, which for `rev-parse HEAD` is
+// the whole of what an unborn HEAD is: the repository exists and its HEAD resolves to nothing.
+const freshHead = gitMay(['rev-parse', '--verify', '-q', 'HEAD'], fresh);
+check('and git agrees there is one there, on an unborn HEAD', existsSync(join(fresh, '.git')) && freshHead.startsWith('GIT-ERROR:'), freshHead);
+
+// Put the bar and the disk back: the clone tab is closed first, so nothing is left watching a
+// folder about to be removed, and the fixture's tab is showing again for the step after this.
+log(await liveClick('the clone tab close button', `(() => { const t = [...document.querySelectorAll('.tabs .tab')].find(x => x.textContent.includes('remote')); if (!t) return 'MISS no clone tab'; t.querySelector('.tab-close').click(); return 'closed the clone tab'; })()`));
+await waitFor(`document.querySelectorAll('.tabs .tab').length === 1`, 'the bar to come back to the fixture alone');
+await waitIdle();
+rmSync(MADE, { recursive: true, force: true });
+check('the step takes both repositories it made away with it', !existsSync(MADE), MADE);
+
+step(41, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

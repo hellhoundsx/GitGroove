@@ -151,6 +151,21 @@ export function registerIpc(): void {
     return result.filePaths[0];
   });
 
+  // Making a repository rather than opening one (GC-128). Neither of the two git handlers takes
+  // a repository path — there is no repository yet — so neither goes through `repoOf`: the clone
+  // is run in its parent folder and the init in the folder it is turning into one.
+  ipcMain.handle('repo:chooseFolder', async (event, title: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = { title: str(title, 'A dialog title'), properties: ['openDirectory', 'createDirectory'] };
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+  ipcMain.handle('repo:clone', (_e, url: unknown, parentDir: unknown, name?: unknown) =>
+    git.cloneRepo(str(url, 'A repository URL'), str(parentDir, 'A folder to clone into'), name === undefined || name === null ? undefined : str(name, 'A folder name')),
+  );
+  ipcMain.handle('repo:init', (_e, dir: unknown) => git.initRepo(str(dir, 'A folder to initialise')));
+
   ipcMain.handle('repo:load', (_e, path: unknown, maxCommits?: unknown, exclude?: unknown) => {
     const max = typeof maxCommits === 'number' && maxCommits > 0 ? Math.min(maxCommits, 20000) : 500;
     // The hidden refs are optional, so an omitted argument is an empty list rather than an error.

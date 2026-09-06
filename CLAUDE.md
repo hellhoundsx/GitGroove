@@ -213,7 +213,9 @@ pure fs.
 
 **IPC and preload** — channels grouped by prefix: `repo:*`, `commit:*`, `workdir:*`, `ref:*`,
 `remote:*`, `stash:*`, `shell:*`, `window:*`. `ipc.ts` validates every argument (`str`, `strs`,
-`int`, `oneOf`); `repo:checkGit` is the only handler taking none. `window:theme` is the other
+`int`, `oneOf`); `repo:checkGit` is the only handler taking none. `repo:clone`, `repo:init` and `repo:chooseFolder` are the three that take no repository path,
+because there is no repository yet, so none of them goes through `repoFile()` (GC-128).
+`window:theme` is the other
 handler that never touches git: it repaints the OS window controls for the theme the renderer
 resolved **and remembers it**, and `TITLE_BAR_OVERLAY` with it lives in `ipc.ts` rather than
 `index.ts` because `index.ts` already imports `registerIpc` and the other direction would be a
@@ -246,7 +248,7 @@ an `id` and a `path` — plus the three pure answers the bar needs: the stored l
 tab is left showing when one is closed, and which one Ctrl+Tab moves to. `App` holds `tabs` and
 `activeId`, and a `parked` Map keyed by **tab id** holding the `TabState` each tab that is not
 showing was left with: snapshot, selection, file view, hidden set, `paged`, `hasMore`, the find
-bar and the graph's scroll offset. It is keyed by id rather than by path because the path changes
+bar, the left panel's ref filter and the graph's scroll offset. It is keyed by id rather than by path because the path changes
 under it the moment git answers with its canonical form.
 
 - **A switch is one commit, then a refresh.** `showTab` puts the parked state back in a single
@@ -262,6 +264,13 @@ under it the moment git answers with its canonical form.
   canonical spelling only fires when the two are the same repository under `normRepoPath` — without
   that guard a tab shown before its first load took the previous tab's path and kept it when its
   own load failed.
+- **So is the left panel's ref filter** (GC-179), for the same reason and with the same fix.
+  `LeftPanel` is not keyed by repository, so a query typed in one tab was still in the box when
+  another was shown: measured with two tabs open, `release` in the fixture's panel left the second
+  repository drawing **zero** `.ref-row`s under section headers still counting its real branches,
+  which reads as a repository with no refs rather than as a filter. The panel is a controlled
+  input now — it reports typing and narrows by nothing of its own — so the query has one home,
+  `openIn` clears it and a switch away and back restores it.
 - **The staging form's draft is `App` state and part of `TabState`** (GC-148) — summary, body and
   the amend flag — for the reason GC-030 lifted the find bar's query out of `CommitGraph`: the
   panel unmounts behind a file view and on every tab switch, so the user's own typing cannot live
@@ -280,6 +289,14 @@ under it the moment git answers with its canonical form.
   tab labelled "New Tab", with its close button and middle-click, and with no tabs at all draws
   nothing — the inert placeholder that used to stand there was not a tab. Giving it a repository
   fills **that** tab, which is `openPath`'s existing `activeId !== null` path.
+- **The tab strip scrolls once there are more tabs than fit** (GC-149). A tab's padding, icon and
+  close box are `flex: none` and stop it shrinking at about 40px, so past a dozen repositories the
+  row spilled to the right and pushed `+` and the recents chevron under the 140px the OS window
+  controls reserve, where neither could be clicked. `.tabs` scrolls inside itself instead, the
+  three bar buttons are `flex: none`, and `TitleBar` scrolls the showing tab into view whenever it
+  changes — including the first render, which is the restart case, since `gitclient.lastRepo`
+  rarely names the leftmost tab. Measured with twenty tabs on a 1400px window: `+` and the chevron
+  at 1180-1260, inside the reserve and answering `elementFromPoint`, narrowest tab 123px.
 - **A recents row opens a tab; the folder button and "Open repository…" replace one** (GC-164).
   Both surfaces that draw the list — `openRepoMenu`, which the title-bar chevron and the branch
   breadcrumb share, and the empty state's `.recent-row` buttons — go through `openRecent`, which is
@@ -371,9 +388,19 @@ under it the moment git answers with its canonical form.
   person; `run(label, fn, { remote: true })` is what puts Cancel on the busy line, and a cancelled
   command reports as an advisory notice rather than as a failure. **Which functions reach
   `runRemote` is a test, not a convention** (GC-176): `fetch`, `remoteAdd`, `pull`, `push`,
-  `deleteRemoteBranch` and `deleteRemoteTag` — five commands, the last two being pushes that GC-169
-  missed and that reported one ellipsised `403` until they were wired up. `git.test.ts` reads
-  `git.ts` for every function calling it and names the six, so a seventh cannot join them silently.
+  `deleteRemoteBranch`, `deleteRemoteTag` and `cloneRepo` — six commands, of which two are the
+  pushes GC-169 missed and that reported one ellipsised `403` until they were wired up.
+  `git.test.ts` reads `git.ts` for every function calling it and names the seven, so an eighth
+  cannot join them silently.
+- **A repository can be made rather than only opened** (GC-128). `cloneRepo(url, parentDir, name?)`
+  runs in the **parent** — `runGit` refuses a cwd that does not exist and the target is precisely
+  what does not — and names the folder on the command line, so the absolute path it answers with is
+  the path git used rather than something parsed out of a progress stream `runGit` buffers and
+  never sees. `cloneTargetName(url)` is that name, pure and tested; a URL it cannot name, and a
+  name that is a path rather than one folder, are both refused before anything is spawned.
+  `initRepo(dir)` is `git init` in a folder that exists, answering the same kind of path. Both
+  answer what `openPath` takes, so what they made joins the tab bar and `recentRepos` like any
+  other repository.
 - Menus come from `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`,
   `remoteMenuItems` and `fileMenuItems`; `tipCommitActions(sha)` is the shared source for the
   commit actions the branch and commit menus both carry, so their wording cannot drift — and
@@ -661,6 +688,29 @@ mirror `app.css` the way `OPT_COL_W` mirrors the optional columns, and the funct
 exported so the measurement lives in a test. A new non-ref marker in that cell joins this sum,
 rather than being paid for out of the name.
 
+**Status icons lead a chip's name and kind icons trail it** (GC-146), which is the study's own
+vocabulary and order: the check and the pin in front, then the name, then what the ref *is* and
+where else it lives — a laptop for a local branch, a cloud for a remote one, a tag for a tag, and
+laptop **and** cloud on a branch that has absorbed its upstream, because that chip stands for two
+refs. `kindMarksOf(chip)` in `RefChip.tsx` is the one answer to which marks those are, and the
+left panel's rows take the same two icons, so a branch is marked the same way on both surfaces.
+The synthetic HEAD chip takes none: it is on no branch. `CommitGraph` counts them, because how
+many there are is what `chipMarksFit(room, marks)` needs — GC-071's threshold generalised, one
+glyph and one gap more per extra mark — and below it **every** trailing mark goes, so a chip at
+the ref column's minimum is exactly as wide as it was before the laptop existed. Measured on the
+fixture: at 100px `main` keeps its whole 29px name where GC-071 recorded `ma…`, and its two marks
+come back at a 135px column rather than the 120 one mark needed.
+
+**A band joins the last chip on a row to its node** (GC-147), across the ref column's free width
+and the graph cell both: 30px of the column had nothing in it and the only thing beyond it was a
+1px hairline at 0.8 opacity, so the eye had to bridge the gap itself on exactly the crowded rows
+where it matters. It is two halves that meet at the column boundary — `.ref-line`, whose band is
+a `color-mix` on the lane colour set inline and whose line is drawn from `currentColor`, and a
+rect in the row's SVG so the far end meets the node to the pixel. 22px, `.col-msg`'s own height;
+rounded on the chip's side only; and drawn only on a row that has a chip. It stays a normal-flow
+sibling, so the absolutely positioned `.more-list` still paints over it opaquely when the fold
+opens. Neither half adds a colour to a stylesheet.
+
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold. With **no branch checked out** a synthetic `HEAD` chip is
 built in the renderer from `headSha`; `getRefs` and `GitRef` never see it, so it opens
@@ -869,6 +919,16 @@ view as soon as its path leaves the status list.
 
 ### Detail panel
 
+**One mark per file kind, listed once for both halves of the panel** (GC-143). `FileKindIcon`
+draws the file rows *and* the commit view's change readout, which was literal text — `+`, `✎`,
+`−`, `→` — so a modified file was a lucide pencil in the list and the character `✎` in the line
+above it. The marks are 12px, where the app's 1.75 stroke is a hairline, so they carry a weight of
+their own; the pencil is filled instead, because its meaning is the silhouette and a heavier
+outline of the same shape is only a fatter outline. Both are props on the one `Icon` — `weight`
+and `filled`, the latter `fill: currentColor` on the lucide glyph — rather than a second icon
+component: there is one place the app's stroke weight is decided and it stays that way. The
+graph row's own readout is still text and is GC-183.
+
 **One boundary treatment, listed once for both views** (GC-142). A block in `.detail-body` is
 either a **card**, which carries its own border — the message box, a banner, an error — or a
 **section**, separated from the block above it by a 1px rule and the body's own 12px: `.author`,
@@ -1035,7 +1095,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-406 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+417 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
 
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
@@ -1055,7 +1115,7 @@ closed, and a port nobody holds is the fallback.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 40 steps, 292 assertions, ~45s. It ends with
+asserting against git after each step. 41 steps, 305 assertions, ~46s. It ends with
 `total: 45.0s | git: 373 calls, 9.9s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
@@ -1255,6 +1315,15 @@ opening for a drag by taking both halves of the hover state, and what a drag pro
 `draggable` rather than to a class (Graph, UI layer); a hidden detail panel leaving a strip that is
 absent exactly while it shows, the graph's offset parked at the moment it is parked and the
 selection pass acting only on a selection that changed (App state);
+status icons leading a chip's name and kind icons trailing it, with every trailing mark giving
+way together so a narrow column costs the name nothing, and a band joining the last chip to its
+node in two halves that meet at the column boundary (Graph); one mark per file kind across both
+halves of the detail panel, with the per-icon weight a prop on the one `Icon` (Detail panel); a
+tab strip that scrolls rather than pushing the bar's buttons under the window controls, and the
+showing tab scrolled into view on every change including the first (App state); a clone named
+before it is spawned and run in the parent folder, so the path it answers with is the path git
+used (Main process); the ref filter parked with its tab like every other piece of the user's own
+input (App state);
 a single click selecting a tip and an unloaded one moving nothing, one boundary treatment for both
 detail views with the parents column giving way before the authored date, the commit draft parked
 with its tab, the left panel header naming HEAD rather than

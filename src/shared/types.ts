@@ -178,6 +178,19 @@ export interface StashSaveRequest {
 export interface GitApi {
   checkGit(): Promise<GitAvailability>;
   openRepoDialog(): Promise<string | null>;
+  /**
+   * Pick a folder for a clone's parent or an init's target (GC-128). The same dialog
+   * `openRepoDialog` uses, titled for what it is being asked for, so the two entry points that
+   * make a repository do not each grow one of their own.
+   */
+  chooseFolder(title: string): Promise<string | null>;
+  /**
+   * Clone `url` into a new folder under `parentDir`, answering the absolute path of the
+   * repository it made — which is what `openPath` takes (GC-128).
+   */
+  cloneRepo(url: string, parentDir: string, name?: string): Promise<string>;
+  /** `git init` in an existing folder, answering the repository's absolute path (GC-128). */
+  initRepo(dir: string): Promise<string>;
   /** `exclude`: full names of refs to keep out of the graph (GC-073). */
   loadRepo(path: string, maxCommits?: number, exclude?: string[]): Promise<RepoSnapshot>;
   /**

@@ -50,12 +50,20 @@ interface Props {
   /** Draw the dashed WIP-to-HEAD link in this lane: straight through the row, or down into this row's node. */
   wipDash?: WipDash;
   wipDashLane?: number;
-  /** Draw the branch/tag connector from the left edge into the node. */
+  /** Draw the branch/tag connector from the left edge into the node (GC-147). */
   connector?: boolean;
   author?: { name: string; email: string; initials: string };
 }
 
 const DASH = '2 3';
+/**
+ * The chip-to-node band (GC-147): 22px, the height `.col-msg` and `.ref-line` both use, and the
+ * tint `.ref-line`'s own `color-mix` comes to. Stated here rather than in the stylesheet because
+ * this half is drawn in SVG, where a `color-mix` on a lane variable has no equivalent — an
+ * opacity on the lane colour is the same result and takes the theme with it.
+ */
+const CONNECTOR_H = 22;
+const CONNECTOR_TINT = 0.14;
 
 function NodeAvatar({ x, y, author, color }: { x: number; y: number; author: Props['author']; color: string }): JSX.Element {
   const url = useGravatar(author?.email);
@@ -181,7 +189,16 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
       {row.outgoing.map((s) => (
         <path key={`o${s.lane}`} d={curveOut(s.lane)} fill="none" stroke={laneColor(s.color)} strokeWidth={2} />
       ))}
-      {connector && <line x1={0} y1={mid + 0.5} x2={x - NODE / 2 + 1} y2={mid + 0.5} stroke={color} strokeWidth={1} shapeRendering="crispEdges" opacity={0.8} />}
+      {/* The graph cell's half of the chip-to-node connector (GC-147): the same band and line the
+          ref column draws, continuing from the column boundary to the node's edge. Inside the
+          row's own SVG, like the hairline it replaces, so it meets the node exactly; `CONNECTOR_H`
+          and the 0.8 are what `.ref-line` uses, and the two halves are flush at x = 0. */}
+      {connector && (
+        <>
+          <rect x={0} y={mid - CONNECTOR_H / 2} width={Math.max(0, x - NODE / 2 + 1)} height={CONNECTOR_H} fill={color} opacity={CONNECTOR_TINT} />
+          <line x1={0} y1={mid + 0.5} x2={x - NODE / 2 + 1} y2={mid + 0.5} stroke={color} strokeWidth={1} shapeRendering="crispEdges" opacity={0.8} />
+        </>
+      )}
       <NodeAvatar x={x} y={mid} author={author} color={color} />
     </svg>
   );
