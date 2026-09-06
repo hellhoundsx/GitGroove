@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignHunks, buildHunkPatch, parseUnifiedDiff, type DiffRow } from './parseDiff';
+import { alignHunks, buildHunkPatch, hunkWordSpans, parseUnifiedDiff, wordDiff, type DiffHunk, type DiffRow } from './parseDiff';
 
 /** Build a diff body the way `git diff` prints it: every line ends with \n. */
 const diff = (...lines: string[]): string => lines.join('\n') + '\n';
@@ -356,5 +356,73 @@ describe('alignHunks (GC-014)', () => {
     alignHunks(hunk);
     expect(hunk.raw).toBe(before);
     expect(buildHunkPatch(file!, hunk)).toContain(before);
+  });
+});
+
+describe('wordDiff', () => {
+  /** Just the marked runs of a side, which is what the highlight actually draws. */
+  const marks = (spans: { text: string; changed: boolean }[] | undefined): string[] => (spans ?? []).filter((s) => s.changed).map((s) => s.text);
+
+  it('marks only the word that was added at the end of the line', () => {
+    const d = wordDiff('row 3', 'row 3 edited')!;
+    expect(d).not.toBeNull();
+    expect(marks(d.left)).toEqual([]);
+    expect(marks(d.right)).toEqual(['edited']);
+    // Nothing is lost: each side still spells its own line.
+    expect(d.left.map((s) => s.text).join('')).toBe('row 3');
+    expect(d.right.map((s) => s.text).join('')).toBe('row 3 edited');
+  });
+
+  it('marks only the word that changed in the middle of the line', () => {
+    const d = wordDiff('const b = 2;', 'const b = 3;')!;
+    expect(marks(d.left)).toEqual(['2']);
+    expect(marks(d.right)).toEqual(['3']);
+  });
+
+  it('marks nothing when the lines are identical', () => {
+    expect(wordDiff('same line', 'same line')).toBeNull();
+  });
+
+  it('falls back rather than marking everything when the lines are unrelated', () => {
+    expect(wordDiff('const total = items.reduce(sum, 0);', 'throw new Error("nothing here matches");')).toBeNull();
+  });
+
+  it('marks a one-character edit inside a word, not the whole line', () => {
+    const d = wordDiff('  const timeout = 500;', '  const timeout = 900;')!;
+    expect(marks(d.left)).toEqual(['500']);
+    expect(marks(d.right)).toEqual(['900']);
+  });
+
+  it('never starts or ends a marked run on whitespace', () => {
+    const d = wordDiff('a b c', 'a b b c')!;
+    for (const side of [d.left, d.right]) for (const s of side.filter((x) => x.changed)) expect(s.text).toBe(s.text.trim());
+  });
+});
+
+describe('hunkWordSpans', () => {
+  const hunkOf = (...lines: string[]): DiffHunk => parseUnifiedDiff(diff('diff --git a/f b/f', '--- a/f', '+++ b/f', ...lines))[0]!.hunks[0]!;
+
+  it('marks a paired removal and addition, and both layouts get the same map', () => {
+    const hunk = hunkOf('@@ -1,2 +1,2 @@', ' row 2', '-row 3', '+row 3 edited');
+    const spans = hunkWordSpans(hunk);
+    const del = hunk.lines.find((l) => l.type === 'del')!;
+    const add = hunk.lines.find((l) => l.type === 'add')!;
+    expect(spans.get(add)!.filter((s) => s.changed).map((s) => s.text)).toEqual(['edited']);
+    expect(spans.get(del)!.some((s) => s.changed)).toBe(false);
+    // The rows the split view renders hold the very same line objects, so both look the map up.
+    const row = alignHunks(hunk).find((r) => r.left?.type === 'del')!;
+    expect(spans.get(row.left!)).toBe(spans.get(del));
+    expect(spans.get(row.right!)).toBe(spans.get(add));
+  });
+
+  it('leaves an unpaired line to the plain line tint', () => {
+    // Two additions against one removal: only the first has anything opposite it, and here even
+    // that pair has nothing in common, so nothing is marked at all.
+    const hunk = hunkOf('@@ -1,2 +1,3 @@', ' kept', '-row 3', '+row 3 edited', '+row 4 appended');
+    const spans = hunkWordSpans(hunk);
+    const unpaired = hunk.lines.filter((l) => l.type === 'add').at(-1)!;
+    expect(unpaired.text).toBe('row 4 appended');
+    expect(spans.has(unpaired)).toBe(false);
+    expect(hunkWordSpans(hunkOf('@@ -1,1 +1,2 @@', ' kept', '+brand new line')).size).toBe(0);
   });
 });

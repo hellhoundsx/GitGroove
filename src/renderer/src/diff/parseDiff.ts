@@ -190,6 +190,122 @@ export function alignHunks(hunk: DiffHunk): DiffRow[] {
   return rows;
 }
 
+/** One run of a changed line: the text, and whether it is part of what actually differs. */
+export interface WordSpan {
+  text: string;
+  changed: boolean;
+}
+
+/** What `wordDiff` returns: the spans to draw on each side of one paired line. */
+export interface WordDiff {
+  left: WordSpan[];
+  right: WordSpan[];
+}
+
+/** Words, whitespace runs and single punctuation characters, which is the granularity we mark at. */
+const TOKEN_RE = /[A-Za-z0-9_]+|\s+|[^\sA-Za-z0-9_]/g;
+
+/** How much of the longer line the two must still share before marking spans says anything. */
+const MIN_COMMON = 0.25;
+/** Above this many tokens a side, the quadratic LCS is not worth running on a single row. */
+const MAX_TOKENS = 400;
+
+const isSpace = (t: string): boolean => /^\s+$/.test(t);
+const width = (tokens: string[]): number => tokens.reduce((n, t) => n + t.length, 0);
+
+/**
+ * The word-level spans that differ between the two versions of one line (GC-104).
+ *
+ * A common prefix and suffix come off first — most edits are surrounded by text that did not move
+ * — and only what is left goes through a word LCS, so the quadratic part runs on the changed
+ * middle rather than on the whole line. `null` means "mark nothing": the lines are identical, or
+ * they have so little in common that spans would be confetti rather than an edit, and there the
+ * plain line tint says more.
+ */
+export function wordDiff(oldText: string, newText: string): WordDiff | null {
+  if (oldText === newText) return null;
+  const a = oldText.match(TOKEN_RE) ?? [];
+  const b = newText.match(TOKEN_RE) ?? [];
+  if (a.length === 0 || b.length === 0) return null;
+  if (a.length > MAX_TOKENS || b.length > MAX_TOKENS) return null;
+
+  let pre = 0;
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++;
+  let suf = 0;
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++;
+
+  const midA = a.slice(pre, a.length - suf);
+  const midB = b.slice(pre, b.length - suf);
+
+  // Longest common subsequence of the two middles: what it keeps is what stays unmarked inside
+  // the edit, and everything else is a span.
+  const n = midA.length;
+  const m = midB.length;
+  const table: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      table[i]![j] = midA[i] === midB[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+    }
+  }
+
+  const changedA = new Array<boolean>(n).fill(true);
+  const changedB = new Array<boolean>(m).fill(true);
+  let common = 0;
+  for (let i = 0, j = 0; i < n && j < m; ) {
+    if (midA[i] === midB[j]) {
+      changedA[i] = false;
+      changedB[j] = false;
+      common += midA[i]!.length;
+      i++;
+      j++;
+    } else if (table[i + 1]![j]! >= table[i]![j + 1]!) i++;
+    else j++;
+  }
+
+  // Two lines with nothing much in common are a replacement, not an edit.
+  const shared = width(a.slice(0, pre)) + width(a.slice(a.length - suf)) + common;
+  if (shared < MIN_COMMON * Math.max(oldText.length, newText.length)) return null;
+
+  return { left: spans(a, pre, suf, changedA), right: spans(b, pre, suf, changedB) };
+}
+
+/** Glue the token flags back into runs, never starting or ending one on whitespace. */
+function spans(tokens: string[], pre: number, suf: number, changedMid: boolean[]): WordSpan[] {
+  const flags = tokens.map((_, i) => (i < pre || i >= tokens.length - suf ? false : changedMid[i - pre]!));
+  // A run that begins or ends on a space would highlight the gap beside the edited word rather
+  // than the word, so that space stays with the text that did not change.
+  for (let i = 0; i < flags.length; i++) {
+    if (!flags[i] || !isSpace(tokens[i]!)) continue;
+    if (!flags[i - 1] || !flags[i + 1]) flags[i] = false;
+  }
+  const out: WordSpan[] = [];
+  for (const [i, token] of tokens.entries()) {
+    const last = out[out.length - 1];
+    if (last && last.changed === flags[i]) last.text += token;
+    else out.push({ text: token, changed: flags[i]! });
+  }
+  return out;
+}
+
+/**
+ * The intra-line spans for every paired line of a hunk, keyed by the line itself (GC-104).
+ *
+ * The pairing is `alignHunks`', so the unified layout marks exactly the same spans on exactly the
+ * same lines as the split one: only a removal sitting opposite an addition is paired, and a padded
+ * side, a pure addition and a pure removal are left to the plain line tint.
+ */
+export function hunkWordSpans(hunk: DiffHunk): Map<DiffLine, WordSpan[]> {
+  const out = new Map<DiffLine, WordSpan[]>();
+  for (const { left, right } of alignHunks(hunk)) {
+    if (!left || !right || left.type !== 'del' || right.type !== 'add') continue;
+    const d = wordDiff(left.text, right.text);
+    if (!d) continue;
+    out.set(left, d.left);
+    out.set(right, d.right);
+  }
+  return out;
+}
+
 /** Build a patch containing only the given hunk of a file, suitable for `git apply`. */
 export function buildHunkPatch(file: FileDiff, hunk: DiffHunk): string {
   const header = file.headerLines.filter((l) => !l.startsWith('index ')); // let git apply ignore blob ids

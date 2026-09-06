@@ -81,6 +81,10 @@
   /* Diff */
   --diff-add: rgba(92, 184, 92, 0.18);
   --diff-del: rgba(217, 65, 61, 0.18);
+  /* The words that actually changed inside a tinted line (GC-104): the same hue again, so the
+     mark reads as more of the line tint rather than as a second colour. */
+  --diff-add-word: rgba(92, 184, 92, 0.36);
+  --diff-del-word: rgba(217, 65, 61, 0.36);
   --diff-gutter: rgba(0, 0, 0, 0.12); /* the line-number column beside a hunk */
 
   /* Graph lanes, cycled by column index. Slightly desaturated so several lanes can coexist. */
@@ -154,6 +158,8 @@
 
   --diff-add: rgba(46, 125, 50, 0.16);
   --diff-del: rgba(198, 40, 40, 0.13);
+  --diff-add-word: rgba(46, 125, 50, 0.34);
+  --diff-del-word: rgba(198, 40, 40, 0.3);
   --diff-gutter: rgba(0, 0, 0, 0.06);
 
   /* Lanes, darkened so ten of them stay apart on white; the yellow and green move furthest */

@@ -1408,6 +1408,19 @@ textarea:focus {
 .hunk-lines .line.del .mark {
   color: var(--danger);
 }
+/* The words that differ inside a paired line (GC-104). The tint is on the span, over the line's
+   own, so a one-character edit is visible without a second colour entering the diff. */
+.hunk-lines .code .word {
+  border-radius: 2px;
+}
+.hunk-lines .line.add .code .word,
+.hunk-lines.split td.code.add .word {
+  background: var(--diff-add-word);
+}
+.hunk-lines .line.del .code .word,
+.hunk-lines.split td.code.del .word {
+  background: var(--diff-del-word);
+}
 .hunk-lines .line.meta {
   color: var(--text-dim);
   font-style: italic;

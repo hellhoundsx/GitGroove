@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { FileChangeKind } from '@shared/types';
-import { alignHunks, buildHunkPatch, parseUnifiedDiff, type DiffHunk, type DiffLine, type FileDiff } from './parseDiff';
+import { alignHunks, buildHunkPatch, hunkWordSpans, parseUnifiedDiff, type DiffHunk, type DiffLine, type FileDiff, type WordSpan } from './parseDiff';
 import { X } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { useUi } from '../ui/UiContext';
@@ -13,6 +13,22 @@ const VIEW_MODES: { mode: DiffViewMode; label: string; title: string }[] = [
 
 /** Which tint a split cell takes. An empty side is padding, not an unchanged line. */
 const sideClass = (line: DiffLine | null): string => (line === null ? 'pad' : line.type);
+
+/**
+ * One line's text, with the part of it that actually changed marked (GC-104). Both layouts render
+ * through this, from the same map, so a line cannot be marked one way in one of them and another
+ * way in the other. A line with no entry — a pure addition, a pure removal, a padded side, two
+ * lines with nothing in common — is the plain text it always was.
+ */
+function code(line: DiffLine, spans: Map<DiffLine, WordSpan[]>): JSX.Element {
+  const marked = spans.get(line);
+  if (!marked) return <pre>{line.text}</pre>;
+  return (
+    <pre>
+      {marked.map((s, i) => (s.changed ? <span className="word" key={i}>{s.text}</span> : <span key={i}>{s.text}</span>))}
+    </pre>
+  );
+}
 
 export type FileViewSource =
   | { source: 'commit'; sha: string; path: string; kind: FileChangeKind }
@@ -90,6 +106,13 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
 
   const files = useMemo(() => (text === null ? [] : parseUnifiedDiff(text)), [text]);
   const file: FileDiff | undefined = files[0];
+  // Computed once per parsed file rather than per row, and keyed by the line object both layouts
+  // hold, so switching layout re-renders the same marks without re-diffing anything (GC-104).
+  const wordSpans = useMemo(() => {
+    const all = new Map<DiffLine, WordSpan[]>();
+    for (const h of file?.hunks ?? []) for (const [line, spans] of hunkWordSpans(h)) all.set(line, spans);
+    return all;
+  }, [file]);
   const [dir, name] = splitPath(view.path);
   const isWip = view.source === 'wip';
   const untracked = view.kind === 'untracked';
@@ -232,10 +255,10 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                       <tr key={ri} className="line">
                         <td className={`no ${sideClass(r.left)}`}>{r.left?.oldNo ?? ''}</td>
                         <td className={`mark ${sideClass(r.left)}`}>{r.left?.type === 'del' ? '−' : ''}</td>
-                        <td className={`code ${sideClass(r.left)}`}>{r.left && <pre>{r.left.text}</pre>}</td>
+                        <td className={`code ${sideClass(r.left)}`}>{r.left && code(r.left, wordSpans)}</td>
                         <td className={`no ${sideClass(r.right)}`}>{r.right?.newNo ?? ''}</td>
                         <td className={`mark ${sideClass(r.right)}`}>{r.right?.type === 'add' ? '+' : ''}</td>
-                        <td className={`code ${sideClass(r.right)}`}>{r.right && <pre>{r.right.text}</pre>}</td>
+                        <td className={`code ${sideClass(r.right)}`}>{r.right && code(r.right, wordSpans)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -248,9 +271,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                         <td className="no">{l.oldNo ?? ''}</td>
                         <td className="no">{l.newNo ?? ''}</td>
                         <td className="mark">{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ''}</td>
-                        <td className="code">
-                          <pre>{l.text}</pre>
-                        </td>
+                        <td className="code">{code(l, wordSpans)}</td>
                       </tr>
                     ))}
                   </tbody>
