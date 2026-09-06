@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type JSX, type MouseEvent } from 'react';
 import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { ADVISORY } from '@shared/types';
-import { defaultRemote } from '@shared/remotes';
+import { defaultRemote, remoteCopyOf } from '@shared/remotes';
 import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type PanelFit } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
@@ -1104,29 +1104,9 @@ export function App(): JSX.Element {
     [repo, run, ui],
   );
 
-  /**
-   * Where a local branch also lives on a remote, so deleting it can offer to take that copy with
-   * it (GC-112). The upstream comes first, since that is the branch git itself considers the same
-   * one; a remote-tracking ref of the same name answers for a branch pushed without `-u`. Either
-   * way the answer is a ref the snapshot actually lists, so a branch whose upstream has already
-   * been pruned offers nothing and the checkbox is absent rather than disabled. The remote is
-   * matched by name and the longest match wins, because `origin` and `origin/fork` are both legal
-   * remote names and splitting on the first slash would hand the wrong one the delete.
-   */
-  const remoteCopyOf = useCallback(
-    (r: GitRef): { remote: string; branch: string } | null => {
-      const remotes = [...(snapshot?.remotes ?? [])].sort((a, b) => b.name.length - a.name.length);
-      const split = (full: string): { remote: string; branch: string } | null => {
-        const rem = remotes.find((m) => full.startsWith(`${m.name}/`));
-        return rem ? { remote: rem.name, branch: full.slice(rem.name.length + 1) } : null;
-      };
-      const tracking = (snapshot?.refs ?? []).filter((x) => x.kind === 'remote').map((x) => x.name);
-      if (r.upstream && tracking.includes(r.upstream)) return split(r.upstream);
-      const same = tracking.find((n) => split(n)?.branch === r.name);
-      return same ? split(same) : null;
-    },
-    [snapshot],
-  );
+  // Where else this branch lives, for the delete confirmation's checkbox (GC-112). The answer is
+  // `shared/remotes.ts`'s, beside `defaultRemote` and under its own test (GC-134).
+  const copyOf = useCallback((r: GitRef) => remoteCopyOf(r, snapshot?.refs ?? [], snapshot?.remotes ?? []), [snapshot]);
 
   const deleteBranch = useCallback(
     async (r: GitRef) => {
@@ -1141,7 +1121,7 @@ export function App(): JSX.Element {
       // second was only reachable if that remote's row happened to be on screen — a branch hidden
       // from the graph has no row at all (GC-112). The confirmation carries the second delete as an
       // option on itself, which is what `confirmWithOption` is for (GC-131).
-      const copy = remoteCopyOf(r);
+      const copy = copyOf(r);
       const res = await ui.confirmWithOption({
         title: `Delete branch ${r.name}?`,
         checkbox: copy ? { label: `Also delete ${copy.branch} on ${copy.remote}` } : undefined,
@@ -1176,7 +1156,7 @@ export function App(): JSX.Element {
       // and its key outlives the repository's history (GC-021).
       if (deleted && wasPinned) pinBranch(null);
     },
-    [pinBranch, pinned, remoteCopyOf, repo, run, ui],
+    [copyOf, pinBranch, pinned, repo, run, ui],
   );
 
   /**
