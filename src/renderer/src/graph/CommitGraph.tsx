@@ -11,7 +11,7 @@ import { matches as isShortcut } from '../shortcuts';
 import { usePrefs } from '../prefs';
 import { formatDateTime } from '../time';
 import { useUi } from '../ui/UiContext';
-import { fitOptCols, fitRefCol, useDragWidth, MIN_MSG_W } from '../ui/useDragWidth';
+import { fitOptCols, fitRefCol, useDragWidth, MIN_MSG_W, type OptCols } from '../ui/useDragWidth';
 import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
 
 interface Props {
@@ -55,6 +55,13 @@ interface Props {
   scrollTop: number;
   /** Where it is scrolled to now, so the tab it belongs to can be parked with it (GC-016). */
   onScrollTop(top: number): void;
+  /**
+   * Which optional columns are actually being drawn, which is `fitOptCols`' answer and not the
+   * preference (GC-116). Reported so Preferences can mark a column this window has no room for
+   * instead of showing it checked and absent — from this set, never a second guess at the width,
+   * so the dialog and the graph cannot disagree (GC-117).
+   */
+  onDrawnCols(cols: OptCols): void;
 }
 
 export const WIP = 'WIP';
@@ -239,7 +246,7 @@ function useLaneLayout(commits: Commit[], pinnedSha: string | null | undefined):
   return layout;
 }
 
-export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, stashes, onStashMenu, onStashActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop }: Props): JSX.Element {
+export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedName, selected, searchOpen, searchTick, searchQuery, onSearchQuery, onCloseSearch, onSelect, onCommitMenu, onWipMenu, onRefMenu, onRefActivate, stashes, onStashMenu, onStashActivate, refDrag, detached, hasMore, loadingMore, onLoadMore, scrollTop, onScrollTop, onDrawnCols }: Props): JSX.Element {
   // The optional columns after the message; all off by default (GC-032). What the preference asks
   // for is not always what fits: `fitOptCols` below drops them once the panel is too narrow to
   // draw them and a commit message both (GC-116).
@@ -331,6 +338,8 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   // Which optional columns fit is decided first, against the ref column's floor, and the ref
   // column is then fitted against the ones that survived (GC-116).
   const cols = useMemo(() => fitOptCols(wantCols, bodyW, graphWidth, REF_COL_MIN, OPT_COL_W), [wantCols, bodyW, graphWidth]);
+  // The one set every render site here reads, handed up so Preferences marks from it too (GC-117).
+  useEffect(() => onDrawnCols(cols), [cols, onDrawnCols]);
   const restW = graphWidth + (cols.author ? OPT_COL_W.author : 0) + (cols.date ? OPT_COL_W.date : 0) + (cols.sha ? OPT_COL_W.sha : 0);
   const { width: refColW, resizing, handle: refColHandle } = useDragWidth({
     key: REF_COL_KEY,

@@ -4,6 +4,7 @@ import type { PullMode, Theme } from '@shared/types';
 import { setPrefs, usePrefs, type DiffViewMode, type GraphColumns, type Prefs } from '../prefs';
 import { matches } from '../shortcuts';
 import { Icon } from '../ui/icons';
+import type { OptCols } from '../ui/useDragWidth';
 
 const THEMES: { theme: Theme; label: string }[] = [
   { theme: 'dark', label: 'Dark' },
@@ -22,12 +23,14 @@ const PULL_MODES: { mode: PullMode; label: string }[] = [
   { mode: 'rebase', label: 'Rebase' },
 ];
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }): JSX.Element {
+function Row({ label, hint, note, children }: { label: string; hint?: string; note?: string; children: ReactNode }): JSX.Element {
   return (
     <div className="pref-row">
       <div className="pref-label">
         <span>{label}</span>
         {hint && <span className="pref-hint">{hint}</span>}
+        {/* Why the setting is on and nothing changed, when that is the case (GC-117). */}
+        {note && <span className="pref-note">{note}</span>}
       </div>
       {children}
     </div>
@@ -61,11 +64,20 @@ function Toggle({ of, label, hint }: { of: 'avatars' | 'confirmDirtyCheckout' | 
   );
 }
 
-/** One of the optional graph columns; nested in `prefs.graphColumns`, so it patches the whole object. */
-function ColumnToggle({ of, label, hint }: { of: keyof GraphColumns; label: string; hint?: string }): JSX.Element {
+/**
+ * One of the optional graph columns; nested in `prefs.graphColumns`, so it patches the whole object.
+ *
+ * `drawn` is what the graph is actually rendering, not a second reading of the window width
+ * (GC-117): once the panel is too narrow to draw a column and a commit message both, `fitOptCols`
+ * drops it whole (GC-116), and the row stayed checked with nothing anywhere saying the window was
+ * the reason. Null means there is no graph on screen to have an answer — a file view is open — and
+ * then nothing is claimed either way.
+ */
+function ColumnToggle({ of, label, hint, drawn }: { of: keyof GraphColumns; label: string; hint?: string; drawn: OptCols | null }): JSX.Element {
   const prefs = usePrefs();
+  const dropped = prefs.graphColumns[of] && drawn !== null && !drawn[of];
   return (
-    <Row label={label} hint={hint}>
+    <Row label={label} hint={hint} note={dropped ? 'Not drawn: the window is too narrow for this column and a commit message both.' : undefined}>
       <label className="pref-check">
         <input type="checkbox" checked={prefs.graphColumns[of]} onChange={(e) => setPrefs({ graphColumns: { ...prefs.graphColumns, [of]: e.target.checked } })} />
       </label>
@@ -74,7 +86,7 @@ function ColumnToggle({ of, label, hint }: { of: keyof GraphColumns; label: stri
 }
 
 /** The Preferences dialog, opened from the toolbar gear. Every change applies immediately. */
-export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
+export function Preferences({ onClose, drawnCols }: { onClose(): void; drawnCols: OptCols | null }): JSX.Element {
   const prefs = usePrefs();
   return (
     <div
@@ -108,9 +120,9 @@ export function Preferences({ onClose }: { onClose(): void }): JSX.Element {
           </div>
           <div className="pref-group">
             <div className="pref-group-title">Graph</div>
-            <ColumnToggle of="author" label="Author column" hint="The commit author's name, after the message." />
-            <ColumnToggle of="date" label="Date / time column" hint="The author date, dd/mm/yyyy and the local time." />
-            <ColumnToggle of="sha" label="SHA column" hint="The commit's abbreviated hash." />
+            <ColumnToggle of="author" label="Author column" hint="The commit author's name, after the message." drawn={drawnCols} />
+            <ColumnToggle of="date" label="Date / time column" hint="The author date, dd/mm/yyyy and the local time." drawn={drawnCols} />
+            <ColumnToggle of="sha" label="SHA column" hint="The commit's abbreviated hash." drawn={drawnCols} />
           </div>
           <div className="pref-group">
             <div className="pref-group-title">Diff</div>

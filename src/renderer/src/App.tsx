@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { ADVISORY } from '@shared/types';
 import { defaultRemote, remoteCopyOf } from '@shared/remotes';
-import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type PanelFit } from './ui/useDragWidth';
+import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type OptCols, type PanelFit } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
@@ -234,6 +234,14 @@ export function App(): JSX.Element {
   const [gitError, setGitError] = useState<string | null>(null); // git itself is missing (GC-025)
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Which optional graph columns are actually drawn, as `CommitGraph` computed them (GC-117). Held
+  // here only to reach Preferences, and compared field by field before it is stored so a graph
+  // re-rendering for any other reason does not turn into a render of the whole app.
+  const [drawnCols, setDrawnCols] = useState<OptCols | null>(null);
+  const onDrawnCols = useCallback(
+    (c: OptCols) => setDrawnCols((prev) => (prev && prev.author === c.author && prev.date === c.date && prev.sha === c.sha ? prev : c)),
+    [],
+  );
   // The two toolbar popovers are one piece of state, not two flags (GC-119). They were kept
   // mutually exclusive only by the outside-click listener in `Toolbar`, and a `<button>` activated
   // from the keyboard fires `click` with no `mousedown` at all, so opening one with Enter while the
@@ -1962,6 +1970,7 @@ export function App(): JSX.Element {
                 onLoadMore={askForMore}
                 scrollTop={graphTop.current}
                 onScrollTop={(top) => (graphTop.current = top)}
+                onDrawnCols={onDrawnCols}
               />
             )}
             {!detailCollapsed && (
@@ -2033,7 +2042,9 @@ export function App(): JSX.Element {
         onDismissError={() => setError(null)}
         onDismissNotice={() => setNotice(null)}
       />
-      {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} />}
+      {/* With a file view open there is no graph to have dropped anything, so the dialog is told
+          nothing rather than the last answer some earlier window width produced (GC-117). */}
+      {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} drawnCols={fileView ? null : drawnCols} />}
       {shortcutsOpen && <Shortcuts onClose={() => setShortcutsOpen(false)} />}
     </div>
   );

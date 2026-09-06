@@ -2272,6 +2272,12 @@ img.avatar {
   font-size: var(--fs-sm);
   color: var(--text-dim);
 }
+/* Why a setting that is on is doing nothing (GC-117). `--warning`, not `--danger`: nothing is
+   broken and nothing was lost — the window is simply too narrow for what was asked for. */
+.pref-note {
+  font-size: var(--fs-sm);
+  color: var(--warning);
+}
 .pref-check {
   display: flex;
   align-items: center;

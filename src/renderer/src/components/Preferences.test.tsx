@@ -33,7 +33,7 @@ const toggleFor = (label: string): HTMLInputElement => {
 
 describe('Preferences', () => {
   it('writes the avatars toggle straight through to the preferences', () => {
-    render(<Preferences onClose={() => {}} />);
+    render(<Preferences onClose={() => {}} drawnCols={null} />);
 
     const avatars = toggleFor('Author avatars');
     expect(getPrefs().avatars).toBe(true);
@@ -49,5 +49,25 @@ describe('Preferences', () => {
     expect(getPrefs().commitColumnGuide).toBe(DEFAULT_PREFS.commitColumnGuide);
     expect(getPrefs().confirmDirtyCheckout).toBe(DEFAULT_PREFS.confirmDirtyCheckout);
     expect(getPrefs().pullMode).toBe(DEFAULT_PREFS.pullMode);
+  });
+
+  it("marks a column the window cannot draw, and leaves one that is simply switched off alone", () => {
+    // On in the preference, dropped by fitOptCols: the row used to stay checked with nothing
+    // anywhere saying the window was the reason (GC-117). The marker comes from the graph’s own
+    // answer, so this test hands it the shape the graph reports rather than a width.
+    setPrefs({ graphColumns: { author: true, date: true, sha: false } });
+    render(<Preferences onClose={() => {}} drawnCols={{ author: true, date: false, sha: false }} />);
+
+    const noteIn = (label: string): string | null => screen.getByText(label).closest(".pref-row")?.querySelector(".pref-note")?.textContent ?? null;
+    expect(noteIn("Date / time column")).toMatch(/too narrow/);
+    expect(noteIn("Author column")).toBeNull(); // on and drawn
+    expect(noteIn("SHA column")).toBeNull(); // off, which is the user’s own doing
+  });
+
+  it("claims nothing while no graph is on screen to have an answer", () => {
+    setPrefs({ graphColumns: { author: true, date: true, sha: true } });
+    render(<Preferences onClose={() => {}} drawnCols={null} />);
+
+    expect(document.querySelectorAll(".pref-note").length).toBe(0);
   });
 });

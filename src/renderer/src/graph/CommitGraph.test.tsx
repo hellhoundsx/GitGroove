@@ -94,6 +94,7 @@ function renderGraph(over: Partial<ComponentProps<typeof CommitGraph>> = {}): Re
       onLoadMore={() => {}}
       scrollTop={0}
       onScrollTop={() => {}}
+      onDrawnCols={() => {}}
       {...over}
     />,
   );
@@ -144,6 +145,7 @@ function flipsUp(body: Rect, chipRect: Rect, listHeight: number): boolean {
       onLoadMore={() => {}}
       scrollTop={0}
       onScrollTop={() => {}}
+      onDrawnCols={() => {}}
     />,
   );
 
@@ -254,6 +256,7 @@ function renderDrag(dragging: GitRef | null, dropped: { src: GitRef | null; dst:
       onLoadMore={() => {}}
       scrollTop={0}
       onScrollTop={() => {}}
+      onDrawnCols={() => {}}
     />,
   );
   return container as HTMLElement;
