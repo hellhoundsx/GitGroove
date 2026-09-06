@@ -165,6 +165,9 @@ try {
 // taskbar entry to say it was there, until the next run's `stopPort` happened to free the port.
 // `stopApp` is synchronous (taskkill /F /T on Windows), which is what an `exit` handler needs, and
 // this runs at most once however many paths reach it.
+// `launchApp` now registers the same guarantee for every caller (GC-154), so this is a second
+// registration of one that already holds. It stays: stopping an already-stopped child is a no-op,
+// and the run's own exit path is where this property was first pinned and is easiest to read.
 let stopped = false;
 const stopOnce = () => {
   if (stopped) return;

@@ -9,7 +9,10 @@
 // window offscreen (no OS window at all). `--visible` opens the normal, focused window.
 //
 // Stopping is narrow too: `stopApp(child)` / `stopPort(port)` kill one process tree, never every
-// electron.exe on the machine (GC-035).
+// electron.exe on the machine (GC-035). It is also automatic: the app a `launchApp` spawns belongs
+// to the process that spawned it until `stop()` or `release()` is called, and is stopped on the way
+// out however that process ends (GC-154), so a driver that throws cannot leave an Electron holding
+// the port for the next run to attach to and measure a stale build.
 //
 // Every launch made here also gets its own Electron profile, `<os.tmpdir()>/gitclient-profiles/<port>`,
 // through GITCLIENT_USER_DATA (GC-060), so nothing an unattended run stores in `localStorage` — the
@@ -81,6 +84,42 @@ export function stopApp(child) {
   return killTree(child?.pid);
 }
 
+/**
+ * Makes this process the owner of a child it spawned: while the ownership stands, the child is
+ * stopped on the way out however this process ends (GC-154). `stop()` stops it now, `release()`
+ * hands it over to whoever comes next; both drop the handlers, so an owner that ends cleanly does
+ * nothing twice.
+ *
+ * Why it exists: GC-040 gave `tools/e2e/run.mjs` this guarantee by hand, and nothing gave it to the
+ * short CDP drivers a ticket writes, which end with `await app.stop()` — exactly the line a throw
+ * skips. A driver that died on a syntax error left its Electron listening on 9333, and the next
+ * three launches attached to that process and measured a build from before the change under test.
+ * The signal handlers are here for the same reason `run.mjs` has them: `process.on('exit')` does
+ * not fire on SIGINT or SIGTERM unless something exits explicitly.
+ */
+export function ownChild(child) {
+  let owned = true;
+  const onExit = () => {
+    if (owned) stopApp(child);
+  };
+  const onSignal = (code) => () => process.exit(code);
+  const handlers = [
+    ['exit', onExit],
+    ['SIGINT', onSignal(130)],
+    ['SIGTERM', onSignal(143)],
+  ];
+  for (const [event, handler] of handlers) process.on(event, handler);
+  const forget = () => {
+    if (!owned) return false;
+    owned = false;
+    for (const [event, handler] of handlers) process.off(event, handler);
+    return true;
+  };
+  // `stop()` stops the child whether or not the ownership still stands: stopping is what the
+  // caller asked for, and a second call against a pid that is already gone is a no-op anyway.
+  return { stop: () => (forget(), stopApp(child)), release: forget };
+}
+
 /** The pid listening on a TCP port, or null. Used to clear a stale DevTools port. */
 export function pidOnPort(port) {
   try {
@@ -118,8 +157,11 @@ export async function stopPort(port, timeoutMs = 10000) {
 }
 
 /**
- * Spawns the built app and resolves with { child, target, stop } once /json lists a page target.
- * `stop()` kills that process tree and nothing else.
+ * Spawns the built app and resolves with { child, target, stop, release } once /json lists a page
+ * target. `stop()` kills that process tree and nothing else. Until it is called the app belongs to
+ * this process and is stopped on the way out however it ends, so a driver that throws leaves
+ * nothing behind (GC-154); `release()` gives that ownership up without stopping anything, which is
+ * what a launch meant to outlive its launcher — the CLI's own — wants.
  * `visible: true` drops stealth mode and shows the usual window.
  */
 export async function launchApp({ port = 9333, repo = null, visible = false, appDir = APP_DIR, timeoutMs = 40000 } = {}) {
@@ -141,6 +183,8 @@ export async function launchApp({ port = 9333, repo = null, visible = false, app
     env,
   });
   child.unref();
+  // Owned from the moment it exists, so the readiness probe throwing below stops it too.
+  const owner = ownChild(child);
 
   const deadline = Date.now() + timeoutMs;
   let target;
@@ -153,7 +197,7 @@ export async function launchApp({ port = 9333, repo = null, visible = false, app
   }
   if (!target) throw new Error(`app did not start: no page target on port ${port} after ${timeoutMs}ms`);
   if (repo) await setRepo(target, repo);
-  return { child, target, stop: () => stopApp(child) };
+  return { child, target, stop: owner.stop, release: owner.release };
 }
 
 /** Points the running app at a repository through localStorage and reloads it. */
@@ -224,7 +268,11 @@ if (invokedDirectly) {
     } else {
       await stopPort(port);
     }
-    const { target } = await launchApp({ port, repo, visible: flag('--visible') });
+    const { target, release } = await launchApp({ port, repo, visible: flag('--visible') });
+    // The CLI exists to leave an app running for whatever drives it next, so it hands the child
+    // over before exiting — without this the exit handler ownChild registered would stop the app
+    // this command was asked to start (GC-154).
+    release();
     console.log(`app ready on port ${port}${flag('--visible') ? '' : ' (stealth)'}: ${target.url}`);
     process.exit(0);
   } catch (e) {

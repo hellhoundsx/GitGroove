@@ -84,8 +84,13 @@ function freePort(): Promise<number> {
 
 /** Runs the launcher CLI as a child process and collects its exit code and output. */
 function runLauncher(args: string[], timeoutMs = 60000) {
+  return runNode([LAUNCHER, ...args], timeoutMs);
+}
+
+/** Runs node on the given arguments and collects its exit code and output. */
+function runNode(args: string[], timeoutMs = 60000) {
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((res, rej) => {
-    const child = spawn(process.execPath, [LAUNCHER, ...args], {
+    const child = spawn(process.execPath, args, {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -167,6 +172,110 @@ async function loadPrivateAttachTarget(): Promise<(port: number, timeoutMs?: num
   const mod = (await import(/* @vite-ignore */ pathToFileURL(copy).href)) as Record<string, unknown>;
   return mod.attachTarget as (port: number, timeoutMs?: number) => Promise<unknown>;
 }
+
+type Owner = { stop: () => boolean; release: () => boolean };
+
+/** The launcher's own `ownChild`, imported the ordinary way (only `attachTarget` is private). */
+async function loadOwnChild(): Promise<(child: { pid: number | null }) => Owner> {
+  const mod = (await import(/* @vite-ignore */ pathToFileURL(LAUNCHER).href)) as Record<string, unknown>;
+  return mod.ownChild as (child: { pid: number | null }) => Owner;
+}
+
+/**
+ * Runs a one-off driver script against the launcher, the way a ticket's CDP driver is written, and
+ * answers its output plus the pid of the throwaway child it owned. Nothing here starts Electron
+ * (GC-154): `ownChild` cares only that it was handed something with a pid, so a sleeping node
+ * process stands in for the app and the guarantee under test — that the child is gone once the
+ * driver's process is — is the real one.
+ */
+async function runDriver(body: string): Promise<{ code: number | null; stdout: string; pid: number }> {
+  const dir = mkdtempSync(join(tmpdir(), 'gitclient-gc154-'));
+  scratchDirs.push(dir);
+  const script = join(dir, 'driver.mjs');
+  writeFileSync(
+    script,
+    [
+      `import { spawn } from 'node:child_process';`,
+      `import { ownChild } from ${JSON.stringify(pathToFileURL(LAUNCHER).href)};`,
+      // A child that outlives its parent unless something stops it: detached, unref'd, and doing
+      // nothing but keeping its event loop alive — exactly the shape of a stealth Electron.
+      `const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 3600000)'], { detached: true, stdio: 'ignore' });`,
+      `child.unref();`,
+      `console.log('PID ' + child.pid);`,
+      `const owner = ownChild(child);`,
+      body,
+    ].join('\n'),
+  );
+  const { code, stdout } = await runNode([script], 30000);
+  const pid = Number(/PID (\d+)/.exec(stdout)?.[1]);
+  expect(Number.isInteger(pid)).toBe(true);
+  return { code, stdout, pid };
+}
+
+/** Whether a pid is still running. `kill(pid, 0)` throws ESRCH once it is gone. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Polls until the pid is gone, so a taskkill that has not finished yet is not read as a leak. */
+async function waitGone(pid: number, timeoutMs = 10000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!alive(pid)) return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+describe('tools/launch-app.mjs ownChild', () => {
+  it('registers exit and signal handlers and takes them off again on stop and on release', async () => {
+    const ownChild = await loadOwnChild();
+    const before = (e: string) => process.listeners(e as 'exit').length;
+    const [exit0, int0, term0] = [before('exit'), before('SIGINT'), before('SIGTERM')];
+    // A pid of null: `killTree` answers false for it, so nothing on this machine is signalled by
+    // a unit test (GC-035) and the registration is still the real one.
+    const owner = ownChild({ pid: null });
+    expect([before('exit'), before('SIGINT'), before('SIGTERM')]).toEqual([exit0 + 1, int0 + 1, term0 + 1]);
+    owner.stop();
+    expect([before('exit'), before('SIGINT'), before('SIGTERM')]).toEqual([exit0, int0, term0]);
+
+    const second = ownChild({ pid: null });
+    expect(before('exit')).toBe(exit0 + 1);
+    expect(second.release()).toBe(true);
+    // Releasing twice is not an error and does not take a handler that belongs to someone else.
+    expect(second.release()).toBe(false);
+    expect([before('exit'), before('SIGINT'), before('SIGTERM')]).toEqual([exit0, int0, term0]);
+  });
+
+  it('stops the child when the driver that owns it throws', async () => {
+    const { code, pid } = await runDriver(`throw new Error('driver blew up');`);
+    expect(code).toBe(1);
+    expect(await waitGone(pid)).toBe(true);
+  }, 60000);
+
+  it('leaves the child running when the driver releases it, which is what the CLI does', async () => {
+    const { code, pid } = await runDriver(`owner.release();`);
+    try {
+      expect(code).toBe(0);
+      // The driver has exited; the child it handed over is still there, which is the whole point of
+      // `node tools/launch-app.mjs --repo <p>` returning to the shell with an app left running.
+      expect(alive(pid)).toBe(true);
+    } finally {
+      killPid(pid);
+    }
+  }, 60000);
+
+  it('stops the child exactly once when the driver stops it and then exits normally', async () => {
+    const { code, pid } = await runDriver(`owner.stop();\nprocess.on('exit', () => console.log('EXITED'));`);
+    expect(code).toBe(0);
+    expect(await waitGone(pid)).toBe(true);
+  }, 60000);
+});
 
 describe('tools/launch-app.mjs --keep-running', () => {
   it('attaches to the app already on the DevTools port instead of spawning a second Electron', async () => {
