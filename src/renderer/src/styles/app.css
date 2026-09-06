@@ -2158,6 +2158,14 @@ input[type='radio']:disabled {
 .statusbar .err {
   color: var(--danger);
 }
+/* One severity down from `.err`, for an action that did most of what was asked (GC-091). Same slot
+   and same dismiss button; the colour and the glyph are the whole of the difference. */
+.statusbar .notice {
+  color: var(--warning);
+}
+.statusbar .notice .dismiss {
+  color: var(--text-dim);
+}
 
 /* ---- Icons and avatars ---------------------------------------------------------- */
 

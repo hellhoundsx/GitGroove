@@ -252,3 +252,14 @@ export interface ShellApi {
   /** Reveal the file in the OS file manager. */
   showInFolder(repo: string, path: string): Promise<void>;
 }
+
+/**
+ * The `name` a `GitError` carries when what happened is **advisory**: the action did most of what
+ * was asked, and the line the user sees should say so rather than read as a failure (GC-091).
+ *
+ * It rides on the error's `name` rather than on a property of its own because that is the part
+ * that survives the trip: Electron serialises a rejected handler down to a string, and the
+ * renderer's `msg()` already has to strip `<name>: ` off the front of it. So both sides agree on
+ * this one word, and nothing else about the error has to change.
+ */
+export const ADVISORY = 'GitAdvisory';

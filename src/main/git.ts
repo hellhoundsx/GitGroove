@@ -30,6 +30,8 @@ import type {
   StatusEntry,
   WorkdirDiffRequest,
 } from '@shared/types';
+// A value, not a type: the one word both processes agree an advisory failure is named by (GC-091).
+import { ADVISORY } from '@shared/types';
 import { defaultRemote } from '@shared/remotes';
 
 const FIELD = '\x1f';
@@ -41,9 +43,15 @@ export class GitError extends Error {
     public readonly args: string[],
     public readonly stderr: string,
     public readonly code: number | null,
+    /**
+     * The action did most of what was asked, and this message is what the user still has to know
+     * rather than a failure (GC-091). It becomes the error name, which is the only part of an
+     * error the renderer receives once Electron has serialised it across IPC.
+     */
+    public readonly advisory = false,
   ) {
     super(message);
-    this.name = 'GitError';
+    this.name = advisory ? ADVISORY : 'GitError';
   }
 }
 
@@ -590,11 +598,14 @@ export async function restoreStashWith(run: GitRunner, verb: 'apply' | 'pop', in
     // rather than retrying an apply that may already be half done.
     if (before === null || after === null || after !== before || UNMERGED.test(after)) throw first;
     await run(['stash', verb, '-q', ref]);
+    // Advisory, not a failure: the stash did come back, and only the staging did not (GC-091).
+    // Reported as a red error line this read as "the pop failed" while the pop had succeeded.
     throw new GitError(
       `The stash was ${verb === 'pop' ? 'popped' : 'applied'} to the working directory, but what it had staged could not be put back in the index.`,
       ['stash', verb, ref],
       '',
       null,
+      true,
     );
   }
 }

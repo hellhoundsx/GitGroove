@@ -7,7 +7,14 @@ interface Props {
   /** The snapshot generation, published as `data-gen` (GC-080). */
   generation: number;
   error: string | null;
+  /**
+   * The advisory line: an action that did most of what was asked and has something left to say
+   * (GC-091). Same slot and same dismiss button as the error, one severity down — and never shown
+   * beside one, because a failure is the more important of the two.
+   */
+  notice: string | null;
   onDismissError(): void;
+  onDismissNotice(): void;
 }
 
 /** The most useful single line of a multi-line git message: a CONFLICT/error/fatal line, else the first. */
@@ -21,7 +28,7 @@ function headline(error: string): string {
 
 const baseName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p;
 
-export function StatusBar({ repoPath, commitCount, busy, generation, error, onDismissError }: Props): JSX.Element {
+export function StatusBar({ repoPath, commitCount, busy, generation, error, notice, onDismissError, onDismissNotice }: Props): JSX.Element {
   return (
     // `data-gen` counts the snapshots and statuses the app has applied. It is the one thing on
     // screen that says a reload has finished rather than started, which is what the e2e suite waits
@@ -35,10 +42,18 @@ export function StatusBar({ repoPath, commitCount, busy, generation, error, onDi
           <span className="spinner" /> {busy}…
         </span>
       )}
-      {error && (
+      {error ? (
         <button className="err" title={error} onClick={onDismissError}>
           ⚠ {headline(error)} <span className="dismiss">✕</span>
         </button>
+      ) : (
+        // Only when there is no error: an outright failure is the more important of the two, and
+        // `run()` never sets both anyway (GC-091).
+        notice && (
+          <button className="notice" title={notice} onClick={onDismissNotice}>
+            ⓘ {headline(notice)} <span className="dismiss">✕</span>
+          </button>
+        )
       )}
       <span className="spacer" />
       {repoPath && <span>{commitCount} commits</span>}

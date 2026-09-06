@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type JSX, type MouseEvent } from 'react';
 import type { CheckoutOptions, Commit, GitRef, IgnoreKind, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
+import { ADVISORY } from '@shared/types';
 import { defaultRemote } from '@shared/remotes';
 import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type PanelFit } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
@@ -136,8 +137,14 @@ const aheadBehind = (r: GitRef): string | null => {
 const msg = (e: unknown): string =>
   (e instanceof Error ? e.message : String(e))
     .replace(/^Error invoking remote method '[^']+': /, '')
-    .replace(/^(GitError|Error): /, '')
+    .replace(new RegExp(`^(${ADVISORY}|GitError|Error): `), '')
     .trim();
+/**
+ * Whether the main process marked this failure advisory (GC-091): the action did most of what was
+ * asked and the line to show is not a failure. The flag rides on the error's name, which is all
+ * that survives Electron's serialisation of a rejected handler — the same name `msg` strips off.
+ */
+const isAdvisory = (e: unknown): boolean => new RegExp(`(^|: )${ADVISORY}: `).test(e instanceof Error ? e.message : String(e));
 
 export function App(): JSX.Element {
   const ui = useUi();
@@ -218,6 +225,12 @@ export function App(): JSX.Element {
   const [workdirVersion, setWorkdirVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The other thing an action can have to say (GC-091): it did most of what was asked, and this is
+   * what is left to tell. One slot, one severity each, and an error always wins — `run()` clears both
+   * on entry and sets at most one on the way out, so the two can never be on screen together.
+   */
+  const [notice, setNotice] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null); // git itself is missing (GC-025)
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -699,6 +712,7 @@ export function App(): JSX.Element {
       // while the other is still running, and its own error lands over the other's state.
       const owns = takeBusy(label);
       setError(null);
+      setNotice(null);
       let failure: unknown = null;
       try {
         await fn();
@@ -721,7 +735,9 @@ export function App(): JSX.Element {
         // git often exits non-zero while leaving the repo in a state the panels now show (conflicts,
         // an empty cherry-pick, a stopped rebase), so keep the message visible after the reload —
         // unless a later action owns the bar by now, whose state this message would not describe.
-        if (owns()) setError(msg(failure));
+        // An advisory failure is not a failure to report in red: the stash came back and only its
+        // staging did not, and the red line said the pop had failed when it had not (GC-091).
+        if (owns()) (isAdvisory(failure) ? setNotice : setError)(msg(failure));
         // The caller asked to handle the failure itself, and its own logic does not depend on
         // which action currently owns the status bar.
         if (opts.rethrow) throw failure;
@@ -1989,7 +2005,16 @@ export function App(): JSX.Element {
           </div>
         )}
       </div>
-      <StatusBar repoPath={repoPath} commitCount={commits.length} busy={busy} generation={dataGen} error={error} onDismissError={() => setError(null)} />
+      <StatusBar
+        repoPath={repoPath}
+        commitCount={commits.length}
+        busy={busy}
+        generation={dataGen}
+        error={error}
+        notice={notice}
+        onDismissError={() => setError(null)}
+        onDismissNotice={() => setNotice(null)}
+      />
       {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} />}
       {shortcutsOpen && <Shortcuts onClose={() => setShortcutsOpen(false)} />}
     </div>

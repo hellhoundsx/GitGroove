@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GitError, ignorePattern, restoreStashWith, type GitRunner } from './git';
+import { ADVISORY } from '@shared/types';
 
 // `restoreStashWith` is the whole of GC-092's decision: whether a failed `stash apply --index`
 // left the repository alone, and may be retried without `--index`, or merged and conflicted, where
@@ -49,6 +50,23 @@ describe('restoreStashWith', () => {
       ['stash', 'pop', '-q', '--index', 'stash@{0}'],
       ['stash', 'pop', '-q', 'stash@{0}'],
     ]);
+  });
+
+  it('marks that fallback advisory, so the status bar does not call it a failure (GC-091)', async () => {
+    const { run } = fakeGit([' M f.txt\n', ' M f.txt\n'], [refused, '']);
+    const e = await restoreStashWith(run, 'pop', 0).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(GitError);
+    expect((e as GitError).advisory).toBe(true);
+    // The name is the part that survives Electron's serialisation, so it is what the renderer reads.
+    expect((e as GitError).name).toBe(ADVISORY);
+  });
+
+  it('leaves an ordinary git failure unmarked, so it stays a red line (GC-091)', async () => {
+    const conflicted = new GitError('CONFLICT (content): Merge conflict in f.txt', ['stash', 'pop'], '', 1);
+    const { run } = fakeGit([' M f.txt\n', 'UU f.txt\n'], [conflicted]);
+    const e = await restoreStashWith(run, 'pop', 0).catch((x: unknown) => x);
+    expect((e as GitError).advisory).toBe(false);
+    expect((e as GitError).name).toBe('GitError');
   });
 
   it('propagates git when the retry fails too', async () => {
