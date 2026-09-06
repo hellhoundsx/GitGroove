@@ -387,6 +387,15 @@ function CommitView({ repo, commit, status, openFile, onSelectSha, onOpenFile, o
         </div>
         {error && <div className="err-box">{error}</div>}
         <div className="file-list">
+          {/* The same header the staging view's groups carry, so a file list is one thing in both
+              views rather than a labelled group in one and bare rows in the other (GC-142). */}
+          {files !== null && (
+            <div className="group-head">
+              <span>
+                {files.length} file{files.length === 1 ? '' : 's'} changed
+              </span>
+            </div>
+          )}
           {files === null && !error && <div style={{ color: 'var(--text-dim)', fontSize: 'var(--fs-sm)' }}>Loading files…</div>}
           {files?.map((f) => (
             <FileRow

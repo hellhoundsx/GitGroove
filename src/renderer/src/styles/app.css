@@ -1159,6 +1159,26 @@ input[type='radio']:disabled {
   flex-direction: column;
   gap: var(--sp-3);
 }
+/*
+ * One boundary treatment for both views (GC-142). A block is either a **card** — the message box,
+ * a banner, an error — which carries its own border and already stands apart, or a **section**,
+ * separated from whatever is above it by a rule and the body's own 12px. Before this the body was
+ * five children with a gap and nothing else: three of the commit view's five had no background,
+ * no border and no radius at all, and the staging view's two file lists ran into each other and
+ * into the commit form. Both views list their sections here, so neither can drift from the other.
+ */
+.detail-body > .author,
+.detail-body > .readout,
+.detail-body > .file-list,
+.detail-body > .commit-form {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-3);
+}
+/* The first block has nothing above it to be separated from, whichever view it belongs to. */
+.detail-body > :first-child {
+  border-top: none;
+  padding-top: 0;
+}
 .message-box {
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -1180,8 +1200,13 @@ input[type='radio']:disabled {
   white-space: pre-wrap;
   user-select: text;
 }
+/* avatar | who and when | parents. A grid rather than `margin-left: auto` inside a flex row
+   (GC-142): the parents list gets a column of its own, so it can neither overlap the authored
+   date nor wrap under it as the panel narrows towards its 300px minimum. The middle column is
+   `minmax(0, 1fr)`, which is what lets the name and the date ellipsise instead of pushing. */
 .author {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--sp-3);
   font-size: var(--fs-sm);
@@ -1199,11 +1224,20 @@ input[type='radio']:disabled {
 .author .name {
   color: var(--text-bright);
 }
+.author .name,
+.author .when {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .author .when {
   color: var(--text-muted);
 }
+/* Right-aligned in its own column; a merge with several parents wraps inside that column rather
+   than growing into the one beside it. */
 .author .parents {
-  margin-left: auto;
+  justify-self: end;
+  text-align: right;
   color: var(--text-muted);
 }
 .author .parents b {
@@ -1216,11 +1250,19 @@ input[type='radio']:disabled {
   display: flex;
   flex-direction: column;
 }
+/* The list's own header, and the strongest of the boundaries: a band rather than another
+   hairline, so Unstaged and Staged read as two groups rather than one run of rows (GC-142). Its
+   8px inset matches a file row's, so the label sits over the names it heads. */
 .file-list .group-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: 30px;
+  padding: 0 var(--sp-2);
+  margin-bottom: var(--sp-1);
+  background: var(--bg-panel);
+  border-radius: var(--radius-sm);
+  color: var(--text-bright);
   font-size: var(--fs-md);
 }
 .file-row {
@@ -1264,13 +1306,13 @@ input[type='radio']:disabled {
 .kind-conflicted {
   color: var(--danger);
 }
+/* The rule and the 12px above it come from the shared section rule now (GC-142), which is what
+   makes this boundary the same one the file lists get rather than a second look for the same job. */
 .commit-form {
   margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  border-top: 1px solid var(--border);
-  padding-top: var(--sp-3);
 }
 /* The text fields, which is what this rule always meant: it is the one component rule written
    against a bare `input`, and its 8px padding reached the Amend checkbox too — under

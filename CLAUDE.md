@@ -221,6 +221,12 @@ under it the moment git answers with its canonical form.
   canonical spelling only fires when the two are the same repository under `normRepoPath` — without
   that guard a tab shown before its first load took the previous tab's path and kept it when its
   own load failed.
+- **The staging form's draft is `App` state and part of `TabState`** (GC-148) — summary, body and
+  the amend flag — for the reason GC-030 lifted the find bar's query out of `CommitGraph`: the
+  panel unmounts behind a file view and on every tab switch, so the user's own typing cannot live
+  in it. GC-016's two promises are kept explicitly rather than by the panel's key: `openIn` clears
+  the draft, which is the one path a repository takes into the showing tab, and a successful commit
+  still clears the form.
 - **The graph and the detail panel are keyed by repository**, so the state they keep for themselves
   — the find bar's author chip, the lane-layout cache, the commit message being written — belongs
   to the tab it was made in. The two keys are **prefixed** (`graph-`, `detail-`) because they are
@@ -445,6 +451,26 @@ child**, or the block's own lines resize under the pointer. It flips above the r
 below would cross `.graph-body`'s bottom edge, decided on each `mouseenter` against live rects
 because the rows are virtualised.
 
+**A stash is marked on the commit it was taken from** (GC-140). `getStashes` reads the first
+field of `%P` on the same `git stash list` walk, so `Stash.parent` costs no extra spawn, and
+`stashesByParent` keys one `.stash-chip` per stash onto that row. It is deliberately **not** a
+`.ref-chip`: it stands for no `GitRef`, so it is not draggable, not a drop target, not counted by
+`chipsFor` and never spends the row's one `MAX_CHIPS` slot — a commit carrying a branch and a
+stash shows both, and the `+N` is unchanged. Right-click gives `stashMenuItems` and double-click
+applies, the same two gestures the left panel's stash row offers, from the same source. A stash
+whose parent is outside the loaded range is never looked up and draws nothing.
+
+**The dashed WIP-to-HEAD run covers the whole distance, not the first 14px** (GC-144).
+`wipDashFor` in `lanes.ts` answers what each row draws of it, and `headOwnsLane` is the load-bearing
+part: while nothing else is pinned, `layoutGraph` reserves column 0 for HEAD from the first row, so
+the line in it above HEAD's row **is** the run and `GraphCell` draws it dashed *in place of* the
+solid one — the through segment is filtered out, and the node's own line above it dropped. Drawing
+the dash on top instead is what made the run read as a solid line with a dash on it. A commit
+reaching HEAD's tip from above cannot take that lane (the seed holds it), so it arrives as an
+`incoming` curve and no real child's line is ever dashed. With another branch pinned, only a lane
+nothing else uses may carry the run; with HEAD outside the loaded range the WIP node draws no stub
+at all rather than a dash running off the bottom.
+
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold. With **no branch checked out** a synthetic `HEAD` chip is
 built in the renderer from `headSha`; `getRefs` and `GitRef` never see it, so it opens
@@ -491,6 +517,15 @@ name cannot outlive its ref, but that now reloads only when a hidden ref has gen
 an ordinary open costs one `git log`, not two, and no frame is painted with a chip the snapshot
 already excludes. `App` hands `CommitGraph` only the visible refs; the left panel gets all of them
 and marks the hidden.
+
+**A single click on a ref row selects that ref's tip** (GC-141), in all three of LOCAL, REMOTE and
+TAGS; double-click still checks out. It costs no git call — `GitRef.sha` is already the tip — and a
+row whose sha is the selection takes `.ref-row.selected`, so the panel and the graph agree on what
+is selected. Marked **by sha rather than by which row was clicked**, so selecting a commit in the
+graph marks its rows here too and several refs on one commit all light up. `rowIndexOf` in
+`CommitGraph.tsx` is the guard that makes an unloaded tip safe: it answers -1 **before** the WIP
+row's offset is added, where `findIndex` + 1 used to turn "not found" into row 0 and scroll the
+graph to the WIP row.
 
 **Slash-separated names fold into folders in the left panel** (GC-051). `buildRefTree(refs, label)`
 in `LeftPanel.tsx` is the pure half: `label` is the name **relative to the section**, so a remote
@@ -563,6 +598,15 @@ sub-header only. Note that a WIP view cannot be made to show this by hand: `App`
 view as soon as its path leaves the status list.
 
 ### Detail panel
+
+**One boundary treatment, listed once for both views** (GC-142). A block in `.detail-body` is
+either a **card**, which carries its own border — the message box, a banner, an error — or a
+**section**, separated from the block above it by a 1px rule and the body's own 12px: `.author`,
+`.readout`, `.file-list` and `.commit-form`, with `:first-child` taking neither. A file list's
+`.group-head` is a band rather than a second hairline, which is what makes Unstaged and Staged read
+as two groups, and the commit view's file list carries the same head so a file list is one thing in
+both views. `.author` is a three-column grid — avatar, identity, parents — so the parents list has
+a place of its own and the authored date ellipsises rather than being wrapped into.
 
 Staging view (operation banner with Abort, Conflicted / Unstaged / Staged groups, commit form with
 amend and the 72-character counter) or commit view (sha, refs, message, author, parent links, file
@@ -688,10 +732,12 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-229 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+253 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
-markdown — it is what guards rule 6 above — and `tools/launch-app` covers the attach path against a
-fake CDP endpoint.
+markdown — it is what guards rule 6 above — **and on a backlog whose two files disagree** (GC-145):
+`backlogProblems` is pure and reports one sentence per problem, so a `done` section left in
+`TICKETS.md` or a board row resolving to nothing fails `npm test` rather than being noticed months
+later. `tools/launch-app` covers the attach path against a fake CDP endpoint.
 
 ### The e2e suite
 
@@ -814,6 +860,17 @@ a scheduled session follows; the hourly backlog reviewer adds tickets and writes
 in the Reviews section. Do not keep a second roadmap here: when a ticket ships, update the ticket,
 and this file only where a convention, a command or an invariant above changed.
 
+**It is two files, split by status** (GC-145). `TICKETS.md` is the one to read, in full: the
+scaffolding, the whole board — every ticket ever written has a row, `done` included — every `todo`,
+`in-progress` and `blocked` section, and the newest review. `TICKETS-ARCHIVE.md` holds every
+`done` ticket's section and every review a newer one superseded; it is looked up by id when a
+finished ticket's history is wanted and otherwise not read at all. A row that says `done` has its
+section in the archive, which is the whole mapping. **A session that sets a ticket to `done` moves
+its section in the same commit**, and the reviewer moves the review it supersedes when it writes a
+new one; `npm test`'s backlog check fails if the two files disagree — an id sectioned in both, a
+`done` left in `TICKETS.md`, a board row resolving to nothing, or a second review kept beside the
+newest. It went from 9,485 lines to 1,819 and 8,087.
+
 **`INBOX.md` is Ricardo's, and it is git-ignored.** He drops small plain-English observations there
 as `- ` bullets; the reviewer drains it at the start of every run, investigates each item and turns
 it into a ticket, an extension of one, or a written reason for neither — see "Review routine" in
@@ -821,7 +878,9 @@ it into a ticket, an extension of one, or a written reason for neither — see "
 worker's `git status`. Nothing else reads it, and no ticket is ever written *in* it.
 
 Design decisions that must not be quietly undone, and where each is explained above: date order in
-the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip (Graph); one Escape
+the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip, a stash marker that
+is not a ref chip and never spends that slot, a WIP-to-HEAD dash drawn in place of the line rather
+than over it (Graph); one Escape
 one layer, a drop that opens no empty menu and checks out the branch it acts on, one shortcut
 table, every confirmation on the modal and an option on one carried by `confirmWithOption` rather
 than by a prompt with its input switched off, the busy token every writer of `busy` takes (App state,
@@ -848,6 +907,9 @@ own `whileTyping` (App state); a tab switch restoring in one commit and refreshi
 tab keyed by id rather than by its path, `gitclient.lastRepo` following the active tab while git's
 canonical spelling is adopted only within one repository, and two keyed siblings never sharing a
 key (App state);
+a single click selecting a tip and an unloaded one moving nothing, one boundary treatment for both
+detail views, the commit draft parked with its tab (Graph, Detail panel, App state); the backlog
+split by status across two files, moved in the same commit as the status change (The backlog);
 stealth launches, narrow stops, the per-port profile (Commands); the LF working copy, control
 characters as escapes, study-never-copy, no writes against the real repositories (The rules).
 
