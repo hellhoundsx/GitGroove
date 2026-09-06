@@ -887,12 +887,18 @@ step(1, 'load test repo');
 // The profile is no longer Ricardo's — `tools/launch-app.mjs` gives every launch it makes its own
 // under `<os.tmpdir()>/gitclient-profiles/<port>` (GC-060) — but it does persist between runs on
 // that port, so the removal still earns its place.
+// `gitclient.tabs` goes with them, and for a sharper reason (GC-155): it is the one remembered key
+// naming a **folder on disk**, so a tab left behind by a hand-written driver on the same port comes
+// back pointing at a folder that may no longer exist. One did, and step 1 failed with
+// `Repository folder not found: …/gc091-probe` and cascaded into 30 failures across steps 1-5, none
+// of them about the code under test. `gitclient.lastRepo` needs no removal of its own: the same
+// statement sets it outright, two assignments along.
 // The flag is what makes the wait below mean anything: the app has usually already loaded this
 // same repository from `gitclient.lastRepo` by the time this runs, so a bare "rows are there and
 // nothing is busy" is satisfied by the page that is *about* to be thrown away, and the reload then
 // lands in the middle of step 2 or 3 with the panels empty. The flag lives on `window`, so it is
 // gone the moment the new document exists (GC-080).
-await ev(`window.__e2eReloading = true; localStorage.removeItem('gitclient.prefs'); Object.keys(localStorage).filter(k => k.startsWith('gitclient.hidden.')).forEach(k => localStorage.removeItem(k)); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
+await ev(`window.__e2eReloading = true; localStorage.removeItem('gitclient.prefs'); localStorage.removeItem('gitclient.tabs'); Object.keys(localStorage).filter(k => k.startsWith('gitclient.hidden.')).forEach(k => localStorage.removeItem(k)); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
 // The generation starts again from zero across the reload, so `act()` has nothing to compare
 // against here: wait on the new document having loaded the repository instead (GC-080).
 await waitFor(
@@ -902,6 +908,11 @@ await waitFor(
 );
 let s = await state();
 check('repo loaded with WIP row and commits', s.rows > 5 && (s.branch ?? '').startsWith('main'), JSON.stringify(s));
+// The run starts from exactly one tab, the fixture's, whatever the profile held (GC-155). Cheap,
+// and it is what turns a stranded tab from another driver into a named failure here rather than a
+// cascade of unrelated ones further down.
+const tabs = await ev(`JSON.stringify([...document.querySelectorAll('.tabs .tab')].map(t => t.textContent))`);
+check('exactly one tab, the fixture', JSON.parse(tabs).length === 1 && JSON.parse(tabs)[0].includes('testrepo'), tabs);
 
 step(2, 'create branch via toolbar prompt');
 log(await tool('Branch'));

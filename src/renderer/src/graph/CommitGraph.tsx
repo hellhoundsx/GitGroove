@@ -578,7 +578,11 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
             // the block takes its place (asked for by Ricardo). It is a sibling of the block, not
             // its parent, so hiding it leaves the block on screen and its rect still measurable.
             <>
-              <span className="ref-chip more" title="More refs on this commit">
+              {/* no title: the chip is `visibility: hidden` from the moment the cell is hovered, which
+                  is the moment a tooltip would begin its delay, so it could never be shown (GC-085).
+                  The block that replaces it names every folded ref outright, which is more than a
+                  tooltip would have said. */}
+              <span className="ref-chip more">
                 +{chips.length - MAX_CHIPS}
               </span>
               <span className={`more-list ${moreUp === c.sha ? 'flip-up' : ''}`} style={{ background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` }}>

@@ -931,11 +931,6 @@ input[type='radio']:disabled {
 .ref-chip.head {
   font-weight: 600;
 }
-/* every chip after the first gives way at the same weight, so the primary ref stays readable
-   however many chips a wide ref column folds in (GC-006 raised the budget past two; GC-023) */
-.ref-chip:not(:first-child):not(.more) {
-  flex-shrink: 50;
-}
 .ref-chip .chip-icon.trailing {
   opacity: 0.6;
 }
