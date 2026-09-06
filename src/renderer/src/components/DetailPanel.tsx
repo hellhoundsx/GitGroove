@@ -7,6 +7,7 @@ import { Avatar } from '../ui/Avatar';
 import { usePrefs } from '../prefs';
 import { matches } from '../shortcuts';
 import { useUi, type ConfirmOptions } from '../ui/UiContext';
+import type { DragHandleProps } from '../ui/useDragWidth';
 
 /**
  * Which file row a context menu was opened on (GC-043). The panel knows the row; `App` owns the
@@ -42,6 +43,8 @@ interface Props {
   status: RepoStatus | null;
   openFile: FileViewSource | null;
   actions: StagingActions;
+  /** The left-edge resize handle (GC-050); it works with a diff open too. */
+  resize: DragHandleProps;
   onSelectSha(sha: string): void;
   onOpenFile(view: FileViewSource): void;
   onFileMenu(e: MouseEvent, target: FileMenuTarget): void;
@@ -83,7 +86,7 @@ function formatDate(iso: string): string {
 const isActive = (open: FileViewSource | null, path: string, staged?: boolean): boolean =>
   !!open && open.path === path && (open.source === 'commit' || staged === undefined || open.staged === staged);
 
-function StagingView({ status, headCommit, openFile, actions, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'repo' | 'onSelectSha'>): JSX.Element {
+function StagingView({ status, headCommit, openFile, actions, onOpenFile, onFileMenu }: Omit<Props, 'commit' | 'repo' | 'onSelectSha' | 'resize'>): JSX.Element {
   const ui = useUi();
   const prefs = usePrefs();
   const entries = status?.entries ?? [];
@@ -380,9 +383,11 @@ function CommitView({ repo, commit, openFile, onSelectSha, onOpenFile, onFileMen
 }
 
 export function DetailPanel(props: Props): JSX.Element {
-  const { commit, ...rest } = props;
+  const { commit, resize, ...rest } = props;
   return (
     <aside className="detail-panel">
+      {/* Absolutely positioned on the panel's left edge, so it takes no width of its own. */}
+      <div className="panel-resize left" role="separator" aria-orientation="vertical" title="Drag to resize the panel, double-click to reset" {...resize} />
       {commit ? <CommitView {...rest} commit={commit} /> : <StagingView {...rest} />}
     </aside>
   );

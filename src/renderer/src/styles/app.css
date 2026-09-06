@@ -221,11 +221,52 @@ textarea:focus {
   background: var(--border);
 }
 
+/* ---- Panel resize handles (GC-050) ---------------------------------------
+   Both side panels drag from a 4px strip on their own edge, absolutely positioned so it adds no
+   width and nothing reflows while the pointer moves. Same shape as the graph's .col-resize. */
+
+.panel-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  padding: 0;
+  cursor: col-resize;
+  z-index: 4;
+  touch-action: none;
+}
+.panel-resize.right {
+  right: 0;
+  margin-right: -2px;
+}
+.panel-resize.left {
+  left: 0;
+  margin-left: -2px;
+}
+.panel-resize::before {
+  content: '';
+  position: absolute;
+  inset: 0 1px;
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.panel-resize:hover::before,
+.app.resizing .panel-resize::before {
+  opacity: 1;
+}
+/* while dragging, the whole app keeps the resize cursor and stops selecting text */
+.app.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /* ---- Left panel ----------------------------------------------------------- */
 
 .left-panel {
   width: var(--left-panel-w);
   flex: none;
+  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
@@ -359,6 +400,38 @@ textarea:focus {
 .ref-row .row-pin {
   flex: none;
   color: var(--accent);
+}
+/* Hide from the graph (GC-073): the eye appears on hover, stays while the ref is hidden so the
+   row says how to bring it back, and a hidden row is dimmed. The remote rows have no ahead/behind
+   cell to push the eye right, so it takes the auto margin when nothing else has. */
+.ref-row .row-action {
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: var(--sp-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+/* A local row ends with .ab, whose auto margin already pushes to the right edge; a nested remote
+   row has no such cell, so the eye takes the margin itself. Two auto margins on one row would
+   split the free space between them and leave .ab floating mid-row. */
+.ref-row.nested .row-action {
+  margin-left: auto;
+}
+.ref-row:hover .row-action,
+.ref-row.ref-hidden .row-action {
+  display: flex;
+}
+.ref-row .row-action:hover {
+  background: var(--bg-panel-raised);
+  color: var(--text-bright);
+}
+.ref-row.ref-hidden .row-name,
+.ref-row.ref-hidden .row-icon {
+  opacity: 0.45;
 }
 .left-panel .viewing .icon-btn {
   margin-left: -6px;
@@ -819,6 +892,7 @@ textarea:focus {
 .detail-panel {
   width: var(--detail-panel-w);
   flex: none;
+  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
@@ -1202,6 +1276,11 @@ textarea:focus {
   flex: 1;
   overflow: auto;
   padding: var(--sp-2) var(--sp-3) var(--sp-4);
+}
+/* A reload of the same file on the same side is pending: the hunks stay put and dim, rather than
+   the body blanking to the loading line, and every action on them is disabled (GC-086). */
+.diff-body.stale {
+  opacity: 0.55;
 }
 .diff-empty {
   color: var(--text-dim);

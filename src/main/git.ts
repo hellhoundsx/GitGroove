@@ -132,10 +132,25 @@ export async function getRepoInfo(cwd: string): Promise<RepoInfo> {
 
 const LOG_FORMAT = ['%H', '%P', '%an', '%ae', '%aI', '%cn', '%cI', '%s', '%b', '%D'].join(FIELD) + RECORD;
 
-export async function getLog(cwd: string, maxCount = 500): Promise<Commit[]> {
+/**
+ * `exclude` is a list of full ref names to keep out of the graph (GC-073). Each becomes an
+ * `--exclude=` **before** `--all`, which is the only position git honours: the option applies to
+ * the `--all` that follows it. A commit reachable from any ref that is still included keeps its
+ * row, so hiding one of two branches over the same history removes nothing. HEAD comes in with
+ * `--all` and is never excluded, so column 0 keeps the checked-out lineage whatever is hidden.
+ */
+export async function getLog(cwd: string, maxCount = 500, exclude: string[] = []): Promise<Commit[]> {
   let out: string;
   try {
-    out = await runGit(cwd, ['log', '--exclude=refs/stash', '--all', '--date-order', `--max-count=${maxCount}`, `--format=${LOG_FORMAT}`]);
+    out = await runGit(cwd, [
+      'log',
+      '--exclude=refs/stash',
+      ...exclude.map((r) => `--exclude=${r}`),
+      '--all',
+      '--date-order',
+      `--max-count=${maxCount}`,
+      `--format=${LOG_FORMAT}`,
+    ]);
   } catch (e) {
     if (e instanceof GitError && /does not have any commits|bad default revision|unknown revision/i.test(e.stderr)) return [];
     throw e;
@@ -300,10 +315,10 @@ export async function getRemotes(cwd: string): Promise<Remote[]> {
   return [...map.values()];
 }
 
-export async function loadRepo(path: string, maxCommits = 500): Promise<RepoSnapshot> {
+export async function loadRepo(path: string, maxCommits = 500, exclude: string[] = []): Promise<RepoSnapshot> {
   const info = await getRepoInfo(path);
   const [commits, refs, status, stashes, remotes] = await Promise.all([
-    getLog(info.path, maxCommits),
+    getLog(info.path, maxCommits, exclude),
     getRefs(info.path),
     getStatus(info.path),
     getStashes(info.path),

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react';
 import { Check, ChevronDown, ChevronUp, Cloud, Minus, Pencil, Pin, Plus, Search, Tag, TriangleAlert, X } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus } from '@shared/types';
 import { layoutGraph, type RowLayout } from './lanes';
@@ -8,6 +8,7 @@ import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
 import { matches as isShortcut } from '../shortcuts';
 import { usePrefs } from '../prefs';
+import { useDragWidth } from '../ui/useDragWidth';
 
 interface Props {
   commits: Commit[];
@@ -36,7 +37,8 @@ interface Props {
 export const WIP = 'WIP';
 const OVERSCAN = 12;
 
-// Ref column width: dragged between MIN and MAX, double-click resets to DEFAULT.
+// Ref column width: dragged between MIN and MAX, double-click resets to DEFAULT. The drag itself
+// is `useDragWidth`, shared with both side panels (GC-050).
 const REF_COL_KEY = 'gitclient.refColW';
 const REF_COL_DEFAULT = 150;
 const REF_COL_MIN = 100;
@@ -48,17 +50,6 @@ const REF_COL_MAX = 400;
  * shows, never how many chips do.
  */
 const MAX_CHIPS = 1;
-
-const clampRefCol = (w: number): number => Math.min(REF_COL_MAX, Math.max(REF_COL_MIN, Math.round(w)));
-
-function readRefColW(): number {
-  try {
-    const v = Number(localStorage.getItem(REF_COL_KEY));
-    return Number.isFinite(v) && v > 0 ? clampRefCol(v) : REF_COL_DEFAULT;
-  } catch {
-    return REF_COL_DEFAULT;
-  }
-}
 
 /**
  * A detached HEAD is on no branch, so `for-each-ref` marks nothing as the checked-out ref and
@@ -137,40 +128,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   const hasChanges = counts.add + counts.mod + counts.del + counts.conflict > 0;
 
   // ---- ref column width ---------------------------------------------------
-  const [refColW, setRefColW] = useState(readRefColW);
-  const [resizing, setResizing] = useState(false);
-  const dragRef = useRef<{ x: number; w: number } | null>(null);
-
-  const persistRefColW = useCallback((w: number): void => {
-    try {
-      localStorage.setItem(REF_COL_KEY, String(w));
-    } catch {
-      /* private mode: the width just does not survive the reload */
-    }
-  }, []);
-
-  const onResizeDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
-    e.preventDefault();
-    dragRef.current = { x: e.clientX, w: refColW };
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setResizing(true);
-  };
-  const onResizeMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
-    const d = dragRef.current;
-    if (!d) return;
-    setRefColW(clampRefCol(d.w + (e.clientX - d.x)));
-  };
-  const onResizeUp = (e: ReactPointerEvent<HTMLDivElement>): void => {
-    if (!dragRef.current) return;
-    dragRef.current = null;
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    setResizing(false);
-    persistRefColW(refColW);
-  };
-  const onResizeReset = (): void => {
-    setRefColW(REF_COL_DEFAULT);
-    persistRefColW(REF_COL_DEFAULT);
-  };
+  const { width: refColW, resizing, handle: refColHandle } = useDragWidth({ key: REF_COL_KEY, def: REF_COL_DEFAULT, min: REF_COL_MIN, max: REF_COL_MAX });
 
   // ---- search -------------------------------------------------------------
   const searchInput = useRef<HTMLInputElement>(null);
@@ -476,11 +434,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
           role="separator"
           aria-orientation="vertical"
           title="Drag to resize the branch column, double-click to reset"
-          onPointerDown={onResizeDown}
-          onPointerMove={onResizeMove}
-          onPointerUp={onResizeUp}
-          onPointerCancel={onResizeUp}
-          onDoubleClick={onResizeReset}
+          {...refColHandle}
         />
         <div className="col-graph" style={{ width: graphWidth }}>
           Graph

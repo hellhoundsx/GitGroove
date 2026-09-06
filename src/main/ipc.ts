@@ -69,9 +69,10 @@ export function registerIpc(): void {
     return result.filePaths[0];
   });
 
-  ipcMain.handle('repo:load', (_e, path: unknown, maxCommits?: unknown) => {
+  ipcMain.handle('repo:load', (_e, path: unknown, maxCommits?: unknown, exclude?: unknown) => {
     const max = typeof maxCommits === 'number' && maxCommits > 0 ? Math.min(maxCommits, 20000) : 500;
-    return git.loadRepo(repoOf(path), max);
+    // The hidden refs are optional, so an omitted argument is an empty list rather than an error.
+    return git.loadRepo(repoOf(path), max, exclude === undefined || exclude === null ? [] : strs(exclude, 'The hidden refs'));
   });
   ipcMain.handle('repo:status', (_e, repo: unknown) => git.getStatus(repoOf(repo)));
   // The watcher pushes on `repo:changed`; this is only the renderer saying what to watch (GC-011).

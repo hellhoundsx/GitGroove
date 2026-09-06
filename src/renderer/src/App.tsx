@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent } from 'react';
 import type { CheckoutOptions, Commit, GitRef, Remote, RepoChange, RepoSnapshot, Stash, StatusEntry } from '@shared/types';
 import { defaultRemote } from '@shared/remotes';
+import { useDragWidth } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
@@ -21,6 +22,17 @@ const RECENT_REPOS_KEY = 'gitclient.recentRepos';
 const MAX_RECENT = 10;
 /** The pinned branch is per repository, so the key carries the path. */
 const pinKey = (path: string): string => `gitclient.pinned.${path}`;
+/** The refs hidden from the graph, per repository, as a JSON array of full names (GC-073). */
+const hiddenKey = (path: string): string => `gitclient.hidden.${path}`;
+
+function readHidden(path: string): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(hiddenKey(path)) ?? '[]');
+    return Array.isArray(raw) ? raw.filter((n): n is string => typeof n === 'string' && n.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
 const MAX_COMMITS = 2000;
 
 /** Windows hands the same folder back with either separator and either case, so dedupe on this (GC-044). */
@@ -68,6 +80,10 @@ export function App(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(WIP);
   const [fileView, setFileView] = useState<FileViewSource | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
+  // Both side panels are draggable (GC-050); the widths are remembered state on their own keys,
+  // the way the ref column's is, and reach the panels as CSS variables on the app root.
+  const leftW = useDragWidth({ key: 'gitclient.leftPanelW', def: 220, min: 160, max: 420 });
+  const detailW = useDragWidth({ key: 'gitclient.detailPanelW', def: 400, min: 300, max: 720, dir: -1 });
   const [workdirVersion, setWorkdirVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +92,11 @@ export function App(): JSX.Element {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [pullOpen, setPullOpen] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null); // branch name pinned to column 0
+  // Refs kept out of the graph (GC-073). The ref mirrors the state because `load()` needs the set
+  // as it stands at the moment it spawns `git log`, without every callback that loads a repository
+  // having to be rebuilt each time the set changes.
+  const [hidden, setHidden] = useState<string[]>([]);
+  const hiddenRef = useRef<string[]>([]);
   // The search bar over the graph. `searchTick` changes on every request to open it so that
   // Ctrl+F refocuses the field even when the bar is already showing. The query lives here rather
   // than in `CommitGraph` because that component unmounts whenever a file view opens (GC-030);
@@ -117,7 +138,7 @@ export function App(): JSX.Element {
     async (path: string) => {
       const gen = generation.current;
       try {
-        const snap = await window.api.loadRepo(path, MAX_COMMITS);
+        const snap = await window.api.loadRepo(path, MAX_COMMITS, hiddenRef.current);
         if (gen !== generation.current) return; // (GC-068) something newer has already landed
         setSnapshot(snap);
         bumpGen();
@@ -262,6 +283,100 @@ export function App(): JSX.Element {
     [repo, load, refreshStatus],
   );
 
+  // ---- hidden refs (GC-073) ----------------------------------------------------------
+  // The stored set is re-read and pruned against every snapshot: a branch that has since been
+  // deleted stops being excluded, so a name cannot outlive its ref in `localStorage` and keep
+  // `git log` refusing a ref nobody can see any more. When the pruned set differs from the one the
+  // snapshot on screen was built with — a different repository was opened, or a hidden branch is
+  // gone — the graph is rebuilt with it.
+  useEffect(() => {
+    if (!repo || !snapshot) {
+      hiddenRef.current = [];
+      setHidden([]);
+      return;
+    }
+    const stored = readHidden(repo);
+    const live = new Set(snapshot.refs.map((r) => r.fullName));
+    const next = stored.filter((n) => live.has(n));
+    if (next.length !== stored.length) {
+      try {
+        if (next.length === 0) localStorage.removeItem(hiddenKey(repo));
+        else localStorage.setItem(hiddenKey(repo), JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+    }
+    const applied = hiddenRef.current;
+    if (next.length === applied.length && next.every((n, i) => n === applied[i])) return;
+    hiddenRef.current = next;
+    setHidden(next);
+    void run('Updating graph', async () => undefined);
+  }, [repo, snapshot, run]);
+
+  /** Persist a new hidden set and rebuild the graph with it. */
+  const applyHidden = useCallback(
+    (next: string[]) => {
+      if (!repo) return;
+      try {
+        if (next.length === 0) localStorage.removeItem(hiddenKey(repo));
+        else localStorage.setItem(hiddenKey(repo), JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      hiddenRef.current = next;
+      setHidden(next);
+      void run('Updating graph', async () => undefined);
+    },
+    [repo, run],
+  );
+
+  /**
+   * One ref per action: hiding a local branch does not also hide the upstream its chip absorbs.
+   * The eye sits on a row that stands for exactly one ref, and taking a second one out silently
+   * would hide something the user did not name — so a branch whose commits are also reachable from
+   * its upstream stays in the graph until that upstream is hidden too, which the row below it does.
+   */
+  const toggleHidden = useCallback(
+    (r: GitRef) => {
+      if (r.isHead) return; // the checked-out branch is never hidden
+      const set = hiddenRef.current;
+      applyHidden(set.includes(r.fullName) ? set.filter((n) => n !== r.fullName) : [...set, r.fullName]);
+    },
+    [applyHidden],
+  );
+
+  /** Everything but this branch and the checked-out one; tags are untouched. */
+  const soloRef = useCallback(
+    (r: GitRef) => {
+      const refs = snapshot?.refs ?? [];
+      applyHidden(refs.filter((x) => (x.kind === 'head' || x.kind === 'remote') && !x.isHead && x.fullName !== r.fullName).map((x) => x.fullName));
+    },
+    [applyHidden, snapshot],
+  );
+
+  const showAll = useCallback(
+    (kind: 'head' | 'remote') => {
+      const refs = snapshot?.refs ?? [];
+      const of = new Set(refs.filter((r) => r.kind === kind).map((r) => r.fullName));
+      applyHidden(hiddenRef.current.filter((n) => !of.has(n)));
+    },
+    [applyHidden, snapshot],
+  );
+
+  /** The Hide / Show / Solo group both branch menus carry (GC-073). */
+  const visibilityItems = useCallback(
+    (r: GitRef): MenuItem[] => [
+      {
+        label: hidden.includes(r.fullName) ? 'Show in graph' : 'Hide in graph',
+        hint: hidden.includes(r.fullName) ? undefined : 'keep this branch out of the graph',
+        disabled: r.isHead,
+        onClick: () => toggleHidden(r),
+      },
+      { label: 'Solo in graph', hint: 'hide every other branch', onClick: () => soloRef(r) },
+    ],
+    [hidden, soloRef, toggleHidden],
+  );
+
   const actions = useMemo<StagingActions>(
     () => ({
       stage: (paths) => run('Staging', () => window.api.stage(repo!, paths), { statusOnly: true, rethrow: true }),
@@ -308,7 +423,7 @@ export function App(): JSX.Element {
         // Not `load()`: its failure path clears the open repository (GC-025), which a refresh
         // nobody asked for must never do, so the snapshot is replaced only when one arrives.
         const gen = generation.current;
-        const snap = await window.api.loadRepo(repo, MAX_COMMITS);
+        const snap = await window.api.loadRepo(repo, MAX_COMMITS, hiddenRef.current);
         if (gen !== generation.current) return; // (GC-068) a user action has reloaded since
         setSnapshot(snap);
         setWorkdirVersion((v) => v + 1);
@@ -361,6 +476,15 @@ export function App(): JSX.Element {
   const headRef = useMemo(() => snapshot?.refs.find((r) => r.isHead) ?? null, [snapshot]);
   // Resolved on every snapshot so the pinned lane follows the branch as it gains commits; a pin on a
   // branch that no longer exists simply stops resolving and column 0 goes back to HEAD's lineage.
+  // The graph is handed only what it should draw, so a hidden ref's chip disappears with its rows
+  // and the local-absorbs-upstream pairing works off the same list (GC-073). The left panel still
+  // gets every ref: it is where a hidden one is shown dimmed and brought back.
+  const visibleRefs = useMemo(() => {
+    if (hidden.length === 0) return snapshot?.refs ?? [];
+    const set = new Set(hidden);
+    return (snapshot?.refs ?? []).filter((r) => !set.has(r.fullName));
+  }, [hidden, snapshot]);
+
   const pinnedRef = useMemo(() => (pinned ? snapshot?.refs.find((r) => r.kind === 'head' && r.name === pinned) ?? null : null), [pinned, snapshot]);
   const currentBranch = snapshot?.info.branch ?? null;
 
@@ -531,6 +655,7 @@ export function App(): JSX.Element {
           hint: isPinned ? 'give column 0 back to the checked-out branch' : 'keep this branch in the leftmost column',
           onClick: () => pinBranch(isPinned ? null : r.name),
         });
+        items.push(...visibilityItems(r));
         items.push({ separator: true });
         items.push({
           label: `Rename ${r.name}…`,
@@ -557,13 +682,17 @@ export function App(): JSX.Element {
           });
         }
       }
+      if (r.kind === 'remote') {
+        items.push({ separator: true });
+        items.push(...visibilityItems(r));
+      }
       items.push({ separator: true });
       items.push({ label: `Delete ${r.name}`, danger: true, disabled: r.isHead, onClick: () => deleteBranch(r) });
       items.push({ separator: true });
       items.push({ label: 'Copy branch name', onClick: () => void navigator.clipboard.writeText(r.name) });
       return items;
     },
-    [checkoutRef, createBranchAt, currentBranch, deleteBranch, pinBranch, pinned, repo, run, snapshot, ui],
+    [checkoutRef, createBranchAt, currentBranch, deleteBranch, pinBranch, pinned, repo, run, snapshot, ui, visibilityItems],
   );
 
   const commitMenuItems = useCallback(
@@ -809,7 +938,10 @@ export function App(): JSX.Element {
   }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, ui]);
 
   return (
-    <div className="app">
+    <div
+      className={`app ${leftW.resizing || detailW.resizing ? 'resizing' : ''}`}
+      style={{ '--left-panel-w': `${leftW.width}px`, '--detail-panel-w': `${detailW.width}px` } as CSSProperties}
+    >
       <TitleBar repoName={snapshot?.info.name ?? null} onOpenRepo={openRepo} onRepoMenu={openRepoMenu} />
       <Toolbar
         info={snapshot?.info ?? null}
@@ -854,7 +986,11 @@ export function App(): JSX.Element {
               stashes={snapshot.stashes}
               remotes={snapshot.remotes}
               pinnedName={pinnedRef?.name ?? null}
+              hidden={hidden}
+              onToggleHidden={toggleHidden}
+              onShowAll={showAll}
               collapsed={leftCollapsed || fileView !== null}
+              resize={leftW.handle}
               onExpand={() => (fileView ? setFileView(null) : setLeftCollapsed(false))}
               onCollapse={() => setLeftCollapsed(true)}
               onRefMenu={(e, r) => onMenu(e, refMenuItems(r))}
@@ -878,7 +1014,7 @@ export function App(): JSX.Element {
             ) : (
               <CommitGraph
                 commits={commits}
-                refs={snapshot.refs}
+                refs={visibleRefs}
                 status={snapshot.status}
                 headSha={snapshot.info.headSha}
                 pinnedSha={pinnedRef?.sha ?? null}
@@ -904,6 +1040,7 @@ export function App(): JSX.Element {
               status={snapshot.status}
               openFile={fileView}
               actions={actions}
+              resize={detailW.handle}
               onSelectSha={select}
               onOpenFile={setFileView}
               onFileMenu={(e, t) => onMenu(e, fileMenuItems(t))}

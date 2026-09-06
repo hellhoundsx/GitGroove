@@ -230,18 +230,19 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | done |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | done |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | done |
-| GC-086 | The diff body blanks to "Loading diff…" on every hunk action, twice | diff | S | P1 | in-progress |
-| GC-089 | Slim CLAUDE.md back down to a handover: the history moves to the tickets | infra | M | P1 | in-progress |
+| GC-086 | The diff body blanks to "Loading diff…" on every hunk action, twice | diff | S | P1 | done |
+| GC-089 | Slim CLAUDE.md back down to a handover: the history moves to the tickets | infra | M | P1 | done |
 | GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | done |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | done |
 | GC-082 | Popping a stash through the toolbar loses what was staged | actions | S | P2 | done |
 | GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | done |
-| GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | in-progress |
-| GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | in-progress |
+| GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | done |
+| GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | done |
 | GC-092 | A conflicting stash pop reports "could not write index" instead of the conflict | actions | S | P1 | todo |
 | GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | todo |
 | GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | todo |
+| GC-095 | The graph draws commits from refs the left panel never lists | graph | S | P2 | todo |
 | GC-093 | No way to ignore a file: the row menu cannot write .gitignore | ui | M | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
 | GC-013 | Light theme | ui | M | P3 | todo |
@@ -2511,7 +2512,7 @@ decision is missing.
 
 ### GC-050 Resizable left and detail panels, widths remembered
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-006
 - **Why:** The study gives both side panels a drag handle: the left panel is 215px and resizes
@@ -2556,6 +2557,30 @@ decision is missing.
   - 2026-09-05 proposed by GR-003: both side panels are draggable in the study and fixed here; on a
     real repository the left panel truncates most branch names with no way to widen it.
   - 2026-09-06 03:03 claimed
+  - 2026-09-06 03:39 done. New `src/renderer/src/ui/useDragWidth.ts` holds the one drag
+    implementation — clamp, persist, double-click reset — and `CommitGraph` was rewired onto it, so
+    the ref column and both panels now share it (its `readRefColW`/`clampRefCol`/pointer handlers
+    are gone). Handles are a 4px `.panel-resize` on the left panel's right edge and the detail
+    panel's left edge, absolutely positioned inside each panel; `App` owns both widths and writes
+    `--left-panel-w` / `--detail-panel-w` on `.app`, with `tokens.css` keeping only the defaults.
+    Keys `gitclient.leftPanelW` (160-420, default 220) and `gitclient.detailPanelW` (300-720,
+    default 400). Measured over CDP with real `Input.dispatchMouseEvent` drags: left handle +100px
+    takes the panel 220 -> 320 and the graph 780 -> 680; detail handle -80px takes it 400 -> 480 and
+    the graph 680 -> 600; the clamps stop at 420 and 300 with `scrollWidth <= clientWidth` on both
+    `documentElement` and `.app`; a reload keeps 340/300; double-click returns 220 and
+    `localStorage.getItem('gitclient.leftPanelW')` is `null`; with a diff open the left panel is 44px,
+    `.collapsed`, with no `.panel-resize`, while the detail handle still moves it 300 -> 340.
+    Screenshots `docs/screenshots/gc050-panels-resized.png` (rail + widened detail panel) and
+    `gc050-left-panel-320-catena-feed.png` (catena-feed loaded **read-only** at 320px), looked at
+    next to `08-left-panel-expanded.png` for layout: same structure — Viewing, filter, LOCAL/REMOTE
+    heads with counts, nested rows under the remote — and at 320px only 1 of the branch names still
+    truncates, against the 16 GR-003 recorded at 220px.
+    One thing the scope did not anticipate: the drag persisted a width one pointermove behind what
+    was on screen (measured: rendered 340, stored 356), because the pointerup arrives before React
+    has committed the last move and the closure's `width` is stale. The hook computes the released
+    width from the release position instead. GC-006's ref column had the same bug and is fixed by
+    sharing the hook. The reset also removes the key rather than storing the default, which is the
+    acceptance's wording and a small behaviour change for `gitclient.refColW`.
 
 ### GC-051 Left panel folders for slash-separated branch names
 
@@ -3519,7 +3544,7 @@ decision is missing.
 
 ### GC-073 Hide and Solo branches in the graph from the left panel
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** graph | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** The study records hide/solo toggles on hover on every left-panel branch row and "Hide /
@@ -3586,6 +3611,43 @@ decision is missing.
     against the board — hide/solo is the one left-panel behaviour in the study without a ticket, and
     the branch menu screenshot from this review shows Pin to Left standing alone.
   - 2026-09-06 03:03 claimed
+  - 2026-09-06 03:39 done. `getLog(cwd, max, exclude)` puts one `--exclude=<fullName>` per
+    hidden ref ahead of `--all`, carried through `loadRepo`, `repo:load` (validated with `strs`,
+    an absent argument meaning none) and `GitApi`; the preload's generic `call()` needed no change.
+    `gitclient.hidden.<repoPath>` holds the full names; an effect re-reads and prunes it against
+    every snapshot and rebuilds the graph when the pruned set differs from the one on screen, which
+    converges in one extra load. Eye toggle on hover for local and nested remote rows (none on the
+    checked-out branch), `.ref-row.ref-hidden` dims a hidden row, "Viewing" counts visible refs
+    only, and a "Show all" eye appears on the LOCAL and REMOTE heads while anything under them is
+    hidden (`Section` now takes `actions` rather than one `action`). "Hide in graph" /
+    "Show in graph" and "Solo in graph" sit next to Pin to Left in the branch menu and as their own
+    group on a remote branch, from one `visibilityItems(r)` helper. `CommitGraph` is untouched:
+    `App` hands it `visibleRefs`, so a hidden ref's chip goes with its rows and the
+    absorbs-its-upstream pairing works off the same list.
+    **Decision on the fixture note:** one action hides exactly one ref — hiding a local branch does
+    not take the upstream its chip absorbs with it, because the row and its eye stand for one ref
+    and hiding a second silently would remove something the user did not name. The e2e step asserts
+    the consequence: hiding `wip-branch` alone removes no row.
+    e2e step 25 (the fixture check became step 26): the menu carries Hide/Solo beside Pin to Left,
+    hiding one half removes nothing, hiding both takes the row out, the drop equals
+    `git rev-list --count --exclude=refs/stash --all` minus the same with both excludes, the rendered
+    commit rows equal that second count, Viewing drops by two, the set is persisted by full ref
+    name, Show all restores both counts, and Solo `feature` leaves `main` and `feature` with no
+    `wip-branch` chip anywhere. Step 1 clears every `gitclient.hidden.*` key. 104 -> 117 assertions,
+    ALL PASSED, 21.1s. By CDP, outside the suite: the row eye hides the same way the menu does, both
+    rows show `.ref-hidden`, the set survives a page reload (8 rows before and after), and
+    `git branch -D wip-branch` + Refresh prunes `refs/heads/wip-branch` out of `localStorage` while
+    leaving the remote entry. Screenshots `docs/screenshots/gc073-solo-graph.png` (left panel at
+    320px with `wip-branch` and all three remote rows dimmed, Viewing 3, the wip row gone) and
+    `gc073-hidden-and-solo.png`.
+    **A finding that had to be fixed to make the acceptance testable:** `git log --all` means every
+    ref under `refs/`, not only heads/remotes/tags, so the fixture's own `refs/e2e/baseline/*`
+    snapshot (GC-076) kept `Work on wip branch` in the graph after both wip refs were hidden. The
+    baseline moved to `<root>/.e2e-baseline.json`, read by `run.mjs` and written by
+    `setup-testrepo.mjs`, which also deletes any stale `refs/e2e` namespace — **a fixture from
+    before this commit must be rebuilt with `npm run e2e:setup`**. The app-side half of the same
+    problem (a real repository's `refs/notes/*` or `refs/pull/*` doing exactly this) is filed as
+    GC-095. Also noted for GC-094: "Viewing" now counts visible refs, not every ref.
 
 ### GC-074 The commit menu's Reset rows do not fit the menu, whichever side gives way
 
@@ -4209,7 +4271,7 @@ decision is missing.
 
 ### GC-086 The diff body blanks to "Loading diff…" on every hunk action, twice
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** diff | **Size:** S | **Priority:** P1
 - **Depends on:** GC-075
 - **Why:** GC-075 keyed the loaded diff to `viewKey`, and that key includes `version`
@@ -4255,6 +4317,22 @@ decision is missing.
   - 2026-09-06 proposed by GR-008: measured on the shipped GC-075 — one hunk click blanks the body
     twice, where the previous render kept the hunks in place until the new ones arrived.
   - 2026-09-06 03:03 claimed
+  - 2026-09-06 03:39 done. `DiffView` splits the key in two: `identityKey` (`repo|source|path|sha`
+    or `repo|source|path|staged|kind`) decides what is *rendered*, `viewKey` adds `version` and
+    decides whether the content is the newest. `current` matches on identity, so a same-view reload
+    keeps its hunks; `stale` is `current.key !== viewKey` and joins `actionsDisabled`, so GC-075's
+    guarantee holds without emptying the body. One CSS rule, `.diff-body.stale { opacity: 0.55 }`.
+    Verified over CDP with a MutationObserver on `.file-view` (the same instrument GR-008 used):
+    across one Stage hunk on the fixture's `big.txt` the rendered states are
+    `Unstaged|2 -> Unstaged|2 -> Unstaged|1 -> Unstaged|1 -> Unstaged|1` — no `Loading diff…`, never
+    0 hunks. Mutation-checked both ways: restoring `current = loaded?.key === viewKey`, rebuilding
+    and re-running the same trace reproduces GR-008's measurement exactly,
+    `2 -> 0|Loading diff… -> 1 -> 0|Loading diff… -> 1`, and the file was restored from a copy
+    afterwards. The identity-change trace is
+    `Unstaged|1|@@ -1,6 -> Staged|0|Loading diff… -> Staged|1|@@ -32,7|Unstage hunk`: the loading line
+    appears immediately, no frame shows the unstaged side under the `Staged` chip, and `Unstage
+    hunk` only ever appears on a state that already has the staged hunk. `npm run e2e` ALL PASSED
+    (step 21's content-keyed `waitDiff` is the net); `npm test` 77.
 
 ### GC-087 The commit view's ref line is git's decorate string, truncated to "origin/m…"
 
@@ -4348,7 +4426,7 @@ decision is missing.
 
 ### GC-089 Slim CLAUDE.md back down to a handover: the history moves to the tickets
 
-- **Status:** in-progress
+- **Status:** done
 - **Area:** infra | **Size:** M | **Priority:** P1
 - **Depends on:** none
 - **Why:** Ricardo, joining GR-008's session: the file "already starts having too much crap" and
@@ -4400,6 +4478,35 @@ decision is missing.
   - 2026-09-06 asked for by Ricardo during GR-008's session, filed by GR-008: 867 lines, 10,940
     words, 147 ticket citations and 31 commits to the file in two days.
   - 2026-09-06 03:03 claimed
+  - 2026-09-06 03:39 done, with one acceptance criterion met on words and not on lines; see
+    below. `CLAUDE.md` went from **918 lines / 11,767 words** (at cee2b53 — larger than the 867 /
+    10,940 the ticket measured at 9206ba6) to **466 lines / 4,910 words**, a 49% and 58% cut, and
+    from **152** `GC-0` citations to **2** (this ticket, on the "keep it short" instruction, and
+    the introduction). Every section now states the current rule and at most one clause of why; the
+    "Done" paragraph is replaced by one sentence pointing at the board plus the list of decisions
+    that must not be undone, and the per-ticket narratives, per-test mutation anecdotes and per-step
+    e2e stories are gone.
+    **Checklist**: every rule and command in the old file was extracted into 121 markers and each
+    checked against the new one (`scratchpad/check-rules.mjs`, whitespace-normalised so a rule that
+    now wraps differently still counts) — **121 of 121 present, 0 missing**. A mechanical diff of
+    the fenced commands old vs new leaves only `git apply`, `git log -1`, `git log -1 --format=%B`,
+    `git ls-remote` and `git rev-list --count HEAD`, all of which were assertions quoted from
+    inside e2e step narratives rather than commands a session runs; the file now points at
+    `run.mjs`'s own step titles for those. `npx esbuild …` and `npx vitest run --project …` are
+    both still present (they only fell out of the grep because they wrap).
+    **Cold read**: the Routine protocol's steps 1-6 and the Review routine's isolation rules are in
+    `TICKETS.md`, which this file names as the authority and did not change; every command the new
+    file lists was run in this batch — `npm run typecheck`, `npm test` (77), `npm run build`,
+    `npm run e2e:setup`, `npm run e2e` (117, ALL PASSED) and `node tools/launch-app.mjs`.
+    **Removed narratives**: spot-checked GC-058, GC-076, GC-030 and GC-022, whose logs already carry
+    the removed text nearly verbatim — the logs are where it came from — so no log lines had to be
+    appended. Nothing was moved out of this file that is not already in a ticket.
+    **Not met**: `wc -l` is 466, not under 400 (words are 4,910, under 5,000). Getting to 400 at
+    the file's 100-column wrapping needs roughly 4,200 words, and every remaining paragraph is a
+    rule or a command that the same criterion says must not be lost — the inventory that could go
+    (the layout tree, the shipped-ticket list, the e2e step list, the per-test coverage list) is
+    already gone. Reporting the measurement rather than deleting rules to reach a round number;
+    Ricardo can say whether the line target or the content should give.
 
 
 ### GC-090 A sequencer action with a dirty index fails with git's raw refusal
@@ -4612,6 +4719,56 @@ decision is missing.
   - 2026-09-06 proposed by GR-009 (screenshot pass): the header's number repeats its own sections
     and contradicts the status bar, and the panel is the one place that stays silent when HEAD
     detaches.
+  - 2026-09-06 note from GC-073: "Viewing" now counts only the refs the graph is drawing, so a
+    hidden branch leaves the number. The header still repeats its sections and still says nothing
+    about HEAD, so this ticket stands; its "N is local + remotes + tags" is out of date.
+
+### GC-095 The graph draws commits from refs the left panel never lists
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-073
+- **Why:** `getLog` runs `git log --all`, and `--all` means *every* ref under `refs/` plus HEAD —
+  not just the heads, remotes and tags `getRefs()` reads. Anything else in the namespace puts its
+  commits in the graph with no chip to explain them and no row in the left panel: `refs/notes/*`
+  on a repository using git notes, `refs/pull/*` on a GitHub clone configured to fetch them,
+  `refs/stash` (already excluded by name, which is the precedent), and any tool's private
+  namespace. Two consequences. The graph can show rows the user cannot account for, and, since
+  GC-073, **hiding a branch can appear to do nothing**: the eye is ticked, the row is dimmed, and
+  the commits stay because an invisible ref still reaches them, with nothing on screen saying why.
+  Found while writing GC-073's e2e step: the fixture's own `refs/e2e/baseline/*` snapshot kept
+  `Work on wip branch` in the graph after both `wip-branch` and `origin/wip-branch` were hidden,
+  and the assertion failed for a reason that looked like a bug in the feature. That fixture was
+  moved to a file (`<root>/.e2e-baseline.json`) as part of GC-073, which fixes the suite but not
+  the app: a real repository can carry exactly the same shape.
+- **Scope:**
+  - Decide and implement what "all" means for the graph. The straightforward reading is that it is
+    the refs the app can show — `--branches --remotes --tags` plus HEAD — rather than `--all`;
+    check against a repository with notes and with a `refs/pull/*` fetch refspec that the commit
+    set is the same as today's minus the unreachable-by-a-listed-ref ones.
+  - Keep the `--exclude=` mechanism GC-073 added working with whatever replaces `--all` (git
+    applies `--exclude` to the *next* traversal option, so the position matters for each one).
+  - `lanes.ts` and the chip code need no change: fewer commits arrive, none of them differently.
+- **Out of scope:** showing the other namespaces in the left panel, a preference for including
+  them, stashes in the graph (deliberately excluded), submodules.
+- **Acceptance:**
+  - [ ] On a repository carrying a `refs/notes/commits` ref, the graph's commit rows equal
+        `git log --branches --remotes --tags --oneline | wc -l` (plus HEAD's own lineage), and no
+        row is present that no listed ref reaches.
+  - [ ] Hiding every ref that reaches a commit removes its row, with no residue from another
+        namespace; the GC-073 e2e step still passes.
+  - [ ] catena-feed read-only: the row count before and after the change is compared and the
+        difference is explained by naming the refs responsible.
+  - [ ] `npm test` and `npm run e2e` pass.
+- **Files:** `src/main/git.ts`, possibly `tools/e2e/setup-testrepo.mjs` (a fixture ref in another
+  namespace, so the suite covers this at all).
+- **Verify:** typecheck, build, `npm run e2e`, and the two git counts above on a repository with
+  a ref outside heads/remotes/tags.
+- **Log:**
+  - 2026-09-06 proposed by GC-073 (this ticket): `--all` is wider than the ref set the UI lists, so
+    the graph can show commits nothing on screen explains and hiding a branch can silently fail to
+    remove its rows. Found when the fixture's own baseline refs did exactly that.
+
 
 
 ## Reviews

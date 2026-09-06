@@ -35,15 +35,26 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   // result to its own view and comparing during render, rather than clearing it from the effect,
   // is what makes that impossible: an effect runs after React has committed the new `view`, which
   // leaves one painted frame with the new header over the old hunks and the buttons still live.
-  const viewKey = `${repo}|${version}|${view.source}|${view.path}|${view.source === 'commit' ? view.sha : `${view.staged}|${view.kind ?? ''}`}`;
-  const [loaded, setLoaded] = useState<{ key: string; text: string | null; error: string | null } | null>(null);
+  //
+  // (GC-086) The key is in two parts. The *identity* is the view itself; the full key adds
+  // `version`, which every status reload bumps. Content is kept while the identity holds, because a
+  // reload of the same file on the same side is a refresh of what is already on screen — keying the
+  // body on the version too made a Stage hunk click blank the diff to "Loading diff…" twice, once
+  // for the action's own reload and once for the watcher's echo of the index write. What GC-075
+  // needs is that no button is live over content whose load is not the newest, and `stale` says
+  // exactly that: a pending reload disables every action without emptying the body.
+  const identityKey = `${repo}|${view.source}|${view.path}|${view.source === 'commit' ? view.sha : `${view.staged}|${view.kind ?? ''}`}`;
+  const viewKey = `${identityKey}|${version}`;
+  const [loaded, setLoaded] = useState<{ key: string; identity: string; text: string | null; error: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   /** What a Stage/Unstage/Discard click reported, as opposed to what the load did. */
   const [actionError, setActionError] = useState<string | null>(null);
-  const current = loaded?.key === viewKey ? loaded : null;
+  const current = loaded?.identity === identityKey ? loaded : null;
   const text = current?.text ?? null;
   const error = current?.error ?? actionError;
   const loading = current === null;
+  /** Content for this view is on screen, but a newer load of it has not landed yet. */
+  const stale = current !== null && current.key !== viewKey;
 
   useEffect(() => {
     let cancelled = false;
@@ -53,15 +64,15 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         ? window.api.getCommitFileDiff(repo, view.sha, view.path)
         : window.api.getWorkdirFileDiff(repo, { path: view.path, staged: view.staged, untracked: view.kind === 'untracked' });
     load.then(
-      (t) => !cancelled && setLoaded({ key: viewKey, text: t, error: null }),
+      (t) => !cancelled && setLoaded({ key: viewKey, identity: identityKey, text: t, error: null }),
       // A failure is stored against the same key, so the file buttons come back rather than staying
       // disabled on a view that will never resolve.
-      (e) => !cancelled && setLoaded({ key: viewKey, text: null, error: e instanceof Error ? e.message : String(e) }),
+      (e) => !cancelled && setLoaded({ key: viewKey, identity: identityKey, text: null, error: e instanceof Error ? e.message : String(e) }),
     );
     return () => {
       cancelled = true;
     };
-  }, [repo, view, version, viewKey]);
+  }, [repo, view, version, viewKey, identityKey]);
 
   const files = useMemo(() => (text === null ? [] : parseUnifiedDiff(text)), [text]);
   const file: FileDiff | undefined = files[0];
@@ -69,8 +80,9 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
   const isWip = view.source === 'wip';
   const untracked = view.kind === 'untracked';
   // Every action is aimed at what is on screen, so a load in flight disables them exactly like a
-  // running one does: the header already claims the new side of the file (GC-075).
-  const actionsDisabled = busy || loading;
+  // running one does: the header already claims the new side of the file (GC-075), and a stale
+  // body is content the newest load has not confirmed yet (GC-086).
+  const actionsDisabled = busy || loading || stale;
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     setBusy(true);
@@ -165,7 +177,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         <span className="chip">{view.source === 'commit' ? `commit ${view.sha.slice(0, 7)}` : view.staged ? 'Staged' : 'Unstaged'}</span>
         {error && <span className="err">{error}</span>}
       </div>
-      <div className="diff-body">
+      <div className={`diff-body${stale ? ' stale' : ''}`}>
         {loading && !error && <div className="diff-empty">Loading diff…</div>}
         {text !== null && !file && <div className="diff-empty">No textual changes.</div>}
         {file?.binary && <div className="diff-empty">Binary file.</div>}

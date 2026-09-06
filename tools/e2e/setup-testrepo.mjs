@@ -16,6 +16,9 @@ const REMOTE = join(root, 'remote.git');
 // named nothing (GC-064). tools/e2e/run.mjs writes this marker while it works; the wipe below
 // refuses while it belongs to a process that is still alive.
 const MARKER = join(root, '.e2e-owner.json');
+// The branch-tip snapshot run.mjs restores the fixture to (GC-076), out of refs/ so `--all` does
+// not keep a hidden branch's commits in the graph (GC-073).
+const BASELINE = join(root, '.e2e-baseline.json');
 // An e2e run takes about a minute, so a marker this old is left over from one that died however
 // alive its pid looks: pids are reused, and an unattended routine must not be blocked for ever by
 // one that happens to have come round again.
@@ -110,12 +113,21 @@ git(['add', 'README.md']);
 git(['rm', '-q', 'main.txt']);
 write('big.txt', bigRows({ 3: 'row 3 edited', 35: 'row 35 edited' }));
 
-// A snapshot of every branch tip, in a ref namespace the app never reads: getRefs() covers
-// refs/heads, refs/remotes and refs/tags only, and these point at commits the branches already
-// reach, so the graph gains no row from them. tools/e2e/run.mjs puts the fixture back to this
-// snapshot when a run finishes and asserts that it matches, so a step that leaves a commit
-// behind names itself instead of surfacing later as an unrelated step's flake (GC-076).
-for (const b of ['main', 'feature', 'wip-branch']) git(['update-ref', `refs/e2e/baseline/${b}`, b]);
+// A snapshot of every branch tip. tools/e2e/run.mjs puts the fixture back to it when a run
+// finishes and asserts that it matches, so a step that leaves a commit behind names itself instead
+// of surfacing later as an unrelated step's flake (GC-076).
+//
+// It is a **file**, not a ref namespace (GC-073). It used to be `refs/e2e/baseline/*`, on the
+// grounds that `getRefs()` reads only heads, remotes and tags — but `git log --all` means every
+// ref under `refs/`, so those three kept their commits in the graph no matter what else was
+// excluded, and a step that hides `wip-branch` and `origin/wip-branch` saw the row stay put
+// because a baseline ref nobody could see still reached it. Any stale namespace from an older
+// fixture is removed, since this repository is rebuilt from scratch anyway.
+for (const r of git(['for-each-ref', '--format=%(refname)', 'refs/e2e']).split(String.fromCharCode(10)).filter(Boolean)) git(['update-ref', '-d', r]);
+writeFileSync(
+  BASELINE,
+  JSON.stringify(Object.fromEntries(['main', 'feature', 'wip-branch'].map((b) => [b, git(['rev-parse', b])])), null, 2),
+);
 
 // Claim the root for as long as this process lives. It exits immediately after, so the marker is
 // stale by the time anyone reads it — which is the point: it is `run.mjs`'s claim that matters,

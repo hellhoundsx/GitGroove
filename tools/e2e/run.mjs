@@ -6,7 +6,7 @@
 // hold, then launches through tools/launch-app.mjs, which keeps the run invisible (no window, no
 // focus change). Both the prologue and the epilogue stop one process tree only (GC-035).
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,8 @@ const root = process.env.GITCLIENT_E2E_ROOT ?? join(tmpdir(), 'gitclient-e2e');
 const R = join(root, 'testrepo');
 const REMOTE = join(root, 'remote.git');
 const SHOTS = join(root, 'shots');
+// The branch-tip snapshot setup-testrepo.mjs writes (GC-076); a file rather than refs (GC-073).
+const BASELINE = join(root, '.e2e-baseline.json');
 const PORT = Number(process.env.GITCLIENT_E2E_PORT ?? 9333);
 const runStart = Date.now();
 
@@ -46,12 +48,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // fixture back to them when it finishes and then asserts that it did, so a step that leaves a
 // commit behind says so itself. A fixture built before that snapshot existed cannot be checked at
 // all, which makes it as stale as no fixture: say so the same way and stop before the launch.
-const baseline = new Map(
-  git(['for-each-ref', '--format=%(refname:lstrip=3) %(objectname)', 'refs/e2e/baseline'])
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => l.split(' ')),
-);
+// It is a file rather than the `refs/e2e/baseline/*` namespace it started as, because `--all`
+// includes every ref under `refs/` and those kept a hidden branch's commits in the graph (GC-073).
+const baseline = new Map(Object.entries(existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : {}));
 if (baseline.size === 0) {
   console.error(`The test repository at ${R} predates the fixture baseline. Run: node tools/e2e/setup-testrepo.mjs`);
   process.exit(2);
@@ -445,7 +444,9 @@ const stamp = Date.now();
 // ---- scenario -----------------------------------------------------------------------------------------------
 step(1, 'load test repo');
 // Preferences persist in the app's localStorage, so a hand-toggled setting from an earlier
-// session would silently change what the later steps see: start every run from the defaults.
+// session would silently change what the later steps see: start every run from the defaults. The
+// hidden-ref sets go with them (GC-073): a run that dies inside step 25 would otherwise leave
+// branches hidden and the next run's row counts short by whatever it hid.
 // The profile is no longer Ricardo's — `tools/launch-app.mjs` gives every launch it makes its own
 // under `<os.tmpdir()>/gitclient-profiles/<port>` (GC-060) — but it does persist between runs on
 // that port, so the removal still earns its place.
@@ -454,7 +455,7 @@ step(1, 'load test repo');
 // nothing is busy" is satisfied by the page that is *about* to be thrown away, and the reload then
 // lands in the middle of step 2 or 3 with the panels empty. The flag lives on `window`, so it is
 // gone the moment the new document exists (GC-080).
-await ev(`window.__e2eReloading = true; localStorage.removeItem('gitclient.prefs'); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
+await ev(`window.__e2eReloading = true; localStorage.removeItem('gitclient.prefs'); Object.keys(localStorage).filter(k => k.startsWith('gitclient.hidden.')).forEach(k => localStorage.removeItem(k)); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
 // The generation starts again from zero across the reload, so `act()` has nothing to compare
 // against here: wait on the new document having loaded the repository instead (GC-080).
 await waitFor(
@@ -1185,7 +1186,74 @@ await waitIdle();
 const reattached = await ev(`(() => JSON.stringify({ head: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].filter(c => c.textContent.trim() === 'HEAD').length, mainChecked: [...document.querySelectorAll('.graph-row .col-ref > .ref-chip')].some(c => c.textContent.trim() === 'main' && c.classList.contains('head')) }))()`);
 check('checking the branch back out removes the HEAD chip and gives main the check mark', JSON.parse(reattached).head === 0 && JSON.parse(reattached).mainChecked === true, reattached);
 
-step(25, 'the run leaves the fixture exactly as it found it');
+step(25, 'hide and solo branches: the graph, the Viewing count and Show all');
+// GC-073. Hiding is one `--exclude=<fullName>` per ref ahead of `--all`, so a commit reachable
+// from a ref that is still shown keeps its row: hiding the local `wip-branch` alone removes
+// nothing, because `origin/wip-branch` still reaches the same commit. That is why this hides both
+// halves before asserting a row is gone, and it is the whole reason one action hides exactly one
+// ref rather than quietly taking the upstream with it.
+// `load()` writes the canonical path git reported to both keys, so the remembered repository names
+// the hidden set's key exactly, without this step having to guess how git spells the path.
+const hiddenKeyName = `gitclient.hidden.${await ev(`localStorage.getItem('gitclient.lastRepo')`)}`;
+const viewingCount = () => ev(`Number(document.querySelector('.left-panel .viewing b')?.textContent ?? -1)`);
+const graphRows = () => ev(`document.querySelectorAll('.graph-row').length`);
+// The WIP row is a .graph-row too, and it is not a commit: the git comparison needs the rest.
+const commitRows = () => ev(`document.querySelectorAll('.graph-row:not(.wip)').length`);
+const chipNames = () => ev(`[...document.querySelectorAll('.graph-row .col-ref .ref-chip')].map(c => c.textContent.trim()).join(' | ')`);
+const hasWipCommit = () => ev(`[...document.querySelectorAll('.graph-row .summary')].some(x => x.textContent.trim() === 'Work on wip branch')`);
+
+const rowsBefore = await graphRows();
+const viewingBefore = await viewingCount();
+log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
+const hideMenu = await menuList();
+check('the branch menu offers Hide and Solo next to Pin to Left', hideMenu.includes('Pin to Left') && hideMenu.includes('Hide in graph') && hideMenu.includes('Solo in graph'), hideMenu);
+log(await act(() => menuClick('Hide in graph'), 'hide wip-branch'));
+check('hiding the local branch alone removes no row: origin/wip-branch still reaches its commits', (await hasWipCommit()) === true, `rows ${await graphRows()}`);
+
+log(await contextMenuOn('.left-panel .ref-row.nested', 'wip-branch'));
+log(await act(() => menuClick('Hide in graph'), 'hide origin/wip-branch'));
+const rowsHidden = await graphRows();
+const viewingHidden = await viewingCount();
+check('with both halves hidden the wip commit leaves the graph', (await hasWipCommit()) === false, `rows ${rowsBefore} -> ${rowsHidden}`);
+// How many rows go is git's answer, not a constant: earlier steps leave commits of their own on
+// the branch, so what the two excludes take is whatever is reachable only through them.
+const allCount = ['rev-list', '--count', '--exclude=refs/stash', '--all'];
+const wipExcludes = ['rev-list', '--count', '--exclude=refs/stash', '--exclude=refs/heads/wip-branch', '--exclude=refs/remotes/origin/wip-branch', '--all'];
+const drawn = await commitRows();
+check(
+  'the rows that went are exactly the ones only those two refs reached',
+  rowsBefore - rowsHidden === Number(git(allCount)) - Number(git(wipExcludes)),
+  `${rowsBefore} -> ${rowsHidden} | git ${git(allCount)} -> ${git(wipExcludes)}`,
+);
+check('the commit rows match what git draws with the same two excludes', drawn === Number(git(wipExcludes)), `${drawn} commit rows | git: ${git(wipExcludes)}`);
+check('Viewing counts only what the graph draws', viewingBefore - viewingHidden === 2, `${viewingBefore} -> ${viewingHidden}`);
+const stored = JSON.parse((await ev(`localStorage.getItem(${q(hiddenKeyName)})`)) ?? 'null');
+check(
+  'the hidden set is persisted per repository, by full ref name',
+  Array.isArray(stored) && stored.length === 2 && stored.includes('refs/heads/wip-branch') && stored.includes('refs/remotes/origin/wip-branch'),
+  JSON.stringify(stored),
+);
+await shot('12-hidden-branches.png');
+
+// Show all, one section at a time: each head clears only its own kind.
+log(await act(() => sectionAction('Show all local branches in the graph'), 'show all local'));
+log(await act(() => sectionAction('Show all remote branches in the graph'), 'show all remote'));
+check('Show all restores every row and the Viewing count', (await graphRows()) === rowsBefore && (await viewingCount()) === viewingBefore, `rows ${await graphRows()}/${rowsBefore}, viewing ${await viewingCount()}/${viewingBefore}`);
+
+// Solo keeps the soloed branch and the checked-out one, and hides every other branch and remote.
+log(await contextMenuOn('.left-panel .ref-row', 'feature'));
+log(await act(() => menuClick('Solo in graph'), 'solo feature'));
+const soloChips = await chipNames();
+check('solo keeps the checked-out branch and the soloed one', soloChips.includes('main') && soloChips.includes('feature'), soloChips);
+check('no wip-branch chip survives a solo, local or remote', !soloChips.includes('wip-branch'), soloChips);
+check('the wip commit leaves the graph with them', (await hasWipCommit()) === false, soloChips);
+await shot('13-solo-branch.png');
+log(await act(() => sectionAction('Show all local branches in the graph'), 'show all local'));
+log(await act(() => sectionAction('Show all remote branches in the graph'), 'show all remote'));
+check('the graph comes back after a solo is cleared', (await graphRows()) === rowsBefore, `${await graphRows()} / ${rowsBefore}`);
+check('nothing is left hidden in localStorage', (await ev(`localStorage.getItem(${q(hiddenKeyName)})`)) === null, String(await ev(`localStorage.getItem(${q(hiddenKeyName)})`)));
+
+step(26, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).
@@ -1194,9 +1262,9 @@ const drift = [...baseline].filter(([b, sha]) => git(['rev-parse', b]) !== sha).
 const remoteDrift = [...baseline].filter(([b, sha]) => git(['rev-parse', `refs/heads/${b}`], REMOTE) !== sha).map(([b]) => b);
 check(
   'main carries the commits the fixture was built with and no more',
-  git(['rev-list', '--count', 'HEAD']) === git(['rev-list', '--count', 'refs/e2e/baseline/main']),
-  `${git(['rev-list', '--count', 'HEAD'])} commits, the fixture has ${git(['rev-list', '--count', 'refs/e2e/baseline/main'])}` +
-    ` | run: npm run e2e:setup${drift.length ? ' | drifted: ' + git(['log', '--oneline', 'refs/e2e/baseline/main..HEAD']).replace(/\n/g, ' ') : ''}`,
+  git(['rev-list', '--count', 'HEAD']) === git(['rev-list', '--count', baseline.get('main')]),
+  `${git(['rev-list', '--count', 'HEAD'])} commits, the fixture has ${git(['rev-list', '--count', baseline.get('main')])}` +
+    ` | run: npm run e2e:setup${drift.length ? ' | drifted: ' + git(['log', '--oneline', `${baseline.get('main')}..HEAD`]).replace(/\n/g, ' ') : ''}`,
 );
 check('every branch is back on its baseline tip, here and on the bare origin', drift.length === 0 && remoteDrift.length === 0, `local: ${drift.join(', ') || 'none'} | origin: ${remoteDrift.join(', ') || 'none'}`);
 check('the working tree is the one the next run expects', status() === EXPECTED_STATUS, `${status()} | expected ${EXPECTED_STATUS}`);

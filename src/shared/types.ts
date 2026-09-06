@@ -155,7 +155,8 @@ export interface StashSaveRequest {
 export interface GitApi {
   checkGit(): Promise<GitAvailability>;
   openRepoDialog(): Promise<string | null>;
-  loadRepo(path: string, maxCommits?: number): Promise<RepoSnapshot>;
+  /** `exclude`: full names of refs to keep out of the graph (GC-073). */
+  loadRepo(path: string, maxCommits?: number, exclude?: string[]): Promise<RepoSnapshot>;
   getStatus(repo: string): Promise<RepoStatus>;
   /** Point the file-system watcher at a repository, or pass null to stop it (GC-011). */
   watchRepo(repo: string | null): Promise<void>;
