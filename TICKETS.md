@@ -230,15 +230,15 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-049 | Branch context menu is missing its tip-commit actions, mainly Reset | ui | M | P2 | done |
 | GC-061 | A detached HEAD has no marker in the graph | graph | S | P2 | done |
 | GC-069 | The body preview takes width from the summary in a narrow message column | graph | S | P2 | done |
-| GC-086 | The diff body blanks to "Loading diff…" on every hunk action, twice | diff | S | P1 | todo |
-| GC-089 | Slim CLAUDE.md back down to a handover: the history moves to the tickets | infra | M | P1 | todo |
+| GC-086 | The diff body blanks to "Loading diff…" on every hunk action, twice | diff | S | P1 | in-progress |
+| GC-089 | Slim CLAUDE.md back down to a handover: the history moves to the tickets | infra | M | P1 | in-progress |
 | GC-072 | Show in folder is offered on a file the commit deleted, and always fails | ui | S | P2 | done |
 | GC-062 | The e2e suite never commits through the commit form or stages a hunk | tests | S | P2 | done |
 | GC-064 | An e2e:setup on the shared scratch root wipes a run already using it | tests | S | P2 | done |
 | GC-082 | Popping a stash through the toolbar loses what was staged | actions | S | P2 | done |
 | GC-080 | The e2e run spends ~44 of its ~58 seconds in fixed sleeps: wait on a snapshot generation instead | tests | M | P2 | done |
-| GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | todo |
-| GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | todo |
+| GC-050 | Resizable left and detail panels, widths remembered | ui | M | P2 | in-progress |
+| GC-073 | Hide and Solo branches in the graph from the left panel | graph | M | P2 | in-progress |
 | GC-088 | Branch breadcrumb dropdown: switch branches from the toolbar | ui | M | P2 | todo |
 | GC-090 | A sequencer action with a dirty index fails with git's raw refusal | actions | S | P2 | todo |
 | GC-012 | Lazy loading past 2000 commits | graph | M | P3 | todo |
@@ -2508,7 +2508,7 @@ decision is missing.
 
 ### GC-050 Resizable left and detail panels, widths remembered
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P2
 - **Depends on:** GC-006
 - **Why:** The study gives both side panels a drag handle: the left panel is 215px and resizes
@@ -2552,6 +2552,7 @@ decision is missing.
 - **Log:**
   - 2026-09-05 proposed by GR-003: both side panels are draggable in the study and fixed here; on a
     real repository the left panel truncates most branch names with no way to widen it.
+  - 2026-09-06 03:03 claimed
 
 ### GC-051 Left panel folders for slash-separated branch names
 
@@ -3515,7 +3516,7 @@ decision is missing.
 
 ### GC-073 Hide and Solo branches in the graph from the left panel
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P2
 - **Depends on:** none
 - **Why:** The study records hide/solo toggles on hover on every left-panel branch row and "Hide /
@@ -3581,6 +3582,7 @@ decision is missing.
   - 2026-09-05 23:14 proposed by GR-006: the what's-next pass over `04-panels.md` and `05-menus-shortcuts.md`
     against the board — hide/solo is the one left-panel behaviour in the study without a ticket, and
     the branch menu screenshot from this review shows Pin to Left standing alone.
+  - 2026-09-06 03:03 claimed
 
 ### GC-074 The commit menu's Reset rows do not fit the menu, whichever side gives way
 
@@ -4204,7 +4206,7 @@ decision is missing.
 
 ### GC-086 The diff body blanks to "Loading diff…" on every hunk action, twice
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** diff | **Size:** S | **Priority:** P1
 - **Depends on:** GC-075
 - **Why:** GC-075 keyed the loaded diff to `viewKey`, and that key includes `version`
@@ -4249,6 +4251,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-008: measured on the shipped GC-075 — one hunk click blanks the body
     twice, where the previous render kept the hunks in place until the new ones arrived.
+  - 2026-09-06 03:03 claimed
 
 ### GC-087 The commit view's ref line is git's decorate string, truncated to "origin/m…"
 
@@ -4342,7 +4345,7 @@ decision is missing.
 
 ### GC-089 Slim CLAUDE.md back down to a handover: the history moves to the tickets
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** M | **Priority:** P1
 - **Depends on:** none
 - **Why:** Ricardo, joining GR-008's session: the file "already starts having too much crap" and
@@ -4393,6 +4396,7 @@ decision is missing.
 - **Log:**
   - 2026-09-06 asked for by Ricardo during GR-008's session, filed by GR-008: 867 lines, 10,940
     words, 147 ticket citations and 31 commits to the file in two days.
+  - 2026-09-06 03:03 claimed
 
 
 ### GC-090 A sequencer action with a dirty index fails with git's raw refusal
