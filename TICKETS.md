@@ -250,8 +250,10 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-013 | Light theme | ui | M | P3 | done |
 | GC-103 | The Preferences dialog outgrows a short window and its last rows cannot be reached | ui | S | P1 | done |
 | GC-105 | Panel widths are clamped only against themselves, so the graph can be squeezed to nothing | ui | S | P1 | done |
+| GC-111 | A drag on a narrow window collapses the panel to its minimum and persists it | ui | S | P1 | todo |
 | GC-106 | The graph's incremental lane layout is never used: every page re-lays out the whole history | graph | S | P2 | done |
 | GC-110 | The ref column is clamped only against itself, so it can take the whole commit message | graph | S | P2 | in-progress |
+| GC-113 | The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart | graph | S | P2 | todo |
 | GC-014 | Side-by-side diff | diff | L | P3 | done |
 | GC-015 | Drag-and-drop merge and rebase between chips | graph | L | P3 | todo |
 | GC-016 | Multi-tab repositories | ui | L | P3 | todo |
@@ -278,6 +280,7 @@ the count. Its commit is `GR-0NN: backlog review`.
 | GC-057 | Toolbar Push and Pull cannot choose the remote | ui | M | P3 | in-progress |
 | GC-100 | A branch can only be brought up to its upstream by checking it out first | actions | M | P3 | in-progress |
 | GC-107 | A commit's file row cannot restore that file, only open the working-tree copy | actions | M | P3 | todo |
+| GC-112 | A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all | actions | M | P3 | todo |
 | GC-027 | Author filter in commit search | graph | S | P3 | todo |
 | GC-033 | Global shortcuts from the study: branch, fetch, panels, staging | ui | S | P3 | todo |
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | todo |
@@ -5820,6 +5823,174 @@ decision is missing.
 
 ---
 
+### GC-111 A drag on a narrow window collapses the panel to its minimum and persists it
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** GC-105
+- **Why:** GC-105 gave each side panel a `limit` — as far as a drag may go given the other panel —
+  computed in `App.tsx` as `winW - panelW.current.<other> - MIN_GRAPH_W`. `panelW.current` holds the two
+  **stored** widths, not the ones `fitPanels` actually applied. On any window narrow enough for the fit
+  to be reducing something, the other panel's stored width is larger than what is on screen, the limit
+  comes out below the panel's own `min`, and `clampDrag` — `Math.max(min, Math.min(limit ?? max, …))` —
+  therefore answers `min` for every pointer position. Measured over CDP on the built app at `37f392b`,
+  viewport 1000x900, by dispatching pointerdown / pointermove / pointerup one pixel apart on the handle:
+
+  | stored L/D | applied before | applied after a **1px** drag | stored after |
+  | --- | --- | --- | --- |
+  | 220 / 720 (left handle, +1px) | 220 / 340 | **160** / 400 | **160** / 720 |
+  | 420 / 400 (detail handle, -1px) | 231 / 329 | 260 / **300** | 420 / **300** |
+
+  Both handles do it, in both directions, and the collapsed value is written to `localStorage` on
+  pointerup — so it outlives the window that caused it: widening back to 1400 leaves the left panel at
+  160 for good. That is the exact opposite of the invariant GC-105 states and `CLAUDE.md` repeats — "The
+  stored widths are never touched … so widening the window restores what the user chose". GC-105's
+  acceptance box for it was ticked against the **resize** path, which is right; the **drag** path is the
+  one that was never measured, and `useDragWidth.test.ts` covers `fitPanels` only, never the hook.
+- **Scope:**
+  - Derive each handle's `limit` from the width the other panel is actually being drawn at — `fitPanels`'
+    answer, which `App` already computes as `applied` — rather than from the stored number in
+    `panelW.current`.
+  - A drag must never move a panel the pointer did not ask to move: starting a drag and travelling one
+    pixel changes the width by about one pixel, whatever the window size, and a width the pointer never
+    reached is never persisted.
+  - Keep what GC-105 got right: the drag still stops rather than pushing the graph below `MIN_GRAPH_W`,
+    and the width restored at mount and the double-click reset still ignore the limit entirely.
+  - Cover the case that shipped, in `useDragWidth.test.ts` or a component test: a limit computed while
+    the other panel is being reduced by the fit.
+- **Out of scope:** `fitPanels` itself, which is correct and tested; the ref column's own clamp (GC-110);
+  the double-click reset; making the panels remember a per-window-size width (GC-105 ruled that out).
+- **Acceptance:**
+  - [ ] At a 1000px viewport with `gitclient.leftPanelW=220` and `gitclient.detailPanelW=720` stored, a
+        +1px drag of the left handle leaves the left panel within 2px of where it was, and
+        `gitclient.leftPanelW` still reads 220 afterwards.
+  - [ ] The mirror case with 420 / 400 stored and a -1px drag of the detail handle leaves the detail
+        panel where it was and `gitclient.detailPanelW` still reads 400.
+  - [ ] Dragging a handle as far as it will go at 1000px still leaves the graph panel at `MIN_GRAPH_W`.
+  - [ ] Widening back to 1400px restores both stored widths on screen.
+  - [ ] A test fails on the shipped behaviour and passes on the fix.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/ui/useDragWidth.ts`,
+  `src/renderer/src/ui/useDragWidth.test.ts`.
+- **Verify:** build, launch through `tools/launch-app.mjs` on a port of your own, set the stored widths
+  and reload over CDP, emulate 1000x900 with `Emulation.setDeviceMetricsOverride`, dispatch the three
+  pointer events on `.left-panel .panel-resize` and `.detail-panel .panel-resize` (stub
+  `setPointerCapture`/`releasePointerCapture` on the element first), and read back both panel rects and
+  both `localStorage` keys. Repeat the table above.
+- **Log:**
+  - 2026-09-06 07:05 proposed by GR-012: measured on the built app at `37f392b` — a one-pixel drag of the
+    left handle moves the panel 60px and writes the new width to `localStorage`, so the width the user
+    chose on a wide window is gone for good after touching a handle on a narrow one.
+
+---
+
+### GC-112 A branch or tag deleted locally leaves its copy on the remote, and a tag cannot be deleted from a remote at all
+
+- **Status:** todo
+- **Area:** actions | **Size:** M | **Priority:** P3
+- **Depends on:** —
+- **Why:** `06-feature-inventory.md` lists "Delete (local, remote, or both)" as one Branch action and
+  "Delete locally / from remote / from all remotes" as one Tag action; GR-010 and GR-011 both named the
+  Branch entry as the last untouched row of that list. What we have today, in `refMenuItems`: a local
+  branch offers `Delete <name>`, which is `git branch -d/-D` and nothing else; a `refs/remotes/*` row
+  offers `Delete <name>`, which is the `push --delete`; and a tag offers `Delete tag <name>`, which is
+  `git tag -d` only. Two consequences. Deleting a branch that has been pushed takes two actions in two
+  menus, and the second is only reachable if that remote row happens to be on screen — a branch hidden
+  from the graph has no row at all. And a tag pushed with the menu's own "Push tag to remote" can never
+  be removed from that remote through the UI: `deleteTag` is local-only and there is no remote-tag call
+  in `git.ts` at all.
+- **Scope:**
+  - A local branch with an upstream (or with a same-named branch under `refs/remotes/<remote>/`) offers
+    deleting the remote copy as part of the same action: a checkbox in the confirm, or a `secondary`
+    button, whichever fits `useUi().confirm` as it stands. The wording names the remote, and the option
+    is absent — not disabled — for a branch that exists nowhere else.
+  - A tag row gains a remote delete, one row per remote when there is more than one, mirroring the
+    "Push tag to …" rows already there; and the tag's own delete confirm offers the remote in the same
+    way branches do.
+  - A remote tag delete is `git push <remote> --delete refs/tags/<name>` — fully qualified, because a
+    bare name is ambiguous when a branch and a tag share it. Add it as a `deleteRemoteTag` following the
+    existing shape: type in `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in
+    `preload/index.ts`.
+  - Order matters and is stated: the local delete runs first and, if it fails, the remote one is not
+    attempted; a remote delete that fails leaves the local delete standing and reports on the status bar.
+    The not-fully-merged force path `deleteBranch` already has is unchanged.
+- **Out of scope:** "from all remotes"; deleting a branch on a remote it does not track; pruning beyond
+  the reload `run()` already does; the branch breadcrumb menu (GC-096); anything about pull requests.
+- **Acceptance:**
+  - [ ] Deleting a local branch that has an upstream offers to delete the remote copy and names the
+        remote; a branch with no remote copy is offered the plain delete only.
+  - [ ] Confirming both leaves `git branch --list <name>` and `git ls-remote <remote> <name>` empty.
+  - [ ] Declining the remote half deletes the local branch only, and `origin/<name>` is still in the left
+        panel after the reload.
+  - [ ] A tag pushed through "Push tag to remote" can be deleted from that remote from the tag menu, and
+        `git ls-remote --tags <remote>` no longer lists it.
+  - [ ] With two remotes configured the tag menu lists one delete row per remote, the way the push rows
+        already do.
+  - [ ] `npm run typecheck`, `npm test`, `npm run build` and `npm run e2e` pass.
+- **Files:** `src/renderer/src/App.tsx`, `src/main/git.ts`, `src/main/ipc.ts`, `src/shared/types.ts`,
+  `src/preload/index.ts` (adding an API always means those four), and `tools/e2e/run.mjs` if a step is
+  added.
+- **Verify:** the disposable e2e repository only, which has two real remotes since GC-056: push a scratch
+  branch and a scratch tag to `upstream`, delete each through the menu, and check `git ls-remote upstream`
+  and `git ls-remote origin` either side of every action. Put the fixture back; the drift step will say
+  so if you do not.
+- **Log:**
+  - 2026-09-06 07:05 proposed by GR-012: the what's-next pass over the study's Branch and Tag rows. The
+    tag half is the sharper defect — the menu can push a tag to a remote and then has no way to take it
+    back — and the branch half is the entry GR-010 and GR-011 both left on the table.
+
+---
+
+### GC-113 The ten lane colours walk the hue wheel in order, so adjacent lanes are the hardest pair to tell apart
+
+- **Status:** todo
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** —
+- **Why:** `--lane-0..9` in `tokens.css` is a hue ramp walked in order. Measured on the running app at
+  `37f392b` (dark), hue and WCAG relative luminance per token:
+
+  | lane | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | hue | 191 | 217 | 279 | 307 | 332 | 359 | 14 | 47 | 95 | 161 |
+  | lum | .287 | .172 | .112 | .166 | .165 | .137 | .262 | .557 | .496 | .448 |
+
+  `laneColor[i] = i % 10`, so the colour is the column index and the lanes that sit **side by side are
+  always consecutive indices** — which is exactly the pair this ramp puts closest together. Adjacent-pair
+  hue separation is 26, 62, 28, 25, 27, 15, 33, 48 and 66 degrees; lanes 3 and 4 differ by 25 degrees at
+  luminance .166 against .165, a contrast ratio of **1.00**, so at the 2px stroke `GraphCell` draws they
+  are the same line. The pair that matters most is 0/1 at 26 degrees: those are HEAD's column and the
+  first branch beside it, the shape of nearly every graph, and in `01-graph-default.png` from this review
+  the fixture's two lanes read as one colour at a glance. This is not the palette-contrast question
+  GR-011 left to Ricardo — that was text against its background; this is the graph's own primary way of
+  saying "these are two different branches".
+- **Scope:**
+  - Reorder the ten values so consecutive indices are far apart on the wheel — the usual interleave, so
+    0 and 1 are roughly opposite rather than neighbours — and so no adjacent pair matches in luminance.
+  - Both themes stay in step: `:root` and `:root[data-theme='light']` define the same ten names, and the
+    light ramp is re-derived rather than left behind.
+  - Token names, the count of ten and the `i % 10` assignment are unchanged; this is a values-only edit.
+- **Out of scope:** the number of lanes; `openLane`'s recycling rule; the WIP dash; ref-chip colours;
+  `--accent` and the semantic colours; anything in `app.css` (every colour stays a token, GC-013).
+- **Acceptance:**
+  - [ ] For every adjacent pair 0/1 through 8/9, in both themes, the hue separation is at least 60 degrees
+        or the contrast ratio at least 1.4.
+  - [ ] No pair anywhere in the ten is within 20 degrees of hue at a contrast ratio under 1.2, in either
+        theme.
+  - [ ] `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' src/renderer/src/styles/app.css` still prints nothing.
+  - [ ] A screenshot of the fixture graph in each theme shows the two lanes as plainly different colours;
+        both land in `docs/screenshots/`.
+  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/styles/tokens.css`, `docs/screenshots/`.
+- **Verify:** build, launch through `tools/launch-app.mjs`, and repeat the measurement over CDP —
+  `getComputedStyle(document.documentElement).getPropertyValue('--lane-' + i)` for 0..9, converted to hue
+  and relative luminance — in dark and in light. Then look at the graph in both.
+- **Log:**
+  - 2026-09-06 07:05 proposed by GR-012: from the screenshot pass. The ramp was measured rather than eyed,
+    and lanes 3 and 4 at a contrast ratio of 1.00 are the case that makes it a defect rather than a taste
+    question.
+
+---
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -6596,3 +6767,101 @@ appends its own section here.
     e2e counts match that commit. The one sentence that is now wrong is the Graph section's account of
     `prev`/`LaneState`, which describes paging the app does not do; GC-106 owns fixing it, and this
     review does not edit `CLAUDE.md` itself.
+
+### GR-012 Backlog review 2026-09-06 07:05
+
+- **Status:** done
+- **Window:** 6af7d97..37f392b
+- **Log:**
+  - 2026-09-06 07:05 shipped: ten commits. 242f10f, c97cafc, a48ad20, ad68fb8, e1bd91a and 50892e0
+    implement GC-103, GC-021, GC-083, GC-104, GC-084 and GC-040 one per commit; 49bd823 is their
+    close-out; 7faaa02 claims GC-105, GC-106, GC-108, GC-055, GC-056 and GC-081; 37f392b closes that
+    batch out. 8f5df41 is GR-011 itself. Read as a reviewer: **GC-105** is the substantial one and the
+    algorithm is right — `fitPanels` takes from the wider panel down to the narrower one, then from both
+    in proportion to the spare each still has, and puts both at their minimum and gives the shortfall to
+    the centre when even those do not fit; the property case in `useDragWidth.test.ts` walks 900 to 1600
+    at four configurations and asserts the graph never goes under `MIN_GRAPH_W` and neither panel is ever
+    *widened*, which is the invariant that matters. The `440 = 900 - 160 - 300` derivation is real, not a
+    rationalisation. **But the drag half of the same ticket is wrong**, and that is this review's P1 —
+    see the tickets line. **GC-106** is careful: `continuesRange` requires both ends of the old range to
+    still be in place, `layoutGraph`'s `prev` branch does not re-seed the pin and carries `laneCount` in
+    as the running maximum, so `page.laneCount` really is the answer for the whole range; and the ref
+    cache is keyed on the `commits` array identity, which is safe because `App` passes
+    `snapshot.commits` — a stable reference until `setSnapshot` — and `loadMore` appends with
+    `[...s.commits, ...page]`, a strict extension by construction. **GC-108** is three lines and correct:
+    `takeBusy` is now the only writer of `busy` and both "Loading repository" paths take a token.
+    **GC-104**'s `wordDiff` is better than it needed to be — common prefix and suffix off before the
+    quadratic part, a 25% shared-text floor so a replaced line is left to the plain tint, a 400-token
+    ceiling, and the whitespace-trim pass in `spans()` cannot leave a run open on a space because
+    `TOKEN_RE` never emits two whitespace tokens in a row. `hunkWordSpans` keying off `alignHunks` is
+    what makes both layouts read one map, and `DiffView` renders every code cell through the single
+    `code()` helper, so they cannot drift. **GC-055/GC-056** are honest fixture work: `main`'s tip now
+    carries seven refs and the `+4` fold has real coverage, and `remote2.git` makes step 18's push
+    assertion exclusive (`onOrigin === ''`), which it could not have been while both remotes pointed at
+    one repository. **GC-081** is blocked rather than closed, with the measurement contradicting the
+    ticket's own estimate (243 calls, not 141) and the decision written down — the right outcome.
+    Nothing in the window drifts from `CLAUDE.md`, and every acceptance box I spot-checked has evidence
+    in its log.
+  - health: at `37f392b`, in the detached worktree at `%TEMP%/gitclient-review/wt` with `node_modules`
+    junctioned — **typecheck ok, 147 tests passed (16 files)** in 1.61s, **build ok**. e2e was run too,
+    because this window rewrote both the fixture and the harness: on port **9335** with
+    `GITCLIENT_E2E_ROOT=%TEMP%/gitclient-review/e2e`, **all passed through step 29**, `total: 23.8s |
+    git: 219 calls, 5.8s`, and the drift step confirmed the fixture was left as found. `MAIN` was never
+    built, tested or launched. (`tools/e2e/run.mjs` still defaults `PORT` to 9333 and calls
+    `stopPort(PORT)` first, so `GITCLIENT_E2E_PORT` remains mandatory for a review — GR-011's note holds.)
+  - app: the `37f392b` build ran offscreen on 9334 against `%TEMP%/gitclient-review/e2e`, fixture
+    recreated first, every `gitclient.*` key except `lastRepo`/`recentRepos` cleared over CDP.
+    Screenshots in `%TEMP%/gitclient-review/GR-012/`, all looked at. `01-graph-default.png` at 1400x900:
+    nine rows, lanes continuous, right-angle joins, `wip-branch +1` and `main +4` — GC-055's fixture
+    change is visible and the fold is exercised by the default view rather than by hand.
+    `05-plus4-hover.png` is the rotation surface, opened with a real `Input.dispatchMouseEvent` rather
+    than a synthetic React event because the block opens on CSS `:hover`: the grown chip lists
+    `main` (checked, upstream cloud), `release` (cloud), `sandbox`, `origin/sandbox`, `v0.2.0` — exactly
+    the documented order, first line landing on the pixel the row chip occupied, 117x116 and well clear
+    of `.graph-body`'s bottom edge. `06-` and `07-diff-word-marks-*.png` are GC-104 in both layouts on
+    the same file: `row 3` against `row 3 edited`, the added word tinted over the line's own green, the
+    removal side correctly unmarked because nothing was removed. `08-empty-state.png` is a surface no
+    review had visited — the New Tab view with the recents list and one primary button — and it is clean;
+    nothing to file. `02-`, `03-` and `04-` are the narrow-window drag sequence that produced the P1.
+  - what's next: read `06-feature-inventory.md`'s Branch and Tag rows against `refMenuItems`. The Branch
+    row's "Delete (local, remote, or both)" is the entry GR-010 and GR-011 both named and it is still
+    open; reading the Tag row beside it turned up the sharper half — the tag menu can push a tag to a
+    remote and then has no way at all to take it back, because `git.ts` has no remote-tag call. Both
+    became GC-112 as one ticket. Still unticketed from the Files row and worth a later look: Blame,
+    History, Export changes to patch, Compare against working directory. From the Commit row: Edit commit
+    message, Squash, Drop, Move up/down — all of which want GC-017's sequencer and are properly blocked
+    behind it.
+  - tickets: added **GC-111** (ui, S, **P1**, from the running app: the drag half of GC-105 persists a
+    width the pointer never asked for), **GC-113** (graph, S, P2, from the screenshot pass: the lane ramp
+    walks the hue wheel in order, so adjacent lanes are the closest pair and 3/4 are at a contrast ratio
+    of 1.00) and **GC-112** (actions, M, P3, from the what's-next pass). Board: GC-111 goes directly under
+    GC-105, in the P1 group at the head of the open work and above the P2s, because it is a defect in the
+    ticket immediately above it; GC-113 under GC-110, the two graph P2s together; GC-112 after GC-107,
+    beside the other `actions` feature rows, the slot GR-011 used for GC-107 itself. Nothing else moved.
+    Deduplication: GC-111 is not GC-110 — that one is the ref column inside the graph panel, a different
+    `useDragWidth` instance with a different limit source — and not GC-105, which is `done` and whose
+    resize path is correct; GC-113 is new, and is not GR-011's toolbar-label contrast note, which was
+    text against its background and left to Ricardo; GC-112 does not overlap GC-100 (fast-forward and
+    set-upstream) or GC-031 (push to a chosen remote).
+  - hygiene: no `todo` ticket has gone vague. `blocked` is GC-017, GC-018 and now GC-081; none can be
+    unblocked from here — the first two still want a decision from Ricardo, and GC-081's log records a
+    measurement that argues for closing it rather than doing it, which is Ricardo's call to make.
+    Dependencies read correctly: GC-111 depends on GC-105 (`done`), GC-113 and GC-112 on nothing.
+    One process note, not filed: GC-105's acceptance box "the stored widths still read what the user
+    chose" was ticked, and it is true of the resize path it was checked against and false of the drag
+    path it does not mention — an acceptance line that names the path it covers would have caught this.
+  - carried over: GR-011 asked this review to read GC-014's other five files and, from GR-010, the five
+    tickets in `d34d732`. Neither was done — the budget went to this window's twelve tickets, the e2e
+    run and the app pass, and both are now two windows old. GR-013 should either do them or say
+    explicitly that they are being written off; carrying the same line a third time is worse than either.
+  - notes: `CLAUDE.md` is current at `37f392b`. Its numbers were checked rather than trusted: "147 tests"
+    matches the run exactly, "29 steps, 151 assertions" and `total: 23.4s | git: 219 calls, 5.5s` match
+    the shape of the run measured here (23.8s, 219 calls, 5.8s — the same call count, the seconds being
+    this machine's), and "a merge, two tags, five branches" is right again now that GC-055 added
+    `release`, `sandbox` and `v0.2.0`. GC-106's close-out rewrote the Graph section's account of
+    `prev`/`LaneState` that GR-011 flagged as wrong, and the new text matches the code. Nothing stale
+    found; this review did not edit `CLAUDE.md`.
+  - isolation: the worker pushed `fccc9bb` — the claim of GC-110, GC-109, GC-057 and GC-100 — and then
+    committed `57cbe94` and `0740d62` locally while this review was running. The window above deliberately
+    stops at `37f392b`, the tip when the review started; GR-013 picks up from there. None of the four
+    `in-progress` tickets was touched. The review's Electron on 9334 was stopped by PID.
