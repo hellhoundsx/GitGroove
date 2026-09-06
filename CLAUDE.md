@@ -210,7 +210,9 @@ profile, so a launcher run cannot change what Ricardo's own window opens as (GC-
 `rememberedTheme()` feeds both `WINDOW_BACKGROUND` and `TITLE_BAR_OVERLAY` where two dark literals
 used to sit. Nothing remembered still means dark. Adding an API means: type in
 `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`.
-`shell:*` is the group that never touches git: its two handlers live in `ipc.ts` itself, go through
+`remote:cancel` is the only handler besides `repo:checkGit` that takes no arguments at all: what
+it stops is a process, not something inside a repository (GC-169). `shell:*` is the group that
+never touches git: its two handlers live in `ipc.ts` itself, go through
 `repoFile()` — which resolves a repository-relative path against the repository and **refuses one
 landing outside it** (a `..`, an absolute path, another drive) or missing from the working tree —
 and are exposed as their own `window.shell` bridge, not as more of `window.api`. `repoRel()` is the
@@ -272,8 +274,18 @@ under it the moment git answers with its canonical form.
   everything it had parked. Either way a repository already in the bar takes the user to its tab
   rather than opening a second copy of it. Closing a tab falls to its right neighbour, then its
   left, then the empty state. The graph's scroll offset reaches `App` as a ref (`graphTop`)
-  reported by `CommitGraph`, so a wheel event re-renders nothing — though it is not yet *restored*
-  on a switch, which is GC-172.
+  reported by `CommitGraph`, so a wheel event re-renders nothing.
+- **And because scrolling re-renders nothing, the offset is read at park time, not from the
+  mirror** (GC-172). `live.current` is rebuilt on every render, so its copy of `graphTop` is only
+  as fresh as the last one, and a tab scrolled and then switched away from was parked at the offset
+  it had *before* the user scrolled. `park()` is `{ ...live.current, graphTop: graphTop.current }`
+  and every one of the three sites that parks a tab goes through it. The other half of GC-016's
+  promise is in `CommitGraph`: `shouldRevealSelection` gates the "keep the selected row visible"
+  pass on the selection having **changed**, so a reload, a page append or the refresh a tab switch
+  runs underneath no longer re-runs it — with the working-directory row selected, which is what a
+  repository opens on, that row is 0 and any of the three pulled the graph back to the top. The
+  restore marks the parked selection as already revealed, and the pass still does what it is for:
+  a selection made off-screen is scrolled into view.
 
 - **`run(label, fn, opts)` is the only way git actions execute.** It sets busy, runs, reloads the
   snapshot (or only the status for staging actions), and **re-applies the error after the reload**,
@@ -328,6 +340,22 @@ under it the moment git answers with its canonical form.
   and `ADVISORY` (`GitAdvisory`, in `shared/types.ts`) is the one word both processes agree on —
   the same name `msg()` already had to strip off the front. A new advisory outcome means passing
   `true` as `GitError`'s fifth argument and nothing else.
+- **A credential refusal is a failure with more to say than a status bar can hold** (GC-169), and
+  it rides on the name the same way: `AUTH_FAILURE` (`GitAuthError`), `GitError`'s sixth argument,
+  which `msg()` strips like the other two. The message under it is a summary line naming the remote
+  and its URL followed by **the whole of what git wrote**, because `headline()` picks the `fatal:`
+  line and that is the one saying 403 and nothing else — the `remote:` lines telling the user to
+  re-authorise are what a one-line bar was dropping. `App` splits the two at the first newline:
+  the summary goes in the bar and `AuthErrorDialog` gets the rest, opening straight away and again
+  whenever the summary is clicked (`onErrorDetails`, which is set only for this kind, so an
+  ordinary error's line still dismisses on a click). `authFailure` is cleared by the next `run()`,
+  so the bar can never offer to reopen a dialog about something else.
+- **Only the commands that reach a remote may ask for a credential** (GC-169). `RunOptions.prompt`
+  is what `runGit` reads for `GIT_TERMINAL_PROMPT`, and only `runRemote` sets it: everything else
+  keeps `'0'`, because an unattended `git status` must never sit on a prompt. Such a child is
+  registered for `cancelRemote()` and given two minutes, since a helper's window waits for a
+  person; `run(label, fn, { remote: true })` is what puts Cancel on the busy line, and a cancelled
+  command reports as an advisory notice rather than as a failure.
 - Menus come from `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`,
   `remoteMenuItems` and `fileMenuItems`; `tipCommitActions(sha)` is the shared source for the
   commit actions the branch and commit menus both carry, so their wording cannot drift — and
@@ -552,14 +580,30 @@ already has it) or when the ref in flight goes. It takes **both** halves of the 
 `overflow: visible; z-index: 3`. The second is the load-bearing one — `.col-ref` is
 `overflow: hidden`, so a block opened without it is cut to the row's 28px and shows one line.
 
-**A stash is marked on the commit it was taken from** (GC-140). `getStashes` reads the first
-field of `%P` on the same `git stash list` walk, so `Stash.parent` costs no extra spawn, and
-`stashesByParent` keys one `.stash-chip` per stash onto that row. It is deliberately **not** a
-`.ref-chip`: it stands for no `GitRef`, so it is not draggable, not a drop target, not counted by
-`chipsFor` and never spends the row's one `MAX_CHIPS` slot — a commit carrying a branch and a
-stash shows both, and the `+N` is unchanged. Right-click gives `stashMenuItems` and double-click
-applies, the same two gestures the left panel's stash row offers, from the same source. A stash
-whose parent is outside the loaded range is never looked up and draws nothing.
+**A stash is a row of its own, above the commit it was taken from** (GC-140, GC-170).
+`getStashes` reads the first field of `%P` on the same `git stash list` walk, so `Stash.parent`
+costs no extra spawn, and `stashesByParent` keys the stashes onto that commit. GC-140 drew them as
+a 20x20 marker in the commit's ref cell, where the message — the only thing saying which stash it
+is — was a tooltip and the 20px came out of the primary chip's name (GC-156); GitKraken's answer,
+recorded in `03-graph.md` from Ricardo's capture, is a row, and it costs the ref column nothing.
+
+**The rows are therefore no longer the commits one to one, and `displayRows` is what they are.**
+It is pure and exported: the WIP row when there is one, then every commit with the stashes taken
+from it immediately above it, newest first in `git stash list` order. Everything that counts rows
+reads that list — the virtualiser, the scroll height, and `rowIndexOf`, which is now a `findIndex`
+over it and has no offset left to get wrong (GC-141's bug by construction). `lanes.ts` never sees
+a stash: the row borrows the lane of its parent, so the split-and-rejoin property is untouched.
+
+`GraphCell` draws it from the parent's layout: a full-size dashed circle with the archive glyph,
+the lane line running down into the tip, and every lane that passes the parent from above passing
+this row too, so nothing appears to break where a stash is inserted. A row inside the WIP-to-HEAD
+run carries the dash as well (`stashDashFor`, `wipDashFor`'s own rule asked of the parent), or
+GC-144's "covers the whole distance" would fail at the one row a user is looking at. The message
+column reads the stash's own message with git's `On <branch>: ` or `WIP on <branch>: ` prefix
+stripped — `stashMessageText`, for display only, never in the `title` and never in what
+`stashRename` stores. The row is selectable like a commit row, right-click gives `stashMenuItems`
+and double-click applies, the same two gestures from the same source. A stash whose parent is
+outside the loaded range is never looked up and draws nothing.
 
 **The dashed WIP-to-HEAD run covers the whole distance, not the first 14px** (GC-144).
 `wipDashFor` in `lanes.ts` answers what each row draws of it, and `headOwnsLane` is the load-bearing
@@ -579,17 +623,17 @@ chip wants 71px; at the 100px minimum column it was given 59, which is where `ma
 `ma…`. The cloud only repeats what the chip already says by absorbing its upstream, and the title
 still says it in words, so the cloud is what gives way — the name is the identity of the ref.
 
-**How much room that is, is `chipRoom(refColW, more, stashes)`, and it counts every sibling**
-(GC-156). GC-071 had it as the constant `width - 41` — the `+N` chip and the gaps either side —
-which was every sibling in `.col-ref` until GC-140 put a stash marker there. The marker is 20px
-plus a gap and the arithmetic never saw it, so above the threshold the cloud was kept and the
-*name* paid for the marker instead: at a fitted 134px column `main` was given 27px for a 29px
-string. The threshold is therefore stated as the chip's **own** room rather than as the column's
-width, because those two stopped being the same number the moment a row could carry a marker the
-row above it does not — a row with a stash drops its cloud at a wider column than one without.
-`REF_COL_PAD`, `REF_COL_GAP`, `MORE_CHIP_W`, `STASH_CHIP_W` and `REF_LINE_MIN` mirror `app.css`
-the way `OPT_COL_W` mirrors the optional columns, and the function is pure and exported so the
-measurement lives in a test. A new non-ref marker in that cell is furniture on the same terms.
+**How much room that is, is `chipRoom(refColW, more)`, and it counts every sibling** (GC-156,
+GC-170). GC-071 had it as the constant `width - 41` — the `+N` chip and the gaps either side —
+which was every sibling in `.col-ref` until GC-140 put a stash marker there; the marker was 20px
+plus a gap the arithmetic never saw, so above the threshold the cloud was kept and the *name* paid
+for it, and at a fitted 134px column `main` was given 27px for a 29px string. The marker is a row
+of its own now (GC-170) and the sum is back to the two siblings it started with, but the threshold
+stays stated as the chip's **own** room rather than as the column's width, which is the part that
+was right whatever is in the cell. `REF_COL_PAD`, `REF_COL_GAP`, `MORE_CHIP_W` and `REF_LINE_MIN`
+mirror `app.css` the way `OPT_COL_W` mirrors the optional columns, and the function is pure and
+exported so the measurement lives in a test. A new non-ref marker in that cell joins this sum,
+rather than being paid for out of the name.
 
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold. With **no branch checked out** a synthetic `HEAD` chip is
@@ -623,8 +667,11 @@ term matches the message and the sha **only** — the author fields drop out of 
 because a name that also appears in messages is exactly what the plain field could not separate.
 One state decides what is filtered at all (`filtering = needle !== '' || author !== null`): the
 readout, the jump-to-first-match effect and the row classes all read it, so a chip on its own dims
-the graph the way a query does. The chip is `CommitGraph`'s own state rather than `App`'s, so
-unlike the query it does not survive a file view (GC-137). The ref column's
+the graph the way a query does. The chip lives in `App`'s `search` state beside the query
+(GC-137), for the reason the query does (GC-030): this component unmounts whenever a file view
+opens, and two halves of one filter must not have two lifetimes — the chip was silently cleared
+while the query, the readout and the dimming all came back. `closeSearch` clears both and a tab is
+parked with both. The ref column's
 width is written as `--ref-col-w` on `.graph-panel` — `fitRefCol`'s answer, not the stored number
 (GC-110, see the UI layer) — and its 4px `.col-resize` handle is absolutely positioned on the
 column boundary so dragging reflows nothing.
@@ -658,6 +705,33 @@ graph marks its rows here too and several refs on one commit all light up. `rowI
 `CommitGraph.tsx` is the guard that makes an unloaded tip safe: it answers -1 **before** the WIP
 row's offset is added, where `findIndex` + 1 used to turn "not found" into row 0 and scroll the
 graph to the WIP row.
+
+**The four sections share the panel's height, and each scrolls inside itself** (GC-153). The
+column is not one scroll box: every section is a `.panel-section` whose `.section-head` is
+`flex: none` and whose `.section-rows` scrolls, so a header — which is the section's count — can
+never scroll away. On `catena-feed` (LOCAL 7, REMOTE 52, TAGS 283, STASHES 1) all four headers are
+on screen at once, which is the whole ask: before this, TAGS and STASHES were not on screen at all.
+
+`fitSections(stored, avail, min, natural)` in `useDragWidth.ts` is the share, and it is
+`fitPanels` one axis over: only the **applied** heights are clamped, `gitclient.sectionHeights` is
+never written over by a fit, and a closed section is its 30px header and takes no part (the way a
+collapsed left rail goes into `fitPanels` as a zero-width panel). What a section asks for is the
+height the user gave it, else what its rows measure, else an equal share of what the sized ones
+leave; the column is then filled **level by level** — every section asking for no more than an
+equal share of what remains gets exactly that, and the ones still asking for more split the rest,
+repeatedly. That is what makes 52 remote branches behave: REMOTE alone gives up the space and the
+other three keep their rows. `MIN_SECTION_H` (82px: a header and two rows) is the floor, because
+a section squeezed to its header alone is present and useless; when even the floors do not fit
+they all sit on one and the column scrolls.
+
+Each section reports what its rows measure through `onNatural`, observed on the content rather
+than on the scroll box — whose height is the answer being computed. **A drag moves a boundary, not
+an edge**, so it is `useBoundaryDrag` rather than `useDragWidth`: a pair sharing a fixed total
+rather than one size against one key. It is in the same module and the rule that decides where the
+edge lands is `reachedWidth`, the same one, with the wall set at the pair's total less the other's
+floor — so GC-111, GC-115 and GC-118 hold here without a second copy of them. A double-click drops
+both stored heights, and the pair then splits what is left, which is an equal share without that
+being a case of its own.
 
 **Slash-separated names fold into folders in the left panel** (GC-051). `buildRefTree(refs, label)`
 in `LeftPanel.tsx` is the pure half: `label` is the name **relative to the section**, so a remote
@@ -738,7 +812,10 @@ change scroll by **stop** — the `scrollTop` that would put a `.hunk-head` at t
 clamped to what the body can actually reach — rather than by a header's offset from the border box:
 the body has top padding, so the first header is a few pixels down when nothing is scrolled and
 read as being *below* the top, which sent the first Next click nowhere. Clamping is what makes the
-wrap-around true at the bottom, where the last hunks all share one position. **Wrap** is a class on
+wrap-around true at the bottom, where the last hunks all share one position. **Which stop is next
+is `nextHunkStop(stops, at, dir)`, pure and exported** (GC-138), with `gotoHunk` keeping only the
+measuring — the rects, the padding and the clamp: it is arithmetic, it got both of those answers
+wrong before it was right, and a throwaway script was what caught them. Its test names each. **Wrap** is a class on
 the body and nothing more, so it costs no reload and disables nothing; a hunk scrolls sideways
 inside itself when it is off (it used to be `overflow: hidden`, which clipped a long line away with
 nothing to say it was there). **Ignore whitespace** is the one that reaches git: `-w` on the diff
@@ -785,8 +862,13 @@ panel's minimum. The graph's DATE / TIME column is deliberately untouched: a col
 read down and compared.
 
 Staging view (operation banner with Abort, Conflicted / Unstaged / Staged groups, commit form with
-amend and the 72-character counter) or commit view (sha, refs, message, author, parent links, file
-list). **The commit view's header draws its refs as chips, not as git's decoration** (GC-087):
+amend and the 72-character counter), commit view (sha, refs, message, author, parent links, file
+list), or **stash view** (GC-170): `stash` is asked about first, because a stash row's selection is
+a sha the loaded commits do not hold and the panel would otherwise fall through to the staging view
+and say nothing about what was selected. It copies the commit view — a stash *is* a commit, so its
+files come from the same `commit:files` call on its own sha — and says the three things the marker
+it replaced could only say in a tooltip: which stash it is, its whole untouched message, prefix
+included, and how long it has been there. **The commit view's header draws its refs as chips, not as git's decoration** (GC-087):
 `chipsFor` over the refs sitting on that commit, from `graph/RefChip.tsx`, so the ordering and the
 absorb rule are the graph's; they wrap under `commit: <sha>` in a `.ref-chips` row rather than
 ellipsising, which is what used to cut `origin/m…` off the end and lose the remote. `App` hands the
@@ -841,6 +923,7 @@ Remembered **state** deliberately stays on its own keys, never in the blob:
 | `gitclient.refColW` | ref column width in px (100–400, default 150) |
 | `gitclient.leftPanelW` | left panel width in px (160–420, default 220) |
 | `gitclient.detailPanelW` | detail panel width in px (300–720, default 400) |
+| `gitclient.sectionHeights` | the left panel's section heights in px, per section id (GC-153) |
 | `gitclient.pinned.<repoPath>` | the branch pinned to the graph's left column |
 | `gitclient.hidden.<repoPath>` | full names of the refs kept out of the graph |
 
@@ -916,7 +999,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-337 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
+382 tests today, one file per module covered. Three are not about the app: `tools/repo-hygiene` fails
 
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
@@ -934,7 +1017,7 @@ Electron, and `ownChild` cares only that it was handed something with a pid.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 39 steps, 276 assertions, ~43s. It ends with
+asserting against git after each step. 39 steps, 285 assertions, ~44s. It ends with
 `total: 42.7s | git: 371 calls, 9.6s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
@@ -1084,13 +1167,16 @@ it into a ticket, an extension of one, or a written reason for neither — see "
 worker's `git status`. Nothing else reads it, and no ticket is ever written *in* it.
 
 Design decisions that must not be quietly undone, and where each is explained above: date order in
-the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip, a stash marker that
-is not a ref chip and never spends that slot, a WIP-to-HEAD dash drawn in place of the line rather
-than over it (Graph); one Escape
+the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip, a stash as a row of
+its own above its parent rather than a marker in its ref cell, rows built by `displayRows` so
+nothing adds the WIP offset by hand, a WIP-to-HEAD dash drawn in place of the line rather than over
+it and carried by a stash row that falls inside it (Graph); one Escape
 one layer, a drop that opens no empty menu and checks out the branch it acts on, one shortcut
 table, every confirmation on the modal and an option on one carried by `confirmWithOption` rather
 than by a prompt with its input switched off, the busy token every writer of `busy` takes (App state,
-UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
+UI layer); each left-panel section
+scrolling under a header that never moves, sharing the column by what each one actually needs and
+dragged by a boundary rather than an edge (UI layer); the centre keeping `MIN_GRAPH_W` while the panels give way, the
 message column keeping `MIN_MSG_W` while the ref column gives way, the optional columns giving way
 after it, a column dropped for want of width marked in Preferences from that same answer, and only the applied widths ever clamped — on the drag path as well as the resize one, a
 drag starting from the drawn width and ending on the last width the pointer reached (UI layer); a page continuing the previous range's `LaneState`,
@@ -1110,7 +1196,8 @@ so the graph and the commit view cannot draw the same refs differently, the chip
 over its upstream marker in a narrow column, and the room it is drawn at counted against every
 sibling in the cell rather than the `+N` alone (Graph, Detail panel); an error and a notice never both
 on the status bar, with the advisory flag carried on the error's name because that is all IPC
-keeps (App state); every colour a token, the
+keeps, a credential refusal carrying the whole of git's message under a summary line and only the
+three remote commands ever able to prompt (App state, Main process); every colour a token, the
 theme resolved in `prefs.ts` and remembered per profile by the main process so the window is built in it, one module answering how a timestamp is written so no component
 reaches for `toLocaleString` and one answering how long ago it was, with the graph column left absolute (Styling, Preferences); a drag scrolling the graph off the clock rather than off the browser's event rate (UI layer); a failing e2e git call throwing, its Electron
 stopped on every exit path, a wait before a click proving the control is live rather than only
@@ -1125,7 +1212,8 @@ a recents row opening a tab beside the showing one rather than replacing it, and
 the tree from a ref rather than from the render they were built in (App state); the folded block
 opening for a drag by taking both halves of the hover state, and what a drag promises keyed to
 `draggable` rather than to a class (Graph, UI layer); a hidden detail panel leaving a strip that is
-absent exactly while it shows (App state);
+absent exactly while it shows, the graph's offset parked at the moment it is parked and the
+selection pass acting only on a selection that changed (App state);
 a single click selecting a tip and an unloaded one moving nothing, one boundary treatment for both
 detail views with the parents column giving way before the authored date, the commit draft parked
 with its tab, the left panel header naming HEAD rather than

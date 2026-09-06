@@ -172,6 +172,12 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
 | GC-127 | A chip offers a grab cursor it cannot honour, and lights up less than the row beside it | ui | S | P3 | done |
 | GC-136 | A hidden detail panel has nothing on screen to bring it back | ui | S | P3 | done |
 | GC-174 | A routine run that does nothing reads 56k tokens first | infra | M | P1 | done |
+| GC-172 | A tab returned to comes back scrolled to the top, whatever it was left at | graph | S | P1 | done |
+| GC-169 | Pull, push and fetch cannot survive a credential the helper cannot fix, and report one line of the reason | actions | M | P1 | done |
+| GC-170 | A stash is a chip on its parent, where GitKraken gives it a row of its own above the tip | graph | M | P2 | done |
+| GC-153 | The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes | ui | M | P2 | done |
+| GC-137 | The author chip is dropped when a diff opens, while the query survives | graph | S | P3 | done |
+| GC-138 | The diff’s hunk navigation is inline in the component and untested | tests | S | P3 | done |
 
 ## Tickets
 
@@ -8706,6 +8712,376 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
 - **Log:**
   - 2026-09-06 Ricardo asked for this directly, in a session beside a running batch, so it was made in a worktree and merged after that batch closed.
   - 2026-09-06 `TICKETS.md` went from 1,860 lines to 1,743, and a run that finds no batch now reads one line instead of both files.
+
+---
+
+### GC-172 A tab returned to comes back scrolled to the top, whatever it was left at
+
+- **Status:** done
+- **Area:** graph | **Size:** S | **Priority:** P1
+- **Depends on:** GC-016
+- **Why:** GC-016 promised that a tab switch preserves the scroll position, and it does not. The
+  offset is parked correctly — `graphTop` is in `TabState`, `showTab` puts it back and hands it to
+  `CommitGraph` as `scrollTop` — but `CommitGraph`'s "scroll the selected row into view" layout
+  effect runs on the same mount and wins, because a remount is exactly when `selected` is new to
+  it. With the selection on the working-directory row, which is what a repository opens on, that
+  means row 0: the graph comes back at the top however far down the user had scrolled.
+  Measured on the built app at `be96b22`, on a 300px-tall viewport so the fixture's nine rows
+  overflow: scrolled to 84, clicked the second tab, clicked back, `scrollTop` 0. The same on the
+  recents path (GC-164) and on a plain click between two tabs, so it is the restore that is broken
+  and not one route into it. The selection and the commit draft do come back, which is why this
+  reads as a small thing and is not: the scroll position is the one part of GC-016's promise a user
+  notices immediately on a repository with more than a screenful of history.
+- **Scope:**
+  - Make the two agree on a remount: the selection effect must not override an offset that was
+    deliberately restored. Either it skips the mount it is handed a `scrollTop` for, or the restore
+    happens after it, or the effect only scrolls when the selected row is genuinely outside the
+    range being shown — the third is closest to what it is for, and would also stop it fighting the
+    user's own scrolling.
+  - Whatever it is, a tab whose selection *is* off-screen at the restored offset must still end up
+    somewhere sensible rather than at a blank stretch of graph.
+- **Out of scope:** remembering the offset across a restart (it is session state, like the parked
+  snapshot), and the offset of a file view (there is no graph behind one to restore).
+- **Acceptance:**
+  - [x] A tab scrolled part-way down, switched away from and returned to, comes back at that offset.
+  - [x] True on both routes: clicking another tab, and opening a second repository from the recents
+        list (GC-164).
+  - [x] Selecting a commit that is off-screen still scrolls it into view, which is what the effect
+        exists for.
+  - [x] The unticked acceptance boxes in GC-163 and GC-164 can be ticked against this build.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, possibly `src/renderer/src/App.tsx`.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, then over CDP with
+  `Emulation.setDeviceMetricsOverride` at a height short enough that the fixture's graph overflows
+  — the fixture is nine rows, so a full-height window cannot show this at all: scroll, switch,
+  switch back, read `scrollTop`. A component test in `CommitGraph.test.tsx` can pin the decision
+  itself if the fix is a predicate rather than a lifecycle change.
+- **Log:**
+  - 2026-09-06 proposed by GC-164 (this ticket): its second acceptance criterion could not be
+    ticked, and the same measurement on a plain tab switch showed the criterion had never held —
+    so this is GC-016's bug surfacing, not GC-164's regression, and it is filed rather than folded
+    into a ticket that did not cause it.
+  - 2026-09-06 14:37 claimed
+  - 2026-09-06 done: the restore had two defects, not one — `live.current` mirrors `graphTop` only on renders and scrolling deliberately causes none, so the parked offset was the one from before the scroll, and `CommitGraph`'s selection pass then re-ran on every new `commits` array and pulled the graph to the WIP row at 0; `park()` reads the ref at park time and `shouldRevealSelection` gates the pass on the selection having changed (4 unit cases), measured over CDP on a 320px viewport at 64 -> switch -> back -> 64 on both routes, with an off-screen selection still scrolled into view.
+
+---
+
+### GC-169 Pull, push and fetch cannot survive a credential the helper cannot fix, and report one line of the reason
+
+- **Status:** done
+- **Area:** actions | **Size:** M | **Priority:** P1
+- **Depends on:** none
+- **Why:** Ricardo cannot pull `catena-feed` at all. GitHub's `Catena-Media` organisation enforces
+  SAML SSO, and the credential Git Credential Manager has stored needs an interactive
+  re-authorisation; git answers the fetch with three lines - two `remote:` lines carrying the
+  instruction and the URL, then `fatal: unable to access '...': The requested URL returned error:
+  403`. Two things in our code make that a dead end. First, `runGit` sets
+  `GIT_TERMINAL_PROMPT: '0'` **unconditionally**, on every spawn (`git.ts:85`) - correct for the
+  hundred-odd read-only calls a snapshot makes, wrong for the three that talk to a remote, because
+  it is the one setting that could let the helper ask. Second, and worse, the app throws away the
+  half of the message that says what to do: `StatusBar`'s `headline()` prefers a line matching
+  `/^(error|fatal):|CONFLICT|failed/i`, which on this error is the `fatal:` line - the one that
+  says 403 and nothing else - and the `remote:` lines naming SAML SSO are dropped. What survives is
+  then drawn in a `button.err` at `max-width: 45%`, `white-space: nowrap`, ellipsised, whose only
+  full text is a native `title` tooltip. So the user is told "403" and is given no reason, no URL
+  and nothing to click. Every authentication failure in the app has this shape; SAML SSO is only
+  the one that cannot be got past by waiting.
+- **Scope:**
+  - A failure of a **remote** operation (`fetch`, `pull`, `push`) that git blames on
+    authentication or authorization gets a real surface instead of one status-bar line: a modal
+    carrying the **whole** of git's message, unabridged and selectable, the remote and the URL it
+    was talking to, and a Copy button. The status bar keeps its one-line summary, and the summary
+    is what opens the modal.
+  - Recognise the case rather than guessing: a `GitError` from a remote command whose text matches
+    the small set git and the common helpers actually emit (`403`, `401`, `Authentication failed`,
+    `could not read Username`, `terminal prompts disabled`, `Permission denied (publickey)`,
+    `SAML`) is flagged on the error the way `ADVISORY` already is - **on the error's `name`**, for
+    GC-091's reason: Electron serialises a rejected handler down to a string and a property of its
+    own never crosses. One more word both processes agree on, in `shared/types.ts`.
+  - `GIT_TERMINAL_PROMPT` stops being unconditional. The remote commands are the only ones that can
+    ever need a credential, so `RunOptions` grows a flag that lets those three spawn with prompting
+    **on**, and `runGit` keeps `'0'` for everything else. `windowsHide: true` stays, so nothing pops
+    a console; what this buys is the credential helper's own GUI being allowed to run, which is the
+    only thing that can complete an SSO re-authorisation.
+  - Because a helper's GUI can hang forever waiting for a person, a remote command spawned that way
+    gets a timeout and a Cancel: the modal's Cancel kills the child, and the action reports that it
+    was cancelled rather than that it failed.
+- **Out of scope:** storing or reading any credential ourselves - the system helper stays the only
+  place credentials live and the app never sees one (this is not negotiable, and the acceptance
+  says so); adding a Sign in flow, an OAuth client or a token field; SSH key management; the push
+  and pull menus themselves.
+- **Acceptance:**
+  - [x] A remote command that fails on authentication raises the modal, and the modal shows every
+        line git wrote, the `remote:` lines included, not `headline()`'s pick of one.
+  - [x] The modal names the remote and its URL, and Copy puts the whole message on the clipboard.
+  - [x] The status bar still shows a one-line summary, and clicking it reopens the modal.
+  - [x] A non-authentication failure of the same command (a rejected non-fast-forward push, say) is
+        **not** flagged and behaves exactly as it does today.
+  - [x] Only `fetch`, `pull` and `push` spawn with prompting enabled; a unit test over `runGit`'s
+        option asserts every other command still gets `GIT_TERMINAL_PROMPT=0`.
+  - [ ] Cancel kills the child and the action reports cancellation, not failure.
+  - [x] No code path reads, writes, logs or displays a password, token or credential value.
+  - [x] Unit tests for the classifier over the real message texts above, and for the flag surviving
+        the IPC round trip the way `ADVISORY` does.
+  - [x] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/main/git.ts`, `src/main/ipc.ts`, `src/shared/types.ts`,
+  `src/renderer/src/App.tsx`, `src/renderer/src/components/StatusBar.tsx`,
+  `src/renderer/src/styles/app.css`, `CLAUDE.md`
+- **Verify:** `npm test`, build, launch through `tools/launch-app.mjs` on the scratch repository.
+  Reproduce the failure **without touching a real repository**: add a remote pointing at a URL that
+  answers 403 (or at a local bare repo made unreadable) and fetch it from the UI, and separately
+  drive the classifier over the recorded message texts in a unit test. **Do not reproduce this
+  against `catena-feed`** - rule 2 forbids it, and `git ls-remote` shows the same refusal read-only
+  if a live sample of the message is ever needed.
+- **Log:**
+  - 2026-09-06 proposed by GR-020, from Ricardo's inbox: he reported a 403 on `catena-feed` under
+    SAML SSO and asked that the app cope with it. Investigating turned a credential story into a
+    reporting one - the deeper defect is that `headline()` picks the `fatal:` line and drops the
+    two `remote:` lines that say what to do, so the user is shown the least useful sentence git
+    wrote, in a 45%-wide ellipsised button whose full text is a hover tooltip. P1 because it is the
+    only open ticket that makes the app unusable against the repositories Ricardo actually works
+    in, and it was found by the stakeholder rather than by a review.
+  - 2026-09-06 14:37 claimed
+  - 2026-09-06 done: `runRemote` spawns the three remote commands with prompting on, classifies a refusal with `isAuthMessage` and rethrows it named `GitAuthError` carrying a summary line plus the whole of git's message, which `AuthErrorDialog` shows and the status bar summarises; verified against a local 403 server in the scratch repository (dialog names `forbidden (http://127.0.0.1:…/x.git)`, holds the `remote:` line the bar used to drop, reopens from the summary, and a non-credential failure of the same command is unchanged), plus 15 unit cases including two that assert `GIT_TERMINAL_PROMPT` is 0 everywhere else.
+
+### GC-170 A stash is a chip on its parent, where GitKraken gives it a row of its own above the tip
+
+- **Status:** done
+- **Area:** graph | **Size:** M | **Priority:** P2
+- **Depends on:** GC-140
+- **Why:** GC-140 shipped and the chip is genuinely there - confirmed at 23ce5c2 in the running app
+  (`%TEMP%/gitclient-review/GR-020/02-stash-in-graph.png`): a 20x20 `span.stash-chip` at the end of
+  `main`'s ref cell, carrying an archive glyph and a `title` of
+  `stash@{0}: On main: review: a stash to look at`. So the ask is not that GC-140 failed; it is that
+  the answer is the wrong shape. **The message never appears on screen at all** - it is a tooltip -
+  and 20px of ref column is a costly place to put it: GC-156 had to be written precisely because
+  the marker took the room the primary chip's name needed, and it still costs `main` its upstream
+  cloud on any row that carries one (compare `01-graph.png` with `02-stash-in-graph.png`).
+  Ricardo's screenshot of GitKraken on `catena-feed` shows a different answer and a cheaper one: the
+  stash is **a row of its own** at the top of its branch's lane, directly above the branch's tip - a
+  circle node drawn with a **dashed outline** carrying a stash icon, the lane line running down from
+  it into the tip, and the stash's message in the message column
+  (`Auto stash before checking out "origin/008-page-monitor-port"`), selectable like a commit row.
+  No chip on the parent at all. The study cannot arbitrate this: `docs/reference/gitkraken/` has
+  **no** note on stashes in the graph anywhere - `03-graph.md` does not mention them - which is why
+  GC-140 had to invent a shape, and is itself a gap to close.
+- **Scope:**
+  - A stash becomes a synthetic row in the graph, drawn immediately above the commit it was taken
+    from, in that commit's lane: a node with a dashed outline and the stash glyph, the lane line
+    continuing down into the parent, and the stash's message in the COMMIT MESSAGE column.
+  - The row is selectable like a commit row and takes the same `.selected` treatment. Selecting it
+    shows the stash in the detail panel - at minimum its message, its age and its parent; what the
+    panel draws for a stash is this ticket's to decide, and the commit view is the shape to copy.
+  - Right-click gives `stashMenuItems` and double-click applies, which is what the chip and the
+    left-panel row already offer from the same source - the gestures do not change, only where they
+    live.
+  - The `.stash-chip` on the parent row **goes**, and with it `chipRoom`'s `STASH_CHIP_W` term:
+    GC-156's arithmetic must come back to counting only the siblings that remain, rather than being
+    left carrying a constant for a marker no row draws.
+  - A stash whose parent is outside the loaded range still draws nothing, exactly as today.
+  - The lane and row arithmetic is `lanes.ts`' business and must keep its property: splitting a
+    history at any row and laying out the halves still equals laying out the whole, with stash rows
+    included. Row indices reach `rowIndexOf`, the virtualiser and the WIP row's offset, so every one
+    of those has to agree on the new count.
+  - The message column shows the stash's **own** message, with git's `On <branch>: ` prefix
+    stripped: GitKraken renders `On 008-page-monitor-port: est` as `est`, and the branch is
+    already named by the lane the row sits in. Strip it for display only - never in the `title`,
+    and never in what `stashRename` stores.
+  - Record the shape in `docs/reference/gitkraken/03-graph.md` as an observation, described in our
+    own words from Ricardo's screenshot - never copied from GitKraken's markup, CSS or strings.
+- **Out of scope:** a stash lane of its own separate from its parent's; stashes whose parent is not
+  loaded; the left panel's stash row (GC-150 owns its click, GC-171 its width); editing the message
+  (GC-129, shipped).
+- **Acceptance:**
+  - [x] With one stash taken on the checked-out branch, the graph draws a row above that branch's
+        tip whose message column reads the stash's message, and the tip's ref cell carries no
+        `.stash-chip`.
+  - [x] The stash node is drawn with a dashed outline and its lane line runs down into the parent.
+  - [x] Clicking the row selects it; right-click opens `stashMenuItems`; double-click applies.
+  - [x] Two stashes on the same parent draw two rows, in `git stash list` order, newest first.
+  - [x] A stash whose reflog subject is `On <branch>: est` draws `est` in the message column, and
+        its full untouched message is still on the row's `title`.
+  - [x] A stash whose parent is not in the loaded range draws nothing and moves nothing.
+  - [x] `chipRoom` no longer counts a stash marker, and `CommitGraph.test.tsx`'s GC-156 case is
+        updated rather than deleted - the cloud must still be kept at a width where it fits.
+  - [x] `lanes.test.ts`'s split-and-rejoin property still holds with stash rows present.
+  - [x] `03-graph.md` gains a stash section, written from the observation and citing nothing of
+        GitKraken's own code or strings.
+  - [x] `npm run typecheck` and `npm test` pass, and the e2e suite still passes - its stash steps
+        assert against the chip today.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/graph/GraphCell.tsx`,
+  `src/renderer/src/graph/lanes.ts`, `src/renderer/src/graph/lanes.test.ts`,
+  `src/renderer/src/graph/CommitGraph.test.tsx`, `src/renderer/src/components/DetailPanel.tsx`,
+  `src/renderer/src/styles/app.css`, `tools/e2e/run.mjs`,
+  `docs/reference/gitkraken/03-graph.md`, `CLAUDE.md`
+- **Verify:** `npm test`, build, launch through `tools/launch-app.mjs` on the scratch repository,
+  take a stash, screenshot into `docs/screenshots/` and look at it beside the description above:
+  a dashed node above the tip, the message readable in its own column, no chip on the parent. Then
+  take a second stash on the same parent and confirm two rows in list order.
+- **Log:**
+  - 2026-09-06 proposed by GR-020, from Ricardo's inbox: he asked for the row explicitly and said
+    the chip is not what GitKraken does. The build was checked first, as he asked - GC-140's chip
+    **is** present at 23ce5c2, so this replaces a shipped answer rather than reporting a missing
+    one, which is why it is its own ticket and not a reopening of GC-140. `Depends on: GC-140`
+    because the `Stash.parent` field it added is exactly what the row needs.
+  - 2026-09-06 GR-020, after the review was committed: Ricardo went looking for GC-140's chip on
+    `catena-feed` and could not find it, then found it by zooming in - a 20x20 glyph wedged
+    between an ellipsised `008-page-...` chip and the node. The chip works; it is invisible at
+    normal viewing distance on a real repository, which is better evidence for this ticket than
+    the reasoning above. He then sent a GitKraken capture of the target, which settles three
+    details the ticket had to leave open: the node is a **full-size dashed circle with the glyph
+    inside it**, in the branch's lane with the line running down into the tip; the row is
+    selectable and takes a highlighted band across its full width, exactly like a commit row; and
+    the message column reads `est`, so the `On <branch>: ` prefix is **stripped**. That capture is
+    the observation `03-graph.md` is missing - describe it in our own words, copy nothing.
+  - 2026-09-06 14:37 claimed
+  - 2026-09-06 done: `displayRows` makes a stash a row of its own above its parent — dashed node with the archive glyph in the parent's lane, message with git's prefix stripped in the message column, selectable with the stash view in the detail panel — and the `.stash-chip` and `STASH_CHIP_W` are gone; verified in the running app on the scratch repository (`docs/screenshots/gc170-stash-row.png`) and on `catena-feed` read-only, with 8 e2e assertions in step 38 over two stashes on one parent and 12 unit cases.
+
+### GC-153 The left panel's four sections share one scroll, so 52 remote branches hide Tags and Stashes
+
+- **Status:** done
+- **Area:** ui | **Size:** M | **Priority:** P2
+- **Depends on:** none
+- **Why:** measured in the running app with `catena-feed` loaded read-only
+  (`%TEMP%/gitclient-review/GR-017/05-two-tabs-real-repo.png`): LOCAL (7) and REMOTE (52) are both
+  open by default, the rows run past the bottom of the window, and the TAGS and STASHES headers are
+  not on screen at all. So on a real repository the panel does not say a stash exists until the
+  user has scrolled past 52 remote branches - and a section header is exactly the thing that should
+  not scroll away, because it is the count. On the nine-ref scratch repository all four headers fit
+  (`01-graph.png`), which is why this has never surfaced in a review before. `04-panels.md`
+  records GitKraken's answer and it is not "collapse REMOTE by default": "Expanded sections are
+  separated by a horizontal drag handle (10px) so their heights can be shared" - each expanded
+  section scrolls inside its own box, so one long section never takes the space of the three below.
+- **Scope:**
+  - `.left-panel` becomes a column of sections that each scroll inside themselves, rather than one
+    scroll container over all four. Every section header is always on screen.
+  - The expanded sections share the panel's height: an equal share by default, and a drag handle
+    between two adjacent expanded sections moves the boundary between them and nothing else. A
+    collapsed section is its 30px header and takes no part in the share - the same treatment the
+    collapsed left rail gets from `fitPanels`, which passes it in as a zero-width panel.
+  - Collapsing or expanding a section re-shares the height among those still open.
+  - Every section keeps a **minimum height** in the share, not only a visible header: a section
+    squeezed to its header alone is reachable but useless, and the ask is that STASHES stays
+    *readable* at the bottom with TAGS open. The floor is the header plus a small number of rows,
+    and a share that cannot give every open section its floor falls back to scrolling the column
+    of headers rather than to zero-height sections.
+  - The heights are remembered on their own `localStorage` key and get a row in `CLAUDE.md`'s
+    remembered-state table: this is state, not a preference, so it does not go in the prefs blob.
+    Double-clicking a handle resets the two it separates to an equal share and removes the key.
+  - The rules GC-105, GC-110, GC-111 and GC-118 settled apply unchanged one axis over: only the
+    **applied** heights are clamped and the stored ones are never written over by a fit, a drag
+    starts from the height being **drawn**, and a drag released past a wall keeps the wall rather
+    than the release position.
+  - `useDragWidth` is width-only today. Extract its clamp / persist / release-position logic into
+    one hook that takes an axis and have both call sites use it, rather than adding a second copy of
+    the same three rules - GC-118 had to be fixed once already and must not be fixable twice.
+- **Out of scope:** the section context menu `04-panels.md` also records (show/hide all, maximize
+  this section); changing which sections are open by default; the icon rail, which has one row per
+  section and is unaffected.
+- **Acceptance:**
+  - [x] With a repository whose REMOTE section holds more refs than fit, all four section headers
+        are on screen at once and each expanded section scrolls inside itself.
+  - [x] Dragging a handle moves the boundary between its two neighbours and changes no other
+        section's height.
+  - [x] Double-clicking a handle resets those two to an equal share and removes the stored key.
+  - [x] The heights survive a reload, and a hand-edited or absent key falls back to an equal share
+        rather than to zero.
+  - [x] Collapsing a section gives its space to the sections still open, and expanding it takes the
+        space back.
+  - [x] Expanding TAGS on a repository with a long REMOTE leaves STASHES showing its header **and
+        at least one row**, rather than only its header.
+  - [x] A drag released past the wall keeps the wall, and the stored height of the other section is
+        not written over (the GC-118 property, one axis over).
+  - [x] A `LeftPanel.test.tsx` case for the share, and a unit test for the extracted hook's pure
+        answer.
+  - [x] `npm run typecheck` and `npm test` pass.
+- **Files:** `src/renderer/src/components/LeftPanel.tsx`,
+  `src/renderer/src/components/LeftPanel.test.tsx`, `src/renderer/src/ui/useDragWidth.ts` (or
+  wherever the hook lives), `src/renderer/src/styles/app.css`,
+  `src/renderer/src/styles/tokens.css`, `CLAUDE.md`
+- **Verify:** build, launch through `tools/launch-app.mjs`, load `catena-feed` **read-only** for a
+  panel with 52 remote branches, screenshot into `docs/screenshots/` and look at it: all four
+  headers on screen, each section scrolling on its own. Then drag and double-click a handle over
+  CDP and read the stored key back.
+- **Log:**
+  - 2026-09-06 proposed by GR-017: found in the UI pass, on a real repository rather than the
+    fixture - the scratch repo's nine refs cannot produce it.
+  - 2026-09-06 extended by GR-020, from Ricardo's inbox: he reported the same thing from the other
+    end - expanding TAGS pushes STASHES off the bottom - and named a requirement GR-017 had not:
+    a **minimum height per section**, so the sections below stay readable and not merely present.
+    Confirmed unchanged at 23ce5c2 in the running app: `.left-panel .sections` computes to
+    `overflow: auto`, `display: block`, one scroll box over all four. Raised P3 -> P2: it is the
+    only open ticket that makes the panel wrong on every real repository, and the stakeholder has
+    now raised it twice.
+  - 2026-09-06 14:37 claimed
+  - 2026-09-06 done: each section scrolls in its own box under a header that never moves, sharing the column by `fitSections` — a water-filling share, so a section asks for its own rows and the long one gives up the rest — with `useBoundaryDrag` reusing `reachedWidth` for the handles; measured on `catena-feed` read-only (LOCAL 7 / REMOTE 52 / TAGS 283 / STASHES 1, all four headers on screen, REMOTE scrolling inside itself, STASHES keeping a row with TAGS open) plus drag, double-click reset and the stored key, in `docs/screenshots/gc153-sections-*.png`.
+
+### GC-137 The author chip is dropped when a diff opens, while the query survives
+
+- **Status:** done
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-027
+- **Why:** GC-030 moved the search query into `App` precisely because `CommitGraph` unmounts behind
+  a file view; the author chip GC-027 added is `CommitGraph` state, so opening a diff and closing it
+  again restores the query, the readout and the dimming — and silently clears the author. The e2e
+  step that guards GC-030 compares the whole `searchState` across a diff, and it passes, because
+  the chip is not in it. Two halves of one filter should not have two lifetimes.
+- **Scope:**
+  - Move the chosen author into `App`'s `search` state beside `query` and `open`, cleared by
+    `closeSearch` the same way, and pass it down with a setter.
+  - Extend the GC-030 e2e assertion to cover it: with an author set, open a diff, close it, and
+    assert the chip and the match count are the ones from before.
+- **Out of scope:** persisting either half across a restart, and more than one author (GC-027's own
+  out-of-scope line still holds).
+- **Acceptance:**
+  - [x] With an author chosen, opening and closing a file view leaves the chip and the readout
+        exactly as they were.
+  - [x] Escape still clears both halves together.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/graph/CommitGraph.tsx`,
+  `tools/e2e/run.mjs`.
+- **Verify:** typecheck, build, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-027 (this ticket): the chip was deliberately left as component state
+    to keep the change inside `CommitGraph.tsx`, and the asymmetry with the query it sits next to
+    is worth its own ticket rather than a silent widening of that one.
+  - 2026-09-06 14:37 claimed
+  - 2026-09-06 done: the chosen author moved into `App`'s `search` state beside the query, cleared by `closeSearch` and parked with the tab, and the GC-030 e2e assertion now covers it — with a chip set, opening and closing a diff leaves the chip, the readout and the dimming exactly as they were (step 16, `author` added to `searchState`).
+
+---
+
+### GC-138 The diff's hunk navigation is inline in the component and untested
+
+- **Status:** done
+- **Area:** tests | **Size:** S | **Priority:** P3
+- **Depends on:** GC-052
+- **Why:** GC-052's `gotoHunk` (`src/renderer/src/diff/DiffView.tsx`) is a pure decision wearing a
+  DOM coat: given the header stops, the current `scrollTop` and a direction, which stop is next is
+  arithmetic, and it took two wrong answers during the ticket before it was right — the body's top
+  padding made the first header read as being below the top, and the clamp at the bottom is what
+  makes the wrap-around true. Neither of those is covered by anything: the checks that found them
+  were a throwaway CDP script. Every comparable decision in this codebase was pulled out of its
+  component so a test could hold it — `fitPanels`, `reachedWidth`, `continuesRange`, `alignHunks`,
+  `wordDiff`, `canDropRef` — and this is the same shape as GC-134's complaint about `remoteCopyOf`.
+- **Scope:**
+  - A pure `nextHunkStop(stops, at, dir)` beside the diff module (or in `DiffView.tsx`, exported),
+    taking the clamped stops, the current `scrollTop` and `'next' | 'prev'`, answering the stop to
+    scroll to. `gotoHunk` keeps only the measuring: the rects, the padding and the clamp.
+  - A `.ts` unit test: the first stop when nothing is scrolled is the current one and not the next;
+    the wrap-around at each end; several stops sharing the clamped bottom position; one stop, and
+    none.
+- **Out of scope:** changing the behaviour, the arrows' disabled rule, keyboard bindings for them
+  (GC-033 owns the table), and reading the padding any other way.
+- **Acceptance:**
+  - [x] `nextHunkStop` is pure, exported and covered, and `gotoHunk` calls it.
+  - [x] The two answers GC-052 got wrong are each a named test case.
+  - [x] `npm test` passes with a higher count than 210; `npm run e2e` passes unchanged.
+- **Files:** `src/renderer/src/diff/DiffView.tsx`, a new test beside it.
+- **Verify:** `npm run typecheck`, `npm test`, `npm run build`, and the arrows still behave in the
+  running app on a file with ten hunks.
+- **Log:**
+  - 2026-09-06 proposed by GC-052 (this ticket): the navigation rule was written, got two answers
+    wrong and was fixed twice, all without a test — and a throwaway script was what caught it.
+  - 2026-09-06 14:37 claimed
+  - 2026-09-06 done: `nextHunkStop(stops, at, dir)` is pure, exported and called by `gotoHunk`, which keeps only the measuring; 6 cases in `src/renderer/src/diff/hunkNav.test.ts` name both answers GC-052 got wrong, and the arrows were driven in the running app over CDP (0 -> 225 -> 334, back to 225, and the wrap at each end).
 
 ---
 
