@@ -1432,6 +1432,22 @@ input[type='radio']:disabled {
   border-top: none;
   padding-top: 0;
 }
+/*
+ * The one section of the four that is also a scroll box, and the rule that follows from it
+ * (GC-209): **a scroll container with a sticky child carries no padding on that child's sticky
+ * edge.** A sticky inset resolves against the container's *content* box while overflow clips at
+ * its *padding* box, so 12px of padding here left the head stuck 12px below the line the rows are
+ * cut at, and whatever passed through the strip between them was drawn — measured at 1400x900 on
+ * a 33-file commit scrolled to 100: the scrollport clipped at 346, the head stuck at 358, and a
+ * row spanning 344 to 370 showed 12 of its 26 pixels above the band, reading as one file torn in
+ * two. A margin or a border would sit outside the clip and cost nothing; padding is the one that
+ * cannot. GC-142's own description of this boundary is "a rule and the body's own 12px", which is
+ * the `.detail-body` gap above the border and is untouched — what goes is the second 12px, which
+ * was between the rule and the head rather than between this block and the one above it.
+ */
+.detail-body > .file-list {
+  padding-top: 0;
+}
 /* `flex: none`, and the cap moved off this box onto the description alone (GC-191). A flex item
    whose `overflow` is anything but `visible` has an automatic minimum size of **zero**, so a
    `max-height: 160px; overflow: auto` box was the one block in this column that could be crushed —
@@ -1946,6 +1962,15 @@ input[type='radio']:disabled {
   gap: var(--sp-2);
   font-size: var(--fs-sm);
   color: var(--text-muted);
+}
+/* The amend hint (GC-203). It sits under the checkbox it is about, in `--warning` rather than
+   `--danger`: nothing has gone wrong, and the consequence it names is one the Push popover
+   answers. Indented to the checkbox's own label, so it reads as belonging to that row. */
+.commit-form .form-hint {
+  margin-top: calc(var(--sp-1) * -1);
+  padding-left: calc(var(--control-box) + var(--sp-2));
+  color: var(--warning);
+  font-size: var(--fs-sm);
 }
 .commit-form .summary-wrap {
   position: relative;
@@ -2587,6 +2612,10 @@ input[type='radio']:disabled {
   opacity: 0.45;
   cursor: default;
 }
+/* The force push, marked the way a destructive context-menu row is (GC-203). */
+.popover-row.danger {
+  color: var(--danger);
+}
 .popover-sep {
   height: 1px;
   margin: 4px 0;
@@ -2672,6 +2701,15 @@ input[type='radio']:disabled {
 }
 .ref-row .row-sha + .row-when {
   margin-left: 0;
+}
+/* The one section with no folder tree in it, so the one row that should not be indented for one
+   (GC-199). `.ref-row`'s 26px is a leaf row's icon aligned under a folder row's, which is 14px of
+   inset plus the 12px chevron the folder row draws — and the STASHES section has neither, so those
+   18px were bought for an alignment that has nothing to align with. They go back to the message,
+   which at the default 220px panel was 48px of the 207 it wanted. Unconditional, unlike the sha
+   `fitStashCols` drops: this is a padding that was never doing anything here, not a fit. */
+.ref-row.stash {
+  padding-left: var(--sp-2);
 }
 
 /* ---- Status bar ----------------------------------------------------------- */

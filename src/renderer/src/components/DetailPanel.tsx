@@ -277,6 +277,7 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
   const toggleAmend = (on: boolean): void =>
     onDraft(on && headCommit && !summary.trim() && !body.trim() ? { amend: on, summary: headCommit.summary, body: headCommit.body } : { amend: on });
 
+  const amendIsPublished = !!status?.upstream && status.ahead === 0;
   const concludingMerge = operation === 'merge' && conflicted.length === 0;
   const canCommit = !busy && conflicted.length === 0 && (concludingMerge || ((staged.length > 0 || amend) && summary.trim().length > 0));
   const doCommit = (): void =>
@@ -418,6 +419,11 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
           <label className="check">
             <input type="checkbox" checked={amend} disabled={!headCommit} onChange={(e) => toggleAmend(e.target.checked)} /> Amend previous commit
           </label>
+          {/* Amending a commit that is already on the remote is what leads people into a rejected
+              push, so the checkbox says so where it is ticked (GC-203). It is a derivation from the
+              snapshot and costs no git call: an upstream with nothing ahead of it means the tip is
+              reachable from that ref, so it is published; one commit ahead and it is not. */}
+          {amend && amendIsPublished && <div className="form-hint">This commit is on {status?.upstream}. Publishing the amended one needs a force push.</div>}
           <div className="summary-wrap">
             <input
               ref={summaryInput}

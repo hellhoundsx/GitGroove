@@ -8,8 +8,12 @@ export interface ToolbarHandlers {
   onFetch(): void;
   /** `remote` overrides the upstream; the plain button passes none (GC-057). */
   onPull(mode: PullMode, remote?: string): void;
-  /** The same for Push, where none means the upstream, else `pushRemote` (GC-057). */
-  onPush(remote?: string): void;
+  /**
+   * The same for Push, where none means the upstream, else `pushRemote` (GC-057). `force` is the
+   * popover's force push (GC-203); it always names its remote, so the confirmation `App` asks can
+   * say which ref is being overwritten.
+   */
+  onPush(remote?: string, force?: boolean): void;
   onCreateBranch(): void;
   onStash(): void;
   onPop(): void;
@@ -84,8 +88,10 @@ export function Toolbar(p: Props): JSX.Element {
   }, [pullOpen, setPullOpen, pushOpen, setPushOpen]);
 
   const pullLabel = PULL_MODES.find((m) => m.mode === p.pullMode)?.label ?? 'Pull';
-  // One remote gains nothing from being asked which: the Push caret is simply not there, and
-  // Pull's popover keeps only the mode rows it has always had (GC-057).
+  // One remote gains nothing from being asked which, so Pull's popover keeps only the mode rows it
+  // has always had (GC-057). Push's caret is no longer that question, though: since GC-203 its
+  // popover also carries the force push, which is an option of every push however many remotes
+  // there are, so the caret is there with one remote too and `several` gates only the plain rows.
   const several = p.remotes.length > 1;
   const remoteHint = !p.hasRemotes ? 'No remotes configured' : !p.hasUpstream ? 'Current branch has no upstream' : undefined;
   const pushTitle = !p.hasRemotes
@@ -207,28 +213,47 @@ export function Toolbar(p: Props): JSX.Element {
             </div>
           )}
         </div>
-        {/* A split button only once there is a choice to make: with one remote this is the plain
-            button it has always been (GC-057). */}
+        {/* The caret is the push's options, not only "which remote" (GC-057, GC-203), so it is
+            there whenever the button beside it can push at all. */}
         <div className="split-btn push" ref={pushRef}>
           <ToolButton label="Push" icon={Upload} title={pushTitle} disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} onClick={() => p.onPush()} />
-          {several && (
-            <button className="caret-btn" title="Push options" disabled={noRepo || p.busy || !p.info?.branch} onClick={() => setPushOpen(!pushOpen)}>
-              <Icon of={ChevronDown} size={11} />
-            </button>
-          )}
+          <button className="caret-btn" title="Push options" disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} onClick={() => setPushOpen(!pushOpen)}>
+            <Icon of={ChevronDown} size={11} />
+          </button>
           {pushOpen && (
             <div className="popover">
-              <div className="popover-caption">Push {p.info?.branch} to</div>
+              {several && (
+                <>
+                  <div className="popover-caption">Push {p.info?.branch} to</div>
+                  {p.remotes.map((r) => (
+                    <button
+                      key={r}
+                      className="popover-row as-button"
+                      onClick={() => {
+                        setPushOpen(false);
+                        p.onPush(r);
+                      }}
+                    >
+                      Push to {r}
+                    </button>
+                  ))}
+                  <div className="popover-sep" />
+                </>
+              )}
+              {/* One row per remote even with one remote, because the row has to name what it
+                  overwrites — the push writes `<remote>/<branch>`, never an upstream ref (GC-114).
+                  `App` asks before any of them runs; nothing here is destructive on its own. */}
+              <div className="popover-caption">Force push {p.info?.branch} to</div>
               {p.remotes.map((r) => (
                 <button
                   key={r}
-                  className="popover-row as-button"
+                  className="popover-row as-button danger"
                   onClick={() => {
                     setPushOpen(false);
-                    p.onPush(r);
+                    p.onPush(r, true);
                   }}
                 >
-                  Push to {r}
+                  Force push to {r}
                 </button>
               ))}
             </div>

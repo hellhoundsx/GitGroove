@@ -56,6 +56,49 @@ interface Props {
 /** `.section-head` height, mirrored from `app.css`: what a closed section costs the column. */
 const SECTION_HEAD_H = 30;
 
+/**
+ * What a stash row spends outside its message, mirrored from `app.css` the way `OPT_COL_W` mirrors
+ * the graph's optional columns (GC-116, GC-199). `pad` is the row's own 8px each side — a stash row
+ * carries no folder-tree indent, see `.ref-row.stash` — and `gap` is one `--sp-2` between siblings.
+ */
+export const STASH_ROW_W = { pad: 16, gap: 8, icon: 12, idx: 6, sha: 41, when: 72 };
+
+/** What the message keeps before an item is dropped for it, the `MIN_MSG_W` of this row. */
+export const MIN_STASH_MSG = 96;
+
+/** Which of a stash row's optional items are drawn, for a panel this wide (GC-199). */
+export interface StashCols {
+  sha: boolean;
+}
+
+/**
+ * `fitOptCols` one panel over (GC-199). At the default 220px panel the row was five items and the
+ * message got **48px** of the 207 it wanted, which is the floor at which two stashes can be told
+ * apart rather than a readable row: 34px of padding, 32 of gaps, 12 for the icon, 6 for the index,
+ * 41 for GC-150's sha and 46 for GC-171's box left 171px of furniture in front of the one thing on
+ * the row that says *which* stash this is. The age's box is 72px now, the widest phrase
+ * `relativeTime` can produce (`tokens.css`): it grew because this ticket gave the row the room, and
+ * "1 minut…" was an ellipsis that saved nothing.
+ *
+ * Two things give way, and only one of them is a fit. The folder-tree indent goes for good, in the
+ * stylesheet: the STASHES section has no folders, so the 26px that aligns a leaf row's icon under a
+ * folder row's was aligning it with nothing. What is left is decided here, and it is the **sha**
+ * first, dropped whole rather than narrowed (GC-116's rule: half a sha identifies a commit no
+ * better than none) — of the five it is the one repeated verbatim a few pixels away, on the graph
+ * row GC-170 draws directly above the same stash. The age is never dropped: it is the question a
+ * stash list is read for (GC-135) and it is repeated nowhere on this screen.
+ *
+ * `panelW` of 0 means not measured yet and draws everything, rather than dropping the sha for one
+ * frame — `fitRefCol`'s own rule.
+ */
+export function fitStashCols(panelW: number, minMsg = MIN_STASH_MSG, w = STASH_ROW_W): StashCols {
+  if (panelW <= 0) return { sha: true };
+  // Five children means four gaps and four means three, so dropping the sha gives back its own
+  // width and the gap that held it.
+  const room = (sha: boolean): number => panelW - w.pad - w.icon - w.idx - w.when - (sha ? w.sha : 0) - w.gap * (sha ? 4 : 3);
+  return { sha: room(true) >= minMsg };
+}
+
 /** The four sections, in the order they are drawn. Also the keys their heights are stored under. */
 export type SectionId = 'local' | 'remote' | 'tags' | 'stashes';
 const SECTION_IDS: SectionId[] = ['local', 'remote', 'tags', 'stashes'];
@@ -377,15 +420,23 @@ export function LeftPanel(p: Props): JSX.Element {
   // never sees: nothing is drawn with a height before then.
   const sectionsRef = useRef<HTMLDivElement>(null);
   const [columnH, setColumnH] = useState(0);
+  // The same observer answers the width, which is what a stash row's fit is decided against
+  // (GC-199). `clientWidth` is the box the rows are laid out in, so the scrollbar is out of it by
+  // construction — the graph's own reason for measuring rather than assuming (GC-110).
+  const [columnW, setColumnW] = useState(0);
   useEffect(() => {
     const el = sectionsRef.current;
     if (!el) return;
-    const update = (): void => setColumnH(el.clientHeight);
+    const update = (): void => {
+      setColumnH(el.clientHeight);
+      setColumnW(el.clientWidth);
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const stashCols = fitStashCols(columnW);
 
   const openIds = SECTION_IDS.filter((id) => openSections[id]);
   // A closed section is its 30px header and takes no part in the share, the way `fitPanels` is
@@ -680,7 +731,7 @@ export function LeftPanel(p: Props): JSX.Element {
             // its own directly above that commit (GC-170).
             <div
               key={s.sha}
-              className={`ref-row ${p.selected === s.sha || p.selected === s.parent ? 'selected' : ''}`}
+              className={`ref-row stash ${p.selected === s.sha || p.selected === s.parent ? 'selected' : ''}`}
               title={`${s.message}\n${formatDateTimeSeconds(s.date)}\ntaken from ${s.parent.slice(0, 7)}`}
               onClick={() => p.onStashSelect(s)}
               onContextMenu={(e) => p.onStashMenu(e, s)}
@@ -696,8 +747,11 @@ export function LeftPanel(p: Props): JSX.Element {
                   above, and never in what `stashRename` stores. */}
               <span className="row-name">{stashMessageText(s.message)}</span>
               {/* Which commit it was taken from, in the graph's own vocabulary — a short sha —
-                  so the two surfaces say the same thing without a hover (GC-140, GC-150). */}
-              <span className="row-sha">{s.parent.slice(0, 7)}</span>
+                  so the two surfaces say the same thing without a hover (GC-140, GC-150). It is
+                  the first thing to go on a narrow panel (GC-199): the graph draws the same seven
+                  characters on the stash's own row, and the message is the only thing here that
+                  says which stash this is. The `title` still carries it at every width. */}
+              {stashCols.sha && <span className="row-sha">{s.parent.slice(0, 7)}</span>}
               <span className="row-when">{relativeTime(s.date)}</span>
             </div>
           ))}

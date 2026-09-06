@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Archive, Check, ChevronDown, ChevronUp, Cloud, Pin, Search, Tag, X } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
 import { continuesRange, layoutGraph, wipDashFor, type GraphLayout } from './lanes';
-import { GraphCell, LANE_W, ROW_H, laneColor } from './GraphCell';
+import { BandGradients, GraphCell, LANE_W, ROW_H, laneColor } from './GraphCell';
 import { chipsFor, kindMarksOf, headChipFor, HEAD_REF, RefChip, type Chip } from './RefChip';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { initialsOf } from '../ui/avatars';
@@ -896,6 +896,9 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
           </clipPath>
         </defs>
       </svg>
+      {/* The same arrangement for the lane band's ten gradients (GC-201): defined once here,
+          referenced by every row's band. */}
+      <BandGradients />
       {searchOpen && (
         <div className="graph-search">
           <Icon of={Search} size={13} className="search-icon" />

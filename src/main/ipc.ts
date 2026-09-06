@@ -127,20 +127,35 @@ function repoFile(repo: unknown, path: unknown): string {
 }
 
 /**
- * The same check, answering the repository-relative path instead of the absolute one: what
- * `workdir:ignore` builds its pattern from, so a pattern can never be made out of a path that
- * does not belong to this repository (GC-093).
+ * The containment check on its own, answering the repository-relative path: the renderer named a
+ * path, and this is the one implementation of "it has to land inside this repository" — a `..`, an
+ * absolute path and another Windows drive are all refused (GC-093). It says nothing about the
+ * working tree, which is what makes it usable by the handlers that ask git about a file the tree no
+ * longer has: `repo:fileLog` follows a deleted file by construction (GC-166), and
+ * `workdir:resolveConflict` and `workdir:restoreFile` name a path git resolves for itself. Those
+ * three took a bare `str` before this existed, each with its own comment explaining why it could
+ * not use `repoRel` — so the check that actually matters was skipped by exactly the handlers that
+ * could not afford the other one (GC-198).
  */
-function repoRel(repo: unknown, path: unknown): string {
+function repoRelAny(repo: unknown, path: unknown): string {
   const root = resolve(repoOf(repo));
   const rel = str(path, 'A file path');
-  const full = resolve(root, rel);
-  const inside = relative(root, full);
+  const inside = relative(root, resolve(root, rel));
   // relative() answers '' for the repository itself and an absolute path when the two are on
   // different Windows drives, so neither is "inside".
   if (inside === '' || inside === '..' || inside.startsWith('../') || inside.startsWith('..\\') || isAbsolute(inside)) throw new Error(`Path is outside the repository: ${rel}`);
-  if (!existsSync(full)) throw new Error(`File not found in the working tree: ${rel}`);
   return inside.replace(/\\/g, '/');
+}
+
+/**
+ * That check plus the working tree: what `workdir:ignore` builds its pattern from, and what
+ * `repoFile()` resolves, so neither can be made out of a path this repository does not have on
+ * disk (GC-093).
+ */
+function repoRel(repo: unknown, path: unknown): string {
+  const rel = repoRelAny(repo, path);
+  if (!existsSync(resolve(resolve(repoOf(repo)), rel))) throw new Error(`File not found in the working tree: ${rel}`);
+  return rel;
 }
 
 export function registerIpc(): void {
@@ -180,14 +195,12 @@ export function registerIpc(): void {
     const max = typeof maxCommits === 'number' && maxCommits > 0 ? Math.min(maxCommits, 20000) : 500;
     return git.getLog(repoOf(path), max, exclude === undefined || exclude === null ? [] : strs(exclude, 'The hidden refs'), int(skip, 'The number of commits to skip'));
   });
-  // One path's history (GC-166). The path goes through `str` and not `repoRel`, for the reason
-  // `workdir:resolveConflict` and `workdir:restoreFile` already give: git resolves it against the
-  // repository itself and refuses one outside it, and a history is read precisely for files the
-  // working tree no longer has — `repoRel` requires the file to be on disk, so it would refuse the
-  // deleted file this exists to follow.
+  // One path's history (GC-166), through `repoRelAny`: the containment check without the
+  // working-tree one, which is the pairing this handler needs — a history is read precisely for a
+  // file the tree no longer has (GC-198).
   ipcMain.handle('repo:fileLog', (_e, repo: unknown, path: unknown, maxCount?: unknown) => {
     const max = typeof maxCount === 'number' && maxCount > 0 ? Math.min(maxCount, 5000) : 200;
-    return git.getFileLog(repoOf(repo), str(path, 'A file path'), max);
+    return git.getFileLog(repoOf(repo), repoRelAny(repo, path), max);
   });
   ipcMain.handle('repo:status', (_e, repo: unknown) => git.getStatus(repoOf(repo)));
   // The one channel that touches neither git nor the file system: the window controls Windows
@@ -237,12 +250,10 @@ export function registerIpc(): void {
     // from what comes back rather than from what the renderer sent (GC-093).
     return git.ignore(repoOf(repo), { path: repoRel(repo, r.path), kind: oneOf(r.kind, IGNORE_KINDS, 'An ignore kind') });
   });
-  // The path goes through `str` and not `repoRel`, unlike the shell channels: git resolves it
-  // against the repository itself, and an unmerged path is the only thing the command can act on.
   ipcMain.handle('workdir:resolveConflict', (_e, repo: unknown, path: unknown, side: unknown) =>
-    git.resolveConflict(repoOf(repo), str(path, 'A file path'), oneOf(side, CONFLICT_SIDES, 'A conflict side')),
+    git.resolveConflict(repoOf(repo), repoRelAny(repo, path), oneOf(side, CONFLICT_SIDES, 'A conflict side')),
   );
-  ipcMain.handle('workdir:restoreFile', (_e, repo: unknown, sha: unknown, path: unknown) => git.restoreFile(repoOf(repo), str(sha, 'A commit sha'), str(path, 'A file path')));
+  ipcMain.handle('workdir:restoreFile', (_e, repo: unknown, sha: unknown, path: unknown) => git.restoreFile(repoOf(repo), str(sha, 'A commit sha'), repoRelAny(repo, path)));
   ipcMain.handle('workdir:applyPatch', (_e, repo: unknown, patch: unknown, opts: unknown) => {
     const o = (opts ?? {}) as ApplyPatchOptions;
     return git.applyPatch(repoOf(repo), str(patch, 'A patch'), { cached: !!o.cached, reverse: !!o.reverse });

@@ -73,7 +73,20 @@ const DASH = '2 3';
  * opacity on the lane colour is the same result and takes the theme with it.
  */
 const BAND_H = 22;
-const BAND_TINT = 0.1;
+
+/**
+ * The band is lit from the lane rather than printed on the row (GC-201). GC-186's one opacity from
+ * the node's edge to the cell's read as a rectangle: it had a hard right edge in the middle of the
+ * row and nothing about it said which end the lane was at. So the paint falls away to the right —
+ * `BAND_PEAK` at the node, `BAND_FADE` of that at the far edge — and the average across the cell is
+ * about the 10% GC-186 settled, which is why the peak is above it rather than at it: a peak is not
+ * sustained the way a wash is.
+ *
+ * The colour is still the lane variable and nothing else, so the theme comes with it and no
+ * literal joins the component or a stylesheet (`CLAUDE.md`, Styling).
+ */
+const BAND_PEAK = 0.16;
+const BAND_FADE = 0.3;
 
 /**
  * The band, drawn from the node's **centre** to the cell's own right edge. First in the SVG, so
@@ -91,7 +104,42 @@ const BAND_TINT = 0.1;
  */
 function Band({ x, color, width }: { x: number; color: string; width: number }): JSX.Element {
   const mid = ROW_H / 2;
-  return <rect x={x} y={mid - BAND_H / 2} width={Math.max(0, width - x)} height={BAND_H} fill={color} opacity={BAND_TINT} />;
+  // The gradient is referenced, not defined here: a row is its own `<svg>` and there are hundreds
+  // of them, so ten definitions live once in `BandGradients` and every band points at the one for
+  // its lane. `color` stays on the rect as the fallback the SVG `fill` syntax allows, so a band is
+  // still drawn — flat, exactly as GC-186 had it — if the defs are ever not on the page.
+  return <rect x={x} y={mid - BAND_H / 2} width={Math.max(0, width - x)} height={BAND_H} fill={`url(#${bandGradientId(color)}) ${color}`} opacity={BAND_PEAK} />;
+}
+
+/**
+ * One gradient per lane colour, and the id it is referenced by. Keyed by the colour rather than by
+ * the row, because that is all a band's paint depends on: the stops are `objectBoundingBox` units,
+ * so each one spans its own rect — which starts at the node's centre on every row (GC-200) and ends
+ * at the cell's edge, whatever lane the commit is in.
+ */
+const bandGradientId = (color: string): string => `graph-band-${color.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '')}`;
+
+/** The ten lane colours, which is every paint a band can be made of. */
+const LANE_COLORS = Array.from({ length: 10 }, (_, i) => laneColor(i));
+
+/**
+ * The ten definitions, rendered once by the graph. A zero-sized `svg` because `defs` is never
+ * rendered and this element exists only to hold them; `aria-hidden` for the reason every other
+ * `svg` here carries it.
+ */
+export function BandGradients(): JSX.Element {
+  return (
+    <svg width={0} height={0} aria-hidden="true" style={{ position: 'absolute' }}>
+      <defs>
+        {LANE_COLORS.map((c) => (
+          <linearGradient key={c} id={bandGradientId(c)} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor={c} stopOpacity={1} />
+            <stop offset="1" stopColor={c} stopOpacity={BAND_FADE} />
+          </linearGradient>
+        ))}
+      </defs>
+    </svg>
+  );
 }
 
 /**

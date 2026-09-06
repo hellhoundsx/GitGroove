@@ -6,14 +6,16 @@
   --font-ui: 'Open Sans', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
   --font-mono: 'Cascadia Code', Consolas, 'JetBrains Mono', Menlo, monospace;
   --fs-xs: 10px;
-  /* A stash row's age (GC-171). Fixed, because content-sized was the defect: the box grew with
-     its own phrase — "2 minutes ago" is 66px — and it grew out of the message, which is the only
-     thing on the row that says *which* stash this is. 46px holds "just now" and "3 days ago"
-     whole and ellipsises the longest phrase relativeTime produces ("59 minutes ago", 70px), which
-     is the right way round: the age is an approximation read at a glance, the message an identity.
-     It is as tight as it is because at the default 220px panel the row spends 34px on padding,
-     32 on gaps and 59 on the icon, the index and GC-150's sha before the message sees anything. */
-  --row-when-w: 46px;
+  /* A stash row's age (GC-171, GC-199). Fixed, because content-sized was the defect: the box grew
+     with its own phrase — "2 minutes ago" is 66px — and it grew out of the message, which is the
+     only thing on the row that says *which* stash this is.
+     72px is the **widest phrase `relativeTime` can produce**, measured in the app at `--fs-xs`:
+     "59 minutes ago" 72, "1 minute ago" 62, "23 hours ago" 61, "30 Sep 2026" 57 (the absolute form
+     past 30 days), "just now" 40. GC-171 set it at 46 and let the longer ones ellipsise, which was
+     the right trade while the row also carried GC-150's sha; with the sha now dropped on a narrow
+     panel (`fitStashCols`) the 26px is affordable, and "1 minut…" was an ellipsis that saved
+     nothing. The `overflow: hidden` on the box stays as the guard, not as the normal case. */
+  --row-when-w: 72px;
   --fs-sm: 12px;
   --fs-md: 14px;
   --fs-lg: 16px;

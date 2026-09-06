@@ -3033,7 +3033,85 @@ log(await selectCommitRow(RESTORE_COMMIT));
 await waitFor(`!document.querySelector('.detail-panel .banner.info')?.innerText.includes('Compared with')`, 'the comparison to be left behind');
 check('selecting another commit leaves compare mode', (await ev(`!!document.querySelector('.detail-panel .commit-id')`)) === true, String(await ev(`document.querySelector('.detail-panel .detail-head')?.innerText.replace(/\s+/g, ' ') ?? 'no head'`)));
 
-step(42, 'the run leaves the fixture exactly as it found it');
+step(42, 'the folded +N block opens for a drag, and what only a stylesheet can answer is asserted');
+// GC-184, guarding GC-123 and GC-022. The fold opens on `:hover`, and `:hover` never fires in the
+// app this suite launches: it runs offscreen (GC-060's stealth), where a dispatched `mouseMoved`
+// leaves `getComputedStyle(list).display` at `none` — measured while verifying GC-147. So the
+// block had never been opened in a run, and what covered it was jsdom class assertions, which
+// apply no stylesheet and so cannot see either of the two things that have actually broken here:
+// the `overflow: hidden` that clipped it to the row's 28px (GC-123), and the padding that shifted
+// its first line (GC-022, GC-078). `.more-drag` is the way in, because the CSS treats it as the
+// hover state by construction — every rule that opens the block is written as a `:hover, .more-drag`
+// pair — and a `dragover` carrying REF_DRAG_TYPE is what sets it. Step 39 already dispatches those.
+/**
+ * The most folded cell on screen, whichever row that is. The fixture puts seven refs on one tip
+ * (GC-055), but this step runs after forty others have moved branches about, so by now they are
+ * spread over several rows — measured mid-run: `main` alone, `release` carrying `+3`. What is
+ * under test is the block, not which branch it hangs off, so the step takes the widest fold it
+ * can find and names it in the log.
+ */
+const foldCell = `[...document.querySelectorAll('.graph-row .col-ref')].filter(c => c.querySelector(':scope > .ref-chip.more')).sort((a, b) => Number(b.querySelector(':scope > .ref-chip.more').textContent.replace('+', '')) - Number(a.querySelector(':scope > .ref-chip.more').textContent.replace('+', '')))[0]`;
+// Back to the top first: step 41 leaves the oldest commit selected, so the tips the refs sit on
+// are virtualised out and no cell for them exists to drag over (the rows are windowed, GC-012).
+await waitFor(
+  `(() => { const b = document.querySelector('.graph-body'); if (b && b.scrollTop !== 0) b.scrollTop = 0; return !!${foldCell}; })()`,
+  'a row to be drawn with a folded block',
+);
+log(await ev(`'the folded row is ' + [...${foldCell}.querySelectorAll(':scope > .ref-chip')].map(x => x.textContent.trim()).join(' ')`));
+// A real branch drag, from the left panel as step 39 starts one, so the DataTransfer carries our
+// own type; the block opening for it is the whole point of GC-123.
+log(await dragRefFrom('main', ROW_SEL));
+await waitDragging('main', ROW_SEL);
+await ev(
+  `(() => { const c = ${foldCell}; const r = c.getBoundingClientRect(); c.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: window.__e2eDt, clientX: r.x + 4, clientY: r.y + r.height / 2 })); return 'dragover on the folded cell'; })()`,
+);
+await waitFor(`!!${foldCell}?.classList.contains('more-drag')`, 'the folded block to be held open by the drag');
+const fold = JSON.parse(
+  await ev(
+    `(() => { const c = ${foldCell}; const list = c.querySelector('.more-list'); const more = c.querySelector(':scope > .ref-chip.more');
+       const primary = c.querySelector(':scope > .ref-chip:not(.more)'); const body = document.querySelector('.graph-body');
+       const px = (n) => Math.round(n * 10) / 10;
+       const lines = [...list.querySelectorAll('.ref-chip')].map(x => { const r = x.getBoundingClientRect(); return { name: x.textContent.trim(), top: px(r.top), left: px(r.left), h: px(r.height) }; });
+       const lr = list.getBoundingClientRect(), cr = c.getBoundingClientRect(), br = body.getBoundingClientRect(), pr = primary.getBoundingClientRect();
+       return JSON.stringify({ display: getComputedStyle(list).display, overflow: getComputedStyle(c).overflow, moreText: more.textContent.trim(), moreVisibility: getComputedStyle(more).visibility,
+         lines, listTop: px(lr.top), listBottom: px(lr.bottom), listH: px(lr.height), cellTop: px(cr.top), cellBottom: px(cr.bottom), cellH: px(cr.height),
+         bodyTop: px(br.top), bodyBottom: px(br.bottom), primaryTop: px(pr.top), primaryLeft: px(pr.left) }); })()`,
+  ),
+);
+// Every folded ref is a line of its own, and there are as many as the `+N` promised plus the chip
+// it replaced: `.more-list` draws the whole set, so the block reads as the row's refs in full.
+const folded = Number(fold.moreText.replace('+', ''));
+check('the block is laid out, with the +N chip hidden behind it', fold.display === 'flex' && fold.moreVisibility === 'hidden', `display ${fold.display}, +N ${fold.moreVisibility} (${fold.moreText})`);
+check(
+  'every ref on the row is a line of its own',
+  fold.lines.length === folded + 1 && new Set(fold.lines.map((l) => l.top)).size === fold.lines.length && fold.lines.every((l) => l.h > 12),
+  `${fold.moreText} folded, ${fold.lines.length} lines: ${fold.lines.map((l) => `${l.name}@${l.top}`).join(', ')}`,
+);
+// Taller than the row, and standing outside it — which is exactly what `overflow: hidden` on the
+// cell used to cut off, so this is the assertion GC-123's rule has to keep passing.
+check(
+  'the block is taller than the 28px row and is not clipped to it',
+  fold.overflow === 'visible' && fold.listH > 28 && fold.listBottom > fold.cellBottom,
+  `list ${fold.listH}px in a ${fold.cellH}px cell, bottom ${fold.listBottom} against the cell's ${fold.cellBottom}, overflow ${fold.overflow}`,
+);
+check('and stays inside the graph body', fold.listTop >= fold.bodyTop && fold.listBottom <= fold.bodyBottom, `${fold.listTop}..${fold.listBottom} in ${fold.bodyTop}..${fold.bodyBottom}`);
+// GC-022 and GC-078: the block's first line lands on the pixel the row chip occupied, so opening it
+// does not shift the name the pointer is on. A padding difference of 3px is what broke this before.
+const firstLine = fold.lines[0];
+check(
+  "the first line sits where the row's own chip is",
+  Math.abs(firstLine.left - fold.primaryLeft) <= 1 && Math.abs(firstLine.top - fold.primaryTop) <= 2,
+  `line ${firstLine.left},${firstLine.top} against chip ${fold.primaryLeft},${fold.primaryTop}`,
+);
+// End the drag the way the browser does, and leave nothing open for a later step to meet.
+await ev(
+  `(() => { const c = ${foldCell}; c.dispatchEvent(new DragEvent('dragleave', { bubbles: true, relatedTarget: document.body, dataTransfer: window.__e2eDt })); document.querySelector('.graph-body').dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: window.__e2eDt })); return 'drag ended'; })()`,
+);
+await waitFor(`!${foldCell}?.classList.contains('more-drag')`, 'the folded block to close with the drag');
+check('the step leaves the block closed', (await ev(`getComputedStyle(${foldCell}.querySelector('.more-list')).display`)) === 'none');
+
+
+step(43, 'the run leaves the fixture exactly as it found it');
 // The same call the prologue makes, on the healthy path this time, and then the invariant: a run
 // that adds a commit to the fixture and does not take it back fails here, naming itself, instead of
 // growing the history until some later run's virtualised-row assertion flakes for it (GC-076).

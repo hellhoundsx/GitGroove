@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { useState, type ComponentProps, type JSX } from 'react';
 import type { GitRef, Stash } from '@shared/types';
-import { LeftPanel, buildRefTree, defaultSectionOpen, folderKeys, readFolded, readSectionHeights, readSectionOpen } from './LeftPanel';
+import { LeftPanel, MIN_STASH_MSG, STASH_ROW_W, buildRefTree, defaultSectionOpen, fitStashCols, folderKeys, readFolded, readSectionHeights, readSectionOpen } from './LeftPanel';
 import type { RefDragHandlers } from '../ui/refDrag';
 
 // Explicit imports rather than vitest globals is the house style, so RTL's own auto-cleanup and
@@ -449,5 +449,61 @@ describe('LeftPanel stash rows (GC-150)', () => {
     const c = panel([head('main', true)], { stashes: orphan, onStashSelect: (s) => picked.push(s) });
     fireEvent.click(row(c));
     expect(picked.map((s) => s.parent)).toEqual(['f'.repeat(40)]);
+  });
+});
+
+describe('a stash row gives way to its message on a narrow panel (GC-199)', () => {
+  // The arithmetic on its own. At the default 220px panel the row was five items and the message
+  // got 48px of the 207 it wanted; what is dropped for it is the sha, which the graph draws again
+  // on the stash's own row a few pixels away (GC-170).
+  it('drops the sha below the width the message needs and brings it back above it', () => {
+    expect(fitStashCols(220).sha).toBe(false);
+    expect(fitStashCols(300).sha).toBe(true);
+    // The exact boundary, so a change to any of the mirrored widths shows up here rather than in
+    // the running app: with the sha the message wants MIN_STASH_MSG on top of the furniture.
+    const w = STASH_ROW_W;
+    const edge = MIN_STASH_MSG + w.pad + w.icon + w.idx + w.when + w.sha + w.gap * 4;
+    expect(fitStashCols(edge).sha).toBe(true);
+    expect(fitStashCols(edge - 1).sha).toBe(false);
+  });
+
+  it('draws everything until the panel has been measured', () => {
+    // `fitRefCol`'s own rule: 0 is "not measured yet", not "as narrow as possible", or the sha
+    // would blink out for the first frame of every open.
+    expect(fitStashCols(0).sha).toBe(true);
+  });
+
+  it('leaves the sha out of the row at 220px and puts it back at 300px, with the age at both', () => {
+    const stashes: Stash[] = [{ index: 0, sha: 'a'.repeat(40), message: 'On main: the diff header', date: '2026-09-01T10:00:00+02:00', parent: 'p'.repeat(40) }];
+    const width = (px: number): HTMLElement => {
+      const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => px });
+      try {
+        return panel([head('main', true)], { stashes });
+      } finally {
+        if (desc) Object.defineProperty(HTMLElement.prototype, 'clientWidth', desc);
+      }
+    };
+    const narrow = width(220);
+    const stashRow = (c: HTMLElement): HTMLElement => c.querySelector<HTMLElement>('.ref-row.stash')!;
+    expect(stashRow(narrow).querySelector('.row-sha')).toBeNull();
+    // Nothing is drawn half: the age keeps its own box at both widths, and the sha the row no
+    // longer draws is still on the title.
+    expect(stashRow(narrow).querySelector('.row-when')).not.toBeNull();
+    expect(stashRow(narrow).getAttribute('title')).toContain('taken from ppppppp');
+    cleanup();
+    const wide = width(300);
+    expect(stashRow(wide).querySelector('.row-sha')!.textContent).toBe('ppppppp');
+    expect(stashRow(wide).querySelector('.row-when')).not.toBeNull();
+  });
+
+  it('marks a stash row as one, so the folder-tree indent can come off it', () => {
+    // The 26px `.ref-row` indent aligns a leaf row's icon under a folder row's; the STASHES
+    // section has no folders, so `.ref-row.stash` in `app.css` takes it back for the message.
+    const stashes: Stash[] = [{ index: 0, sha: 'a'.repeat(40), message: 'On main: x', date: '2026-09-01T10:00:00+02:00', parent: 'p'.repeat(40) }];
+    const c = panel([head('main', true)], { stashes });
+    expect(c.querySelectorAll('.ref-row.stash')).toHaveLength(1);
+    // And nothing else in the panel takes it: a branch row is still a leaf of the folder tree.
+    expect(c.querySelectorAll('.ref-row.folder.stash')).toHaveLength(0);
   });
 });

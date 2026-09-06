@@ -1509,6 +1509,38 @@ export function App(): JSX.Element {
   );
 
   /**
+   * The force push (GC-203). `push()` has run `--force-with-lease` since the field existed — the
+   * safe form, which refuses when the remote moved after the last fetch — and no call site passed
+   * it, so amending a published commit left the user with nothing to do. It lives on the Push
+   * popover and nowhere else: the popover is where a push's options already are, and one home for
+   * a destructive action is easier to reason about than the four rows that offer a plain push.
+   * It is deliberately **not** offered from the rejection dialog GC-202 draws, which is where a
+   * user meets a non-fast-forward refusal: that would make overwriting a remote a click on an
+   * error message, and the popover is one click away from there anyway.
+   *
+   * The row names the remote, so the question can too (GC-114): what the push writes is
+   * `<remote>/<branch>`, never `r.upstream`.
+   */
+  const forcePush = useCallback(
+    async (remote: string | undefined) => {
+      const branch = currentBranch;
+      const target = remote ?? defaultRemote(snapshot?.remotes ?? []);
+      if (!branch || !target) return;
+      if (
+        !(await ui.confirm({
+          title: `Force push ${branch} to ${target}?`,
+          message: `This overwrites ${target}/${branch} with your local branch, and any commit on it that you do not have is lost. It is refused if ${target} has moved since your last fetch.`,
+          okLabel: 'Force push',
+          danger: true,
+        }))
+      )
+        return;
+      await run(`Force pushing ${branch} to ${target}`, () => window.api.push(repo!, { remote: target, branch, force: true, setUpstream: !headRef?.upstream }), { remote: true });
+    },
+    [currentBranch, headRef, repo, run, snapshot, ui],
+  );
+
+  /**
    * The actions that apply to a commit whichever surface named it: a commit row, or a branch
    * row naming its tip (GC-049). Both menus compose these same items rather than each writing
    * their own, so the wording, the guards and the hard-reset confirmation cannot drift apart.
@@ -2373,8 +2405,10 @@ export function App(): JSX.Element {
         onBranchMenu={openBranchMenu}
         // A named remote is a deliberate choice, so it sets the upstream when the branch has none
         // wherever it is pushed; with none named this is the button it always was (GC-057).
-        onPush={(remote) =>
-          void run(remote ? `Pushing to ${remote}` : 'Pushing', () => window.api.push(repo!, { remote, setUpstream: !headRef?.upstream }), { remote: true })
+        onPush={(remote, force) =>
+          force
+            ? void forcePush(remote)
+            : void run(remote ? `Pushing to ${remote}` : 'Pushing', () => window.api.push(repo!, { remote, setUpstream: !headRef?.upstream }), { remote: true })
         }
         onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
         onStash={() => void stashChanges()}

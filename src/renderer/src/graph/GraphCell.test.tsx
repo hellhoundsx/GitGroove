@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { type JSX } from 'react';
 import { cleanup, render } from '@testing-library/react';
 import type { RowLayout } from './lanes';
-import { GraphCell, laneX } from './GraphCell';
+import { BandGradients, GraphCell, laneX } from './GraphCell';
 
 // GC-077: the guard for the join shape. A line entering or leaving a node in another lane must
 // run in its own lane, turn through one quarter arc and finish along the node's centre line —
@@ -135,5 +135,43 @@ describe('GraphCell band', () => {
   it('leaves the solid commit node unmasked: its stroke has no gaps to show the band through', () => {
     const { container } = render(kinds[0][1]);
     expect([...container.querySelectorAll('circle')].filter((c) => c.getAttribute('r') === '10')).toHaveLength(0);
+  });
+});
+
+describe('the band is lit from the lane rather than printed on the row (GC-201)', () => {
+  const band = (c: HTMLElement): Element => c.querySelector('svg')!.firstElementChild!;
+
+  it('paints every cell kind from a gradient, with the lane variable as the fallback', () => {
+    for (const element of [
+      <GraphCell key="c" row={row({ lane: 2, color: 2 })} width={200} />,
+      <GraphCell key="w" row={null} wip={{ lane: 2, color: 2, linked: true }} width={200} />,
+      <GraphCell key="s" row={null} stash={{ lane: 2, color: 2, through: [], incoming: [], above: true }} width={200} />,
+    ]) {
+      const { container } = render(element);
+      // The reference and the flat fallback the SVG `fill` syntax allows, so a band is drawn
+      // either way; both halves are the lane's own variable and no literal colour appears.
+      expect(band(container).getAttribute('fill')).toBe('url(#graph-band-var-lane-2) var(--lane-2)');
+      expect(band(container).getAttribute('fill')).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(/i);
+      cleanup();
+    }
+  });
+
+  it('defines one gradient per lane colour, falling away from the node', () => {
+    const { container } = render(<BandGradients />);
+    const grads = [...container.querySelectorAll('linearGradient')];
+    expect(grads).toHaveLength(10);
+    expect(grads.map((g) => g.id)).toContain('graph-band-var-lane-9');
+    for (const g of grads) {
+      const stops = [...g.querySelectorAll('stop')];
+      // Two stops of the same lane colour: the paint varies across the band's width by opacity
+      // alone, so the colour is still the one variable and the theme comes with it.
+      expect(stops).toHaveLength(2);
+      expect(new Set(stops.map((s) => s.getAttribute('stop-color'))).size).toBe(1);
+      const [near, far] = stops.map((s) => Number(s.getAttribute('stop-opacity')));
+      expect(near).toBeGreaterThan(far);
+      expect(far).toBeGreaterThan(0);
+      // Left to right in the rect's own box, which starts at the node's centre on every row.
+      expect([g.getAttribute('x1'), g.getAttribute('x2'), g.getAttribute('y1'), g.getAttribute('y2')]).toEqual(['0', '1', '0', '0']);
+    }
   });
 });
