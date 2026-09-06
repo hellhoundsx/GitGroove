@@ -3585,6 +3585,61 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
 
 ---
 
+### GC-071 The primary ref chip is unreadable at the minimum column width
+
+- **Status:** done
+- **Area:** graph | **Size:** S | **Priority:** P3
+- **Depends on:** GC-023, GC-055, GC-078
+- **Why:** GC-023's first acceptance criterion ("at 100px with four refs on one commit, the first
+  chip keeps its name legible") turned out to be unsatisfiable, and not because of the shrink rule
+  it was written against. Measured over CDP on a commit carrying four refs: at a 100px ref column
+  `chipBudget` allows exactly one chip, so the row renders the primary chip plus a `+3` chip, and
+  the primary chip's `.chip-name` reports `clientWidth` 17 against `scrollWidth` 29 — "main"
+  renders as "ma...". The numbers are identical before and after GC-023, because with one visible
+  chip there is nothing for a shrink weight to redistribute. What eats the column is fixed
+  furniture: the `+N` chip (26px), the leading check icon and the trailing cloud icon (11px each)
+  and the chip padding, leaving 17px of the 100px for the name. 100px is the low end `CommitGraph`
+  clamps the drag to, so this is the state a user who drags the column all the way in gets.
+- **Scope:**
+  - At the narrow end of the range the primary chip's name wins over the furniture around it: the
+    obvious candidates are dropping the trailing upstream cloud icon and letting the `+N` chip
+    shrink once the column is below some threshold, but the fix is whatever makes the name legible.
+  - Measure, do not eyeball: the check is `.chip-name`'s `scrollWidth` against its `clientWidth`
+    on a commit with four or more refs, at 100px and at the default 150px.
+- **Out of scope:** the fold budget itself (GC-006), the chip order (GC-020), the shrink weights
+  (GC-023), raising the 100px minimum.
+- **Acceptance:**
+  - [x] At 100px on a commit with four refs, the first chip's `.chip-name` is not truncated
+        (`scrollWidth <= clientWidth`), or the ticket records why that is impossible at 100px and
+        the minimum is raised instead.
+  - [x] At 150px and above nothing regresses: the same measurement, and the `+N` fold still works.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
+- **Verify:** build, then the two measurements above over CDP against a commit given four refs in
+  the scratch repository (the fixture has none — see GC-055).
+- **Log:**
+  - 2026-09-05 22:45 proposed by GC-023 (this ticket): verifying GC-023 at 100px showed the primary
+    chip truncated to 17/29px identically before and after the change, so the criterion belongs to
+    a different cause than the one GC-023 fixed.
+  - 2026-09-05 23:14 GR-006: now depends on GC-055 as well. Its Verify needs a commit carrying four refs, which
+    the fixture lacks; GC-020 and GC-023 each built theirs by hand, and a third ticket doing the same
+    is the point at which the fixture should carry it.
+  - 2026-09-06 01:05 GR-007: now depends on GC-078 as well. That ticket makes one chip plus `+N` the shape
+    at every width, so the 100px case here stops being the extreme end of a range and becomes the
+    everyday row with less room; the furniture question (the cloud icon, the `+N` chip) is the same.
+  - 2026-09-06 11:27 claimed
+  - 2026-09-06 12:10 done. The primary chip drops its trailing upstream cloud below a 120px
+    ref column (`REF_COL_ICONS_MIN`); the expanded `+N` block is not bound by the column and
+    keeps it. Measured over CDP on the fixture commit carrying five chips, before and after:
+    at 100px `.chip-name` went from 17/29 (`ma…`) to 29/29, and 110px and 119px are the same;
+    at 120px the cloud returns and the name is still 29/29; 150px and 200px are unchanged from
+    before the ticket, `+4` folding at every width. The arithmetic is in the constant comment:
+    the column spends 41px on the `+N` chip and its gaps, the chip wants 71px with the cloud
+    and 56 without, so the cloud is what does not fit and the name is what identifies the ref.
+    Screenshot `docs/screenshots/gc-071-ref-chip-100px.png`. A longer name still truncates at
+    100px — `wip-branch` does — which is inherent to a 100px column, not to the furniture.
+
+---
+
 ### GC-072 Show in folder is offered on a file the commit deleted, and always fails
 
 - **Status:** done
@@ -3741,6 +3796,70 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
     before this commit must be rebuilt with `npm run e2e:setup`**. The app-side half of the same
     problem (a real repository's `refs/notes/*` or `refs/pull/*` doing exactly this) is filed as
     GC-095. Also noted for GC-094: "Viewing" now counts visible refs, not every ref.
+
+---
+
+### GC-074 The commit menu's Reset rows do not fit the menu, whichever side gives way
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-067
+- **Why:** At the 420px cap the middle Reset row of the commit menu is 7px too wide. On the build at
+  ee91d54, measured over CDP with the menu open on `Main-only change`,
+  `Reset main to 6ff1f8a: mixed` renders its `.ctx-label` at 166 of 173px — "Reset main to
+  6ff1f8a: mi…" (`%TEMP%/gitclient-review/GR-006/06-commit-menu.png`) — while its hint "keep changes
+  in the working directory" is whole at 212px; the soft and hard rows fit. GC-067 reverses the flex
+  weights so the label wins, and with its rule injected into the same live page the label is whole
+  and the hint is cut to 205 of 212px instead: the row still does not fit, the cut only moves. The
+  study's Reset is one entry with a three-row submenu (`05-menus-shortcuts.md`: Soft / Mixed / Hard,
+  each with a short hint), so the branch and sha are said once; ours says `Reset main to 6ff1f8a`
+  three times. GC-049 will put the same group into the branch menu, where longer branch names make
+  it worse.
+- **Scope:**
+  - Say the target once: a caption row (`MenuItem.caption`, which GC-067 adds) reading
+    `Reset main to 6ff1f8a`, then three rows labelled `Soft`, `Mixed`, `Hard` (the last still
+    `danger`, still behind the same confirm) carrying the current hints. `resetItem` in `App.tsx`
+    is the one place to change; if GC-049's helper extraction has landed, it moves with it.
+  - Whatever the wording, the acceptance is measured, not eyeballed.
+- **Out of scope:** the menu's 420px cap and its colours, the other menus' hints, GC-049's group in
+  the branch menu (it inherits this), a real submenu.
+- **Acceptance:**
+  - [x] Over CDP with the commit menu open on `Main-only change`: every `.ctx-label` and
+        `.ctx-hint` reports `scrollWidth <= clientWidth`; the same with
+        `a-very-long-branch-name-for-the-menu` checked out (created, checked out and deleted again in
+        the scratch repository only).
+  - [x] The three actions still run and Hard still confirms first: Soft from the menu moves
+        `git rev-parse HEAD` to the target and leaves `git status --short`'s staged rows staged; put
+        it back with `git reset --soft <previous sha>`.
+  - [x] e2e step 18 still passes (the caption row is not clickable and Escape still closes the menu as
+        one layer).
+  - [x] Screenshot looked at next to the study's `05-context-menu-commit.png`.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs` (only if a measurement step is added).
+- **Verify:** typecheck, build, the CDP measurement above, `npm run e2e`, screenshot.
+- **Log:**
+  - 2026-09-05 23:14 proposed by GR-006: the screenshot pass over the commit menu caught "mi…", and injecting
+    GC-067's rule into the live page showed the row still 7px too wide with the cut moved to the hint.
+  - 2026-09-06 11:27 claimed
+  - 2026-09-06 12:10 done. A `caption` row saying `Reset <branch> to <sha>` once, over `Soft`,
+    `Mixed` and `Hard` carrying the old hints. Measured over CDP with the commit menu open on
+    `Main-only change`: every `.ctx-label` and `.ctx-hint` reports `scrollWidth <= clientWidth`
+    and the menu is 291px wide, where it used to sit at the 420px cap with the middle row 7px
+    over; with `a-very-long-branch-name-for-the-menu` checked out (created and deleted in the
+    scratch repository) it is 381px and still nothing is truncated.
+    The three actions were re-run rather than assumed: Soft from the menu moved `rev-parse HEAD`
+    onto the target and left the staged rows staged, Hard asked first and cancelling changed
+    nothing, and the caption came back as a `DIV` that is not a `.ctx-item`. `npm run e2e`
+    passes whole, step 18 included. Screenshots `docs/screenshots/gc-074-commit-menu.png` and
+    `gc-074-commit-menu-long-branch.png`, looked at beside the study `05-context-menu-commit.png`,
+    which has the same shape — the target said once, the three modes under it (as a submenu
+    there, which stays out of scope here).
+    **One place to change turned out to be two.** `commitMenuItems` carried its own copy of
+    `resetItem`, `cherryPick`, `revert`, `createTag` and `copySha` rather than composing
+    `tipCommitActions`, which is the drift that source exists to prevent and which `CLAUDE.md`
+    already described as impossible. It now composes it, so the reset group really is defined
+    once. In the suite, `menuCaptions` moved up beside the other menu helpers so step 23 can
+    read the caption too: a caption is a `div.ctx-caption` that `menuList` deliberately skips,
+    which is itself the proof it is not clickable.
 
 ---
 
@@ -4357,6 +4476,81 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
 
 ---
 
+### GC-087 The commit view's ref line is git's decorate string, truncated to "origin/m…"
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-078
+- **Why:** `src/renderer/src/components/DetailPanel.tsx:330` renders `commit.refs.join(', ')` — the
+  `%D` decoration as git hands it back — so the top-right of the commit view reads
+  `HEAD -> main, tag: v0.1.0, origin/m…` at the default 400px panel width (GR-008's
+  `08-commit-selected.png`; GR-006 saw `origin/m…` and GR-007 `origin…` on the same line). Three
+  things are wrong with it: `HEAD -> ` and `tag: ` are git's syntax, not the app's; the list
+  ellipsises at its end, so the remote is the ref that disappears; and it is the only place refs are
+  shown as text — the graph shows the same refs as chips, and the study's commit panel
+  (`04-panels.md`, "Detail panel: commit view"; `03-commit-selected.png`) has no ref list at all,
+  only `commit:` and `parent:`. The line does what a tooltip does and takes the header for it.
+- **Scope:**
+  - Render the commit's refs as `.ref-chip`s with the graph's classes and icons (check mark on
+    HEAD's branch, cloud on a remote, tag icon on a tag), wrapping onto their own row under the
+    `commit:` line rather than sharing it; no `HEAD -> ` or `tag: ` prefixes.
+  - Reuse the graph's ordering (HEAD, locals, remotes, tags) and its absorb-the-upstream rule, so
+    `main` + `origin/main` at the same commit is one chip with the cloud mark, as in the graph.
+  - Right-click on a chip opens the same `refMenuItems` menu the graph's chips open; double-click
+    checks out through `runCheckout`.
+  - Lift the chip markup into one component both `CommitGraph.tsx` and `DetailPanel.tsx` render,
+    rather than duplicating it — after GC-078 has settled what a chip row looks like.
+  - Make `commit: <short sha>` in the same header bar copy the full sha when clicked, with a
+    `cursor: pointer` and a title saying so. The study's `04-panels.md` point 2 has that line
+    clickable to copy; today it is a bare `div.detail-head` with `cursor: auto` and no title
+    (GR-015, measured at `5f705ee`). The commit menu's "Copy commit sha" stays — this is the same
+    action offered where the sha is already on screen.
+- **Out of scope:** the `+N` fold (the panel wraps instead), hover expansion, the WIP view's header,
+  the `title` tooltip (it can stay as the full list).
+- **Acceptance:**
+  - [x] On the fixture's many-ref commit — `main`'s tip, which GC-055 gave seven refs — the header
+        shows a chip per ref after the absorb rule, `main` carrying the cloud mark and the tag its own; no `HEAD -> `, no `tag: `, no ellipsis at 400px.
+  - [x] A commit with no refs shows no ref row and leaves no empty space where one would be.
+  - [x] Clicking `commit: <sha>` in the header copies the full sha, and the cursor and the title
+        say it is clickable.
+  - [x] Right-click on the `main` chip opens the branch menu; `npm test` and `npm run e2e` pass.
+- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/graph/CommitGraph.tsx`
+  (the chip component moves out), `src/renderer/src/styles/app.css`.
+- **Verify:** typecheck, build, a CDP screenshot of the merge commit into `docs/screenshots/`,
+  `npm test`, `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GR-008: from the screenshot pass — the third review in a row to see this
+    line truncated, and the study's panel does not have it at all.
+  - 2026-09-06 extended by GR-015: the clickable `commit:` sha, from the same header bar and the
+    same paragraph of the study, added here rather than as a ticket of its own.
+  - 2026-09-06 11:27 claimed
+  - 2026-09-06 12:10 done. The header renders the commit’s refs as `.ref-chip`s wrapping under
+    the sha, with no `HEAD -> ` and no `tag: `, and `.detail-head .refs` — the rule whose
+    `text-overflow` produced `origin/m…` — is gone. The chip markup, `chipsFor`, `HEAD_REF` and
+    `headChipFor` moved out of `CommitGraph.tsx` into a new `src/renderer/src/graph/RefChip.tsx`
+    that both surfaces render, so the ordering and the absorb-the-upstream rule cannot drift.
+    That file is not on the Files line above: a component two modules render needs a home of
+    its own, and the alternative — `DetailPanel` importing from `CommitGraph` — is a dependency
+    the wrong way round.
+    **The acceptance named the wrong commit.** It asks for the fixture’s merge commit carrying
+    `main`, `origin/main` and `v0.1.0`; the merge commit carries only `v0.1.0`, because GC-055
+    put the many-ref commit on `main`’s tip (`214244a`, seven refs: main, origin/main, release,
+    origin/release, sandbox, origin/sandbox, tag v0.2.0). Verified there instead, and the first
+    criterion above is amended to say so. It draws five chips — `main` and `release` each
+    absorbing their upstream and carrying the cloud, `sandbox` and `origin/sandbox` separately
+    because `sandbox` has no upstream configured, plus the tag — which is exactly what the
+    graph row draws for the same commit (one chip plus `+4`), and none of the five is
+    truncated at the default 400px panel.
+    Also verified over CDP: a commit with no refs renders no `.ref-chips` at all and the head
+    stays at its 36px, clicking `commit: <sha>` hands the full 40-character sha to
+    `clipboard.writeText`, right-clicking the `main` chip opens that ref’s branch menu, and
+    double-clicking `release` goes through `runCheckout` — the dirty-tree guard asked first and
+    cancelling left `main` checked out. The clickable sha GR-015 asked for was already
+    implemented before this ticket started; only the `cursor` and `title` were confirmed here.
+    Screenshot `docs/screenshots/gc-087-commit-refs.png`. `npm test` and `npm run e2e` pass.
+
+---
+
 ### GC-088 Branch breadcrumb dropdown: switch branches from the toolbar
 
 - **Status:** done
@@ -4542,6 +4736,63 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
   - 2026-09-06 04:15 done. One `runSequencer(what, label, action)` in `App.tsx` guards cherry-pick, revert, merge and rebase from both menus: with any staged or conflicted entry it asks first, naming the count, and offers Cancel / "Stash and continue" only. Verified over CDP in a throwaway repository — all four actions prompt with `1 staged file` and run nothing on Cancel (HEAD and the index unmoved), a clean index runs the merge with no prompt at all, and "Stash and continue" on a clean cherry-pick landed the commit, left `a.txt` staged again, no stash behind it and no error in the status bar. Screenshot `docs/screenshots/gc-090-sequencer-guard.png`.
     One deviation from the scope, found by e2e step 12: the stash is **not** popped back when the action leaves git mid-operation. `git stash pop` runs `git reset` internally, which deletes `CHERRY_PICK_HEAD`, so putting the index back quietly cleared the in-progress state the banner and Abort exist for — the step's `cherry-pick in progress` assertion caught it. The guard now reads the status after a failure and, when `operation` is set, keeps the stash and says which stash holds the changes. That sentence reaches the status bar's tooltip only, because `headline()` shows one line: evidence for GC-091, which owns that, rather than a new ticket.
     Step 12 no longer parks the fixture's staged half by hand: it drives the guard, asserts Cancel is inert, takes the stash offer to reach the already-applied cherry-pick, and pops the guard's stash back after the abort. The prologue pops a stranded `Before cherry-picking …` stash for a run that dies in between. `npm run e2e`: 28 steps, 143 assertions, ALL PASSED, twice in a row.
+
+---
+
+### GC-091 The status bar can only report a failure, so a partial success reads as one
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-082
+- **Why:** `App` has one channel for anything an action has to say: `error`, rendered by
+  `StatusBar` as a red `.err` with a warning glyph. GC-082 had to use it for an outcome that is
+  not a failure — a pop whose working directory came back but whose index could not be
+  reinstated — because saying nothing would have hidden the loss of the staging. The result reads
+  as "the pop failed" when the pop succeeded (`docs/screenshots/gc-082-index-fallback.png`: the
+  stash is gone, the file is back, and the line is red). The same gap will be hit by every action
+  with a degraded-but-done outcome: a fetch that pruned, a pull that fast-forwarded nothing, a
+  push that had nothing to send.
+- **Scope:**
+  - A second severity on the same slot: `setNotice(text)` beside `setError`, rendered with the
+    neutral/warning token rather than `--danger` and the same dismiss button, cleared by the next
+    action exactly as `error` is.
+  - `run()` learns to carry it: a `GitError` the main process marks as advisory becomes a notice
+    rather than an error. One flag on `GitError` is enough; `git.ts` sets it on GC-082's fallback.
+  - Both are never shown at once: an error wins.
+- **Out of scope:** a toast system, a history of messages, re-classifying any other existing
+  message, the empty state's `gitError` line (GC-025).
+- **Acceptance:**
+  - [x] The GC-082 fallback shows the neutral line, not the red one, and still says the staging
+        could not be reinstated.
+  - [x] A real failure (a conflicting merge) still shows the red line, unchanged.
+  - [x] A notice is cleared by the next action, like an error.
+- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/StatusBar.tsx`,
+  `src/renderer/src/styles/app.css`, `src/main/git.ts`, `src/shared/types.ts`.
+- **Verify:** typecheck, build, `npm test`, the two CDP checks above with a screenshot of each.
+- **Log:**
+  - 2026-09-06 proposed by GC-082 (this ticket): the fallback message had nowhere to go but the
+    error line, so an operation that did most of what was asked is reported as a failure.
+  - 2026-09-06 11:27 claimed
+  - 2026-09-06 12:10 done. `notice` beside `error` in `App`, rendered by `StatusBar` as a
+    `.notice` in `--warning` with the same dismiss button, and `run()` clears both on entry and
+    sets at most one on the way out, so an error always wins and the two are never both up.
+    **The flag rides on the error’s `name`, not on a property.** Electron serialises a rejected
+    handler down to a string, so `GitError.advisory` itself never crosses; what does cross is
+    the name in the message, which `msg()` already had to strip. `ADVISORY` (`GitAdvisory`) is
+    the one word both processes agree on, in `shared/types.ts`. Confirmed by reading the raw
+    rejection in the renderer: `Error invoking remote method ‘stash:pop’: GitAdvisory: The
+    stash was popped…`.
+    Verified against a throwaway repository built for the one state GC-082 exists for — a stash
+    whose index will not go back on while its worktree diff is empty, so `pop --index` refuses
+    without touching anything and the plain form succeeds: the status bar showed the amber ⓘ
+    line with the full "could not be put back in the index" wording at `rgb(222, 155, 67)` and
+    no `.err` at all, git confirmed the stash was really gone, and the next action cleared it.
+    Screenshot `docs/screenshots/gc-091-notice.png`. That a real failure is still red is e2e
+    step 6, the conflicting merge the acceptance names, which asserts
+    `⚠ CONFLICT (content): Merge conflict in a.txt` on `.statusbar .err` and passes; the two
+    new `git.test.ts` cases pin that the fallback is marked advisory and an ordinary conflict
+    is not. The third check in the probe (a failing pop) could not run: with no stash left the
+    Pop button is correctly disabled, so step 6 is the evidence for that criterion.
 
 ---
 
@@ -6116,6 +6367,81 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
     unscrolled with no scrollbar and the menu is 623px tall, which is the height the ticket
     measured before this change. Screenshots `docs/screenshots/gc-120-branch-menu-600.png` and
     `-900.png`. The flip path needed no work: `ContextMenu` clamps to the viewport, it never flips.
+
+---
+
+### GC-121 Stage and discard selected lines, not only whole hunks
+
+- **Status:** done
+- **Area:** diff | **Size:** M | **Priority:** P3
+- **Depends on:** —
+- **Why:** the staging workflow stops at the hunk. `buildHunkPatch(file, hunk)` rebuilds a patch
+  from `hunk.raw` and the two hunk buttons use it, so anything smaller than a hunk cannot be staged
+  at all without editing the file first. GitKraken's Files row offers
+  "Stage / unstage / discard (file, folder, hunk, **line**)"
+  (`docs/reference/gitkraken/06-feature-inventory.md`), and of everything still missing from the
+  study this is the one that changes what the client is *for*: crafting a commit out of a messy
+  working tree is the reason to open a git GUI at all. The pieces are already here — the diff
+  renders one element per `DiffLine` in both layouts, and GC-104 already keys data off the
+  `DiffLine` object itself so the unified and split views read one map, which is exactly what a
+  line selection needs in order not to drift between them.
+- **Scope:**
+  - Selecting lines inside one hunk: click a changed line to select it, shift-click to extend the
+    run, click a selected line to deselect. The selection lives with the hunk, is limited to one
+    hunk at a time, and clears whenever the diff's identity or version changes (GC-075's keying),
+    so a selection can never outlive the content it was made against.
+  - `buildLinePatch(file, hunk, selected)` beside `buildHunkPatch`, pure and unit-tested in the
+    node project: selected additions stay `+`, unselected additions are dropped, selected removals
+    stay `-`, unselected removals become context lines, and the `@@` counts are recomputed from
+    what survives. Discard is that patch applied in reverse.
+  - The hunk header's buttons read "Stage N lines" / "Discard N lines" while that hunk has a
+    selection, and the whole-hunk wording otherwise.
+  - Both layouts must build a byte-identical patch from the same selection, the way GC-014 requires
+    of `hunk.raw` today.
+- **Out of scope:** unstaging individual lines from the staged side — a follow-up once the patch
+  builder exists, and worth its own ticket then; folder-level staging; Blame and History from the
+  same inventory row; dragging to select.
+- **Acceptance:**
+  - [x] Selecting two of three added lines in a hunk and staging leaves exactly those two staged,
+        asserted with `git diff --cached` in the scratch repository.
+  - [x] The same selection made in the split layout produces a byte-identical patch to the unified
+        one, asserted in a unit test rather than by eye.
+  - [x] Discarding a selection leaves the unselected lines in the working tree untouched.
+  - [x] `buildLinePatch` has unit cases for additions only, removals only, a mixed hunk, and a
+        selection covering every changed line — which must equal `buildHunkPatch`'s output.
+  - [x] A new e2e step stages a line selection and asserts the result against git.
+  - [x] `npm run typecheck`, `npm test` and `npm run build` pass.
+- **Files:** `src/renderer/src/diff/parseDiff.ts`, `src/renderer/src/diff/parseDiff.test.ts`,
+  `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css`, `tools/e2e/run.mjs`.
+- **Verify:** `npm test` for the patch builder, then `npm run e2e` for the new step, plus a manual
+  pass over CDP in both layouts on `a.txt`, which the fixture leaves with a multi-line change.
+- **Log:**
+  - 2026-09-06 08:20 proposed by GR-013 from the what's-next pass: the largest remaining gap in the
+    Files row of `06-feature-inventory.md`, and the one whose groundwork (`buildHunkPatch`,
+    `alignHunks`, the per-`DiffLine` keying from GC-104) is already in place. Not a duplicate of
+    GC-052, which is navigation and rendering options inside the diff, or of GC-107, which restores
+    a whole file from a commit.
+  - 2026-09-06 11:27 claimed
+  - 2026-09-06 12:10 done. `buildLinePatch(file, hunk, selected, { reverse })` beside
+    `buildHunkPatch`, a per-hunk selection in `DiffView` keyed to the diff version like
+    everything else there, and the hunk buttons renaming themselves to "Stage N lines" /
+    "Discard N lines". **The two directions are not the same patch**, which the first
+    implementation got wrong and the e2e step caught: staging applies to the *index*, so an
+    unselected removal becomes context and an unselected addition is dropped; discarding is
+    reversed onto the *working tree*, so it is the mirror — an unselected addition is the
+    context and an unselected removal is dropped. Built the staging way and reversed, git
+    refused it, because the unselected additions sit in the file with nothing accounting for
+    them. Verified: 12 unit cases in `parseDiff.test.ts` (additions only, removals only, mixed,
+    the no-newline marker, both directions, and a full selection equal byte-for-byte to
+    `buildHunkPatch` across four hunk shapes), 6 component cases in `DiffView.test.tsx`
+    covering the wording, shift-extend, click-to-drop and the two layouts building one patch,
+    and e2e step 37, which picks two of three appended lines and asserts `git diff --cached`
+    holds exactly `+pick one` and `+pick three` with `pick two` still in the working tree,
+    stages the same pick from the split layout to the same 173 bytes, and discards one line
+    leaving the others. Screenshot `docs/screenshots/gc-121-line-selection.png`.
+    One helper was needed in the suite: `waitSettled`, which waits for the snapshot generation
+    to stop moving. `waitIdle` answers "no action is running"; a watcher echo arriving while
+    the bar is already idle bumps the version and clears the selection between two clicks.
 
 ---
 

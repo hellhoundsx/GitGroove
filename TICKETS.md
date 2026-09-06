@@ -310,7 +310,9 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-101 | Checkboxes and the Preferences dropdown are unstyled OS controls | ui | S | P2 | done |
 | GC-132 | Three more e2e helpers drop a click on a disabled control and assert nothing | tests | S | P2 | done |
 | GC-145 | TICKETS.md is 681 KB and 71% done tickets, so "read it fully" is no longer possible | infra | M | P1 | done |
+| GC-154 | A driver script that throws leaves its Electron alive, so the next run verifies a stale build | infra | S | P1 | todo |
 | GC-128 | The app can only open a repository that already exists: no clone, no init | actions | M | P2 | todo |
+| GC-155 | e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite | tests | S | P2 | todo |
 | GC-140 | Stashes never appear in the graph, only in the left panel’s list | graph | M | P2 | done |
 | GC-141 | A single click on a branch in the left panel does nothing at all | ui | S | P2 | done |
 | GC-142 | The detail panel runs its blocks together, in both the staging and the commit view | ui | M | P2 | done |
@@ -352,13 +354,13 @@ an edit built from a string, and the fewer things that rewrite a row, the better
 | GC-045 | Commit view banner linking back to the working directory changes | ui | S | P3 | done |
 | GC-051 | Left panel folders for slash-separated branch names | ui | M | P3 | done |
 | GC-052 | Diff view: next and previous hunk, ignore whitespace, word wrap | diff | M | P3 | done |
-| GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | in-progress |
+| GC-121 | Stage and discard selected lines, not only whole hunks | diff | M | P3 | done |
 | GC-048 | Long toolbar labels overflow their 52px button | ui | S | P3 | done |
 | GC-066 | A second click on the repository crumb cannot close its dropdown | ui | S | P3 | done |
-| GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | in-progress |
-| GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | in-progress |
-| GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | in-progress |
-| GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | in-progress |
+| GC-071 | The primary ref chip is unreadable at the minimum column width | graph | S | P3 | done |
+| GC-074 | The commit menu's Reset rows do not fit the menu, whichever side gives way | ui | S | P3 | done |
+| GC-087 | The commit view's ref line is git's decorate string, truncated to "origin/m…" | ui | S | P3 | done |
+| GC-091 | The status bar can only report a failure, so a partial success reads as one | ui | S | P3 | done |
 | GC-085 | Dead CSS and an unreachable tooltip left over from the one-chip ref column | ui | S | P3 | todo |
 | GC-094 | The left panel header counts refs and never says which branch is checked out | ui | S | P3 | todo |
 | GC-096 | The branch crumb menu lists every branch, with nothing to narrow it | ui | S | P3 | todo |
@@ -502,95 +504,6 @@ decision is missing.
 
 ---
 
-### GC-071 The primary ref chip is unreadable at the minimum column width
-
-- **Status:** in-progress
-- **Area:** graph | **Size:** S | **Priority:** P3
-- **Depends on:** GC-023, GC-055, GC-078
-- **Why:** GC-023's first acceptance criterion ("at 100px with four refs on one commit, the first
-  chip keeps its name legible") turned out to be unsatisfiable, and not because of the shrink rule
-  it was written against. Measured over CDP on a commit carrying four refs: at a 100px ref column
-  `chipBudget` allows exactly one chip, so the row renders the primary chip plus a `+3` chip, and
-  the primary chip's `.chip-name` reports `clientWidth` 17 against `scrollWidth` 29 — "main"
-  renders as "ma...". The numbers are identical before and after GC-023, because with one visible
-  chip there is nothing for a shrink weight to redistribute. What eats the column is fixed
-  furniture: the `+N` chip (26px), the leading check icon and the trailing cloud icon (11px each)
-  and the chip padding, leaving 17px of the 100px for the name. 100px is the low end `CommitGraph`
-  clamps the drag to, so this is the state a user who drags the column all the way in gets.
-- **Scope:**
-  - At the narrow end of the range the primary chip's name wins over the furniture around it: the
-    obvious candidates are dropping the trailing upstream cloud icon and letting the `+N` chip
-    shrink once the column is below some threshold, but the fix is whatever makes the name legible.
-  - Measure, do not eyeball: the check is `.chip-name`'s `scrollWidth` against its `clientWidth`
-    on a commit with four or more refs, at 100px and at the default 150px.
-- **Out of scope:** the fold budget itself (GC-006), the chip order (GC-020), the shrink weights
-  (GC-023), raising the 100px minimum.
-- **Acceptance:**
-  - [ ] At 100px on a commit with four refs, the first chip's `.chip-name` is not truncated
-        (`scrollWidth <= clientWidth`), or the ticket records why that is impossible at 100px and
-        the minimum is raised instead.
-  - [ ] At 150px and above nothing regresses: the same measurement, and the `+N` fold still works.
-- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`.
-- **Verify:** build, then the two measurements above over CDP against a commit given four refs in
-  the scratch repository (the fixture has none — see GC-055).
-- **Log:**
-  - 2026-09-05 22:45 proposed by GC-023 (this ticket): verifying GC-023 at 100px showed the primary
-    chip truncated to 17/29px identically before and after the change, so the criterion belongs to
-    a different cause than the one GC-023 fixed.
-  - 2026-09-05 23:14 GR-006: now depends on GC-055 as well. Its Verify needs a commit carrying four refs, which
-    the fixture lacks; GC-020 and GC-023 each built theirs by hand, and a third ticket doing the same
-    is the point at which the fixture should carry it.
-  - 2026-09-06 01:05 GR-007: now depends on GC-078 as well. That ticket makes one chip plus `+N` the shape
-    at every width, so the 100px case here stops being the extreme end of a range and becomes the
-    everyday row with less room; the furniture question (the cloud icon, the `+N` chip) is the same.
-  - 2026-09-06 11:27 claimed
-
----
-
-### GC-074 The commit menu's Reset rows do not fit the menu, whichever side gives way
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-067
-- **Why:** At the 420px cap the middle Reset row of the commit menu is 7px too wide. On the build at
-  ee91d54, measured over CDP with the menu open on `Main-only change`,
-  `Reset main to 6ff1f8a: mixed` renders its `.ctx-label` at 166 of 173px — "Reset main to
-  6ff1f8a: mi…" (`%TEMP%/gitclient-review/GR-006/06-commit-menu.png`) — while its hint "keep changes
-  in the working directory" is whole at 212px; the soft and hard rows fit. GC-067 reverses the flex
-  weights so the label wins, and with its rule injected into the same live page the label is whole
-  and the hint is cut to 205 of 212px instead: the row still does not fit, the cut only moves. The
-  study's Reset is one entry with a three-row submenu (`05-menus-shortcuts.md`: Soft / Mixed / Hard,
-  each with a short hint), so the branch and sha are said once; ours says `Reset main to 6ff1f8a`
-  three times. GC-049 will put the same group into the branch menu, where longer branch names make
-  it worse.
-- **Scope:**
-  - Say the target once: a caption row (`MenuItem.caption`, which GC-067 adds) reading
-    `Reset main to 6ff1f8a`, then three rows labelled `Soft`, `Mixed`, `Hard` (the last still
-    `danger`, still behind the same confirm) carrying the current hints. `resetItem` in `App.tsx`
-    is the one place to change; if GC-049's helper extraction has landed, it moves with it.
-  - Whatever the wording, the acceptance is measured, not eyeballed.
-- **Out of scope:** the menu's 420px cap and its colours, the other menus' hints, GC-049's group in
-  the branch menu (it inherits this), a real submenu.
-- **Acceptance:**
-  - [ ] Over CDP with the commit menu open on `Main-only change`: every `.ctx-label` and
-        `.ctx-hint` reports `scrollWidth <= clientWidth`; the same with
-        `a-very-long-branch-name-for-the-menu` checked out (created, checked out and deleted again in
-        the scratch repository only).
-  - [ ] The three actions still run and Hard still confirms first: Soft from the menu moves
-        `git rev-parse HEAD` to the target and leaves `git status --short`'s staged rows staged; put
-        it back with `git reset --soft <previous sha>`.
-  - [ ] e2e step 18 still passes (the caption row is not clickable and Escape still closes the menu as
-        one layer).
-  - [ ] Screenshot looked at next to the study's `05-context-menu-commit.png`.
-- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs` (only if a measurement step is added).
-- **Verify:** typecheck, build, the CDP measurement above, `npm run e2e`, screenshot.
-- **Log:**
-  - 2026-09-05 23:14 proposed by GR-006: the screenshot pass over the commit menu caught "mi…", and injecting
-    GC-067's rule into the live page showed the row still 7px too wide with the cut moved to the hint.
-  - 2026-09-06 11:27 claimed
-
----
-
 ### GC-081 Time the e2e run's 141 git spawns and drop the redundant ones
 
 - **Status:** blocked
@@ -701,94 +614,6 @@ decision is missing.
   - 2026-09-06 02:22 proposed by GC-078 (this ticket): pinning the column at one chip left GC-023's
     shrink rule matching nothing in the row and the `+N` tooltip behind a chip that hides itself
     before the tooltip can appear.
-
----
-
-### GC-087 The commit view's ref line is git's decorate string, truncated to "origin/m…"
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-078
-- **Why:** `src/renderer/src/components/DetailPanel.tsx:330` renders `commit.refs.join(', ')` — the
-  `%D` decoration as git hands it back — so the top-right of the commit view reads
-  `HEAD -> main, tag: v0.1.0, origin/m…` at the default 400px panel width (GR-008's
-  `08-commit-selected.png`; GR-006 saw `origin/m…` and GR-007 `origin…` on the same line). Three
-  things are wrong with it: `HEAD -> ` and `tag: ` are git's syntax, not the app's; the list
-  ellipsises at its end, so the remote is the ref that disappears; and it is the only place refs are
-  shown as text — the graph shows the same refs as chips, and the study's commit panel
-  (`04-panels.md`, "Detail panel: commit view"; `03-commit-selected.png`) has no ref list at all,
-  only `commit:` and `parent:`. The line does what a tooltip does and takes the header for it.
-- **Scope:**
-  - Render the commit's refs as `.ref-chip`s with the graph's classes and icons (check mark on
-    HEAD's branch, cloud on a remote, tag icon on a tag), wrapping onto their own row under the
-    `commit:` line rather than sharing it; no `HEAD -> ` or `tag: ` prefixes.
-  - Reuse the graph's ordering (HEAD, locals, remotes, tags) and its absorb-the-upstream rule, so
-    `main` + `origin/main` at the same commit is one chip with the cloud mark, as in the graph.
-  - Right-click on a chip opens the same `refMenuItems` menu the graph's chips open; double-click
-    checks out through `runCheckout`.
-  - Lift the chip markup into one component both `CommitGraph.tsx` and `DetailPanel.tsx` render,
-    rather than duplicating it — after GC-078 has settled what a chip row looks like.
-  - Make `commit: <short sha>` in the same header bar copy the full sha when clicked, with a
-    `cursor: pointer` and a title saying so. The study's `04-panels.md` point 2 has that line
-    clickable to copy; today it is a bare `div.detail-head` with `cursor: auto` and no title
-    (GR-015, measured at `5f705ee`). The commit menu's "Copy commit sha" stays — this is the same
-    action offered where the sha is already on screen.
-- **Out of scope:** the `+N` fold (the panel wraps instead), hover expansion, the WIP view's header,
-  the `title` tooltip (it can stay as the full list).
-- **Acceptance:**
-  - [ ] On the fixture's merge commit (`main`, `origin/main`, `v0.1.0`) the header shows two chips,
-        `main` with the cloud mark and `v0.1.0`; no `HEAD -> `, no `tag: `, no ellipsis at 400px.
-  - [ ] A commit with no refs shows no ref row and leaves no empty space where one would be.
-  - [ ] Clicking `commit: <sha>` in the header copies the full sha, and the cursor and the title
-        say it is clickable.
-  - [ ] Right-click on the `main` chip opens the branch menu; `npm test` and `npm run e2e` pass.
-- **Files:** `src/renderer/src/components/DetailPanel.tsx`, `src/renderer/src/graph/CommitGraph.tsx`
-  (the chip component moves out), `src/renderer/src/styles/app.css`.
-- **Verify:** typecheck, build, a CDP screenshot of the merge commit into `docs/screenshots/`,
-  `npm test`, `npm run e2e`.
-- **Log:**
-  - 2026-09-06 proposed by GR-008: from the screenshot pass — the third review in a row to see this
-    line truncated, and the study's panel does not have it at all.
-  - 2026-09-06 extended by GR-015: the clickable `commit:` sha, from the same header bar and the
-    same paragraph of the study, added here rather than as a ticket of its own.
-  - 2026-09-06 11:27 claimed
-
----
-
-### GC-091 The status bar can only report a failure, so a partial success reads as one
-
-- **Status:** in-progress
-- **Area:** ui | **Size:** S | **Priority:** P3
-- **Depends on:** GC-082
-- **Why:** `App` has one channel for anything an action has to say: `error`, rendered by
-  `StatusBar` as a red `.err` with a warning glyph. GC-082 had to use it for an outcome that is
-  not a failure — a pop whose working directory came back but whose index could not be
-  reinstated — because saying nothing would have hidden the loss of the staging. The result reads
-  as "the pop failed" when the pop succeeded (`docs/screenshots/gc-082-index-fallback.png`: the
-  stash is gone, the file is back, and the line is red). The same gap will be hit by every action
-  with a degraded-but-done outcome: a fetch that pruned, a pull that fast-forwarded nothing, a
-  push that had nothing to send.
-- **Scope:**
-  - A second severity on the same slot: `setNotice(text)` beside `setError`, rendered with the
-    neutral/warning token rather than `--danger` and the same dismiss button, cleared by the next
-    action exactly as `error` is.
-  - `run()` learns to carry it: a `GitError` the main process marks as advisory becomes a notice
-    rather than an error. One flag on `GitError` is enough; `git.ts` sets it on GC-082's fallback.
-  - Both are never shown at once: an error wins.
-- **Out of scope:** a toast system, a history of messages, re-classifying any other existing
-  message, the empty state's `gitError` line (GC-025).
-- **Acceptance:**
-  - [ ] The GC-082 fallback shows the neutral line, not the red one, and still says the staging
-        could not be reinstated.
-  - [ ] A real failure (a conflicting merge) still shows the red line, unchanged.
-  - [ ] A notice is cleared by the next action, like an error.
-- **Files:** `src/renderer/src/App.tsx`, `src/renderer/src/components/StatusBar.tsx`,
-  `src/renderer/src/styles/app.css`, `src/main/git.ts`, `src/shared/types.ts`.
-- **Verify:** typecheck, build, `npm test`, the two CDP checks above with a screenshot of each.
-- **Log:**
-  - 2026-09-06 proposed by GC-082 (this ticket): the fallback message had nowhere to go but the
-    error line, so an operation that did most of what was asked is reported as a failure.
-  - 2026-09-06 11:27 claimed
 
 ---
 
@@ -935,61 +760,6 @@ decision is missing.
   - 2026-09-06 08:55 proposed by GC-116 (this ticket): measured while confirming GC-116's own
     acceptance — at 900 all three columns are gone from the graph and all three are still checked in
     the dialog.
-
----
-
-### GC-121 Stage and discard selected lines, not only whole hunks
-
-- **Status:** in-progress
-- **Area:** diff | **Size:** M | **Priority:** P3
-- **Depends on:** —
-- **Why:** the staging workflow stops at the hunk. `buildHunkPatch(file, hunk)` rebuilds a patch
-  from `hunk.raw` and the two hunk buttons use it, so anything smaller than a hunk cannot be staged
-  at all without editing the file first. GitKraken's Files row offers
-  "Stage / unstage / discard (file, folder, hunk, **line**)"
-  (`docs/reference/gitkraken/06-feature-inventory.md`), and of everything still missing from the
-  study this is the one that changes what the client is *for*: crafting a commit out of a messy
-  working tree is the reason to open a git GUI at all. The pieces are already here — the diff
-  renders one element per `DiffLine` in both layouts, and GC-104 already keys data off the
-  `DiffLine` object itself so the unified and split views read one map, which is exactly what a
-  line selection needs in order not to drift between them.
-- **Scope:**
-  - Selecting lines inside one hunk: click a changed line to select it, shift-click to extend the
-    run, click a selected line to deselect. The selection lives with the hunk, is limited to one
-    hunk at a time, and clears whenever the diff's identity or version changes (GC-075's keying),
-    so a selection can never outlive the content it was made against.
-  - `buildLinePatch(file, hunk, selected)` beside `buildHunkPatch`, pure and unit-tested in the
-    node project: selected additions stay `+`, unselected additions are dropped, selected removals
-    stay `-`, unselected removals become context lines, and the `@@` counts are recomputed from
-    what survives. Discard is that patch applied in reverse.
-  - The hunk header's buttons read "Stage N lines" / "Discard N lines" while that hunk has a
-    selection, and the whole-hunk wording otherwise.
-  - Both layouts must build a byte-identical patch from the same selection, the way GC-014 requires
-    of `hunk.raw` today.
-- **Out of scope:** unstaging individual lines from the staged side — a follow-up once the patch
-  builder exists, and worth its own ticket then; folder-level staging; Blame and History from the
-  same inventory row; dragging to select.
-- **Acceptance:**
-  - [ ] Selecting two of three added lines in a hunk and staging leaves exactly those two staged,
-        asserted with `git diff --cached` in the scratch repository.
-  - [ ] The same selection made in the split layout produces a byte-identical patch to the unified
-        one, asserted in a unit test rather than by eye.
-  - [ ] Discarding a selection leaves the unselected lines in the working tree untouched.
-  - [ ] `buildLinePatch` has unit cases for additions only, removals only, a mixed hunk, and a
-        selection covering every changed line — which must equal `buildHunkPatch`'s output.
-  - [ ] A new e2e step stages a line selection and asserts the result against git.
-  - [ ] `npm run typecheck`, `npm test` and `npm run build` pass.
-- **Files:** `src/renderer/src/diff/parseDiff.ts`, `src/renderer/src/diff/parseDiff.test.ts`,
-  `src/renderer/src/diff/DiffView.tsx`, `src/renderer/src/styles/app.css`, `tools/e2e/run.mjs`.
-- **Verify:** `npm test` for the patch builder, then `npm run e2e` for the new step, plus a manual
-  pass over CDP in both layouts on `a.txt`, which the fixture leaves with a multi-line change.
-- **Log:**
-  - 2026-09-06 08:20 proposed by GR-013 from the what's-next pass: the largest remaining gap in the
-    Files row of `06-feature-inventory.md`, and the one whose groundwork (`buildHunkPatch`,
-    `alignHunks`, the per-`DiffLine` keying from GC-104) is already in place. Not a duplicate of
-    GC-052, which is navigation and rendering options inside the diff, or of GC-107, which restores
-    a whole file from a commit.
-  - 2026-09-06 11:27 claimed
 
 ---
 
@@ -1853,6 +1623,89 @@ decision is missing.
 - **Log:**
   - 2026-09-06 proposed by GR-017: found in the UI pass, on a real repository rather than the
     fixture - the scratch repo's nine refs cannot produce it.
+### GC-154 A driver script that throws leaves its Electron alive, so the next run verifies a stale build
+
+- **Status:** todo
+- **Area:** infra | **Size:** S | **Priority:** P1
+- **Depends on:** none
+- **Why:** GC-040 gave `tools/e2e/run.mjs` a `stopOnce()` on `process.on('exit')`, so a throw or a
+  Ctrl+C still stops the Electron it started. Nothing gives that guarantee to the *other* things
+  that call `launchApp` — the short CDP drivers a ticket writes to measure or screenshot
+  something. They end with `await app.stop()`, which is exactly the line a throw skips.
+  Hit twice while verifying GC-091 (2026-09-06): a driver died on a syntax error, its Electron kept
+  listening on 9333, and the next three `launchApp` calls attached to that process instead of
+  starting the freshly built one. Every measurement for twenty minutes described a build from
+  before the change under test — the advisory status line read as an ordinary red error, which is
+  precisely the bug the ticket had just fixed. Nothing said so: the driver printed plausible
+  failures and the only clue was the process start time being older than `out/main/index.js`.
+  A launcher that owned this would make the whole class of mistake impossible.
+- **Scope:**
+  - `launchApp` registers its own `process.on('exit')` handler that stops the child it spawned,
+    and the `stop()` it resolves with removes that handler, so a caller that stops cleanly is
+    unchanged and one that throws is covered. SIGINT/SIGTERM exit explicitly so they reach it,
+    the way `run.mjs` already does.
+  - `run.mjs` keeps its own `stopOnce`: it is the same guarantee, and a second registration that
+    stops an already-stopped child is harmless. Say so in a comment rather than removing it.
+  - A launch that *attached* to an existing app (`--keep-running`) must not stop it on exit: the
+    handler belongs to the process this call spawned, and only that.
+- **Out of scope:** anything about the port being busy — `launchApp` already frees it by default,
+  and it did so here; the problem was that freeing it happened before the *previous* run's
+  Electron was noticed, not that the mechanism is missing. Also out: warning when `out/` is newer
+  than the running app, which is a different ticket if it turns out to be wanted.
+- **Acceptance:**
+  - [ ] A driver that calls `launchApp` and then throws leaves no `electron.exe` behind: run one
+        that throws immediately after the launch, then check `pidOnPort` answers null.
+  - [ ] The ordinary path is unchanged: a driver that calls the resolved `stop()` and exits
+        normally still stops exactly one app, and the exit handler does not fire twice.
+  - [ ] `npm run e2e` passes, and a run interrupted with SIGINT still stops its own Electron
+        (GC-040's property, re-checked rather than assumed).
+  - [ ] `tools/launch-app.test.ts` covers the handler being registered and removed.
+- **Files:** `tools/launch-app.mjs`, `tools/launch-app.test.ts`, `tools/e2e/run.mjs`
+- **Verify:** the three checks above by hand against the scratch repository, then `npm test` and
+  `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-091 (this ticket): a driver that threw left its Electron on 9333, and
+    three later runs silently measured that stale build instead of the one just built.
+
+---
+
+### GC-155 e2e step 1 never clears gitclient.tabs, so a stranded path from another run fails the whole suite
+
+- **Status:** todo
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-016
+- **Why:** step 1 clears `gitclient.prefs` and every `gitclient.hidden.*` key, because the per-port
+  profile persists between runs (GC-060). It does not clear `gitclient.tabs`, which GC-016 added
+  and which is the one remembered key naming a **folder on disk**. The e2e port defaults to 9333,
+  the same profile any hand-written driver uses, so a tab left pointing at a folder that has since
+  been deleted comes back on the next run. Hit on 2026-09-06: a GC-091 driver opened a throwaway
+  repository, removed it at the end, and the following `npm run e2e` failed step 1 with
+  `Repository folder not found: …/gc091-probe` and then cascaded — 30 failures across steps 1-5,
+  none of them about the code under test, and the run stopped on a stash pop that had nothing to
+  pop. The suite is meant to be re-entrant against its own leftovers; this is the one piece of
+  remembered state it does not reset.
+- **Scope:**
+  - Step 1 clears `gitclient.tabs` and `gitclient.lastRepo` alongside the keys it already clears,
+    before the reload that opens the fixture — so the run starts from exactly one tab, the
+    fixture's, whatever the profile held.
+  - An assertion that it did: after the reload, the tab bar has one tab and it is `testrepo`.
+    Cheap, and it is what turns a silent inherited state into a named failure.
+- **Out of scope:** giving the suite its own port by default (that is a bigger change and
+  `GITCLIENT_E2E_PORT` already allows it); anything about how the app handles a tab whose folder
+  has gone, which it already reports correctly — the bug is that the suite inherits one at all.
+- **Acceptance:**
+  - [ ] Seed the 9333 profile with `gitclient.tabs` holding a path that does not exist, run
+        `npm run e2e`, and it passes from step 1 with no reference to that path.
+  - [ ] The new assertion fails loudly if the clear is removed again (check by removing it once).
+  - [ ] `npm run e2e` passes whole on a clean profile too.
+- **Files:** `tools/e2e/run.mjs`
+- **Verify:** the seeded-profile run above, then a clean `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-091 (this ticket): a deleted probe repository left in
+    `gitclient.tabs` failed step 1 and cascaded into 30 failures unrelated to any code change.
+
+---
+
 
 ## Reviews
 

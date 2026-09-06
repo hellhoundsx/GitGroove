@@ -275,9 +275,23 @@ under it the moment git answers with its canonical form.
   on the status bar, not one: nesting `run()` in `run()` would take two busy tokens and reload
   twice. Between them git is asked where HEAD is, because a cancelled prompt and a failed
   checkout both return quietly and neither may be followed by a merge on the wrong branch.
+- **The status bar has two severities, and an error wins** (GC-091). `notice` sits beside `error`
+  in `App` and reaches `StatusBar` as a `.notice` in `--warning` with the same dismiss button;
+  `run()` clears both on entry and sets at most one on the way out, so they are never both up. What
+  routes a failure to the quieter one is `GitError.advisory`, which `git.ts` sets on GC-082's stash
+  fallback — an action that did most of what was asked. **The flag rides on the error's `name`**:
+  Electron serialises a rejected handler down to a string, so a property of its own never crosses,
+  and `ADVISORY` (`GitAdvisory`, in `shared/types.ts`) is the one word both processes agree on —
+  the same name `msg()` already had to strip off the front. A new advisory outcome means passing
+  `true` as `GitError`'s fifth argument and nothing else.
 - Menus come from `commitMenuItems`, `refMenuItems`, `stashMenuItems`, `wipMenuItems`,
   `remoteMenuItems` and `fileMenuItems`; `tipCommitActions(sha)` is the shared source for the
-  commit actions the branch and commit menus both carry, so their wording cannot drift.
+  commit actions the branch and commit menus both carry, so their wording cannot drift — and
+  `commitMenuItems` now **composes** it rather than keeping its own copy of the five, which is what
+  made GC-074's reset group changeable in one place. That group says its target once, in a
+  `caption` row (`Reset <branch> to <sha>`) over `Soft` / `Mixed` / `Hard`: repeating it on every
+  row put the middle one 7px past the menu's 420px cap, and whichever of the label and the hint was
+  allowed to win, the other was the one cut.
 
 **Escape closes exactly one layer**, decided in one place: `App.tsx` computes `layerOpen` from
 every open layer — including the toolbar popover, Pull's or Push's (GC-057), which is **one**
@@ -439,6 +453,13 @@ mirrored below. `JOIN_R` is 8px — under `mid` (14) so a vertical piece survive
 under `LANE_W` (20) so a horizontal one survives between adjacent lanes, and clamped to the lane
 distance. Joins are drawn after the through-lines.
 
+**What a ref chip is lives in `graph/RefChip.tsx`** (GC-087): `Chip`, `chipsFor` — the ordering and
+the absorb-the-upstream rule — `HEAD_REF`, `headChipFor`, and the `RefChip` component itself, which
+is the markup and nothing more. Two surfaces render it: the graph's ref column, which adds the lane
+colour, the pin marker, the drag attributes and the `+N` fold, and the commit view's header, which
+adds none of them. It is one module because the two draw the same refs on the same commit, and the
+panel used to print git's `%D` decoration as text beside a graph drawing chips.
+
 `CommitGraph` virtualises rows (28px, overscan 12) and renders chips: a local branch **absorbs its
 upstream** when both point at the same commit, then **exactly one chip** (`MAX_CHIPS = 1`) and a
 `+N` for the rest — one at every width, because a second chip took its space from the first. The
@@ -470,6 +491,14 @@ reaching HEAD's tip from above cannot take that lane (the seed holds it), so it 
 `incoming` curve and no real child's line is ever dashed. With another branch pinned, only a lane
 nothing else uses may carry the run; with HEAD outside the loaded range the WIP node draws no stub
 at all rather than a dash running off the bottom.
+
+**At the narrow end of the ref column the name wins over the furniture** (GC-071): below
+`REF_COL_ICONS_MIN` (120px) the primary chip drops its trailing upstream cloud, and the chip inside
+the expanded `+N` block keeps it, not being bound by the column's width. The column spends 41px on
+the `+N` chip and its gaps, so a chip is drawn at `width - 41`; with the cloud it wants 71px and at
+the 100px minimum it is given 59, which is where `main` rendered as `ma…`. The cloud only repeats
+what the chip already says by absorbing its upstream, and the title still says it in words, so the
+cloud is what gives way — the name is the identity of the ref.
 
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold. With **no branch checked out** a synthetic `HEAD` chip is
@@ -575,6 +604,24 @@ so only a removal sitting opposite an addition is marked and **both layouts read
 are `span.word` tinted with `--diff-add-word` / `--diff-del-word` over the line's own tint; the hunk
 buttons are untouched, since they still build from `hunk.raw`.
 
+**Lines are picked out of one hunk, and the two directions are not the same patch** (GC-121). A
+changed line on the unstaged side takes `.pickable`; clicking takes it, clicking again drops it,
+shift extends the run over the hunk's *changed* lines. The selection is `DiffView` state carrying
+the `viewKey` it was made against and compared during render like everything else here, so a reload
+of any kind takes it away rather than leaving a count describing lines that are gone; it lives in
+one hunk, because a patch is built from one hunk's header. `buildLinePatch(file, hunk, selected,
+{ reverse })` is the builder, and **which file the patch has to fit decides how the unselected
+lines are written**: staging goes to the *index*, so an unselected removal becomes a context line
+and an unselected addition is dropped; discarding is reversed onto the *working tree*, so it is the
+mirror — the unselected addition is the context and the unselected removal is dropped. Built the
+staging way and reversed, `git apply` refuses it, because the unselected additions sit in the file
+with nothing in the patch accounting for them. With every changed line picked, either direction is
+byte-for-byte `buildHunkPatch`'s output, which is what `parseDiff.test.ts` pins and what lets both
+layouts share one selection: the split view clicks the cell and the unified the row, but they hold
+the same `DiffLine` objects. The buttons say `Stage N lines` / `Discard N lines` while a hunk has a
+selection and the whole-hunk wording otherwise. Line picking is off on the staged side — a partial
+unstage is its own ticket — and off while `-w` is on, like every other patch button.
+
 **Three controls in the header, and only one of them costs a reload** (GC-052). Previous / next
 change scroll by **stop** — the `scrollTop` that would put a `.hunk-head` at the top of the body,
 clamped to what the body can actually reach — rather than by a header's offset from the border box:
@@ -610,7 +657,15 @@ a place of its own and the authored date ellipsises rather than being wrapped in
 
 Staging view (operation banner with Abort, Conflicted / Unstaged / Staged groups, commit form with
 amend and the 72-character counter) or commit view (sha, refs, message, author, parent links, file
-list). **The commit view keeps the working directory in sight** (GC-045): with `status.entries`
+list). **The commit view's header draws its refs as chips, not as git's decoration** (GC-087):
+`chipsFor` over the refs sitting on that commit, from `graph/RefChip.tsx`, so the ordering and the
+absorb rule are the graph's; they wrap under `commit: <sha>` in a `.ref-chips` row rather than
+ellipsising, which is what used to cut `origin/m…` off the end and lose the remote. `App` hands the
+panel the same `visibleRefs` and the same two handlers the graph gets, so right-click opens
+`refMenuItems` and double-click checks out through `runCheckout`. With no refs the row is not
+rendered at all, so the head keeps its 36px; `.commit-id` is `flex: none`, so the chips take the
+rest of the row and never break `commit: <sha>` in two. Clicking the sha copies the full one.
+**The commit view keeps the working directory in sight** (GC-045): with `status.entries`
 non-empty a `.banner.info` above the message box counts them — the staging header's own number,
 conflicted entries included — and its "View changes" button selects the `WIP` row. It is the panel's
 second kind of banner, so a reader of `.banner` has to say which one it means; the e2e suite's
@@ -732,7 +787,7 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-253 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+269 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
 markdown — it is what guards rule 6 above — **and on a backlog whose two files disagree** (GC-145):
 `backlogProblems` is pure and reports one sentence per problem, so a `done` section left in
@@ -743,8 +798,8 @@ later. `tools/launch-app` covers the attach path against a fake CDP endpoint.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 37 steps, 241 assertions, ~36s. It ends with
-`total: 35.5s | git: 343 calls, 9.0s` — the run's own clock (GC-080) beside the cost of its own
+asserting against git after each step. 38 steps, 251 assertions, ~40s. It ends with
+`total: 40.0s | git: 352 calls, 9.0s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
 fresh `git.exe` per call on Windows, so it is worth watching. `GIT_OPTIONAL_LOCKS=0` is set on
@@ -778,9 +833,14 @@ here. Rules a new step must respect:
   than crash on it. `.git/index.lock` is retried five times at 200ms first, because the collision is
   with the app's own watcher refresh. A throw is caught by `bail`, which stops the run's Electron.
 - **Wait on the DOM, never on a fixed sleep.** `waitFor(expression, what, max)` polls the renderer
-  every 50ms. Four `sleep` calls are left, each commented with what is unobservable there — the
-  newest being the frame after a viewport override, because `ContextMenu` closes on `resize` and
-  the override's own resize event arrives after `window.innerHeight` has already changed (GC-126).
+  every 50ms. Five `sleep` calls are left, each commented with what is unobservable there — the
+  frame after a viewport override, because `ContextMenu` closes on `resize` and the override's own
+  resize event arrives after `window.innerHeight` has already changed (GC-126), and the quiet
+  window inside `waitSettled`, which is the absence of an event and so cannot be waited on
+  (GC-121). **`waitSettled` is not `waitIdle`**: the first answers "no reload is still coming" by
+  sampling `data-gen` until it holds, the second only "no action is running". A step that picks
+  diff lines needs the first — a watcher echo landing while the bar is already idle bumps the
+  version, and the selection is keyed to it, so the picks vanish between two clicks.
 - **A wait that a click follows must prove the control is live, not just that the content is right**
   (GC-130). `waitDiff` and `waitSplitDiff` carry `LIVE_DIFF`, which refuses a `.diff-body.stale` —
   `DiffView` disables every hunk button while a reload it has not confirmed is in flight, and the
@@ -896,8 +956,13 @@ stash apply and pop, `defaultRemote` shared both ways, a remote tag delete fully
 identity, the split layout a render of what is already loaded, a hunk patch built from
 `hunk.raw` whichever layout is showing, both layouts marking intra-line changes from one map, and
 the whitespace flag in the load key rather than the identity, with every patch button off while it
-is on (Diff); the hidden set applied to a path's first load
-(Graph); the lane colours interleaved rather than ramped (Graph); every colour a token, the
+is on, and a line selection written for whichever file its patch must fit — the index one way, the
+working tree the other (Diff); the hidden set applied to a path's first load
+(Graph); the lane colours interleaved rather than ramped, one module answering what a ref chip is
+so the graph and the commit view cannot draw the same refs differently, and the chip's name winning
+over its upstream marker in a narrow column (Graph, Detail panel); an error and a notice never both
+on the status bar, with the advisory flag carried on the error's name because that is all IPC
+keeps (App state); every colour a token, the
 theme resolved in `prefs.ts`, one module answering how a timestamp is written so no component
 reaches for `toLocaleString` (Styling, Preferences); a failing e2e git call throwing, its Electron
 stopped on every exit path, a wait before a click proving the control is live rather than only
