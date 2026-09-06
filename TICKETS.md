@@ -255,13 +255,13 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
-| GC-189 | Removing a review worktree can delete the real `node_modules` through its junction | infra | S | P1 | todo |
-| GC-190 | A remote added outside the app never appears until the window is reloaded | ui | S | P2 | todo |
+| GC-189 | Removing a review worktree can delete the real `node_modules` through its junction | infra | S | P1 | in-progress |
+| GC-190 | A remote added outside the app never appears until the window is reloaded | ui | S | P2 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
-| GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | todo |
-| GC-166 | A file can be diffed but never followed: no history for one path | graph | M | P3 | todo |
-| GC-171 | A stash row spends 66px on its age and leaves its message 77px of the 192 it wants | ui | S | P3 | todo |
-| GC-175 | The light theme is a mechanical inversion of the dark one, and every surface boundary is weaker | ui | M | P3 | todo |
+| GC-173 | An empty tab given a repository that is already open is left behind | ui | S | P3 | in-progress |
+| GC-166 | A file can be diffed but never followed: no history for one path | graph | M | P3 | in-progress |
+| GC-171 | A stash row spends 66px on its age and leaves its message 77px of the 192 it wants | ui | S | P3 | in-progress |
+| GC-175 | The light theme is a mechanical inversion of the dark one, and every surface boundary is weaker | ui | M | P3 | in-progress |
 | GC-177 | Which left-panel sections are open is forgotten on every reload | ui | S | P3 | todo |
 | GC-178 | A selected stash says what it is and offers nothing to do with it | ui | S | P3 | todo |
 | GC-183 | The graph row's own change readout is the text glyphs GC-143 took out of the panel | ui | S | P3 | todo |
@@ -397,7 +397,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-173 An empty tab given a repository that is already open is left behind
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-163
 - **Why:** `+` makes a tab holding no repository (GC-163) and its recents page is where one is
@@ -425,12 +425,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-163 (this ticket): found while driving the new tab page — the empty
     tab is filled in place for a repository that is new to the bar, and left standing for one that
     is not.
+  - 2026-09-06 18:15 claimed
 
 ---
 
 ### GC-166 A file can be diffed but never followed: no history for one path
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** graph | **Size:** M | **Priority:** P3
 - **Depends on:** GC-043
 - **Why:** `git log -- <path>` has no equivalent anywhere in the app. `fileMenuItems` offers Open,
@@ -494,12 +495,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
     The surface decision it was waiting on is in the study already — `04-panels.md` puts History in
     the file view's own header, which is the slot `DiffView` occupies — so the ticket can be
     written without inventing a new screen.
+  - 2026-09-06 18:15 claimed
 
 ---
 
 ### GC-171 A stash row spends 66px on its age and leaves its message 77px of the 192 it wants
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P3
 - **Depends on:** GC-135
 - **Why:** measured at 23ce5c2 in the running app, at the **default** 220px left panel
@@ -559,12 +561,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
     the nine characters it buys the message are the cheapest part of this fix. GC-170 carries the
     same rule for the graph row, and the two must agree: strip for display only, never in the
     `title` and never in what `stashRename` stores.
+  - 2026-09-06 18:15 claimed
 
 ---
 
 ### GC-175 The light theme is a mechanical inversion: every surface boundary is weaker than its dark counterpart
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** M | **Priority:** P3
 - **Depends on:** none
 - **Why:** measured at cfe9aa9 in the running app by reading the tokens back over CDP and
@@ -646,6 +649,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GR-021: the light theme is a shipped preference no review had ever
     looked at, and the rotation pass found it flat; the numbers above are what turned that
     impression into a ticket, and they say the defect is the surface ramp rather than the text.
+  - 2026-09-06 18:15 claimed
 
 ### GC-177 Which left-panel sections are open is forgotten on every reload
 
@@ -792,7 +796,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ### GC-189 Removing a review worktree can delete the real node_modules through its junction
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** infra | **Size:** S | **Priority:** P1
 - **Depends on:** none
 - **Why:** The review routine's isolation recipe — "a detached git worktree of `origin/main` under
@@ -841,12 +845,13 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-186 (this ticket's batch): the batch's own baseline measurement
     destroyed 129 packages and `node_modules/.bin` in this checkout by removing a worktree whose
     `node_modules` was a junction, and the repair was blocked by an unrelated running Electron.
+  - 2026-09-06 18:15 claimed
 
 ---
 
 ### GC-190 A remote added outside the app never appears until the window is reloaded
 
-- **Status:** todo
+- **Status:** in-progress
 - **Area:** ui | **Size:** S | **Priority:** P2
 - **Depends on:** GC-011
 - **Why:** `scopeOf` in `watch.ts` answers `refs` for `.git/refs`, `.git/HEAD` and
@@ -884,6 +889,7 @@ in the Why; an invariant goes in `CLAUDE.md`.
   - 2026-09-06 proposed by GC-159 (this ticket's batch): the ticket's own positive case could not
     be reached without a page reload, because a `.git/config` change scopes the watcher to
     `tree` and the remotes only come with a full snapshot.
+  - 2026-09-06 18:15 claimed
 
 ---
 
