@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { type JSX } from 'react';
 import { cleanup, render } from '@testing-library/react';
 import type { RowLayout } from './lanes';
 import { GraphCell, laneX } from './GraphCell';
@@ -75,5 +76,64 @@ describe('GraphCell joins', () => {
     // And the same for the outgoing side, whose corner lands short of the target lane.
     const outCorner = Number(/ H ([\d.]+) A /.exec(out)?.[1]);
     expect(outCorner).not.toBe(laneX(2));
+  });
+});
+
+// GC-200: the band and the node have to meet with nothing between them, and that relationship is
+// arithmetic rather than a screenshot. The band's left edge at the node's drawn radius left two
+// crescents of untinted row at the corners, because a square corner meets a circle at one point.
+describe('GraphCell band', () => {
+  /** The band is the first element of the cell, which is what makes every line and node paint over it. */
+  const bandOf = (container: HTMLElement): Element => {
+    const first = container.querySelector('svg')?.firstElementChild;
+    // By tag name: jsdom's global scope has no `SVGRectElement` to test against with `instanceof`.
+    if (first?.tagName !== 'rect') throw new Error(`the first element of the cell is <${first?.tagName ?? 'nothing'}>, not the band`);
+    return first;
+  };
+  const num = (el: Element, name: string): number => Number(el.getAttribute(name));
+
+  const kinds: [string, JSX.Element][] = [
+    ['a commit row', <GraphCell key="c" row={row()} width={200} />],
+    ['the WIP row', <GraphCell key="w" row={null} wip={{ lane: 0, color: 0, linked: true }} width={200} />],
+    ['a stash row', <GraphCell key="s" row={null} stash={{ lane: 0, color: 0, through: [], incoming: [], above: true }} width={200} />],
+  ];
+
+  for (const [what, element] of kinds) {
+    it(`starts the band at the node's centre on ${what}, so no row shows between them`, () => {
+      const { container } = render(element);
+      const band = bandOf(container);
+      // At the centre the band is under the node at every y the circle covers, so there is no x
+      // at which the row's own background can lie between the two.
+      expect(num(band, 'x')).toBe(laneX(0));
+      expect(num(band, 'width')).toBe(200 - laneX(0));
+      // GC-186's promises, unchanged: 22px, centred on the row, and drawn first.
+      expect(num(band, 'height')).toBe(22);
+      expect(num(band, 'y')).toBe(14 - 11);
+    });
+  }
+
+  it('masks the band out of a dashed node, in the node’s own fill', () => {
+    // The two dashed nodes leave the outer half of their stroke open wherever the dash has a gap,
+    // and the band would read through as a tinted ring; the mask is that fill taken out to r = 10.
+    for (const [fill, element] of [
+      ['var(--bg-app)', kinds[1][1]],
+      ['var(--bg-panel)', kinds[2][1]],
+    ] as [string, JSX.Element][]) {
+      const { container } = render(element);
+      const masks = [...container.querySelectorAll('circle')].filter((c) => c.getAttribute('r') === '10');
+      expect(masks).toHaveLength(1);
+      expect(masks[0].getAttribute('fill')).toBe(fill);
+      expect(masks[0].getAttribute('stroke')).toBeNull();
+      // Under the node it hides, and over the band it hides it from.
+      const kids = [...(container.querySelector('svg')?.children ?? [])];
+      expect(kids.indexOf(masks[0])).toBeGreaterThan(0);
+      expect(kids.indexOf(masks[0])).toBeLessThan(kids.length - 1);
+      cleanup();
+    }
+  });
+
+  it('leaves the solid commit node unmasked: its stroke has no gaps to show the band through', () => {
+    const { container } = render(kinds[0][1]);
+    expect([...container.querySelectorAll('circle')].filter((c) => c.getAttribute('r') === '10')).toHaveLength(0);
   });
 });

@@ -76,12 +76,35 @@ const BAND_H = 22;
 const BAND_TINT = 0.1;
 
 /**
- * The band, drawn from the node's right edge to the cell's own right edge. First in the SVG, so
+ * The band, drawn from the node's **centre** to the cell's own right edge. First in the SVG, so
  * every line and node paints over it — it is a background, not a mark.
+ *
+ * It starts at the centre rather than at the node's drawn radius because a square corner cannot
+ * meet a circle (GC-200). Butted against it at `x + NODE / 2 - 1`, the two touched at exactly one
+ * point: at that x the node's outer boundary spans only ±sqrt(10² − 9²) = ±4.36px of the row, so
+ * above and below the meeting point about 6.6px of untinted row showed through in two crescents,
+ * one at each corner — and a taller band makes them larger, not smaller, which is why `BAND_H`
+ * could never tune it away. Run under the node instead and the circle covers what it overlaps,
+ * which is `03-graph.md` line 45's own answer: the node's neighbourhood is a region it masks,
+ * rather than a rectangle stopped short of an arc. The 1px of band left standing above and below
+ * the circle is the crescent, now filled.
  */
 function Band({ x, color, width }: { x: number; color: string; width: number }): JSX.Element {
   const mid = ROW_H / 2;
-  return <rect x={x + NODE / 2 - 1} y={mid - BAND_H / 2} width={Math.max(0, width - x - NODE / 2 + 1)} height={BAND_H} fill={color} opacity={BAND_TINT} />;
+  return <rect x={x} y={mid - BAND_H / 2} width={Math.max(0, width - x)} height={BAND_H} fill={color} opacity={BAND_TINT} />;
+}
+
+/**
+ * The opaque disc a **dashed** node needs under it once the band runs beneath it (GC-200).
+ *
+ * A solid node needs none: its 2px stroke sits on r = 9 and so covers 8..10 unbroken, and its own
+ * fill covers everything inside. A dashed one leaves the stroke's outer half open wherever the
+ * dash has a gap, and the band would read through those gaps as a tinted ring around the node.
+ * This is the node's fill taken out to the stroke's outer edge, drawn after the band and before
+ * the circle, so the gaps show the node's own ground exactly as they did before the band moved.
+ */
+function NodeMask({ x, fill }: { x: number; fill: string }): JSX.Element {
+  return <circle cx={x} cy={ROW_H / 2} r={NODE / 2} fill={fill} />;
 }
 
 function NodeAvatar({ x, y, author, color }: { x: number; y: number; author: Props['author']; color: string }): JSX.Element {
@@ -146,6 +169,7 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
         {stashDash?.toNode && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
         {stash.above && !stashDash?.toNode && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} />}
         <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />
+        <NodeMask x={x} fill="var(--bg-panel)" />
         <circle cx={x} cy={mid} r={r} fill="var(--bg-panel)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
         {/* The glyph inside the node. A lucide icon is its own `svg`, so it is positioned by a
             `g` around it rather than by x/y of its own, and drawn in the lane's colour. */}
@@ -162,6 +186,7 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
       <svg width={width} height={ROW_H} aria-hidden="true">
         <Band x={x} color={color} width={width} />
         {wip.linked && <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
+        <NodeMask x={x} fill="var(--bg-app)" />
         <circle cx={x} cy={mid} r={NODE / 2 - 1} fill="var(--bg-app)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
       </svg>
     );
