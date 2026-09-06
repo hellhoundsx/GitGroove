@@ -11533,3 +11533,87 @@ The two boards together are the whole history; `node tools/backlog.mjs` reads bo
     starting on GC-153/GC-137/GC-138). Those are out of this window and belong to GR-022, which
     should read their diffs properly — and should note that the six tickets were still marked
     `in-progress` while their code was committed, so the batch was mid-close-out, not stalled.
+
+### GR-022 Backlog review 2026-09-06 16:35
+
+- **Status:** done
+- **Window:** cfe9aa9..3def19a
+- **Log:**
+  - 2026-09-06 16:35 inbox: `INBOX.md` exists and its **Pending section is empty** — GR-020 drained
+    the last three items and Ricardo has added none since. Nothing to investigate, nothing declined,
+    nothing left in Pending, and the file is not rewritten this run. The whole budget went to the
+    reviewer's own passes.
+  - shipped: **thirteen commits**, seven of them code, covering two batches. `084a779` and
+    `35f5940` are the previous batch's work that GR-021 explicitly left to this review (GC-172,
+    GC-169, GC-170, GC-153, GC-137, GC-138), `eff57e2` and `cabc4c6` finish and close it out;
+    `2d5bab0` is GC-026, `92f5d55` GC-176 and GC-167, `35acc13` GC-168, `ff1b54f` GC-162,
+    `28f0980` GC-139, `182ea10` the close-out, `3def19a` the current claim. Read as a reviewer,
+    **no bug found in any diff.** GC-169 is the largest and is sound: `runRemote` flags only a
+    failure `isAuthMessage` recognises, so a non-fast-forward push keeps behaving as it did, the
+    URL lookup is best-effort and cannot fail the report, and the prompting child is registered,
+    timed and unregistered on every exit path including `error`. GC-176's test naming the six
+    functions that reach it is the right shape — a convention that cannot drift silently. GC-139's
+    render-phase `setFolded` on a path change is the `DiffView` pattern rather than an effect, and
+    its prune settles in one pass because it only ever shrinks. GC-153's `fitSections` level-by-level
+    fill was read line by line: it terminates, and its one rough edge — a proportional split that
+    clamps a section to `min` can overshoot `avail`, leaving the last section to absorb the drift —
+    is unreachable in any geometry the four sections produce and the column scrolls if it were, so
+    it is noted here rather than ticketed. Acceptance evidence is present in every ticket log I
+    spot-checked.
+  - health: at `3def19a` in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    406 tests passed (25 files)** in 3.21s, **build ok**. One pre-existing `act(...)` warning from
+    `DetailPanel.test.tsx`; it is a warning, not a failure, and predates this window. The build
+    landed in the worktree's own `out/`; `MAIN` was never built, tested or launched.
+  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Eleven
+    screenshots in `%TEMP%/gitclient-review/GR-022/`, all looked at. `01`-`04` are the graph, a
+    commit, the staging view and an open diff and show nothing new. `06`/`07` are **GC-170's stash
+    row**, this window's most visible shipped surface, driven end to end: stashing from the toolbar
+    put a dashed-node row with a `STASH` label directly above its parent commit, selecting it drew
+    the stash view with the whole message, its age, `taken from: c4bdfe0` and the four files, and
+    popping it restored the fixture exactly — `M README.md` staged beside ` M a.txt`, ` M big.txt`,
+    `D main.txt`, `?? new.txt`, so `--index` held. `09` is **GC-026's dialog**: two labelled fields,
+    OK disabled until both are answered. `08` is the branch menu, which is well-formed and whose
+    Fast-forward row I checked is correctly conditional rather than missing.
+  - the rotation surfaces were the **conflict path** and the **WIP row**, and both produced this
+    review's tickets. A conflict was made in a throwaway repository under `%TEMP%` — never the
+    fixture, never a real repository — and opened as a second tab. **-> GC-180:** clicking the
+    conflicted file opens a file view whose `.diff-body` `innerHTML` is the empty string, with no
+    `.diff-empty` element of any kind, while the header reads `f.txt +0 -0` and both `Stage file`
+    and `Discard changes` are enabled. Traced rather than guessed: git answers an unmerged path
+    with `diff --cc` and `@@@ … @@@`, `parseUnifiedDiff`'s `if (!file) file = startFile()` fallback
+    makes a file anyway, no line matches `HUNK_RE`, and a truthy file with zero hunks falls through
+    all four of `DiffView`'s empty branches. Filed P1: it is silent, and it is the one screen a
+    merge needs. **-> GC-181:** the conflicted row's menu is exactly `Mark resolved`, `Open file`,
+    `Show in folder`, `Copy file path`, so the app can mark a conflict resolved and cannot resolve
+    one — `checkout --ours`/`--theirs` are reachable from nowhere, on a state four of the app's own
+    actions produce. **-> GC-182:** the graph's WIP row renders a real `<input class="wip-input">`
+    with no `value`, no `onChange` and no `onKeyDown`; typing `typed into the graph` into it left
+    the staging form's summary empty, Enter did nothing, and the text was still in the row after a
+    Refresh that bumped `data-gen` — an uncontrolled node holding the user's typing, which is the
+    thing GC-148 and GC-030 both exist to prevent.
+  - tickets: added **GC-180** (diff, M, P1), **GC-181** (actions, S, P2) and **GC-182** (graph, S,
+    P2), all three from the UI pass; the code-review pass found no bug and filed nothing. Checked
+    for duplicates against every open row: nothing on the board mentions conflicts, and GC-152 is
+    compare-against-working-directory, not this.
+  - board: **GC-180 goes directly under GC-179**, the only other P1, and above GC-128; **GC-181 and
+    GC-182 go under GC-128**, the other P2, and above the P3 block. Nothing else moved. The
+    what's-next pass deliberately added nothing of its own: the study's largest open
+    recommendation, "Build open/clone/init", **is** GC-128 and is in the current batch, so the
+    board is finally spending its top rows on the biggest gap and did not need pushing.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here — GC-081's
+    block is Ricardo's own decision that its measurement contradicts its target, and the other two
+    want a design. No `todo` ticket has gone vague. The remote menu was checked on screen and still
+    has no "open on the hosting service", which is GC-159 and needs no second ticket.
+  - notes: `CLAUDE.md` at `3def19a` says "406 tests today", which matched the run exactly, and its
+    Architecture, Commands and design-decision paragraphs are current for GC-026, GC-176, GC-167,
+    GC-168, GC-162 and GC-139. GR-020's finding that the GC-135 paragraph is measurably wrong still
+    stands and is still carried by GC-171, unclaimed. Nothing else looked stale.
+  - isolation: six tickets were `in-progress` throughout (GC-179, GC-128, GC-143, GC-146, GC-147,
+    GC-149) and not one was touched; the three ids added are above every id the worker holds.
+    `MAIN` was never built, tested or launched and its working tree was left exactly as found — the
+    write below waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean and stages only those
+    two, while eleven of the worker's source edits sat uncommitted beside them. The only
+    repositories written to were the review's own scratch root and a throwaway conflict repository
+    under `%TEMP%`; the stash taken in the scratch root was popped back and `git status --porcelain`
+    matches the fixture. `catena-feed` was **not opened** this run. The review's Electron on 9334
+    was found by command line and stopped by PID tree; zero remained afterwards.

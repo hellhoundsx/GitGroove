@@ -256,6 +256,8 @@ together are the whole history; `node tools/backlog.mjs` reads both.
 | ID | Title | Area | Size | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
 | GC-180 | A conflicted file opens a diff pane that is blank, with live buttons over it | diff | M | P1 | in-progress |
+| GC-186 | The row band GC-147 added is on the wrong side of the node, and on four rows in nine | graph | M | P1 | todo |
+| GC-185 | The clone dialog’s folder picker is disabled until the folder is typed by hand | ui | S | P1 | todo |
 | GC-181 | A conflict can be marked resolved but never resolved | actions | S | P2 | in-progress |
 | GC-182 | The graph’s WIP row has a text field wired to nothing | graph | S | P2 | in-progress |
 | GC-081 | Time the e2e run's 141 git spawns and drop the redundant ones | tests | S | P3 | blocked |
@@ -1238,6 +1240,130 @@ in the Why; an invariant goes in `CLAUDE.md`.
 
 ---
 
+### GC-185 The clone dialog's folder picker is disabled until the folder is typed by hand
+
+- **Status:** todo
+- **Area:** ui | **Size:** S | **Priority:** P1
+- **Depends on:** GC-128
+- **Why:** GC-128's clone dialog asks for two things — a URL and a parent folder — and offers
+  "Browse…" as its `secondary` button so the folder can be picked instead of typed, which is the
+  whole reason the third button is there. `Modal.tsx` disables **both** the secondary and OK on the
+  same `incomplete`, which is true while any field that did not say `required: false` is empty.
+  Both of the clone dialog's fields are required, so on opening, Browse is dead, and it comes alive
+  only once "Clone into" already holds a path the user typed — at which point Browse has nothing
+  left to contribute but overwriting it. Measured at `6996bc0` in the running app: on opening
+  `Cancel:live | Browse…:disabled | Clone:disabled`; after filling the URL alone, unchanged; only
+  with both fields filled does Browse become live. The folder picker is unreachable for its purpose
+  from a cold dialog, which is every first clone.
+  The gate has been invisible until now because the only other two `secondary` callers — the
+  checkout guard and the sequencer guard — pass `input: false`, so `incomplete` is false by
+  construction and their third button was never gated by anything. GC-128 is the first caller where
+  a secondary meets a required field, and it is exactly the case the gate breaks.
+  The distinction to draw is what the third button *is*: OK and the secondary in the two guards
+  both **answer** the question and are rightly gated; "Browse…" **fills in** part of the answer and
+  is not an answer at all, so gating it on the answer being complete is backwards.
+- **Scope:**
+  - A secondary button that is not a resolution of the form is not gated by the form being
+    complete. Express that on `PromptOptions.secondary` rather than by special-casing the clone
+    dialog — an extra field on it that the clone dialog's "Browse…" sets and the two guards do not,
+    so the guards are unchanged and the rule is stated once.
+  - `resolveWith`'s own `if (incomplete) return` has to agree with whatever the button says, or a
+    live button does nothing when clicked.
+  - The clone dialog's loop already handles a `secondary` result correctly and needs no change
+    beyond setting the new flag.
+- **Out of scope:** making either field optional (a clone needs both), any change to the two
+  existing guards' buttons, and the dialog's copy or layout.
+- **Acceptance:**
+  - [ ] Opening "Clone repository…" from a cold start shows Browse… live and Clone disabled.
+  - [ ] Clicking Browse… with both fields empty opens the folder picker and, on a pick, returns to
+        the dialog with "Clone into" filled and the URL field still empty.
+  - [ ] Typing a URL, clicking Browse…, then picking a folder leaves the typed URL intact — the
+        loop's existing promise, now reachable.
+  - [ ] The checkout guard's "Stash and check out" and the sequencer guard's buttons behave exactly
+        as they do today.
+  - [ ] `npm run typecheck && npm test` pass, with a unit test pinning that a secondary marked as
+        filling-in is live while a required field is empty, and that an ordinary one is not.
+- **Files:** `src/renderer/src/ui/Modal.tsx`, `src/renderer/src/App.tsx`, and a test beside
+  `Modal.tsx`.
+- **Verify:** `npm run typecheck`, `npm test`, then launch and read the three buttons' `disabled`
+  off the DOM on the dialog's opening state, which is how the defect was measured. **Do not let an
+  unattended run open the OS folder picker**: it is a native modal and would steal focus. Assert
+  the button is live and stop there; drive the picker by hand only with Ricardo at the machine.
+- **Log:**
+  - 2026-09-06 proposed by GR-023: measured in the running app at `6996bc0` — Browse… is disabled
+    on the clone dialog's opening state and becomes live only once the folder it exists to supply
+    has already been typed.
+
+---
+
+### GC-186 The row band GC-147 added is on the wrong side of the node, and on four rows in nine
+
+- **Status:** todo
+- **Area:** graph | **Size:** M | **Priority:** P1
+- **Depends on:** GC-147
+- **Why:** GC-147 read the study backwards. `docs/reference/gitkraken/03-graph.md` records two
+  separate things and GC-147 merged them into one on the wrong side of the node. Its line 45: "A
+  background band (`commit-bg-color`, 50% lane tint) fills the graph cell **to the right of the
+  node** on the selected row and WIP row". Its line 58: "A **2px `hr` line** in the lane colour
+  connects the chip to the node." So the chip-to-node stretch is a 2px line and nothing else, and
+  the band belongs on the other side of the node entirely. What shipped is a 22px lane-tinted band
+  **left** of the node carrying a 1px line at 0.8 opacity, and nothing at all to its right.
+  Ricardo confirmed it against his own GitKraken capture of `catena-feed` while this review was
+  running: the band "should of been on the right side and on all commits". His screenshot shows
+  `master` and three tag rows whose chips reach their nodes by a thin lane-coloured line with no
+  band under it.
+  Measured at `6996bc0` in the running app on the fixture: **4 of 9 rows carry a `.ref-line`** —
+  `joined = rowRefs.length > 0` in `CommitGraph.tsx`, so a commit with no chip gets no connector
+  and no band, which is most of any real history. To the right of the node there is nothing:
+  `.col-msg`'s computed background is `rgba(0, 0, 0, 0)` and the only lane colour there is a 2x22
+  `.strip`. The selected row is a flat accent wash, `rgba(77, 136, 255, 0.2)` across the whole row,
+  rather than the lane-tinted band the study describes.
+  This matters beyond fidelity: a band that appears on some rows and not others reads as a property
+  of *those commits* rather than as the row's lane, which is the opposite of what it is for.
+- **Scope:**
+  - Move the lane-tinted band to the **right** of the node, and draw it on **every** commit row,
+    not only rows carrying a chip. Ricardo's instruction is "all commits"; the study observed it on
+    the selected and WIP rows only, so the two disagree and Ricardo's reading wins. Say in the log
+    what the band's opacity had to come down to for it to be bearable on every row, since 14% was
+    chosen for a band that appeared four times in nine.
+  - The chip-to-node connector becomes what the study says it is: a 2px line in the lane colour,
+    with no band under it. `.ref-line`'s band and `GraphCell`'s `rect` both go; the line stays and
+    goes to 2px.
+  - Decide and state what the **selected** row does now that every row carries a band. The current
+    flat accent wash with a per-row lane band under it is one wash too many; whichever survives, a
+    selected row must stay unmistakable at a glance down the column.
+  - Both halves still meeting at the column boundary to the pixel is GC-147's one part that was
+    right and is worth keeping — and the band's new half is entirely inside the graph cell, so this
+    gets easier rather than harder.
+- **Out of scope:** the `.col-msg` `.strip`, the lane colours themselves, the WIP row's dashed run
+  (GC-144), and the chip's own background tint — all of which stay as they are.
+- **Acceptance:**
+  - [ ] Every commit row draws the lane-tinted band to the right of its node, rows with no ref chip
+        included — the row count and the band count are equal on the fixture, where they are 9 and
+        4 today.
+  - [ ] No row draws a band between its chip and its node; the connector there is a 2px line in the
+        lane colour, present only on rows that have a chip.
+  - [ ] A selected row is still unmistakable against its neighbours, stated in the log with what it
+        is drawn as and why.
+  - [ ] No colour is added to `app.css` — the band is a tint of the lane variable, as GC-147's was,
+        so `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` still prints nothing.
+  - [ ] Screenshots at full scale into `docs/screenshots/`, dark and light, next to Ricardo's
+        GitKraken capture.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/graph/GraphCell.tsx`,
+  `src/renderer/src/styles/app.css`, `docs/reference/gitkraken/03-graph.md` (record that the band
+  is on every row, not only the selected and WIP ones, and which capture that came from).
+- **Verify:** `npm run typecheck`, `npm run build`, then launch on the scratch fixture and count
+  rows against bands over CDP; screenshot the ref column and the message column at 2x and look at
+  both. Then load `catena-feed` **read-only** for a dense real graph, which is where a band on every
+  row either works or does not.
+- **Log:**
+  - 2026-09-06 proposed by GR-023, from Ricardo in-session: he saw GC-147's band on the wrong side
+    of the node and on too few rows; the study's own lines 45 and 58 put the band right of the node
+    and make the chip connector a 2px line, and the running app measures 4 bands on 9 rows with a
+    transparent message column.
+
+---
+
 ## Reviews
 
 Hourly backlog reviews by the review routine (see "Review routine" above). Review tickets use
@@ -1245,86 +1371,88 @@ Hourly backlog reviews by the review routine (see "Review routine" above). Revie
 once, as `done`: reviews run regardless of the worker's lock and never take it. Each review
 appends its own section here.
 
-### GR-022 Backlog review 2026-09-06 16:35
+### GR-023 Backlog review 2026-09-06 17:35
 
 - **Status:** done
-- **Window:** cfe9aa9..3def19a
+- **Window:** fa60c51..6996bc0
 - **Log:**
-  - 2026-09-06 16:35 inbox: `INBOX.md` exists and its **Pending section is empty** — GR-020 drained
-    the last three items and Ricardo has added none since. Nothing to investigate, nothing declined,
-    nothing left in Pending, and the file is not rewritten this run. The whole budget went to the
-    reviewer's own passes.
-  - shipped: **thirteen commits**, seven of them code, covering two batches. `084a779` and
-    `35f5940` are the previous batch's work that GR-021 explicitly left to this review (GC-172,
-    GC-169, GC-170, GC-153, GC-137, GC-138), `eff57e2` and `cabc4c6` finish and close it out;
-    `2d5bab0` is GC-026, `92f5d55` GC-176 and GC-167, `35acc13` GC-168, `ff1b54f` GC-162,
-    `28f0980` GC-139, `182ea10` the close-out, `3def19a` the current claim. Read as a reviewer,
-    **no bug found in any diff.** GC-169 is the largest and is sound: `runRemote` flags only a
-    failure `isAuthMessage` recognises, so a non-fast-forward push keeps behaving as it did, the
-    URL lookup is best-effort and cannot fail the report, and the prompting child is registered,
-    timed and unregistered on every exit path including `error`. GC-176's test naming the six
-    functions that reach it is the right shape — a convention that cannot drift silently. GC-139's
-    render-phase `setFolded` on a path change is the `DiffView` pattern rather than an effect, and
-    its prune settles in one pass because it only ever shrinks. GC-153's `fitSections` level-by-level
-    fill was read line by line: it terminates, and its one rough edge — a proportional split that
-    clamps a section to `min` can overshoot `avail`, leaving the last section to absorb the drift —
-    is unreachable in any geometry the four sections produce and the column scrolls if it were, so
-    it is noted here rather than ticketed. Acceptance evidence is present in every ticket log I
-    spot-checked.
-  - health: at `3def19a` in the detached worktree with `node_modules` junctioned — **typecheck ok,
-    406 tests passed (25 files)** in 3.21s, **build ok**. One pre-existing `act(...)` warning from
-    `DetailPanel.test.tsx`; it is a warning, not a failure, and predates this window. The build
-    landed in the worktree's own `out/`; `MAIN` was never built, tested or launched.
-  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Eleven
-    screenshots in `%TEMP%/gitclient-review/GR-022/`, all looked at. `01`-`04` are the graph, a
-    commit, the staging view and an open diff and show nothing new. `06`/`07` are **GC-170's stash
-    row**, this window's most visible shipped surface, driven end to end: stashing from the toolbar
-    put a dashed-node row with a `STASH` label directly above its parent commit, selecting it drew
-    the stash view with the whole message, its age, `taken from: c4bdfe0` and the four files, and
-    popping it restored the fixture exactly — `M README.md` staged beside ` M a.txt`, ` M big.txt`,
-    `D main.txt`, `?? new.txt`, so `--index` held. `09` is **GC-026's dialog**: two labelled fields,
-    OK disabled until both are answered. `08` is the branch menu, which is well-formed and whose
-    Fast-forward row I checked is correctly conditional rather than missing.
-  - the rotation surfaces were the **conflict path** and the **WIP row**, and both produced this
-    review's tickets. A conflict was made in a throwaway repository under `%TEMP%` — never the
-    fixture, never a real repository — and opened as a second tab. **-> GC-180:** clicking the
-    conflicted file opens a file view whose `.diff-body` `innerHTML` is the empty string, with no
-    `.diff-empty` element of any kind, while the header reads `f.txt +0 -0` and both `Stage file`
-    and `Discard changes` are enabled. Traced rather than guessed: git answers an unmerged path
-    with `diff --cc` and `@@@ … @@@`, `parseUnifiedDiff`'s `if (!file) file = startFile()` fallback
-    makes a file anyway, no line matches `HUNK_RE`, and a truthy file with zero hunks falls through
-    all four of `DiffView`'s empty branches. Filed P1: it is silent, and it is the one screen a
-    merge needs. **-> GC-181:** the conflicted row's menu is exactly `Mark resolved`, `Open file`,
-    `Show in folder`, `Copy file path`, so the app can mark a conflict resolved and cannot resolve
-    one — `checkout --ours`/`--theirs` are reachable from nowhere, on a state four of the app's own
-    actions produce. **-> GC-182:** the graph's WIP row renders a real `<input class="wip-input">`
-    with no `value`, no `onChange` and no `onKeyDown`; typing `typed into the graph` into it left
-    the staging form's summary empty, Enter did nothing, and the text was still in the row after a
-    Refresh that bumped `data-gen` — an uncontrolled node holding the user's typing, which is the
-    thing GC-148 and GC-030 both exist to prevent.
-  - tickets: added **GC-180** (diff, M, P1), **GC-181** (actions, S, P2) and **GC-182** (graph, S,
-    P2), all three from the UI pass; the code-review pass found no bug and filed nothing. Checked
-    for duplicates against every open row: nothing on the board mentions conflicts, and GC-152 is
-    compare-against-working-directory, not this.
-  - board: **GC-180 goes directly under GC-179**, the only other P1, and above GC-128; **GC-181 and
-    GC-182 go under GC-128**, the other P2, and above the P3 block. Nothing else moved. The
-    what's-next pass deliberately added nothing of its own: the study's largest open
-    recommendation, "Build open/clone/init", **is** GC-128 and is in the current batch, so the
-    board is finally spending its top rows on the biggest gap and did not need pushing.
-  - hygiene: `blocked` is GC-017, GC-018 and GC-081; none can be unblocked from here — GC-081's
-    block is Ricardo's own decision that its measurement contradicts its target, and the other two
-    want a design. No `todo` ticket has gone vague. The remote menu was checked on screen and still
-    has no "open on the hosting service", which is GC-159 and needs no second ticket.
-  - notes: `CLAUDE.md` at `3def19a` says "406 tests today", which matched the run exactly, and its
-    Architecture, Commands and design-decision paragraphs are current for GC-026, GC-176, GC-167,
-    GC-168, GC-162 and GC-139. GR-020's finding that the GC-135 paragraph is measurably wrong still
-    stands and is still carried by GC-171, unclaimed. Nothing else looked stale.
-  - isolation: six tickets were `in-progress` throughout (GC-179, GC-128, GC-143, GC-146, GC-147,
-    GC-149) and not one was touched; the three ids added are above every id the worker holds.
-    `MAIN` was never built, tested or launched and its working tree was left exactly as found — the
-    write below waited for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean and stages only those
-    two, while eleven of the worker's source edits sat uncommitted beside them. The only
-    repositories written to were the review's own scratch root and a throwaway conflict repository
-    under `%TEMP%`; the stash taken in the scratch root was popped back and `git status --porcelain`
-    matches the fixture. `catena-feed` was **not opened** this run. The review's Electron on 9334
-    was found by command line and stopped by PID tree; zero remained afterwards.
+  - 2026-09-06 17:35 inbox: `INBOX.md` exists and its **Pending section is empty** — GR-020 drained
+    the last three items and nothing has been added since. Nothing to investigate from the file,
+    nothing declined, nothing left in Pending, and it is not rewritten this run. Ricardo was
+    however **at the machine and sent two messages mid-run**, which are stakeholder input by any
+    other name and were treated as inbox items: "can you focus on improving design?", which
+    redirected the rest of the budget from the code-review pass to the UI pass, and a correction to
+    GC-147 with a GitKraken capture attached, which became GC-186. Both are recorded here rather
+    than in `INBOX.md`, which he did not write them to.
+  - shipped: **three commits**, one of them code. `7b7b280` is GR-022 itself, `6996bc0` the current
+    claim, and `fa60c51` is the whole of the previous batch — GC-179, GC-128, GC-143, GC-146,
+    GC-147 and GC-149 — at 36 files and +1115/-347. Read as a reviewer: GC-128's `cloneRepo` is
+    sound where it matters, running in the parent because `runGit` refuses a cwd that does not
+    exist, naming the folder on the command line so the path it answers with is the path git used,
+    and refusing a folder name that is really a path before anything is spawned (`folder !==
+    basename(folder)` catches `../x`, an absolute path and a drive-relative `C:x` alike). It goes
+    through `runRemote`, so GC-176's test picks it up. `report()` extracted out of `run()` is the
+    right shape and both callers now report a credential refusal identically. Two nits not worth
+    tickets: `makeRepo` calls `report(e)` **without** the `owns()` guard `run()` applies, so a
+    clone failing while another action owns the status bar writes over it — unreachable in
+    practice, since a clone is not startable while the bar is busy; and `RefChip.tsx`'s new JSDoc
+    for `kindMarks` opens at column 0 inside the interface, which is cosmetic. **One real defect
+    found, and it is in the diff rather than in the app's older code — GC-185, below.**
+  - health: at `6996bc0` in the detached worktree with `node_modules` junctioned — **typecheck ok,
+    417 tests passed (25 files)** in 2.84s, **build ok**, into the worktree's own `out/`. The one
+    `act(...)` warning from `DetailPanel.test.tsx` is still there and still a warning. `MAIN` was
+    never built, tested or launched; its `out/` timestamp was left at the worker's own 17:08.
+  - app: the worktree build ran offscreen on 9334 against the review's own scratch root. Seven
+    screenshots in `%TEMP%/gitclient-review/GR-023/`, all looked at. `01` is the graph with
+    GC-146's laptop/cloud marks and GC-147's band; `05` is the **Preferences dialog**, this run's
+    rotation surface, which I checked for GC-142's boundary treatment and found already has it —
+    `.pref-group-title` carries `border-bottom: 1px solid var(--border)`, so the impression that
+    its groups float is the half-scale screenshot and not the app, and no ticket was filed for it.
+    Its body does scroll unsignalled (802 against 744) but that is GC-103's deliberate shape.
+    `06`/`07` are 2x crops of the ref column and a selected row, which is where GC-186 was measured.
+  - **GC-128 driven end to end.** The clone dialog was opened from the repository menu, which now
+    reads Recently opened / Open repository… / Clone repository… / Initialise repository…. Cloning
+    the fixture's bare `remote.git` into a scratch folder worked exactly as specified: it made
+    `clonedest/remote`, opened it in a **new** tab beside the fixture rather than replacing it
+    (GC-164's rule), and the bar read "remote / 8 commits". A wrong URL reported git's own `fatal:
+    … does not appear to be a git repository` on the status bar and left the open repository alone.
+    **-> GC-185:** the dialog's "Browse…" is `disabled` on opening and stays disabled until "Clone
+    into" has been typed by hand. Measured, not inferred: `Cancel:live | Browse…:disabled |
+    Clone:disabled` on opening, unchanged after filling the URL alone, live only once both fields
+    are filled. `Modal.tsx:139` gates the secondary on the same `incomplete` as OK, and GC-128 is
+    the first caller whose secondary meets a required field — the other two pass `input: false`.
+    Filed P1: the folder picker is unreachable for its purpose from every cold clone.
+  - **-> GC-186, and it is this review's headline.** Ricardo saw GC-147's band and said it is on
+    the wrong side of the node and on too few rows. The study agrees with him and GC-147 read it
+    backwards: `03-graph.md` line 45 puts the lane-tinted band **right** of the node, line 58 makes
+    the chip-to-node connector a **2px line**, and what shipped is a 22px band left of the node
+    with a 1px line on it and nothing to its right. Measured: **4 of 9 fixture rows carry a
+    `.ref-line`** (`joined = rowRefs.length > 0`), `.col-msg`'s background is `rgba(0, 0, 0, 0)`,
+    and the selected row is a flat `rgba(77, 136, 255, 0.2)` wash rather than a lane band. Filed
+    P1, M, with the selected row's treatment inside its scope, since a band on every row and a full
+    wash on the selected one cannot both stand.
+  - tickets: added **GC-185** (ui, S, P1) and **GC-186** (graph, M, P1). Both come from the UI pass,
+    which is where Ricardo asked the budget to go; the code-review pass contributed the two nits
+    above and no ticket of its own. Deduplicated against every open row: nothing mentions the clone
+    dialog, and GC-147 is `done` so its correction is a new ticket rather than a reopening. GC-183,
+    which is the graph row's text glyphs, is adjacent to GC-186 but is the message column's readout
+    and stays separate.
+  - board: both new rows go **directly under GC-180**, the P1 the worker holds, and above the P2
+    block — GC-186 first, because it is the one Ricardo raised and the one on screen in every
+    session. Nothing else moved; the P3 order still looks right and no `todo` has gone vague.
+  - hygiene: `blocked` is GC-017, GC-018 and GC-081, none unblockable from here for the reasons
+    GR-022 gave. GC-159's "View on service" is still uncovered and still needs no second ticket.
+  - notes: `CLAUDE.md` at `6996bc0` says "417 tests today", which matched the run exactly, and its
+    GC-147 paragraph — "a band joining the last chip to its node in two halves that meet at the
+    column boundary" — is the invariant GC-186 will have to rewrite, in both the Graph section and
+    the design-decisions paragraph. Flagged here rather than edited; the reviewer never touches
+    `CLAUDE.md`. GR-020's finding about the GC-135 paragraph still stands, still carried by GC-171.
+  - isolation: six tickets were `in-progress` throughout (GC-180, GC-181, GC-182, GC-151, GC-150,
+    GC-152) and not one was touched; the two ids added are above every id the worker holds. `MAIN`
+    was never built, tested or launched and its working tree was left as found — this write waited
+    for `TICKETS.md` and `TICKETS-ARCHIVE.md` to be clean and stages only those two, while
+    twenty-one of the worker's source edits sat uncommitted beside them. The only repositories
+    written to were the review's own scratch root and a throwaway clone under `%TEMP%`;
+    `catena-feed` was **not opened** this run, and the clone that verified GC-128 pulled from the
+    fixture's own bare `remote.git`, never from a real remote. The review's Electron on 9334 was
+    found by command line and stopped by PID tree; zero remained afterwards.
