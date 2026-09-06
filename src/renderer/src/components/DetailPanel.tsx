@@ -7,6 +7,7 @@ import { Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
 import { usePrefs } from '../prefs';
+import { formatDateTimeSeconds } from '../time';
 import { matches } from '../shortcuts';
 import { useUi, type ConfirmOptions } from '../ui/UiContext';
 import type { DragHandleProps } from '../ui/useDragWidth';
@@ -80,11 +81,6 @@ function FileRow({ path, origPath, kind, active, onClick, onContextMenu, childre
       )}
     </div>
   );
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
 const isActive = (open: FileViewSource | null, path: string, staged?: boolean): boolean =>
@@ -369,7 +365,7 @@ function CommitView({ repo, commit, status, openFile, onSelectSha, onOpenFile, o
           <Avatar name={commit.authorName} email={commit.authorEmail} size={40} />
           <div>
             <div className="name">{commit.authorName}</div>
-            <div style={{ color: 'var(--text-muted)' }}>authored {formatDate(commit.authorDate)}</div>
+            <div className="when">authored {formatDateTimeSeconds(commit.authorDate)}</div>
           </div>
           <div className="parents">
             {commit.parents.length > 0 ? 'parent' + (commit.parents.length > 1 ? 's' : '') + ': ' : 'root commit'}

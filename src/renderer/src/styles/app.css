@@ -1127,6 +1127,9 @@ input[type='radio']:disabled {
 .author .name {
   color: var(--text-bright);
 }
+.author .when {
+  color: var(--text-muted);
+}
 .author .parents {
   margin-left: auto;
   color: var(--text-muted);

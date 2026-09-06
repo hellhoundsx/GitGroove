@@ -8,6 +8,7 @@ import { initialsOf } from '../ui/avatars';
 // `matches` is taken by the search results in this file.
 import { matches as isShortcut } from '../shortcuts';
 import { usePrefs } from '../prefs';
+import { formatDateTime } from '../time';
 import { useUi } from '../ui/UiContext';
 import { fitOptCols, fitRefCol, useDragWidth, MIN_MSG_W } from '../ui/useDragWidth';
 import { useRefDrag, type RefDragHandlers } from '../ui/refDrag';
@@ -119,16 +120,6 @@ function authorsOf(commits: Commit[]): AuthorEntry[] {
     else by.set(email, { email, name: c.authorName, count: 1 });
   }
   return [...by.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-}
-
-const pad2 = (n: number): string => String(n).padStart(2, '0');
-
-/** `dd/mm/yyyy, HH:MM` in the local zone. Built from the parts rather than `toLocaleString`, whose
- *  field order follows the machine's locale, and without the seconds a 12px cell has no room for. */
-function localDateTime(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 /**
@@ -531,7 +522,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
         )}
         {cols.date && (
           <div className="col-date" title={c.authorDate}>
-            {localDateTime(c.authorDate)}
+            {formatDateTime(c.authorDate)}
           </div>
         )}
         {cols.sha && <div className="col-sha">{c.sha.slice(0, 7)}</div>}
