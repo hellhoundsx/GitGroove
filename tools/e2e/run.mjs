@@ -445,6 +445,15 @@ const waitSplitDiff = (chip, hunks, adds) =>
     `the split ${chip.toLowerCase()} diff to show ${hunks} hunk${hunks === 1 ? '' : 's'} adding ${adds.join(', ')}`,
   );
 
+/** The intra-line marks one hunk is rendering, as `{ add, del }` lists of the `span.word` texts in
+ *  order (GC-109). Both layouts go through `DiffView`'s one `code()` helper and the same span map,
+ *  so the two answers have to agree; they are read from different DOM because split tints the
+ *  cells and unified the rows, exactly as `waitSplitDiff` is `waitDiff` read differently. */
+const wordMarks = (index) =>
+  ev(
+    `(() => { const h = document.querySelectorAll('.file-view .diff-body .hunk')[${index}]; if (!h) return 'null'; const t = (sel) => [...h.querySelectorAll(sel)].map((s) => s.textContent); return JSON.stringify(h.querySelector('.hunk-lines.split') ? { add: t('td.code.add span.word'), del: t('td.code.del span.word') } : { add: t('tr.line.add td.code span.word'), del: t('tr.line.del td.code span.word') }); })()`,
+  );
+
 // ---- make the scratch repo state predictable when re-running --------------------------------------------
 gitMay(['cherry-pick', '--abort']);
 gitMay(['merge', '--abort']);
@@ -1581,6 +1590,11 @@ await inGroup('Unstaged Files', HUNK_FILE);
 log(await clickFileRow('Unstaged Files', HUNK_FILE));
 await waitDiff('Unstaged', 2, [HUNK_EDIT_1, HUNK_EDIT_2]);
 check('the file view opens in the unified layout, with no split table', (await ev(`document.querySelectorAll('.file-view .hunk-lines.split').length`)) === 0, await ev(`document.querySelectorAll('.file-view .hunk-lines.split').length`));
+// GC-109: `row 3` becomes `row 3 edited`, so the one thing that changed is the last word. Nothing
+// in the suite looked at the marks before this, and a rendering regression — the spans dropped from
+// a layout, `code()` falling back to plain text — passed every other check the routine runs.
+const unifiedMarks = JSON.parse(await wordMarks(0));
+check('the unified layout marks the word that changed, and only on the added side', JSON.stringify(unifiedMarks) === JSON.stringify({ add: ['edited'], del: [] }), JSON.stringify(unifiedMarks));
 
 log(await setLayout('Split'));
 await waitSplitDiff('Unstaged', 2, [HUNK_EDIT_1, HUNK_EDIT_2]);
@@ -1593,6 +1607,8 @@ const changed = rows.filter(([, l, , r]) => l !== r);
 check('every row of the split hunk carries a line from each file, none padded', rows.every(([, l, , r]) => l !== null && r !== null), JSON.stringify(rows));
 check('the two sides number in step, so the rows line up', rows.every(([ln, , rn]) => ln === rn), rows.map(([ln, , rn]) => `${ln}/${rn}`).join(' '));
 check('exactly one row differs, pairing the old line with the edited one', changed.length === 1 && changed[0][1] === 'row 3' && changed[0][3] === HUNK_EDIT_1, JSON.stringify(changed));
+const splitMarks = JSON.parse(await wordMarks(0));
+check('the split layout marks the same word, on the same side, from the same map (GC-109)', JSON.stringify(splitMarks) === JSON.stringify({ add: ['edited'], del: [] }) && JSON.stringify(splitMarks) === JSON.stringify(unifiedMarks), `split ${JSON.stringify(splitMarks)} | unified ${JSON.stringify(unifiedMarks)}`);
 
 log(await hunkAction(1, 'Stage hunk'));
 await waitSplitDiff('Unstaged', 1, [HUNK_EDIT_1]);
