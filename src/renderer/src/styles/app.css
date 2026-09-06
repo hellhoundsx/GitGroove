@@ -1117,6 +1117,7 @@ input[type='radio']:disabled {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  margin-right: var(--sp-2);
   flex: none;
   color: var(--text-dim);
   text-transform: uppercase;

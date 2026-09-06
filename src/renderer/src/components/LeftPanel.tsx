@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react';
 import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, Folder, GitBranch, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
 import type { GitRef, RepoInfo, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
@@ -77,6 +77,8 @@ interface SectionProps {
   onToggle(): void;
   /** The height this section is drawn at, or undefined for a closed one: its header is all of it. */
   height?: number;
+  /** Reports what its rows would take unsqueezed, so the share never hands it more (GC-153). */
+  onNatural(h: number): void;
   /** Optional buttons on the right of the header, e.g. "Show all" and "Add remote". */
   actions?: { icon: LucideIcon; title: string; onClick(): void }[];
   children: ReactNode;
@@ -88,7 +90,22 @@ interface SectionProps {
  * are open — with 52 remote branches this is the difference between TAGS and STASHES being
  * reachable and their headers not being on screen at all.
  */
-function Section({ title, icon, count, open, onToggle, height, actions = [], children }: SectionProps): JSX.Element {
+function Section({ title, icon, count, open, onToggle, height, onNatural, actions = [], children }: SectionProps): JSX.Element {
+  // What this section's rows would take if nothing squeezed them, reported up so the share can
+  // stop at it: a section is never given more of the column than it has anything to put in
+  // (GC-153). The observer is on the content, not on the scroll box, whose height is the answer
+  // being computed.
+  const content = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = content.current;
+    if (!el || !open) return;
+    const update = (): void => onNatural(el.getBoundingClientRect().height + SECTION_HEAD_H);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, onNatural]);
+
   return (
     <div className={`panel-section ${open ? 'open' : 'closed'}`} style={open && height ? ({ height } as CSSProperties) : undefined}>
       <div className={`section-head ${open ? 'open' : ''}`}>
@@ -104,7 +121,11 @@ function Section({ title, icon, count, open, onToggle, height, actions = [], chi
           </button>
         ))}
       </div>
-      {open && <div className="section-rows">{children}</div>}
+      {open && (
+        <div className="section-rows">
+          <div ref={content}>{children}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -196,6 +217,21 @@ export function LeftPanel(p: Props): JSX.Element {
   // height is shared: closing one has to give its space to the others, and opening it take it back.
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(() => ({ local: true, remote: true, tags: false, stashes: p.stashes.length > 0 }));
   const [heights, setHeights] = useState<Partial<Record<SectionId, number>>>(readSectionHeights);
+  // What each open section's rows measure, reported by the sections themselves (GC-153). Written
+  // through a ref and mirrored into state only when a number actually changes, so a section
+  // re-rendering at the same height re-renders nothing else.
+  const naturalRef = useRef<Partial<Record<SectionId, number>>>({});
+  const [natural, setNatural] = useState<Partial<Record<SectionId, number>>>({});
+  const reportNatural = useCallback((id: SectionId, h: number): void => {
+    const rounded = Math.round(h);
+    if (naturalRef.current[id] === rounded) return;
+    naturalRef.current = { ...naturalRef.current, [id]: rounded };
+    setNatural(naturalRef.current);
+  }, []);
+  const onNatural = useMemo(
+    () => Object.fromEntries(SECTION_IDS.map((id) => [id, (h: number) => reportNatural(id, h)])) as Record<SectionId, (h: number) => void>,
+    [reportNatural],
+  );
   const persistHeights = (next: Partial<Record<SectionId, number>>): void => {
     try {
       // Nothing sized at all means no key: a set of heights the user never chose is not one the
@@ -229,6 +265,7 @@ export function LeftPanel(p: Props): JSX.Element {
     openIds.map((id) => heights[id] ?? null),
     avail,
     MIN_SECTION_H,
+    openIds.map((id) => natural[id] ?? null),
   );
   const heightOf = (id: SectionId): number | undefined => {
     const at = openIds.indexOf(id);
@@ -451,7 +488,7 @@ export function LeftPanel(p: Props): JSX.Element {
           count={local.length}
           open={openSections.local}
           onToggle={() => toggleSection('local')}
-          height={heightOf('local')}
+          height={heightOf('local')} onNatural={onNatural.local}
           actions={anyLocalHidden ? [{ icon: Eye, title: 'Show all local branches in the graph', onClick: () => p.onShowAll('head') }] : []}
         >
           {folderRows(localTree, 'local', 0, localLeaf)}
@@ -464,7 +501,7 @@ export function LeftPanel(p: Props): JSX.Element {
           count={remoteCount}
           open={openSections.remote}
           onToggle={() => toggleSection('remote')}
-          height={heightOf('remote')}
+          height={heightOf('remote')} onNatural={onNatural.remote}
           actions={[
             ...(anyRemoteHidden ? [{ icon: Eye, title: 'Show all remote branches in the graph', onClick: () => p.onShowAll('remote') }] : []),
             { icon: Plus, title: 'Add remote', onClick: p.onAddRemote },
@@ -488,11 +525,11 @@ export function LeftPanel(p: Props): JSX.Element {
           {remoteGroups.size === 0 && <div className="ref-row dim">No remotes</div>}
         </Section>
         <SectionHandle handle={handleAfter('remote')} />
-        <Section title="Tags" icon={Tag} count={tags.length} open={openSections.tags} onToggle={() => toggleSection('tags')} height={heightOf('tags')}>
+        <Section title="Tags" icon={Tag} count={tags.length} open={openSections.tags} onToggle={() => toggleSection('tags')} height={heightOf('tags')} onNatural={onNatural.tags}>
           {folderRows(tagTree, 'tags', 0, tagLeaf)}
         </Section>
         <SectionHandle handle={handleAfter('tags')} />
-        <Section title="Stashes" icon={Archive} count={stashes.length} open={openSections.stashes} onToggle={() => toggleSection('stashes')} height={heightOf('stashes')}>
+        <Section title="Stashes" icon={Archive} count={stashes.length} open={openSections.stashes} onToggle={() => toggleSection('stashes')} height={heightOf('stashes')} onNatural={onNatural.stashes}>
           {stashes.map((s) => (
             // `Stash.date` has been on every snapshot since the stash list existed and was drawn
             // nowhere; "how old is this" is the question a stash list is read for (GC-135). The

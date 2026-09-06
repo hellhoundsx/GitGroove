@@ -1344,6 +1344,7 @@ check(
 
 log(await searchType('feature'));
 await waitSearch(byAuthor);
+await waitFor(`!!document.querySelector('.graph-row.selected.match')`, 'the selection to land on the first match of the narrowed set');
 const bothSet = await searchCount();
 check('a term typed beside the chip narrows within that author', bothSet === '1 of 3', `${byAuthor} -> ${bothSet}`);
 log(await searchType('Test User'));
@@ -2794,7 +2795,7 @@ await shot('19-stash-rows.png');
 log(await liveClick('the newest stash row', `(() => { const r = document.querySelector('.graph-row.stash-row'); if (!r) return 'MISS no stash row'; r.click(); return 'selected the stash row'; })()`));
 await waitFor(`/^stash@/.test(document.querySelector('.detail-head .commit-id')?.textContent ?? '')`, 'the stash to reach the detail panel');
 const stashPanel = await ev(
-  `JSON.stringify({ head: document.querySelector('.detail-head .commit-id')?.textContent.replace(/\s+/g, ' ') ?? null, msg: document.querySelector('.detail-body .message-box h2')?.textContent ?? null, when: document.querySelector('.detail-body .author .when')?.textContent ?? null, parent: document.querySelector('.detail-body .parents')?.textContent ?? null, selected: document.querySelectorAll('.graph-row.stash-row.selected').length })`,
+  `JSON.stringify({ head: document.querySelector('.detail-head .commit-id')?.textContent.trim() ?? null, msg: document.querySelector('.detail-body .message-box h2')?.textContent ?? null, when: document.querySelector('.detail-body .author .when')?.textContent ?? null, parent: document.querySelector('.detail-body .parents')?.textContent ?? null, selected: document.querySelectorAll('.graph-row.stash-row.selected').length })`,
 );
 const panel = JSON.parse(stashPanel);
 check('the panel names the stash and shows its whole message, prefix and all', /^stash@\{0\}:/.test(panel.head ?? '') && panel.msg === 'On main: newer stash', stashPanel);

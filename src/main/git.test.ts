@@ -164,7 +164,9 @@ describe('the flag on the error, which is all IPC keeps (GC-169)', () => {
   it('puts the remote and its URL in the summary line, which is what the status bar shows', () => {
     expect(authSummary('origin', 'https://github.com/x/y.git')).toBe('Authentication failed for origin (https://github.com/x/y.git)');
     expect(authSummary('origin', null)).toBe('Authentication failed for origin');
-    // `fetch --all` names no remote, and saying so beats naming the wrong one.
+    // With no name, the URL git was refused by is the next best identifier, and the bare
+    // wording is the last resort rather than the answer (GC-169).
+    expect(authSummary(null, 'https://github.com/x/y.git')).toBe('Authentication failed for https://github.com/x/y.git');
     expect(authSummary(null, null)).toBe('Authentication failed for the remote');
   });
 });

@@ -167,45 +167,64 @@ export function reachedWidth(start: number, delta: number, min: number, max: num
  * never touched, only what is applied, so a section resized on a tall window comes back to that
  * size when the window is tall again.
  *
- * `stored[i]` is null for a section the user has never sized — and for the two a double-click on a
- * handle has just reset. Those share what the sized ones leave, which is what makes "an equal
- * share" the answer both at first run and after a reset, without either being a special case.
+ * `stored[i]` is null for a section the user has never sized. Such a section asks for what its
+ * rows actually measure (`natural`), and for an equal share when even that is unknown — so four
+ * short sections in a tall panel are drawn at their content and the column simply ends, rather
+ * than each being padded out to a quarter of it.
  *
- * The sections then take the whole column between them: the heights are scaled to `avail` in
- * proportion to what each asked for, and a section pushed under `min` by that is put back on its
- * floor and the difference taken from those with room to give. When even the floors do not fit,
- * every section sits on its floor and the column scrolls — a header nobody can reach is still
- * better than a section with no rows in it, which is what the ask was about.
+ * What is left over is then filled level by level, the way water fills a set of vessels: every
+ * section that asks for no more than an equal share of what remains gets exactly what it asked
+ * for, and the ones still asking for more split the rest between them, again and again until
+ * nobody is short-changed. That is what makes 52 remote branches behave: REMOTE alone gives up
+ * the space, and LOCAL, TAGS and STASHES keep the rows they have. A stored height is treated as
+ * an ask like any other, so a section the user made large keeps that size while there is room.
+ *
+ * Every section keeps `min` whatever happens, and when even the floors do not fit they all sit on
+ * one and the column scrolls: a header nobody can reach is still better than a section with no
+ * rows in it, which is what the ask was about.
  */
-export function fitSections(stored: (number | null)[], avail: number, min: number): number[] {
+export function fitSections(stored: (number | null)[], avail: number, min: number, natural?: (number | null)[]): number[] {
   const n = stored.length;
   if (n === 0) return [];
   if (avail <= n * min) return stored.map(() => min);
 
+  // What each section asks for: the height the user gave it, else what its rows measure, else an
+  // equal share of whatever the sized ones leave — the last of which is what makes a fresh panel
+  // an equal split and a double-clicked pair an equal share of what is theirs.
   const known = stored.reduce((a: number, h) => a + (h ?? 0), 0);
-  const unknown = stored.filter((h) => h === null).length;
-  const share = unknown > 0 ? Math.max(min, (avail - known) / unknown) : 0;
-  let out = stored.map((h) => Math.max(min, h ?? share));
-
-  // Scale to the column, then hold every section on its floor and take the difference from the
-  // ones still above theirs. Repeated because pushing one section up to its floor can push
-  // another under it; it settles quickly, and the guard is the loop's own bound.
-  for (let pass = 0; pass < n + 1; pass++) {
-    const total = out.reduce((a, b) => a + b, 0);
-    const over = total - avail;
-    if (Math.abs(over) < 0.5) break;
-    const slack = out.map((h) => (over > 0 ? h - min : h));
-    const spare = slack.reduce((a, b) => a + b, 0);
-    if (spare <= 0) break;
-    out = out.map((h, i) => Math.max(min, h - (slack[i]! / spare) * over));
+  const unsized = stored.filter((h) => h === null).length;
+  const share = unsized > 0 ? Math.max(min, (avail - known) / unsized) : avail / n;
+  const want = stored.map((h, i) => Math.max(min, h ?? natural?.[i] ?? share));
+  const out: number[] = new Array<number>(n).fill(0);
+  let pending = want.map((_, i) => i);
+  let left = avail;
+  while (pending.length > 0) {
+    const fair = left / pending.length;
+    const done = pending.filter((i) => want[i]! <= fair);
+    if (done.length === 0) {
+      // Everyone still asking wants more than an equal share, so they split what is left in
+      // proportion to what they asked for: a section the user dragged large stays the large one
+      // on a column too short for either, which an equal split would quietly undo.
+      const asked = pending.reduce((a, i) => a + want[i]!, 0);
+      for (const i of pending) out[i] = Math.max(min, (want[i]! / asked) * left);
+      break;
+    }
+    for (const i of done) {
+      out[i] = want[i]!;
+      left -= want[i]!;
+    }
+    pending = pending.filter((i) => !done.includes(i));
   }
 
-  // Whole pixels that still add up: the remainder goes to the last section rather than leaving a
-  // sliver of the column undrawn.
+  // Whole pixels. When the sections wanted more than the column, they are filling it exactly and
+  // the rounding remainder goes to the last of them rather than leaving a sliver undrawn; when
+  // they wanted less, the column keeps what they did not ask for.
   const px = out.map((h) => Math.max(min, Math.round(h)));
-  const drift = avail - px.reduce((a, b) => a + b, 0);
-  const last = px.length - 1;
-  px[last] = Math.max(min, px[last]! + drift);
+  if (want.reduce((a, b) => a + b, 0) >= avail - 0.5) {
+    const drift = avail - px.reduce((a, b) => a + b, 0);
+    const last = px.length - 1;
+    px[last] = Math.max(min, px[last]! + drift);
+  }
   return px;
 }
 

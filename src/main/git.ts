@@ -801,7 +801,7 @@ export function isAuthMessage(text: string): boolean {
  * git's own lines is the `fatal:` one — the one saying 403 and nothing else.
  */
 export function authSummary(remote: string | null, url: string | null): string {
-  const where = remote ? (url ? `${remote} (${url})` : remote) : 'the remote';
+  const where = remote ? (url ? `${remote} (${url})` : remote) : (url ?? 'the remote');
   return `Authentication failed for ${where}`;
 }
 
@@ -819,16 +819,21 @@ async function runRemote(cwd: string, args: string[], remote: string | null): Pr
     return await runGit(cwd, args, { prompt: true });
   } catch (e) {
     if (!(e instanceof GitError) || e.advisory || !isAuthMessage(e.message)) throw e;
+    // `fetch --all` names no remote up front, and that is the ordinary way a fetch is run, so the
+    // one that refused is taken from git's own report of it rather than left unnamed.
+    const named = remote ?? /could not fetch (\S+)/.exec(e.message)?.[1] ?? null;
     let url: string | null = null;
-    if (remote) {
+    if (named) {
       // Best effort: the URL is worth having and never worth failing the report for.
       try {
-        url = (await runGit(cwd, ['remote', 'get-url', remote])).trim() || null;
+        url = (await runGit(cwd, ['remote', 'get-url', named])).trim() || null;
       } catch {
         url = null;
       }
     }
-    throw new GitError(`${authSummary(remote, url)}\n${e.message}`, args, e.stderr, e.code, false, true);
+    // Failing that, git writes the URL it was refused by in the message itself.
+    url ??= /unable to access '([^']+)'/.exec(e.message)?.[1] ?? null;
+    throw new GitError(`${authSummary(named, url)}\n${e.message}`, args, e.stderr, e.code, false, true);
   }
 }
 

@@ -141,7 +141,7 @@ const aheadBehind = (r: GitRef): string | null => {
 const msg = (e: unknown): string =>
   (e instanceof Error ? e.message : String(e))
     .replace(/^Error invoking remote method '[^']+': /, '')
-    .replace(new RegExp(`^(${ADVISORY}|GitError|Error): `), '')
+    .replace(new RegExp(`^(${ADVISORY}|${AUTH_FAILURE}|GitError|Error): `), '')
     .trim();
 /**
  * Whether the main process marked this failure advisory (GC-091): the action did most of what was
@@ -328,6 +328,18 @@ export function App(): JSX.Element {
   // what stops that callback from being rebuilt on every keystroke in the find bar (GC-016).
   const live = useRef<TabState>({ snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current, draft });
   live.current = { snapshot, selected, fileView, hidden, paged: paged.current, hasMore, search, graphTop: graphTop.current, draft };
+
+  /**
+   * What the showing tab is parked with, at the moment it is parked (GC-172).
+   *
+   * Everything in `TabState` is state, and `live` mirrors it on every render — except the graph's
+   * scroll offset, which is deliberately a ref precisely so that scrolling re-renders nothing
+   * (GC-164). So the mirror's copy of it is only as fresh as the last render, and a tab scrolled
+   * and then switched away from with nothing else happening in between was parked at the offset
+   * it had *before* the user scrolled. That is the half of GC-016's promise the restore could
+   * never keep, whatever the graph did with the number it was handed.
+   */
+  const park = useCallback((): TabState => ({ ...live.current, graphTop: graphTop.current }), []);
 
   /**
    * The working tree as the last snapshot to land describes it, mirrored the same way (GC-124).
@@ -655,10 +667,10 @@ export function App(): JSX.Element {
       if (id === activeId) return;
       const t = tabs.find((x) => x.id === id);
       if (!t) return;
-      if (activeId !== null) parked.current.set(activeId, live.current);
+      if (activeId !== null) parked.current.set(activeId, park());
       showTab(t);
     },
-    [activeId, showTab, tabs],
+    [activeId, park, showTab, tabs],
   );
 
   /** Switch the showing tab to a repository; with nothing open at all, the first tab is made for it. */
@@ -680,7 +692,7 @@ export function App(): JSX.Element {
       }
       await openIn(path);
     },
-    [activeId, openIn, selectTab, tabFor],
+    [activeId, openIn, park, selectTab, tabFor],
   );
 
   /** Open a repository in a tab of its own, beside the showing one (GC-016). */
@@ -691,7 +703,7 @@ export function App(): JSX.Element {
         selectTab(already.id);
         return;
       }
-      if (activeId !== null) parked.current.set(activeId, live.current);
+      if (activeId !== null) parked.current.set(activeId, park());
       const id = nextTabId.current++;
       setTabs((prev) => [...prev, { id, path }]);
       setActiveId(id);
@@ -752,12 +764,12 @@ export function App(): JSX.Element {
    * was showing is parked exactly as `openNewTab` parks it, so GC-016's promise survives.
    */
   const newTab = useCallback(() => {
-    if (activeId !== null) parked.current.set(activeId, live.current);
+    if (activeId !== null) parked.current.set(activeId, park());
     const id = nextTabId.current++;
     setTabs((prev) => [...prev, { id, path: null }]);
     setActiveId(id);
     showEmpty();
-  }, [activeId, showEmpty]);
+  }, [activeId, park, showEmpty]);
 
   const repo = snapshot?.info.path ?? null;
 

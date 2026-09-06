@@ -341,6 +341,34 @@ describe('fitSections', () => {
     expect(fitSections([300, 300], 100, MIN)).toEqual([MIN, MIN]);
   });
 
+  it('gives a section no more than its rows need, so four short sections do not pad the panel out', () => {
+    // The fixture's own shape: a few refs in each section and a tall panel. An equal share would
+    // leave every section mostly empty, which is not sharing a column — it is spacing one out.
+    const out = fitSections([null, null, null, null], 800, MIN, [140, 250, 110, 110]);
+    expect(out).toEqual([140, 250, 110, 110]);
+    expect(sum(out)).toBeLessThan(800);
+  });
+
+  it('shares what is left when the sections do want more than the column', () => {
+    // 52 remote branches: REMOTE asks for far more than the column, so the share is what decides.
+    const out = fitSections([null, null, null, null], 800, MIN, [140, 1400, 110, 110]);
+    expect(sum(out)).toBe(800);
+    expect(out[1]).toBeGreaterThan(out[0]!);
+    // And the three short ones still get exactly what they asked for: the long one takes the rest.
+    expect([out[0], out[2], out[3]]).toEqual([140, 110, 110]);
+  });
+
+  it('lets a stored height ask for more than the rows measure, and keeps it the largest', () => {
+    // 400 + the three sections' own content is more than the column holds, so the biggest asker
+    // is the one that gives — but it is still the biggest, and the three keep their rows.
+    const out = fitSections([400, null, null, null], 800, MIN, [140, 250, 110, 110]);
+    expect(sum(out)).toBe(800);
+    expect(out[0]).toBe(Math.max(...out));
+    expect([out[1], out[2], out[3]]).toEqual([250, 110, 110]);
+    // And with room for all of it, the stored height is applied exactly.
+    expect(fitSections([400, null, null, null], 1000, MIN, [140, 250, 110, 110])[0]).toBe(400);
+  });
+
   it('adds up to the column exactly, so no sliver of it goes undrawn', () => {
     for (const avail of [801, 799, 1000, 613]) {
       expect(sum(fitSections([null, null, null, null], avail, MIN))).toBe(avail);
