@@ -16,9 +16,10 @@ interface Props {
   onDismissError(): void;
   onDismissNotice(): void;
   /**
-   * Reopen the dialog holding the whole of a failure git wrote more than one line about (GC-169).
-   * Set only for a credential refusal; without it the error line behaves exactly as it always
-   * has, and clicking anywhere on it dismisses.
+   * Reopen the dialog holding the whole of a failure git wrote more than one line about (GC-169,
+   * GC-202). Set whenever there is more to read than the one line this bar can hold — a rejected
+   * push's four `hint:` lines as much as a credential refusal's `remote:` ones. Without it the
+   * error line behaves exactly as a one-line failure always has, and clicking anywhere dismisses.
    */
   onErrorDetails?(): void;
   /**
@@ -28,13 +29,30 @@ interface Props {
   onCancelBusy?(): void;
 }
 
-/** The most useful single line of a multi-line git message: a CONFLICT/error/fatal line, else the first. */
-function headline(error: string): string {
+/**
+ * The patterns that pick the line saying *why*, tried one at a time over every line — priority
+ * order, not the order git printed them (GC-202).
+ *
+ * The order is the whole point. A rejected push writes its reason first, `! [rejected] main ->
+ * main (non-fast-forward)`, and then `error: failed to push some refs to '<url>'`, which names no
+ * cause and no remedy and spends most of this bar's width on a path. One pattern holding every
+ * alternative at once matched in document order and so drew the second: `error:` was simply
+ * earlier in the file. Here the rejection is asked about first — its parenthesis is the reason —
+ * then a conflict, then git's own two severities, with `failed` last as the catch-all it was.
+ */
+const HEADLINE_PATTERNS: RegExp[] = [/^!\s*\[[^\]]*rejected[^\]]*\]/i, /CONFLICT/, /^fatal:/i, /^error:/i, /failed/i];
+
+/** The most useful single line of a multi-line git message; the first line when none of them fits. */
+export function headline(error: string): string {
   const lines = error
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
-  return lines.find((l) => /^(error|fatal):|CONFLICT|failed/i.test(l)) ?? lines[0] ?? error;
+  for (const pattern of HEADLINE_PATTERNS) {
+    const hit = lines.find((l) => pattern.test(l));
+    if (hit) return hit;
+  }
+  return lines[0] ?? error;
 }
 
 const baseName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p;
@@ -61,8 +79,14 @@ export function StatusBar({ repoPath, commitCount, busy, generation, error, noti
       {error ? (
         // With details to show, the line opens them and only the ✕ dismisses — the message is
         // then longer than this bar can ever be, and dismissing it would be losing it (GC-169).
+        // The `Details` mark is what says so on screen: a `title` is not an announcement, and
+        // before GC-202 nothing told the reader that four `hint:` lines sat behind a click.
         <button className={`err ${onErrorDetails ? 'has-details' : ''}`} title={error} onClick={onErrorDetails ?? onDismissError}>
-          ⚠ {headline(error)}{' '}
+          {/* The headline is the only shrinkable item, so `Details` and the ✕ survive whatever the
+              line is: an ellipsised affordance is one the reader cannot see (GC-192's rule, one
+              surface over). */}
+          <span className="line">⚠ {headline(error)}</span>
+          {onErrorDetails && <span className="more">Details</span>}
           <span
             className="dismiss"
             onClick={(e) => {

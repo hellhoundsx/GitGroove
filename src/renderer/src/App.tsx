@@ -9,8 +9,8 @@ import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
 import { LeftPanel } from './components/LeftPanel';
 import { DetailPanel, discardFileConfirm, type FileMenuTarget, type StagingActions } from './components/DetailPanel';
-import { StatusBar } from './components/StatusBar';
-import { AuthErrorDialog } from './components/AuthErrorDialog';
+import { StatusBar, headline } from './components/StatusBar';
+import { ErrorDetailsDialog } from './components/ErrorDetailsDialog';
 import { CommitGraph, WIP } from './graph/CommitGraph';
 import { DiffView, type FileViewSource } from './diff/DiffView';
 import { Preferences } from './components/Preferences';
@@ -182,14 +182,22 @@ const isAdvisory = (e: unknown): boolean => new RegExp(`(^|: )${ADVISORY}: `).te
  */
 const isAuthFailure = (e: unknown): boolean => new RegExp(`(^|: )${AUTH_FAILURE}: `).test(e instanceof Error ? e.message : String(e));
 /**
- * Split a flagged failure into the line the status bar shows and the rest, which is git's whole
- * message (GC-169). The first line is the summary the main process composed — what happened, on
- * which remote, at which URL — and everything under it is what the dialog exists to show.
+ * Split a failure into the line the status bar shows and the whole of what git wrote (GC-169,
+ * GC-202), or answer `null` when there is only the one line and so nothing a dialog would add.
+ *
+ * The two kinds divide the same text differently, which is why this answers `detail` rather than
+ * leaving the caller to slice. A credential refusal's first line is the summary the main process
+ * composed — what happened, on which remote, at which URL — so the detail is everything *under*
+ * it. Every other failure has no such composed line: the bar picks one of git's own with
+ * `headline`, and the detail is git's message **entire**, because the line that explains the
+ * rejection and the four `hint:` lines that say what to do about it are all in there and dropping
+ * any of them is what GC-202 exists to stop.
  */
-const authParts = (e: unknown): { summary: string; detail: string } => {
+const failureParts = (e: unknown, auth: boolean): { summary: string; detail: string; auth: boolean } | null => {
   const text = msg(e);
   const at = text.indexOf('\n');
-  return at < 0 ? { summary: text, detail: '' } : { summary: text.slice(0, at), detail: text.slice(at + 1) };
+  if (at < 0) return null;
+  return auth ? { summary: text.slice(0, at), detail: text.slice(at + 1), auth } : { summary: headline(text), detail: text, auth };
 };
 
 export function App(): JSX.Element {
@@ -285,11 +293,13 @@ export function App(): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null); // git itself is missing (GC-025)
   /**
-   * The credential refusal a remote operation last reported, kept after its dialog is closed so
-   * the status bar's summary can open it again (GC-169). Cleared by the next action, like `error`.
+   * The last failure that had more to say than the status bar can hold, kept after its dialog is
+   * closed so the summary can open it again (GC-169, GC-202). `auth` says whether it was a
+   * credential refusal, which is the one kind the dialog can say something extra about. Cleared by
+   * the next action, like `error`.
    */
-  const [authFailure, setAuthFailure] = useState<{ summary: string; detail: string } | null>(null);
-  const [authOpen, setAuthOpen] = useState(false);
+  const [failureDetails, setFailureDetails] = useState<{ summary: string; detail: string; auth: boolean } | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   /** Whether the running action is one that talks to a remote, and so one Cancel can stop (GC-169). */
   const [busyRemote, setBusyRemote] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
@@ -464,18 +474,31 @@ export function App(): JSX.Element {
   }, []);
 
   /**
-   * Put a failure on screen: the status bar's line, or — for a credential refusal — the dialog and
-   * the summary that opens it (GC-091, GC-169). Extracted from `run()` so the two entry points
-   * that make a repository rather than act on one report exactly the way an action does, without a
-   * second reading of the same two flags (GC-128).
+   * Put a failure on screen: the status bar's line, and — whenever git wrote more than one line —
+   * the dialog holding all of it (GC-091, GC-169, GC-202). Extracted from `run()` so the two entry
+   * points that make a repository rather than act on one report exactly the way an action does,
+   * without a second reading of the same two flags (GC-128).
+   *
+   * What is *shown* is the same either way; what differs is which failures open the dialog by
+   * themselves. A credential refusal does, because it is waiting on the user to go and re-authorise
+   * something and the `remote:` lines say how (GC-169). Every other multi-line failure only offers
+   * the dialog — the bar's summary opens it — because the action is over and the user may already
+   * know why. An advisory is a notice and never has details: it is not a failure (GC-091).
    */
   const report = useCallback((failure: unknown) => {
-    if (isAuthFailure(failure)) {
-      const parts = authParts(failure);
-      setAuthFailure(parts);
-      setAuthOpen(true);
-      setError(parts.summary);
-    } else (isAdvisory(failure) ? setNotice : setError)(msg(failure));
+    if (isAdvisory(failure)) {
+      setNotice(msg(failure));
+      return;
+    }
+    const auth = isAuthFailure(failure);
+    const parts = failureParts(failure, auth);
+    setFailureDetails(parts);
+    if (auth && parts) setDetailsOpen(true);
+    // A credential refusal's line is the summary the main process composed, which is the one thing
+    // `headline` must not be allowed to pick a `fatal:` line over (GC-169). Everything else hands
+    // the bar the whole message: it draws `headline` of it and keeps the rest on the `title`,
+    // exactly as it did before, and now also has the dialog.
+    setError(auth && parts ? parts.summary : msg(failure));
   }, []);
 
   // What the app has actually put on screen, as opposed to the invalidation counter above: bumped
@@ -879,7 +902,7 @@ export function App(): JSX.Element {
       const owns = takeBusy(label);
       setError(null);
       setNotice(null);
-      setAuthFailure(null);
+      setFailureDetails(null);
       let made: string | null = null;
       try {
         made = await make();
@@ -1003,7 +1026,7 @@ export function App(): JSX.Element {
       setNotice(null);
       // The last refusal belongs to the action that produced it: a new one starts with none, so
       // the status bar can never offer to reopen a dialog about something else (GC-169).
-      setAuthFailure(null);
+      setFailureDetails(null);
       // Only a remote command can be waiting on a person, and only one of those can be stopped,
       // so only one of those puts Cancel on the busy line (GC-169).
       setBusyRemote(!!opts.remote);
@@ -2172,7 +2195,7 @@ export function App(): JSX.Element {
   // nothing else, which is why no layer handles Escape itself. The listener runs in the capture
   // phase so that when it does close a layer it can stop the event before any React handler
   // underneath sees it — the find bar's input closes itself on Escape otherwise.
-  const layerOpen = authOpen || shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen || pushOpen;
+  const layerOpen = detailsOpen || shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen || pushOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // The topmost layer owns the keyboard while it is up: it closes on Escape (and the overlay
@@ -2183,7 +2206,7 @@ export function App(): JSX.Element {
         if (matches('dialogCancel', e) || (shortcutsOpen && matches('help', e))) {
           e.preventDefault();
           e.stopPropagation();
-          if (authOpen) setAuthOpen(false);
+          if (detailsOpen) setDetailsOpen(false);
           else if (shortcutsOpen) setShortcutsOpen(false);
           else if (prefsOpen) setPrefsOpen(false);
           else if (ui.dialogOpen) ui.closeDialog();
@@ -2550,17 +2573,20 @@ export function App(): JSX.Element {
         notice={notice}
         onDismissError={() => {
           setError(null);
-          setAuthFailure(null);
+          setFailureDetails(null);
         }}
         onDismissNotice={() => setNotice(null)}
-        // Only a credential refusal has more to show than the line in the bar, so only then is
-        // the summary something to click rather than only something to dismiss (GC-169).
-        onErrorDetails={authFailure ? () => setAuthOpen(true) : undefined}
+        // Any failure git wrote more than one line about has more to show than this bar can hold,
+        // so then the summary is something to click rather than only something to dismiss
+        // (GC-169, GC-202). A one-line failure sets no details and still dismisses on a click.
+        onErrorDetails={failureDetails ? () => setDetailsOpen(true) : undefined}
         // A credential helper's own window can wait for a person forever, so the one command that
         // can be sitting behind one is the one the user can stop (GC-169).
         onCancelBusy={busy && busyRemote ? () => void window.api.cancelRemote() : undefined}
       />
-      {authOpen && authFailure && <AuthErrorDialog summary={authFailure.summary} detail={authFailure.detail} onClose={() => setAuthOpen(false)} />}
+      {detailsOpen && failureDetails && (
+        <ErrorDetailsDialog summary={failureDetails.summary} detail={failureDetails.detail} auth={failureDetails.auth} onClose={() => setDetailsOpen(false)} />
+      )}
       {/* With a file view open there is no graph to have dropped anything, so the dialog is told
           nothing rather than the last answer some earlier window width produced (GC-117). */}
       {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} drawnCols={fileView ? null : drawnCols} />}

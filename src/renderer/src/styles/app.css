@@ -2622,11 +2622,26 @@ input[type='radio']:disabled {
 .statusbar .err .dismiss {
   color: var(--text-dim);
 }
+/* The headline gives way and the two marks do not (GC-202): `Details` is what says there is more
+   to read, so ellipsising it away is the one thing this line must never do. */
+.statusbar .err .line {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.statusbar .err .more,
+.statusbar .err .dismiss {
+  flex: none;
+}
 /* A summary with more behind it (GC-169): the line opens the whole message, so it reads as
    something to click rather than only something to get rid of. */
 .statusbar button.err.has-details {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+.statusbar .err .more {
+  color: var(--text-dim);
 }
 /* Stopping a remote command waiting on a credential helper (GC-169). It sits inside the busy
    line, so it goes when the operation does and never stands there with nothing to stop. */
@@ -2678,14 +2693,14 @@ img.avatar {
   flex: none;
 }
 
-/* ---- The credential-refusal dialog (GC-169) ------------------------------------- */
+/* ---- The failure-details dialog (GC-169, GC-202) ------------------------------------- */
 
 /* Wider than an ordinary prompt because what it holds is git's own output, wrapped by git at its
    own width; `.modal`'s cap and `.modal-body`'s scroll do the rest (GC-103). */
-.modal.auth-error {
+.modal.error-details {
   width: 620px;
 }
-.auth-error-text {
+.error-details-text {
   margin: 0;
   padding: var(--sp-2);
   background: var(--bg-app);
@@ -2703,10 +2718,10 @@ img.avatar {
   color: var(--text-dim);
   font-size: var(--fs-sm);
 }
-.modal.auth-error .modal-buttons .spacer {
+.modal.error-details .modal-buttons .spacer {
   flex: 1;
 }
-.modal.auth-error .copied {
+.modal.error-details .copied {
   color: var(--success);
 }
 
