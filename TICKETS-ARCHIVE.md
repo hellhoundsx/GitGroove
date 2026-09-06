@@ -7493,6 +7493,297 @@ back: reopening a `done` ticket means moving its section to `TICKETS.md` and set
 
 ---
 
+### GC-156 A stash marker on a row cuts the primary ref chip's name down to one letter
+
+- **Status:** done
+- **Area:** graph | **Size:** S | **Priority:** P2
+- **Depends on:** GC-140, GC-071
+- **Why:** GC-140 put a `.stash-chip` in `.col-ref` and was careful about what it is *not*: it
+  stands for no `GitRef`, is not counted by `chipsFor` and never spends the row's one
+  `MAX_CHIPS` slot, so a commit carrying a branch and a stash shows both and the `+N` is
+  unchanged. All of that holds. What nobody counted is its **width**. GC-071 sizes the primary chip
+  from the column and says so in its own constant: "the column spends 41px on the `+N` chip and
+  the gaps either side of it, so a chip is drawn at `width - 41`", and below
+  `REF_COL_ICONS_MIN` (120px) the trailing upstream cloud is dropped so the name wins. A stash
+  marker adds 20px plus a gap to that furniture and the arithmetic never sees it, so above 120px
+  the cloud is kept and the **name** pays instead.
+  Measured over CDP at `dcffe27` on the review's own fixture, ref column at its fitted 134px,
+  with one stash taken on `main`'s tip: `.col-ref` holds a 69px primary chip, a 26px `+4`, a
+  20px `.stash-chip` and a 4px `.ref-line`; `.chip-name` is given 27px for a 29px string, and
+  `main` renders as `m…`. The same row at the same 134px column with no stash renders `main`
+  in full. The branch that degrades is the checked-out one — the most identifying chip in the app —
+  and it degrades the moment the user stashes, which is an ordinary thing to do rather than an edge
+  case. Screenshots: `05-stash-marker.png` and `07-tip-stash-clip.png` in the GR-018 folder.
+- **Scope:**
+  - The width a primary chip is drawn at accounts for **every** sibling in `.col-ref`, not only
+    the `+N`: a stash marker, and any future non-ref marker, is part of the furniture the chip
+    has to fit beside.
+  - Whatever `REF_COL_ICONS_MIN` decides — the cloud giving way before the name — is applied
+    against that corrected figure, so a row carrying a stash drops its cloud at a wider column than
+    a row without one. That is GC-071's intent, not a change to it.
+  - The name is what must survive: a row carrying a branch, a `+N` and a stash shows the whole
+    branch name at the default column width.
+- **Out of scope:** the stash marker's size, position or meaning, all settled by GC-140; GC-147's
+  node-to-chip connector; the contents of the expanded `+N` block, which is not bound by the
+  column's width and keeps its icons whatever the column is.
+- **Acceptance:**
+  - [x] With a stash on the checked-out branch's tip and the ref column at its default, the primary
+        chip shows its whole name — asserted as `.chip-name` `scrollWidth <= clientWidth`, not
+        judged by eye.
+  - [x] With no stash on the row, nothing changes: the same chip, the same cloud and the same
+        `+N` at the same widths as before this ticket.
+  - [x] The cloud still gives way before the name on a narrow column, with a stash and without one.
+  - [x] A unit test covers the arithmetic — what a chip is drawn at, given the column width and the
+        markers on the row — so the measurement lives in a test rather than only in a comment.
+  - [x] `npm run typecheck && npm test` pass.
+- **Files:** `src/renderer/src/graph/CommitGraph.tsx`, `src/renderer/src/styles/app.css`,
+  `src/renderer/src/graph/CommitGraph.test.tsx`
+- **Verify:** build, launch through `tools/launch-app.mjs`, `git stash push` in the scratch
+  repository, then measure `.chip-name` over CDP with the stash present and again after
+  `git stash pop --index` — the pop must use `--index` or the fixture's staged changes come back
+  unstaged and later steps fail on drift that looks unrelated.
+- **Log:**
+  - 2026-09-06 proposed by GR-018: measured at `dcffe27`, a stash on `main`'s tip takes the
+    primary chip from `main` to `m…` at a 134px ref column; GC-071's `width - 41` counts the
+    `+N` and nothing else.
+  - 2026-09-06 12:54 claimed
+  - 2026-09-06 13:20 done. `chipRoom(refColW, more, stashes)` in `CommitGraph.tsx` replaces
+    GC-071's constant `width - 41`, and `REF_COL_ICONS_MIN` — a column width — became
+    `CHIP_CLOUD_MIN` (79, the chip's own room), so the cloud's threshold is decided per row
+    rather than per column. Measured over CDP on the fixture, `.chip-name` scrollWidth vs
+    clientWidth: with one stash on `main`’s tip the chip is 71px with its cloud at a 150px
+    column and 56px without it at 134px, the name whole (29 of 29) in both — 134 is the fitted
+    width where GR-018 measured `m…`. Without a stash the numbers are unchanged at 150, 134,
+    120 and 100 (71px with the cloud down to 120, 56px without it at 100, name whole
+    throughout), which is criterion 2 measured rather than argued. Three unit cases pin the
+    arithmetic; `npm test` 285. Screenshots `docs/screenshots/gc-156-ref-chip-no-stash.png`
+    and `gc-156-ref-chip-with-stash.png`, the two taken at the same 134px column.
+    Noted and not filed: with a stash the name is still clipped below about 140px (28 of 29px
+    at a 120px column, 8 at 100) — the cloud has already gone by then and there is no further
+    furniture to give up; and `MORE_CHIP_W` is 26px, which is right for a single-digit `+N`
+    only. Neither is reachable at the default column, which is what this ticket asked for.
+
+---
+
+### GC-157 The authored timestamp is cut short at the default detail-panel width on any merge commit
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P2
+- **Depends on:** GC-142
+- **Why:** GC-142 made `.author` a three-column grid — `auto minmax(0, 1fr) auto`, avatar |
+  identity | parents — so the parents list "can neither overlap the authored date nor wrap under it
+  as the panel narrows towards its 300px minimum", and gave `.name` and `.when`
+  `overflow: hidden; text-overflow: ellipsis`. The overlap is genuinely gone. What replaced it is
+  a clip at the **default** width rather than at the minimum: the parents column is `auto`, so it
+  is sized to its content and never gives way, and the flexible middle column absorbs the whole
+  shortfall.
+  Measured over CDP at `dcffe27` with the detail panel at its default 400px, on the fixture's
+  merge commit: the grid resolves to `40px 157.047px 153.953px`; `.parents` holds
+  `parents: cb950b4, b99b7b7` in 154px and is not clipped; `.when` needs 172px for
+  `authored 06/09/2026, 12:15:42` and is given 157. The panel reads `authored 06/09/2026, 12:…`
+  and the time is gone. A merge commit is not unusual and 400px is not a narrow panel — the
+  fixture's own merge shows it, in both themes. Screenshots: `02-commit-view.png` and
+  `06-light-commit-view.png` in the GR-018 folder.
+- **Scope:**
+  - The authored date is legible in full at the default panel width on a commit with two parents.
+    Which column gives way is the implementer's call — letting the parents column shrink and
+    ellipsise, or showing one parent and a `+1` with the rest in the `title`, are both
+    reasonable — but the date is not the one that gives way first.
+  - Whatever gives way, GC-142's promise holds: nothing in `.author` overlaps and nothing wraps
+    under a neighbour, all the way down to the panel's 300px minimum.
+- **Out of scope:** the timestamp's format, which belongs to GC-133's single module and must not
+  gain a second answer inside this component; relative "3 hours ago" times, which are GC-135; an
+  octopus merge's full parent list, beyond not letting it break the row.
+- **Acceptance:**
+  - [x] On a two-parent commit with the detail panel at its 400px default, `.when` is not clipped
+        (`scrollWidth <= clientWidth`).
+  - [x] At 400px, 350px and 300px nothing in `.author` overlaps or wraps under a neighbour.
+  - [x] A single-parent commit renders exactly as it does today.
+  - [x] No component gains a date format of its own: the string still comes from the shared time
+        module (GC-133).
+  - [x] `npm run typecheck && npm test` pass.
+- **Files:** `src/renderer/src/styles/app.css`, and
+  `src/renderer/src/components/DetailPanel.tsx` if the parents markup changes
+- **Verify:** launch, select the fixture's merge commit, and measure `.when` and `.parents` over
+  CDP at panel widths 400, 350 and 300; screenshot in both themes and look at them.
+- **Log:**
+  - 2026-09-06 proposed by GR-018: measured at `dcffe27`, the fixture's merge commit renders
+    `authored 06/09/2026, 12:…` at the default 400px panel; the parents column takes 154px of 375
+    and is `auto`, so the date pays the entire shortfall.
+  - 2026-09-06 12:54 claimed
+  - 2026-09-06 13:20 done. The `.author` grid's middle column gained a floor,
+    `minmax(min(60%, var(--author-when-w)), 1fr)`, and the parents column became
+    `minmax(0, auto)` with `max-width: 100%`, so the parents list is what gives way and can
+    never exceed its track. `--author-when-w` (180px) is the measured 172px the authored line
+    wants, rounded up, and sits in `tokens.css` with the other layout metrics.
+    `DetailPanel.tsx` was not touched, so no component gained a date format of its own
+    (GC-133). Measured over CDP on the fixture's merge `c04bd6a`: at the 400px default the
+    grid resolves to `40px 180px 131px` with `.when` unclipped and `.parents` unclipped on one
+    line; at 350px `40px 180px 81px`, date whole, parents wrapped inside its own column; at
+    300px `40px 165px 46px`, both clipped and neither overlapping — the 60% is what lets the
+    floor yield at the panel's minimum rather than cutting the parents column to four
+    characters. A single-parent commit at 400px resolves to `40px 218.219px 92.781px`, which
+    is exactly what it resolved to before this ticket.
+    `max-width: 100%` was added after the first measurement, not designed in: with the floor
+    alone, `justify-self: end` made `.parents` shrink-to-fit and `fit-content` floors at the
+    item's own min-content whatever the track is, so a 31px track still drew a 52px box that
+    reached 9px back over the date. Screenshots `docs/screenshots/gc-157-author-merge-400.png`,
+    `gc-157-author-merge-400-light.png` and `gc-157-author-single-400.png`; both themes read
+    correctly. What is still cramped at the 300px minimum is logged as evidence on GC-135,
+    whose relative form is materially shorter; no separate ticket.
+
+---
+
+### GC-158 The backlog archive is outside the control-byte scan, so 82% of the backlog lost rule 6's guard
+
+- **Status:** done
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-145
+- **Why:** `tools/repo-hygiene.test.ts` is what enforces `CLAUDE.md`'s rule 6 — a control
+  character is written as an escape, never as the byte, because a literal one makes git classify
+  the file as binary and `git diff`, `git blame` and review then silently skip it. It walks
+  `src/` and `tools/` and adds a list of root files:
+  `ROOT_FILES = ['TICKETS.md', 'CLAUDE.md', 'README.md']`. GC-145 then moved 630 KB — every
+  `done` ticket's section and every superseded review, 8,233 of the backlog's 10,189 lines — into
+  `TICKETS-ARCHIVE.md`, which is not on that list. The prose that was guarded before the split is
+  unguarded after it, and nothing says so: the split's own consistency checks live in the same file
+  and read *both* files, so the omission reads as deliberate rather than as an oversight.
+  The exposure is real rather than theoretical. GC-042 found a literal U+0000 that a session had
+  typed straight into a source file, where it survived vitest, `tsc` and the build for a whole
+  ticket cycle; and moving a ticket section between two files is exactly the kind of bulk copy that
+  carries one.
+- **Scope:**
+  - `TICKETS-ARCHIVE.md` joins `ROOT_FILES`.
+  - The existing "walks the source trees" test asserts the archive is actually reached, the way it
+    already asserts `CLAUDE.md` is — otherwise the next file the backlog grows can fall out the
+    same way with nothing failing.
+  - If the archive already carries an offending byte, fix the byte and say so in the log. Do not
+    widen `ALLOWED` to make the test pass.
+- **Out of scope:** `INBOX.md`, which is git-ignored and whose whole point is that it is not
+  tracked; `docs/`; changing which control characters are allowed.
+- **Acceptance:**
+  - [x] `TICKETS-ARCHIVE.md` is in `ROOT_FILES` and appears in `scannedFiles()`.
+  - [x] The tree-walk test names the archive, and fails if the entry is removed again — checked by
+        removing it once and seeing the failure.
+  - [x] `npm test` passes, or names the offending file and byte offset if the archive has one.
+- **Files:** `tools/repo-hygiene.test.ts`
+- **Verify:** `npm test`, then remove the new entry once and confirm the tree-walk assertion fails
+  rather than passing quietly. Do not type a control byte to test the scanner — rule 6 applies to
+  this ticket's own work, and the scanner already has coverage for the positive case.
+- **Log:**
+  - 2026-09-06 proposed by GR-018: GC-145 moved 630 KB of backlog prose into a file
+    `ROOT_FILES` does not list, so rule 6's guard now covers 1,956 of the backlog's 10,189 lines.
+  - 2026-09-06 12:54 claimed
+  - 2026-09-06 13:20 done. `TICKETS-ARCHIVE.md` joined `ROOT_FILES`, and the tree-walk test
+    now names it and `TICKETS.md` outright beside `CLAUDE.md`. `npm test` passes with no
+    offending byte anywhere in the archive, so nothing had to be fixed and `ALLOWED` was not
+    widened. The negative case was run rather than assumed: removing the entry once failed
+    with `expected [ 'src/main/git.test.ts', …(86) ] to include 'TICKETS-ARCHIVE.md'`, and it
+    was put back. 87 files are scanned now against 86 before.
+
+---
+
+### GC-160 e2e step 1 clears three remembered keys by name, and a driver can leave any of the others
+
+- **Status:** done
+- **Area:** tests | **Size:** S | **Priority:** P2
+- **Depends on:** GC-155
+- **Why:** GC-155 added `gitclient.tabs` to the keys step 1 removes, because a driver had left one
+  naming a deleted folder. The list is still three names long — `gitclient.prefs`, every
+  `gitclient.hidden.*`, and now `gitclient.tabs` — while the suite shares the 9333 profile with
+  every hand-written driver, and the profile persists between runs (GC-060). Measured while
+  verifying GC-085 (2026-09-06): a screenshot driver set `gitclient.refColW` to 400 so it could
+  photograph the ref column at three widths, and after a full `npm run e2e` the profile still read
+  `["gitclient.lastRepo","gitclient.recentRepos","gitclient.refColW","gitclient.tabs"]` with
+  `refColW` at 400. The suite passed with it — no step asserts a column width in pixels — so this
+  is a latent inheritance, not a failure today: exactly the shape GC-155 had before a driver
+  happened to leave the one key that did break it.
+- **Scope:**
+  - Step 1 clears **every** `gitclient.*` key rather than a list of names, then writes back the two
+    the run needs (`gitclient.lastRepo`, and whatever else a later step depends on being present).
+    A key added to `prefs.ts` or to the remembered-state table in `CLAUDE.md` then costs the suite
+    nothing to stay isolated from.
+  - The keys the run itself creates are unaffected: they are written after the clear.
+  - An assertion that the profile holds nothing unexpected at step 1, in the shape GC-155's tab
+    assertion has — a named failure rather than a silent inheritance.
+- **Out of scope:** giving the suite its own port by default (GC-155 ruled it out and
+  `GITCLIENT_E2E_PORT` already allows it); anything about what a driver ought to clean up after
+  itself — the suite is the thing that must be re-entrant against its own leftovers.
+- **Acceptance:**
+  - [x] Seed the 9333 profile with `gitclient.refColW`, `gitclient.leftPanelW` and a
+        `gitclient.pinned.<path>` key, run `npm run e2e`, and none of them survives step 1.
+  - [x] `npm run e2e` passes whole on a clean profile.
+  - [x] The new assertion fails loudly if the clear is narrowed again.
+- **Files:** `tools/e2e/run.mjs`
+- **Verify:** the seeded-profile run above, then a clean `npm run e2e`.
+- **Log:**
+  - 2026-09-06 proposed by GC-085 (this ticket): a screenshot driver's `gitclient.refColW=400`
+    survived a whole e2e run, which is GC-155's bug one key over.
+  - 2026-09-06 12:54 claimed
+  - 2026-09-06 13:20 done. Step 1 clears every `gitclient.*` key by prefix and reads the
+    survivors back in the same page turn, before the reload writes anything of its own,
+    asserting exactly `["gitclient.lastRepo"]`. All three criteria were measured.
+    *Seeded*: the 9333 profile was given `gitclient.refColW=400`, `gitclient.leftPanelW=380`
+    and `gitclient.pinned.testrepo`, and the run reported `PASS step 1 starts from a profile
+    holding only the repository it sets | ["gitclient.lastRepo"]` — none of the three
+    survived. *Narrowed*: with the clear put back to a two-name list, the same seeded profile
+    produced `FAIL … | ["gitclient.lastRepo","gitclient.leftPanelW","gitclient.pinned.testrepo",
+    "gitclient.recentRepos","gitclient.refColW"]`, naming every leftover. *Whole*: `ALL
+    PASSED`, 38 steps, 266 assertions, 41.1s, `git: 359 calls, 9.2s` (263 assertions before
+    this batch; one is this ticket’s and two are GC-161’s).
+    Seeding the profile turned out to be its own bug and is now GC-162: a launcher `stop()` is
+    `taskkill /F /T`, and Chromium had not committed the writes, so the first two seeded runs
+    proved nothing — the keys were never in the profile at all. Closing the window instead of
+    killing it is what made the seed real, and only then did the narrowed clear fail naming
+    all four keys rather than one.
+
+---
+
+### GC-161 The checkout guard stashes untracked files without saying so, now that its neighbour does
+
+- **Status:** done
+- **Area:** ui | **Size:** S | **Priority:** P3
+- **Depends on:** GC-097
+- **Why:** GC-097 gave the sequencer guard's prompt a clause saying what it will stash — "Stash your
+  tracked changes — untracked files stay where they are" — because what it stashes is narrower than
+  the refusal it works around. The checkout guard beside it still says only "You have uncommitted
+  changes in N files. Check out <branch> anyway?" with a "Stash and check out" button, and that one
+  genuinely does pass `includeUntracked: true` (GC-004's reason still holds: untracked files can be
+  in the way of a checkout). So the two adjacent prompts now offer the same-sounding action with
+  opposite scope and only one of them says which. The count is already careful here — GC-019 made it
+  name the files actually at risk, untracked ones excluded — which makes the silence sharper: the
+  sentence counts tracked files and the button then moves untracked ones too.
+- **Scope:**
+  - The checkout guard's message says that stashing takes untracked files with it, in the same
+    sentence that names the count at risk, in the wording GC-097 used so the two read as one family.
+  - Only when there are untracked files to take: with none, the clause would describe nothing.
+  - `runCheckout`'s behaviour is unchanged — this is what the prompt says, not what it does.
+- **Out of scope:** changing what either guard stashes, a preference for it, and the drop path's
+  two prompts (GC-015), which are these two in sequence and inherit whatever they say.
+- **Acceptance:**
+  - [x] With a tracked change and an untracked file, the prompt names the count at risk and says
+        untracked files go into the stash too.
+  - [x] With no untracked file, the message is exactly what it is today.
+  - [x] e2e step 15's assertions on the prompt's wording are extended rather than replaced.
+- **Files:** `src/renderer/src/App.tsx`, `tools/e2e/run.mjs`
+- **Verify:** `npm run typecheck`, `npm test`, `npm run e2e`, and the two prompts read side by side
+  in the running app.
+- **Log:**
+  - 2026-09-06 proposed by GC-097 (this ticket): the sequencer guard now says what it stashes and
+    the checkout guard next to it, which stashes more, still does not.
+  - 2026-09-06 12:54 claimed
+  - 2026-09-06 13:20 done. The message gains `— stashing takes your untracked files with it as
+    well` after the count, in GC-097's em-dash shape, and only when there is an untracked file;
+    `runCheckout`'s behaviour is unchanged. Step 15's assertions were extended rather than
+    replaced: the existing count check now reads `in 1 file —`, a new one asserts the clause,
+    and a new prompt cycle with the untracked guard file taken off disk asserts the message is
+    still exactly `You have uncommitted changes in 1 file. Check out wip-branch anyway?` with
+    no mention of untracked files at all. All three passed in the full run, and step 36 showed
+    the multi-file form in passing: `You have uncommitted changes in 3 files — stashing takes
+    your untracked files with it as well. Check out feat/alpha anyway?`
+
+---
+
 ## Reviews
 
 ### GR-001 Backlog review 2026-09-05 17:23

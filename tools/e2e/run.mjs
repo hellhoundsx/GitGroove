@@ -887,18 +887,32 @@ step(1, 'load test repo');
 // The profile is no longer Ricardo's — `tools/launch-app.mjs` gives every launch it makes its own
 // under `<os.tmpdir()>/gitclient-profiles/<port>` (GC-060) — but it does persist between runs on
 // that port, so the removal still earns its place.
-// `gitclient.tabs` goes with them, and for a sharper reason (GC-155): it is the one remembered key
-// naming a **folder on disk**, so a tab left behind by a hand-written driver on the same port comes
-// back pointing at a folder that may no longer exist. One did, and step 1 failed with
+// `gitclient.tabs` went the same way, and for a sharper reason (GC-155): it is the one remembered
+// key naming a **folder on disk**, so a tab left behind by a hand-written driver on the same port
+// comes back pointing at a folder that may no longer exist. One did, and step 1 failed with
 // `Repository folder not found: …/gc091-probe` and cascaded into 30 failures across steps 1-5, none
-// of them about the code under test. `gitclient.lastRepo` needs no removal of its own: the same
-// statement sets it outright, two assignments along.
+// of them about the code under test.
+// So the clear is now **every** `gitclient.*` key rather than a list of names (GC-160). The list
+// was three names long while the profile persists between runs on this port and every hand-written
+// driver shares it: a screenshot driver's `gitclient.refColW=400` was measured surviving a whole
+// `npm run e2e`, which is GC-155's bug one key over and passed only because no step asserts a
+// column width in pixels. A key added to `prefs.ts` or to the remembered-state table in `CLAUDE.md`
+// now costs the suite nothing to stay isolated from. `gitclient.lastRepo` needs no removal of its
+// own: the same statement sets it outright, one assignment along, and every key the run itself
+// creates is written after this.
 // The flag is what makes the wait below mean anything: the app has usually already loaded this
 // same repository from `gitclient.lastRepo` by the time this runs, so a bare "rows are there and
 // nothing is busy" is satisfied by the page that is *about* to be thrown away, and the reload then
 // lands in the middle of step 2 or 3 with the panels empty. The flag lives on `window`, so it is
 // gone the moment the new document exists (GC-080).
-await ev(`window.__e2eReloading = true; localStorage.removeItem('gitclient.prefs'); localStorage.removeItem('gitclient.tabs'); Object.keys(localStorage).filter(k => k.startsWith('gitclient.hidden.')).forEach(k => localStorage.removeItem(k)); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); setTimeout(() => location.reload(), 50); 'reloading'`);
+const kept = await ev(
+  `(() => { window.__e2eReloading = true; Object.keys(localStorage).filter(k => k.startsWith('gitclient.')).forEach(k => localStorage.removeItem(k)); localStorage.setItem('gitclient.lastRepo', ${q(R.replace(/\\/g, '/'))}); const left = Object.keys(localStorage).filter(k => k.startsWith('gitclient.')).sort(); setTimeout(() => location.reload(), 50); return JSON.stringify(left); })()`,
+);
+// Read back in the same page turn as the clear, before the reload writes anything of its own, so
+// the assertion is about what step 1 inherited and nothing else (GC-160). It is what turns the
+// clear being narrowed back to a name list into a named failure here rather than a value quietly
+// carried into a later step's measurement.
+check('step 1 starts from a profile holding only the repository it sets', kept === '["gitclient.lastRepo"]', kept);
 // The generation starts again from zero across the reload, so `act()` has nothing to compare
 // against here: wait on the new document having loaded the repository instead (GC-080).
 await waitFor(
@@ -1163,6 +1177,28 @@ check(
 git(['checkout', '-q', 'main']);
 writeFileSync(join(R, GUARD_TRACKED), 'feature work\nmore\nguard edit\n');
 log(await act(() => tool('Refresh')));
+
+// The untracked clause in the message is conditional, so both shapes are asserted (GC-161). First
+// without one: the untracked guard file is taken off disk, and the sentence must then be exactly
+// what it was before that ticket — a clause describing nothing is worse than no clause.
+rmSync(join(R, GUARD_FILE), { force: true });
+log(await act(() => tool('Refresh')));
+log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
+log(await menuClick('Checkout wip-branch'));
+await waitModal();
+const trackedOnlyMessage = String(await modalMessage());
+check(
+  'with no untracked file the checkout guard says exactly what it always did',
+  trackedOnlyMessage.includes('in 1 file. Check out wip-branch anyway?') && !trackedOnlyMessage.includes('untracked'),
+  trackedOnlyMessage,
+);
+log(await modalClick('Cancel'));
+await waitNoModal();
+await waitIdle();
+// and back on disk: every assertion from here on compares against a tree that holds it
+writeFileSync(join(R, GUARD_FILE), 'guard\n');
+log(await act(() => tool('Refresh')));
+
 const dirtyBefore = status();
 const stashesBefore = git(['stash', 'list']).split('\n').filter(Boolean).length;
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
@@ -1170,7 +1206,10 @@ log(await menuClick('Checkout wip-branch'));
 await waitModal();
 check('prompt offers all three choices', String(await modalButtons()) === 'Cancel | Stash and check out | Check out anyway', await modalButtons());
 const dirtyMessage = String(await modalMessage());
-check('the prompt counts the file at risk, not the untracked ones', dirtyMessage.includes('in 1 file.'), dirtyMessage);
+check('the prompt counts the file at risk, not the untracked ones', dirtyMessage.includes('in 1 file —'), dirtyMessage);
+// The count is tracked-only (GC-019) while "Stash and check out" passes `includeUntracked`, so the
+// two have different scope and the message has to say which in the same sentence (GC-161).
+check('the prompt says the stash takes the untracked file too', dirtyMessage.includes('stashing takes your untracked files with it as well'), dirtyMessage);
 await shot('modal-checkout-dirty.png');
 log(await modalClick('Cancel'));
 // the dialog has to be gone before the next one opens, or the wait for it would pass on this one

@@ -967,11 +967,19 @@ export function App(): JSX.Element {
       // Untracked files come across a checkout untouched, so a tree holding nothing else is not at
       // risk and must not be asked about (GC-019); the count names the files that are, which is the
       // staging list minus those untracked rows.
-      const atRisk = (snapshot?.status.entries ?? []).filter((e) => !(e.staged === null && e.unstaged === 'untracked'));
+      const entries = snapshot?.status.entries ?? [];
+      const atRisk = entries.filter((e) => !(e.staged === null && e.unstaged === 'untracked'));
+      // …but "Stash and check out" below does pass `includeUntracked`, because an untracked file
+      // can be in the way of a checkout even though an untouched one is not at risk. So the count
+      // and the button have different scope, and the message says so in the same sentence
+      // (GC-161), in the shape GC-097 gave the sequencer guard next door — which stashes *less*
+      // than its own refusal implies and had to say that. Only when there is something to say:
+      // with no untracked file the clause would describe nothing, and the message is unchanged.
+      const untracked = entries.length - atRisk.length;
       if (prefs.confirmDirtyCheckout && atRisk.length) {
         const r = await ui.prompt({
           title: 'Uncommitted changes',
-          message: `You have uncommitted changes in ${atRisk.length} file${atRisk.length === 1 ? '' : 's'}. Check out ${name} anyway?`,
+          message: `You have uncommitted changes in ${atRisk.length} file${atRisk.length === 1 ? '' : 's'}${untracked ? ' — stashing takes your untracked files with it as well' : ''}. Check out ${name} anyway?`,
           input: false,
           okLabel: 'Check out anyway',
           secondary: { label: 'Stash and check out' },

@@ -799,7 +799,11 @@ input[type='radio']:disabled {
   background: var(--accent-soft);
 }
 /* positioned, because the folded refs open under the chip that stayed put — they hang off this
-   cell, not off the +N chip they are reached through */
+   cell, not off the +N chip they are reached through.
+   The padding and the gap here, and the widths of every `flex: none` child below — `.ref-chip.more`,
+   `.stash-chip`, `.ref-line` — are mirrored by `chipRoom` in `CommitGraph.tsx`, which is what
+   decides whether the one chip that shrinks still has room for its upstream cloud (GC-156). A
+   width changed here changes there. */
 .graph-row .col-ref {
   width: var(--ref-col-w);
   flex: none;
@@ -1233,10 +1237,26 @@ input[type='radio']:disabled {
 /* avatar | who and when | parents. A grid rather than `margin-left: auto` inside a flex row
    (GC-142): the parents list gets a column of its own, so it can neither overlap the authored
    date nor wrap under it as the panel narrows towards its 300px minimum. The middle column is
-   `minmax(0, 1fr)`, which is what lets the name and the date ellipsise instead of pushing. */
+   flexible, which is what lets the name and the date ellipsise instead of pushing.
+
+   Its *floor* is `--author-when-w`, which is what decides who gives way first (GC-157). With the
+   middle at a bare `minmax(0, 1fr)` the third column was `auto` — sized to its content and never
+   shrinking — so the flexible middle absorbed the whole shortfall and a two-parent commit clipped
+   the date at the default 400px panel, not at the 300px minimum: the grid resolved to
+   `40px 157px 154px` and `authored 06/09/2026, 12:15:42` needs 172. Giving the middle a measured
+   minimum reverses that — the parents column now takes only the space left over and wraps inside
+   it, which is the degradation GC-142 designed for, and `minmax(0, auto)` is what lets it shrink
+   at all. A single-parent commit is unchanged: its parents column is short enough that the floor
+   is never the binding constraint.
+
+   `min(60%, …)` rather than the flat token: the date may claim its measured width but never more
+   than three fifths of the row, so the parents column always keeps a share it can show something
+   in. Measured, the 60% only binds below a ~336px panel — at 400 and 350 the floor is the full
+   180px and the date is whole — and it is what keeps the panel's own 300px minimum from cutting
+   the parents column to four characters to spare a date nothing else was competing for. */
 .author {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(min(60%, var(--author-when-w)), 1fr) minmax(0, auto);
   align-items: center;
   gap: var(--sp-3);
   font-size: var(--fs-sm);
@@ -1264,11 +1284,20 @@ input[type='radio']:disabled {
   color: var(--text-muted);
 }
 /* Right-aligned in its own column; a merge with several parents wraps inside that column rather
-   than growing into the one beside it. */
+   than growing into the one beside it. The cap and the clip are what let it actually take the
+   column's width rather than its own content's (GC-157), and `max-width` is the one doing the
+   work: `justify-self: end` makes the box shrink-to-fit, and `fit-content` floors at the item's
+   own min-content whatever the track is — measured at the panel's 300px minimum, a 31px track
+   still drew a 52px box that reached 9px back over the date, which is the overlap GC-142 exists
+   to prevent. Capping at the grid area is structural: it cannot overlap at any width, whatever
+   the arithmetic above leaves the column. */
 .author .parents {
   justify-self: end;
   text-align: right;
   color: var(--text-muted);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 .author .parents b {
   font-family: var(--font-mono);

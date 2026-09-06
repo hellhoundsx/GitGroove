@@ -508,13 +508,24 @@ reaching HEAD's tip from above cannot take that lane (the seed holds it), so it 
 nothing else uses may carry the run; with HEAD outside the loaded range the WIP node draws no stub
 at all rather than a dash running off the bottom.
 
-**At the narrow end of the ref column the name wins over the furniture** (GC-071): below
-`REF_COL_ICONS_MIN` (120px) the primary chip drops its trailing upstream cloud, and the chip inside
-the expanded `+N` block keeps it, not being bound by the column's width. The column spends 41px on
-the `+N` chip and its gaps, so a chip is drawn at `width - 41`; with the cloud it wants 71px and at
-the 100px minimum it is given 59, which is where `main` rendered as `ma…`. The cloud only repeats
-what the chip already says by absorbing its upstream, and the title still says it in words, so the
-cloud is what gives way — the name is the identity of the ref.
+**At the narrow end of the ref column the name wins over the furniture** (GC-071): with less than
+`CHIP_CLOUD_MIN` (79px) of room the primary chip drops its trailing upstream cloud, and the chip
+inside the expanded `+N` block keeps it, not being bound by the column's width. With the cloud a
+chip wants 71px; at the 100px minimum column it was given 59, which is where `main` rendered as
+`ma…`. The cloud only repeats what the chip already says by absorbing its upstream, and the title
+still says it in words, so the cloud is what gives way — the name is the identity of the ref.
+
+**How much room that is, is `chipRoom(refColW, more, stashes)`, and it counts every sibling**
+(GC-156). GC-071 had it as the constant `width - 41` — the `+N` chip and the gaps either side —
+which was every sibling in `.col-ref` until GC-140 put a stash marker there. The marker is 20px
+plus a gap and the arithmetic never saw it, so above the threshold the cloud was kept and the
+*name* paid for the marker instead: at a fitted 134px column `main` was given 27px for a 29px
+string. The threshold is therefore stated as the chip's **own** room rather than as the column's
+width, because those two stopped being the same number the moment a row could carry a marker the
+row above it does not — a row with a stash drops its cloud at a wider column than one without.
+`REF_COL_PAD`, `REF_COL_GAP`, `MORE_CHIP_W`, `STASH_CHIP_W` and `REF_LINE_MIN` mirror `app.css`
+the way `OPT_COL_W` mirrors the optional columns, and the function is pure and exported so the
+measurement lives in a test. A new non-ref marker in that cell is furniture on the same terms.
 
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold. With **no branch checked out** a synthetic `HEAD` chip is
@@ -676,7 +687,17 @@ either a **card**, which carries its own border — the message box, a banner, a
 `.group-head` is a band rather than a second hairline, which is what makes Unstaged and Staged read
 as two groups, and the commit view's file list carries the same head so a file list is one thing in
 both views. `.author` is a three-column grid — avatar, identity, parents — so the parents list has
-a place of its own and the authored date ellipsises rather than being wrapped into.
+a place of its own and the authored date ellipsises rather than being wrapped into. **The middle
+column carries a floor and the parents column is the one that gives way** (GC-157): with the
+parents column `auto` it was sized to its content and never shrank, so the flexible middle absorbed
+the whole shortfall and a two-parent commit clipped the date at the *default* 400px panel rather
+than at the 300px minimum. It is now `minmax(min(60%, var(--author-when-w)), 1fr)` against
+`minmax(0, auto)`, and `.parents` carries `max-width: 100%` — `justify-self: end` makes it
+shrink-to-fit and `fit-content` floors at its own min-content whatever the track is, so without the
+cap a 31px track still drew a 52px box that reached back over the date. `--author-when-w` (180px)
+is a measured metric in `tokens.css`: the authored line wants 172px in the one format GC-133
+settled, and the 60% is what lets the floor yield at the panel's minimum instead of cutting the
+parents column to four characters.
 
 Staging view (operation banner with Abort, Conflicted / Unstaged / Staged groups, commit form with
 amend and the 72-character counter) or commit view (sha, refs, message, author, parent links, file
@@ -810,9 +831,11 @@ Conventions a new test must follow:
 - `watch.test.ts` needs no Electron and no build; `npx esbuild --loader=ts --format=esm <
   src/main/watch.ts` shows the one runtime import it has.
 
-282 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
+285 tests today, one file per module covered. Two are not about the app: `tools/repo-hygiene` fails
 on any C0 control byte that is not TAB or LF (CR included) across `src/`, `tools/` and the root
-markdown — it is what guards rule 6 above — **and on a backlog whose two files disagree** (GC-145):
+markdown — **`TICKETS-ARCHIVE.md` included, and the tree-walk test names it outright** (GC-158), so
+the 82% of the backlog GC-145 moved into it cannot fall out of rule 6's guard again with nothing
+failing — it is what guards rule 6 above — **and on a backlog whose two files disagree** (GC-145):
 `backlogProblems` is pure and reports one sentence per problem, so a `done` section left in
 `TICKETS.md` or a board row resolving to nothing fails `npm test` rather than being noticed months
 later. `tools/launch-app` covers the attach path against a fake CDP endpoint, and the ownership a launch
@@ -823,7 +846,7 @@ Electron, and `ownChild` cares only that it was handed something with a pid.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 38 steps, 263 assertions, ~41s. It ends with
+asserting against git after each step. 38 steps, 266 assertions, ~41s. It ends with
 `total: 41.2s | git: 359 calls, 9.2s` — the run's own clock (GC-080) beside the cost of its own
 verification (GC-081), counted and timed in `gitRun`, which every spawn in the file goes through.
 A change that makes the suite slower is then a number, not an impression; the git half spawns a
@@ -901,11 +924,14 @@ here. Rules a new step must respect:
   loudly instead of silently healing drift it exists to report.
 - A step that changes the repository puts it back itself, with `git reset --soft` and never
   `--hard`: the index holds the fixture's own staged changes.
-- Step 1 clears `gitclient.prefs`, `gitclient.tabs` and every `gitclient.hidden.*` key, because the
-  per-port profile persists between runs, and asserts the run starts from exactly one tab, the
-  fixture's. `gitclient.tabs` is the one remembered key naming a **folder on disk** (GC-155): a tab
-  a hand-written driver left pointing at a folder it then deleted failed step 1 and cascaded into 30
-  failures about nothing in the code under test.
+- Step 1 clears **every** `gitclient.*` key by prefix, writes `gitclient.lastRepo` back and asserts
+  in the same page turn that nothing else survived, because the per-port profile persists between
+  runs and every hand-written driver shares it (GC-160). It then asserts the run starts from
+  exactly one tab, the fixture's. A list of names was what it had, and it kept losing: a tab a
+  driver left pointing at a folder it had deleted failed step 1 and cascaded into 30 failures about
+  nothing in the code under test (GC-155), and a driver's `gitclient.refColW=400` was later
+  measured surviving a whole run. A key added to `prefs.ts` or to the remembered-state table above
+  now costs the suite nothing to stay isolated from.
 - Screenshots land in `<root>/shots/`, whose directory is created on demand. A fixture that
   predates the current baseline format, or a missing or invalid `testrepo`, exits 2 with the
   `npm run e2e:setup` message.
@@ -988,21 +1014,24 @@ the whitespace flag in the load key rather than the identity, with every patch b
 is on, and a line selection written for whichever file its patch must fit — the index one way, the
 working tree the other (Diff); the hidden set applied to a path's first load
 (Graph); the lane colours interleaved rather than ramped, one module answering what a ref chip is
-so the graph and the commit view cannot draw the same refs differently, and the chip's name winning
-over its upstream marker in a narrow column (Graph, Detail panel); an error and a notice never both
+so the graph and the commit view cannot draw the same refs differently, the chip's name winning
+over its upstream marker in a narrow column, and the room it is drawn at counted against every
+sibling in the cell rather than the `+N` alone (Graph, Detail panel); an error and a notice never both
 on the status bar, with the advisory flag carried on the error's name because that is all IPC
 keeps (App state); every colour a token, the
 theme resolved in `prefs.ts`, one module answering how a timestamp is written so no component
 reaches for `toLocaleString` (Styling, Preferences); a failing e2e git call throwing, its Electron
 stopped on every exit path, a wait before a click proving the control is live rather than only
-the content right, and every click going through `liveClick` so a missing or dead control fails
-where it happened (Testing); one rule for which shortcuts fire while typing, read off the table's
+the content right, every click going through `liveClick` so a missing or dead control fails
+where it happened, and step 1 clearing every remembered key by prefix rather than a list of names
+(Testing); one rule for which shortcuts fire while typing, read off the table's
 own `whileTyping` (App state); a tab switch restoring in one commit and refreshing underneath, the
 tab keyed by id rather than by its path, `gitclient.lastRepo` following the active tab while git's
 canonical spelling is adopted only within one repository, and two keyed siblings never sharing a
 key (App state);
 a single click selecting a tip and an unloaded one moving nothing, one boundary treatment for both
-detail views, the commit draft parked with its tab, the left panel header naming HEAD rather than
+detail views with the parents column giving way before the authored date, the commit draft parked
+with its tab, the left panel header naming HEAD rather than
 counting what its sections already count (Graph, Detail panel, App state); the backlog
 split by status across two files, moved in the same commit as the status change (The backlog);
 stealth launches, narrow stops, the per-port profile, and a launch owned by the process that made it

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import type { Commit, GitRef, Stash } from '@shared/types';
 import type { RefDragHandlers } from '../ui/refDrag';
-import { CommitGraph, rowIndexOf, stashesByParent } from './CommitGraph';
+import { chipRoom, CommitGraph, rowIndexOf, stashesByParent } from './CommitGraph';
 import { DEFAULT_PREFS, setPrefs } from '../prefs';
 
 // GC-058: a guard for GC-022's folded-refs dropdown. `onMoreEnter` decides the direction from
@@ -370,5 +370,33 @@ describe('rowIndexOf (GC-141)', () => {
     expect(rowIndexOf(commits, 'WIP', true)).toBe(0);
     expect(rowIndexOf(commits, 'WIP', false)).toBe(-1);
     expect(rowIndexOf(commits, null, true)).toBe(-1);
+  });
+});
+
+describe('chipRoom: what the primary chip is drawn at (GC-156)', () => {
+  // The numbers below are the stylesheet's, measured over CDP and mirrored in `CommitGraph.tsx`:
+  // 3px of cell padding, a 4px gap between every adjacent pair, a 26px `+N`, a 20px stash marker
+  // and the 4px the `.ref-line` keeps. jsdom applies no stylesheet, so the arithmetic is asserted
+  // on the pure function rather than on a rendered width.
+  it('reproduces GC-071 measurement exactly when the +N and the line are all there is', () => {
+    // GC-071 wrote this as the constant `width - 41`, and that case must not have moved.
+    expect(chipRoom(150, true, 0)).toBe(150 - 41);
+    expect(chipRoom(120, true, 0)).toBe(79); // the column GC-071 brought the cloud back at
+    expect(chipRoom(100, true, 0)).toBe(59); // the minimum, where `main` rendered as `ma…`
+  });
+
+  it('charges a stash marker to the furniture, not to the name', () => {
+    // The measurement GR-018 took: a fitted 134px column with one stash left the chip 69px, and
+    // 69 is below `CHIP_CLOUD_MIN`, so it is now the cloud that goes rather than the name.
+    expect(chipRoom(134, true, 1)).toBe(69);
+    // 20px for the marker plus the 4px gap it brings with it, per stash.
+    expect(chipRoom(150, true, 0) - chipRoom(150, true, 1)).toBe(24);
+    expect(chipRoom(150, true, 1) - chipRoom(150, true, 2)).toBe(24);
+  });
+
+  it('counts only the furniture that is actually on the row', () => {
+    // One ref and no stash: no `+N` at all, so the chip gets 26px plus a gap more.
+    expect(chipRoom(150, false, 0)).toBe(150 - 11);
+    expect(chipRoom(150, false, 0) - chipRoom(150, true, 0)).toBe(30);
   });
 });

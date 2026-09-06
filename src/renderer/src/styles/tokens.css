@@ -36,6 +36,11 @@
   --lane-w: 20px;
   /* default only: the graph panel overrides --ref-col-w on its own root while it is resized */
   --ref-col-w: 150px;
+  /* The authored line in the detail panel's `.author` row, measured: `authored 06/09/2026,
+     12:15:42` wants 172px in the shared format GC-133 settled, and the format is a constant of
+     the design rather than of the data. 180 is the round number above it, and it is the floor
+     the middle column of that grid keeps so the parents list gives way first (GC-157). */
+  --author-when-w: 180px;
 
   /* Scrollbars: thin, flat, no track, no arrow buttons (GC-079) */
   --scrollbar-w: 8px;

@@ -19,8 +19,17 @@ const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 /** Trees walked in full. */
 const TREES = ['src', 'tools'];
 
-/** Individual files at the root that are worth the same guarantee. */
-const ROOT_FILES = ['TICKETS.md', 'CLAUDE.md', 'README.md'];
+/**
+ * Individual files at the root that are worth the same guarantee.
+ *
+ * `TICKETS-ARCHIVE.md` is on the list because of what GC-145 did (GC-158): it moved 630 KB of
+ * backlog prose — every `done` ticket's section and every superseded review, 8,233 of the
+ * backlog's 10,189 lines — out of `TICKETS.md` and into a file this list did not name, so the
+ * prose that was guarded before the split was unguarded after it. Moving a section between two
+ * files is exactly the kind of bulk copy that carries a stray byte, and the omission read as
+ * deliberate because the split's own consistency checks below read both files.
+ */
+const ROOT_FILES = ['TICKETS.md', 'TICKETS-ARCHIVE.md', 'CLAUDE.md', 'README.md'];
 
 /** Never descend into these: not ours, and huge. */
 const SKIP_DIRS = new Set(['node_modules', 'out', 'dist', '.git']);
@@ -80,8 +89,12 @@ describe('repository hygiene', () => {
     const files = scannedFiles();
     expect(files.length).toBeGreaterThan(20);
     expect(files.filter((f) => /(^|\/)(node_modules|out|dist)\//.test(f))).toEqual([]);
-    // The root markdown files and both trees are actually reached.
+    // The root markdown files and both trees are actually reached. The archive is named here
+    // rather than left to `ROOT_FILES` alone, so the next file the backlog grows cannot fall out
+    // of the scan the way it did after GC-145 with nothing failing (GC-158).
     expect(files).toContain('CLAUDE.md');
+    expect(files).toContain('TICKETS.md');
+    expect(files).toContain('TICKETS-ARCHIVE.md');
     expect(files.some((f) => f.startsWith('src/'))).toBe(true);
     expect(files.some((f) => f.startsWith('tools/'))).toBe(true);
   });

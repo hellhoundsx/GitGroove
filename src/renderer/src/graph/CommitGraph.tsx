@@ -69,20 +69,54 @@ const REF_COL_DEFAULT = 150;
 const REF_COL_MIN = 100;
 const REF_COL_MAX = 400;
 /**
- * Below this the primary chip drops its trailing upstream cloud, so the name wins over the
- * furniture around it (GC-071).
+ * The furniture a primary chip shares `.col-ref` with, mirroring `app.css` the way `OPT_COL_W`
+ * mirrors the optional columns. Every one of these is `flex: none` and the chip is `flex: 0 1
+ * auto`, so the chip is the one thing that gives way and what it is drawn at is the column minus
+ * all of this (GC-156).
+ */
+const REF_COL_PAD = 3; // `.graph-row .col-ref` padding-left
+const REF_COL_GAP = 4; // `.graph-row .col-ref` gap, between every adjacent pair
+const MORE_CHIP_W = 26; // `.ref-chip.more`, the `+N`
+const STASH_CHIP_W = 20; // `.stash-chip`
+const REF_LINE_MIN = 4; // `.ref-line` min-width; it grows, but this is all the chip may count on
+/**
+ * How much room a primary chip is drawn at, given the column's width and what else is on the row
+ * (GC-156). GC-071 had this as the constant `width - 41` — the `+N` and the line, and nothing
+ * else — which was every sibling there was until GC-140 put a stash marker in the same cell. The
+ * marker is 20px plus a gap and the arithmetic never saw it, so above `CHIP_CLOUD_MIN` the cloud
+ * was kept and the *name* paid for the marker instead: measured at a fitted 134px column, `main`
+ * was given 27px for a 29px string and rendered as `m…`.
  *
- * Measured over CDP on the fixture's `main`, which carries five chips: the column spends 41px on
- * the `+N` chip and the gaps either side of it, so a chip is drawn at `width - 41`. With the cloud
- * the chip wants 71px — 12 padding, 11 check, 4 gap, 29 name, 4 gap, 11 cloud — and at the 100px
- * minimum it is given 59, which is where `main` rendered as `ma…` (17px of a 29px name). Without
- * the cloud it wants 56 and fits from 97px up. 120 is the round number above the 112px the cloud
- * itself needs, so the marker comes back exactly when there is room for it *and* the whole name.
+ * Pure and exported, so the measurement lives in a test rather than only in this comment. Two
+ * stashes on one commit, or any future non-ref marker, are furniture on the same terms.
+ */
+export function chipRoom(refColW: number, more: boolean, stashes: number): number {
+  const after: number[] = [];
+  if (more) after.push(MORE_CHIP_W);
+  for (let i = 0; i < stashes; i++) after.push(STASH_CHIP_W);
+  after.push(REF_LINE_MIN);
+  return refColW - after.reduce((a, b) => a + b, REF_COL_PAD) - REF_COL_GAP * after.length;
+}
+/**
+ * Below this much room the primary chip drops its trailing upstream cloud, so the name wins over
+ * the furniture around it (GC-071).
+ *
+ * Measured over CDP on the fixture's `main`, which carries five chips: with the cloud the chip
+ * wants 71px — 12 padding, 11 check, 4 gap, 29 name, 4 gap, 11 cloud — and at the 100px minimum
+ * column it was given 59, which is where `main` rendered as `ma…` (17px of a 29px name). Without
+ * the cloud it wants 56. 79 is what GC-071's 120px column left a chip once the `+N` and the line
+ * had taken their 41: a round number above the 71 the cloud itself needs, so the marker comes
+ * back exactly when there is room for it *and* the whole name.
+ *
+ * Stated as the chip's own room rather than as the column's width, because those two stopped
+ * being the same number the moment a row could carry a marker the row above it does not
+ * (GC-156). A row with a stash on it now drops its cloud at a wider column than one without —
+ * which is GC-071's rule applied to a corrected figure, not a change to it.
  *
  * The name is the identity of the ref; the cloud only repeats what the chip already implies by
  * absorbing its upstream, and the title still says it in words. So the cloud is what gives way.
  */
-const REF_COL_ICONS_MIN = 120;
+const CHIP_CLOUD_MIN = 79;
 /**
  * The widths of the optional columns, mirroring `app.css` (GC-032). They are `flex: none`, so
  * whatever they take comes out of the commit message column: the ref column has to know about
@@ -450,7 +484,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     setMoreUp(height > below && above > below ? sha : null);
   };
 
-  const renderChip = ({ ref: r, upstreamHere }: Chip, color: string, commit?: Commit, plain?: boolean): JSX.Element => {
+  const renderChip = ({ ref: r, upstreamHere }: Chip, color: string, room: number, commit?: Commit, plain?: boolean): JSX.Element => {
     const isPinned = r.kind === 'head' && r.name === pinnedName;
     // The synthetic HEAD chip is no ref: there is nothing to check out and nothing for the ref
     // menu to act on, so it opens the commit menu instead — "Create branch here…" being what a
@@ -466,9 +500,11 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
         color={color}
         pinned={isPinned}
         plain={plain}
-        // In a narrow column the name wins over the marker (GC-071). The expanded `+N` block is not
-        // bound by the column's width, so a chip in it keeps the cloud whatever the column is.
-        upstreamMark={plain === true || refColApplied >= REF_COL_ICONS_MIN}
+        // With little room the name wins over the marker (GC-071), and how much room there is
+        // depends on what else is on this row, not on the column alone (GC-156). The expanded
+        // `+N` block is not bound by the column's width, so a chip in it keeps the cloud whatever
+        // the column is.
+        upstreamMark={plain === true || room >= CHIP_CLOUD_MIN}
         dragAttrs={dragAttrs}
         className={`${!synthetic && drag.isSource(r) ? 'drag-src' : ''} ${!synthetic && drag.isOver(r) ? 'drop-over' : ''}`}
         title={synthetic ? 'Detached HEAD\nRight-click for actions on this commit' : `${r.fullName}${upstreamHere ? `\nup to date with ${r.upstream}` : ''}${isPinned ? '\npinned to the left column' : ''}\nDouble-click to checkout, right-click for actions${dragAttrs?.draggable ? '\nDrag onto another branch to merge or rebase' : ''}`}
@@ -562,6 +598,9 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     const rowRefs = refsBySha.get(c.sha) ?? [];
     const chips = chipsFor(rowRefs);
     const rowStashes = stashesOn.get(c.sha) ?? [];
+    // What the one chip in the row is actually drawn at: the column less every sibling beside it,
+    // the stash markers included (GC-156).
+    const room = chipRoom(refColApplied, chips.length > MAX_CHIPS, rowStashes.length);
     // The line out of the ref column and the connector into the node are the same join, so a row
     // carrying only a stash marker gets both rather than a marker floating on its own (GC-140).
     const joined = rowRefs.length > 0 || rowStashes.length > 0;
@@ -570,7 +609,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     return (
       <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''} ${!filtering ? '' : matchSet.has(c.sha) ? 'match' : 'unmatched'}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
         <div className="col-ref" onMouseEnter={(e) => onMoreEnter(e, c.sha)} onMouseLeave={() => setMoreUp(null)}>
-          {chips.slice(0, MAX_CHIPS).map((chip) => renderChip(chip, color, c))}
+          {chips.slice(0, MAX_CHIPS).map((chip) => renderChip(chip, color, room, c))}
           {chips.length > MAX_CHIPS && (
             // Not a popover, and not something to go and find: hovering the refs grows them. The
             // block starts on the chip that was showing, in the same colour, and each further ref
@@ -586,7 +625,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
                 +{chips.length - MAX_CHIPS}
               </span>
               <span className={`more-list ${moreUp === c.sha ? 'flip-up' : ''}`} style={{ background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` }}>
-                {chips.map((chip) => renderChip(chip, color, c, true))}
+                {chips.map((chip) => renderChip(chip, color, room, c, true))}
               </span>
             </>
           )}
