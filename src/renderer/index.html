@@ -7,7 +7,12 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.gravatar.com https://gravatar.com; font-src 'self' data:"
     />
-    <title>GitClient</title>
+    <!-- Relative, not absolute: the renderer is served by Vite in dev and opened with `loadFile`
+         in production, and only a relative href resolves under both. The file is generated into
+         `src/renderer/public/` by `assets/branding/gitgroove-logo.mjs`, which Vite copies next to
+         this document at build time. -->
+    <link rel="icon" type="image/svg+xml" href="./gitgroove-favicon.svg" />
+    <title>GitGroove</title>
   </head>
   <body>
     <div id="root"></div>

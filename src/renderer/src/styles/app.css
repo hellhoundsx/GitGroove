@@ -119,6 +119,13 @@ body {
   background: var(--bg-sidebar-glass);
 }
 
+/* The mark, above the name on the empty state. `block` plus `auto` margins rather than relying on
+   the panel's `text-align: center`, because an image is replaced content and centring it as text
+   depends on it being inline — which it is only until something gives it a display of its own. */
+.empty-mark {
+  display: block;
+  margin: 0 auto var(--sp-3);
+}
 .empty-title {
   font-size: var(--fs-xl);
   font-weight: 600;

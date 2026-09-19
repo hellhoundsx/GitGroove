@@ -1,9 +1,13 @@
-# GitClient
+<img src="assets/branding/png/gitgroove-lockup-dark%402x.png" alt="GitGroove" width="440">
 
 A desktop Git client with a visual commit graph, built with Electron, React and
 TypeScript. The UX is informed by a study of GitKraken Desktop; see
 `docs/reference/gitkraken/` for the notes and screenshots that drive the design.
 The implementation is original.
+
+The mark is three rings of dots — a record's grooves and a commit graph's rings are the
+same drawing — with one commit picked out in a branch colour. `assets/branding/` holds
+the kit and the generator that produces it.
 
 ## Stack
 

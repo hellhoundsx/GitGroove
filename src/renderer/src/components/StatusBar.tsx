@@ -121,7 +121,7 @@ export function StatusBar({ repoPath, commitCount, busy, generation, error, noti
       )}
       <span className="spacer" />
       {repoPath && <span>{commitCount} commits</span>}
-      <span>GitClient 0.1.0</span>
+      <span>GitGroove 0.1.0</span>
     </footer>
   );
 }

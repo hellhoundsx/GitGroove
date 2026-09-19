@@ -107,7 +107,7 @@ const BASE_ARGS = ['--no-pager', '-c', 'core.quotepath=off', '-c', 'color.ui=nev
  * What the status bar and the empty state say when git itself is missing: Node only offers
  * `spawn git ENOENT`, which names neither git nor the fix, and every action here shells out (GC-025).
  */
-export const GIT_MISSING_MESSAGE = 'git was not found on PATH. GitClient runs the system git for every operation: install Git, make sure "git" is on PATH, then restart GitClient.';
+export const GIT_MISSING_MESSAGE = 'git was not found on PATH. GitGroove runs the system git for every operation: install Git, make sure "git" is on PATH, then restart GitGroove.';
 
 /** Run git in the given working directory and return stdout. */
 export function runGit(cwd: string, args: string[], opts: RunOptions = {}): Promise<string> {

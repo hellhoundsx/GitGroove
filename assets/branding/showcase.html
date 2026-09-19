@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitGroove — Logo Design Exploration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: #FAFAFA;
+            color: #1A1A1A;
+            overflow-x: hidden;
+        }
+
+        .font-mono {
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+        }
+
+        /* Subtle grain texture */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        /* Smooth scroll */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* Logo hover effects */
+        .logo-card {
+            transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .logo-card:hover {
+            transform: translateY(-4px);
+        }
+
+        .logo-canvas {
+            position: relative;
+            transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Aura effect on hover */
+        .logo-aura {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%);
+            border-radius: 50%;
+            transform: scale(0.5);
+            opacity: 0;
+            transition: all 1s cubic-bezier(0.16, 1, 0.3, 1);
+            filter: blur(40px);
+            pointer-events: none;
+        }
+
+        .logo-card:hover .logo-aura {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        /* Divider animation */
+        .divider-line {
+            width: 0;
+            height: 1px;
+            background: #1A1A1A;
+            opacity: 0.2;
+            transition: width 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .logo-card:hover .divider-line {
+            width: 100%;
+        }
+
+        /* Showcase image effects */
+        .showcase-img {
+            transition: transform 0.5s ease, box-shadow 0.5s ease;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .showcase-img:hover {
+            transform: scale(1.02);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.12);
+        }
+
+        /* Typography refinements */
+        .tracking-ultra-wide {
+            letter-spacing: 0.2em;
+        }
+
+        .text-balance {
+            text-wrap: balance;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        const FinalMark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<circle cx=\"50\" cy=\"22\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"76.63\" cy=\"58.65\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"72.65\" cy=\"66.46\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"66.46\" cy=\"72.65\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"58.65\" cy=\"76.63\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"50\" cy=\"78\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"41.35\" cy=\"76.63\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"33.54\" cy=\"72.65\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"27.35\" cy=\"66.46\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"23.37\" cy=\"58.65\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"22\" cy=\"50\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"23.37\" cy=\"41.35\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"27.35\" cy=\"33.54\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"33.54\" cy=\"27.35\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"41.35\" cy=\"23.37\" r=\"2.6\" fill=\"currentColor\"/>\n  <circle cx=\"50\" cy=\"30.5\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"69.01\" cy=\"54.34\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"65.25\" cy=\"62.16\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"58.46\" cy=\"67.57\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"50\" cy=\"69.5\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"41.54\" cy=\"67.57\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"34.75\" cy=\"62.16\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"30.99\" cy=\"54.34\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"30.99\" cy=\"45.66\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"34.75\" cy=\"37.84\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"41.54\" cy=\"32.43\" r=\"2.3\" fill=\"currentColor\"/>\n  <circle cx=\"50\" cy=\"39\" r=\"2\" fill=\"currentColor\"/>\n  <circle cx=\"61\" cy=\"50\" r=\"2\" fill=\"currentColor\"/>\n  <circle cx=\"57.78\" cy=\"57.78\" r=\"2\" fill=\"currentColor\"/>\n  <circle cx=\"50\" cy=\"61\" r=\"2\" fill=\"currentColor\"/>\n  <circle cx=\"42.22\" cy=\"57.78\" r=\"2\" fill=\"currentColor\"/>\n  <circle cx=\"39\" cy=\"50\" r=\"2\" fill=\"currentColor\"/>\n  <circle cx=\"42.22\" cy=\"42.22\" r=\"2\" fill=\"currentColor\"/>\n  <circle cx=\"78\" cy=\"50\" r=\"3.8\" fill=\"#C549B7\"/>" }} />
+        );
+
+        const GrooveMark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<path d=\"M 59.8 34.31 A 18.5 18.5 0 1 0 59.25 66.02\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"3.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <path d=\"M 64.84 26.25 A 28 28 0 1 0 78 50 L 59 50\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"59\" cy=\"50\" r=\"6.5\" fill=\"currentColor\"/>" }} />
+        );
+
+        const RowsMark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<defs><clipPath id=\"gg-rows\"><circle cx=\"50\" cy=\"50\" r=\"30\"/></clipPath></defs>\n    <g clip-path=\"url(#gg-rows)\">\n      <path d=\"M 18 26 L 82 26\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n      <path d=\"M 18 34 L 82 34\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n      <path d=\"M 18 50 L 82 50\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n      <path d=\"M 18 58 L 82 58\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n      <path d=\"M 18 66 L 82 66\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n      <path d=\"M 18 74 L 82 74\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    </g>\n    <path d=\"M 21.1 42 L 79 42\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <path d=\"M 62 42 L 84 42\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"84\" cy=\"42\" r=\"5\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const PunchMark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<defs>\n      <mask id=\"gg-punch\">\n        <circle cx=\"50\" cy=\"50\" r=\"30\" fill=\"white\"/>\n        <circle cx=\"50\" cy=\"50\" r=\"4.6\" fill=\"black\"/>\n        <circle cx=\"40\" cy=\"67.32\" r=\"3.4\" fill=\"black\"/>\n        <circle cx=\"32.68\" cy=\"60\" r=\"3.4\" fill=\"black\"/>\n        <circle cx=\"30\" cy=\"50\" r=\"3.4\" fill=\"black\"/>\n        <circle cx=\"32.68\" cy=\"40\" r=\"3.4\" fill=\"black\"/>\n        <circle cx=\"40\" cy=\"32.68\" r=\"3.4\" fill=\"black\"/>\n        <circle cx=\"50\" cy=\"30\" r=\"3.4\" fill=\"black\"/>\n        <circle cx=\"60\" cy=\"32.68\" r=\"3.4\" fill=\"black\"/>\n        <circle cx=\"67.32\" cy=\"40\" r=\"3.4\" fill=\"black\"/>\n      </mask>\n    </defs>\n    <circle cx=\"50\" cy=\"50\" r=\"30\" fill=\"currentColor\" mask=\"url(#gg-punch)\"/>\n    <circle cx=\"70\" cy=\"50\" r=\"4\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const NeedleMark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<path d=\"M 74 35.58 A 28 28 0 0 0 64.42 26\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"4.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <path d=\"M 66.29 40.21 A 19 19 0 0 0 59.79 33.71\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"50\" cy=\"50\" r=\"3\" fill=\"currentColor\"/>\n    <path d=\"M 86 14 L 63.44 36.56\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"63.44\" cy=\"36.56\" r=\"4.6\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const BranchMark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<path d=\"M 40 28 L 40 72\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"4.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"40\" cy=\"28\" r=\"5.5\" fill=\"currentColor\"/>\n    <circle cx=\"40\" cy=\"72\" r=\"5.5\" fill=\"currentColor\"/>\n    <path d=\"M 64 34 L 64 60 A 12 12 0 0 1 52 72 L 45.5 72\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"64\" cy=\"30\" r=\"5\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const ApertureMark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<path d=\"M 59.25 33.98 A 18.5 18.5 0 1 0 57.52 66.9\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"3.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <path d=\"M 59.8 34.31 L 71.46 15.65\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"71.46\" cy=\"15.65\" r=\"4.5\" fill=\"var(--accent, #C549B7)\"/>\n    <path d=\"M 64.84 26.25 A 28 28 0 1 0 78 50 L 59 50\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"59\" cy=\"50\" r=\"6.2\" fill=\"currentColor\"/>" }} />
+        );
+
+        const RecordMark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<circle cx=\"50\" cy=\"50\" r=\"31\" fill=\"currentColor\" opacity=\"0.1\"/>\n    <path d=\"M 63.77 30.34 A 24 24 0 1 0 59.76 71.93\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <path d=\"M 59.75 36.07 A 17 17 0 1 0 56.91 65.53\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"3.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <path d=\"M 55.74 41.81 A 10 10 0 1 0 54.07 59.14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n    <circle cx=\"50\" cy=\"50\" r=\"2.5\" fill=\"currentColor\"/>" }} />
+        );
+
+        const Xr2Mark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<circle cx=\"50\" cy=\"21\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"78.7\" cy=\"54.13\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"76.38\" cy=\"62.05\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"71.92\" cy=\"68.99\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"65.68\" cy=\"74.4\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"58.17\" cy=\"77.83\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"79\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"41.83\" cy=\"77.83\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"34.32\" cy=\"74.4\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"28.08\" cy=\"68.99\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"23.62\" cy=\"62.05\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"21.3\" cy=\"54.13\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"21.3\" cy=\"45.87\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"23.62\" cy=\"37.95\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"28.08\" cy=\"31.01\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"34.32\" cy=\"25.6\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"41.83\" cy=\"22.17\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"28\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"71.91\" cy=\"47.97\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"71.16\" cy=\"56.02\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"67.56\" cy=\"63.26\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"61.58\" cy=\"68.7\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"54.04\" cy=\"71.63\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"45.96\" cy=\"71.63\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"38.42\" cy=\"68.7\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"32.44\" cy=\"63.26\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"28.84\" cy=\"56.02\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"28.09\" cy=\"47.97\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"30.31\" cy=\"40.19\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"35.18\" cy=\"33.74\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"42.05\" cy=\"29.49\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"35\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"65\" cy=\"50\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"62.99\" cy=\"57.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"57.5\" cy=\"62.99\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"65\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"42.5\" cy=\"62.99\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"37.01\" cy=\"57.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"35\" cy=\"50\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"37.01\" cy=\"42.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"42.5\" cy=\"37.01\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"42\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"56.93\" cy=\"54\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"58\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"43.07\" cy=\"54\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"43.07\" cy=\"46\" r=\"1.95\" fill=\"currentColor\"/>\n    <path d=\"M 77.73 41.52 L 88.25 38.31\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"2.7\" stroke-linecap=\"round\"/>\n    <circle cx=\"88.25\" cy=\"38.31\" r=\"4.3\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const Xr3Mark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<circle cx=\"76.38\" cy=\"62.05\" r=\"2.09\" fill=\"currentColor\"/>\n    <circle cx=\"71.92\" cy=\"68.99\" r=\"2.26\" fill=\"currentColor\"/>\n    <circle cx=\"65.68\" cy=\"74.4\" r=\"2.42\" fill=\"currentColor\"/>\n    <circle cx=\"58.17\" cy=\"77.83\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"79\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"41.83\" cy=\"77.83\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"34.32\" cy=\"74.4\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"28.08\" cy=\"68.99\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"23.62\" cy=\"62.05\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"21.3\" cy=\"54.13\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"21.3\" cy=\"45.87\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"23.62\" cy=\"37.95\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"28.08\" cy=\"31.01\" r=\"2.44\" fill=\"currentColor\"/>\n    <circle cx=\"34.32\" cy=\"25.6\" r=\"2.28\" fill=\"currentColor\"/>\n    <circle cx=\"41.83\" cy=\"22.17\" r=\"2.11\" fill=\"currentColor\"/>\n    <circle cx=\"71.16\" cy=\"56.02\" r=\"1.85\" fill=\"currentColor\"/>\n    <circle cx=\"67.56\" cy=\"63.26\" r=\"2.04\" fill=\"currentColor\"/>\n    <circle cx=\"61.58\" cy=\"68.7\" r=\"2.24\" fill=\"currentColor\"/>\n    <circle cx=\"54.04\" cy=\"71.63\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"45.96\" cy=\"71.63\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"38.42\" cy=\"68.7\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"32.44\" cy=\"63.26\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"28.84\" cy=\"56.02\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"28.09\" cy=\"47.97\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"30.31\" cy=\"40.19\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"35.18\" cy=\"33.74\" r=\"2.19\" fill=\"currentColor\"/>\n    <circle cx=\"42.05\" cy=\"29.49\" r=\"1.99\" fill=\"currentColor\"/>\n    <circle cx=\"65\" cy=\"50\" r=\"1.55\" fill=\"currentColor\"/>\n    <circle cx=\"62.99\" cy=\"57.5\" r=\"1.81\" fill=\"currentColor\"/>\n    <circle cx=\"57.5\" cy=\"62.99\" r=\"2.07\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"65\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"42.5\" cy=\"62.99\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"37.01\" cy=\"57.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"35\" cy=\"50\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"37.01\" cy=\"42.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"42.5\" cy=\"37.01\" r=\"1.9\" fill=\"currentColor\"/>\n    <circle cx=\"56.93\" cy=\"54\" r=\"1.64\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"58\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"43.07\" cy=\"54\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"43.07\" cy=\"46\" r=\"1.95\" fill=\"currentColor\"/>\n    <path d=\"M 77.73 41.52 L 88.25 38.31\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"2.7\" stroke-linecap=\"round\"/>\n    <circle cx=\"88.25\" cy=\"38.31\" r=\"4.3\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const Xr4Mark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<circle cx=\"50\" cy=\"21.5\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"78.5\" cy=\"50\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"77.11\" cy=\"58.81\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"73.06\" cy=\"66.75\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"66.75\" cy=\"73.06\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"58.81\" cy=\"77.11\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"78.5\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"41.19\" cy=\"77.11\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"33.25\" cy=\"73.06\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"26.94\" cy=\"66.75\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"22.89\" cy=\"58.81\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"21.5\" cy=\"50\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"22.89\" cy=\"41.19\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"26.94\" cy=\"33.25\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"33.25\" cy=\"26.94\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"41.19\" cy=\"22.89\" r=\"2.7\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"30\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"69.5\" cy=\"54.45\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"65.64\" cy=\"62.47\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"58.68\" cy=\"68.02\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"70\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"41.32\" cy=\"68.02\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"34.36\" cy=\"62.47\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"30.5\" cy=\"54.45\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"30.5\" cy=\"45.55\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"34.36\" cy=\"37.53\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"41.32\" cy=\"31.98\" r=\"2.45\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"38.5\" r=\"2.2\" fill=\"currentColor\"/>\n    <circle cx=\"61.5\" cy=\"50\" r=\"2.2\" fill=\"currentColor\"/>\n    <circle cx=\"58.13\" cy=\"58.13\" r=\"2.2\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"61.5\" r=\"2.2\" fill=\"currentColor\"/>\n    <circle cx=\"41.87\" cy=\"58.13\" r=\"2.2\" fill=\"currentColor\"/>\n    <circle cx=\"38.5\" cy=\"50\" r=\"2.2\" fill=\"currentColor\"/>\n    <circle cx=\"41.87\" cy=\"41.87\" r=\"2.2\" fill=\"currentColor\"/>\n    <path d=\"M 77.11 41.19 L 88.04 37.64\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"2.7\" stroke-linecap=\"round\"/>\n    <circle cx=\"88.04\" cy=\"37.64\" r=\"4.3\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const Xr5Mark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<circle cx=\"50\" cy=\"22.5\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"77.35\" cy=\"52.87\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"73.82\" cy=\"63.75\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"66.16\" cy=\"72.25\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"55.72\" cy=\"76.9\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"44.28\" cy=\"76.9\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"33.84\" cy=\"72.25\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"26.18\" cy=\"63.75\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"22.65\" cy=\"52.87\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"23.85\" cy=\"41.5\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"29.56\" cy=\"31.6\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"38.81\" cy=\"24.88\" r=\"3.6\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"33\" r=\"3.2\" fill=\"currentColor\"/>\n    <circle cx=\"66.17\" cy=\"55.25\" r=\"3.2\" fill=\"currentColor\"/>\n    <circle cx=\"59.99\" cy=\"63.75\" r=\"3.2\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"67\" r=\"3.2\" fill=\"currentColor\"/>\n    <circle cx=\"40.01\" cy=\"63.75\" r=\"3.2\" fill=\"currentColor\"/>\n    <circle cx=\"33.83\" cy=\"55.25\" r=\"3.2\" fill=\"currentColor\"/>\n    <circle cx=\"33.83\" cy=\"44.75\" r=\"3.2\" fill=\"currentColor\"/>\n    <circle cx=\"40.01\" cy=\"36.25\" r=\"3.2\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"43\" r=\"2.8\" fill=\"currentColor\"/>\n    <circle cx=\"57\" cy=\"50\" r=\"2.8\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"57\" r=\"2.8\" fill=\"currentColor\"/>\n    <circle cx=\"43\" cy=\"50\" r=\"2.8\" fill=\"currentColor\"/>\n    <path d=\"M 76.15 41.5 L 87.57 37.79\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"3.4\" stroke-linecap=\"round\"/>\n    <circle cx=\"87.57\" cy=\"37.79\" r=\"5.2\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const Xr6Mark = () => (
+          <svg viewBox="0 0 100 100" className="w-full h-full"
+               dangerouslySetInnerHTML={{ __html: "<circle cx=\"50\" cy=\"21\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"58.17\" cy=\"22.17\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"65.68\" cy=\"25.6\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"71.92\" cy=\"31.01\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"76.38\" cy=\"37.95\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"78.7\" cy=\"45.87\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"78.7\" cy=\"54.13\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"76.38\" cy=\"62.05\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"71.92\" cy=\"68.99\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"65.68\" cy=\"74.4\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"58.17\" cy=\"77.83\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"79\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"41.83\" cy=\"77.83\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"34.32\" cy=\"74.4\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"28.08\" cy=\"68.99\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"23.62\" cy=\"62.05\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"21.3\" cy=\"54.13\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"21.3\" cy=\"45.87\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"23.62\" cy=\"37.95\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"28.08\" cy=\"31.01\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"34.32\" cy=\"25.6\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"41.83\" cy=\"22.17\" r=\"2.55\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"28\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"57.95\" cy=\"29.49\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"64.82\" cy=\"33.74\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"69.69\" cy=\"40.19\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"71.91\" cy=\"47.97\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"71.16\" cy=\"56.02\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"67.56\" cy=\"63.26\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"61.58\" cy=\"68.7\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"54.04\" cy=\"71.63\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"45.96\" cy=\"71.63\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"38.42\" cy=\"68.7\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"32.44\" cy=\"63.26\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"28.84\" cy=\"56.02\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"28.09\" cy=\"47.97\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"30.31\" cy=\"40.19\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"35.18\" cy=\"33.74\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"42.05\" cy=\"29.49\" r=\"2.35\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"35\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"57.5\" cy=\"37.01\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"62.99\" cy=\"42.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"65\" cy=\"50\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"62.99\" cy=\"57.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"57.5\" cy=\"62.99\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"65\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"42.5\" cy=\"62.99\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"37.01\" cy=\"57.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"35\" cy=\"50\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"37.01\" cy=\"42.5\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"42.5\" cy=\"37.01\" r=\"2.15\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"42\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"56.93\" cy=\"46\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"56.93\" cy=\"54\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"58\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"43.07\" cy=\"54\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"43.07\" cy=\"46\" r=\"1.95\" fill=\"currentColor\"/>\n    <circle cx=\"50\" cy=\"50\" r=\"2.6\" fill=\"currentColor\"/>\n    <path d=\"M 77.73 41.52 L 88.73 38.16\" fill=\"none\" stroke=\"var(--accent, #C549B7)\" stroke-width=\"2.7\" stroke-linecap=\"round\"/>\n    <circle cx=\"88.73\" cy=\"38.16\" r=\"4.3\" fill=\"var(--accent, #C549B7)\"/>" }} />
+        );
+
+        const LogoShowcase = () => {
+            const logos = [
+                {
+                    Component: FinalMark,
+                    title: "Grooves — selected",
+                    subtitle: "Dot matrix · three rings, one commit",
+                    philosophy: "A record rendered as a dot matrix: three rings with the spacing held near nine units, the dots tapering inward so the weight sits on the outside, and a wedge left open on one side so the mass reads as an aperture rather than a target. One dot on the outer ring is larger and carries a lane colour — the commit you are looking at, found among all the others. It is the only saturated colour in the mark, which is the rule the application itself runs on: colour means a branch and never anything else."
+                },
+                {
+                    Component: GrooveMark,
+                    title: "Groove",
+                    subtitle: "Pure geometric · Concentric grooves · G",
+                    philosophy: "The G is cut like a record: two concentric grooves sharing one opening. The outer groove is the letterform, the inner one is a branch — the single element allowed to carry colour, because in this app saturated colour only ever means a branch. The crossbar ends in a commit node, so the letter terminates the way a lane does."
+                },
+                {
+                    Component: RowsMark,
+                    title: "Rows",
+                    subtitle: "Line system · Grooves seen edge-on",
+                    philosophy: "Seven parallel lines clipped to a disc — the grooves of a record, and the rows of a commit graph, which are the same drawing. Six of them stay inside the mass. The seventh breaks the circle and ends in a node: a branch leaving the trunk, and the one place the eye is asked to go."
+                },
+                {
+                    Component: PunchMark,
+                    title: "Punch",
+                    subtitle: "Dots + geometry · Subtracted groove · spindle",
+                    philosophy: "Solid mass with the groove taken out of it rather than drawn on it, and a spindle hole at the centre so the disc reads as a record at any size. The punched track stops three quarters of the way round; the commit that would have been the next hole is filled instead, and sits alone against the solid."
+                },
+                {
+                    Component: NeedleMark,
+                    title: "Needle",
+                    subtitle: "Lines + geometry · Arm resting in the groove",
+                    philosophy: "Two grooves and the arm that reads them. The arm is a lane like any other in the graph, and where it touches down is a commit — the needle in the groove and the checked-out tip are the same gesture. The outer groove opens to let it through, so the two never cross and nothing is drawn over anything."
+                },
+                {
+                    Component: BranchMark,
+                    title: "Branch",
+                    subtitle: "Node network · The join, on its own",
+                    philosophy: "The app's own geometry with everything else taken away: a trunk, two commits, and a lane joining back through a quarter arc — never a diagonal, which is the one rule the graph will not break. Asymmetric by construction, because history is. The branch is the coloured one; the trunk never is."
+                },
+                {
+                    Component: ApertureMark,
+                    title: "Aperture",
+                    subtitle: "Letterform + line · G · the branch leaves",
+                    philosophy: "The same G, but the inner groove does not stop at the opening — it turns radial and leaves through it, ending in a commit outside the letter. The gap in a G is usually just a gap; here it is the one way out, which is what an aperture is for."
+                },
+                {
+                    Component: RecordMark,
+                    title: "Record",
+                    subtitle: "Layered · Ground · three grooves",
+                    philosophy: "A disc held at a tenth of the weight so it is a surface rather than a shape, with three grooves cut across it and the spindle at the centre. The middle groove is the branch. Layering is what lets the mark be quiet at a distance and detailed up close, which is the behaviour an app icon actually needs."
+                },
+                {
+                    Component: Xr2Mark,
+                    title: "Four rings · lead-out",
+                    subtitle: "Dot matrix · refinement",
+                    philosophy: "A reading of the selected direction that was tried and set aside: the commit leaves on its own lane."
+                },
+                {
+                    Component: Xr3Mark,
+                    title: "Falloff · lead-out",
+                    subtitle: "Dot matrix · refinement",
+                    philosophy: "A reading of the selected direction that was tried and set aside: density thins toward the gap."
+                },
+                {
+                    Component: Xr4Mark,
+                    title: "Three rings · lead-out",
+                    subtitle: "Dot matrix · refinement",
+                    philosophy: "A reading of the selected direction that was tried and set aside: larger dots, same silhouette."
+                },
+                {
+                    Component: Xr5Mark,
+                    title: "Bold",
+                    subtitle: "Dot matrix · refinement",
+                    philosophy: "A reading of the selected direction that was tried and set aside: the small-size build — 16 and 32px."
+                },
+                {
+                    Component: Xr6Mark,
+                    title: "Platter · lead-out",
+                    subtitle: "Dot matrix · refinement",
+                    philosophy: "A reading of the selected direction that was tried and set aside: closed ring, spindle, one commit out."
+                }
+            ];
+
+            return (
+                <div className="min-h-screen flex flex-col items-center py-20 px-6">
+
+                    {/* Header */}
+                    <div className="text-center mb-20 max-w-3xl">
+                        <h1 className="text-6xl md:text-7xl font-extralight tracking-wider mb-6">
+                            GitGroove
+                        </h1>
+                        <p className="font-mono text-xs opacity-40 uppercase tracking-ultra-wide mb-8">
+                            A desktop Git client &mdash; the mark, and what it was chosen from
+                        </p>
+                        <div className="w-12 h-[1px] bg-[#1A1A1A] mx-auto opacity-30"></div>
+                    </div>
+
+                    {/* Logo Grid */}
+                    <div className="max-w-7xl w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-16 mb-32">
+                        {logos.map((logo, index) => (
+                            <div key={index} className="flex flex-col items-center logo-card cursor-pointer">
+
+                                {/* Logo Canvas */}
+                                <div className="w-64 h-64 mb-10 flex items-center justify-center relative">
+                                    <div className="logo-aura"></div>
+                                    <div className="w-32 h-32 relative z-10 logo-canvas">
+                                        <logo.Component />
+                                    </div>
+                                </div>
+
+                                {/* Text Description */}
+                                <div className="text-center w-full px-4">
+                                    <h2 className="text-xl font-medium tracking-wider mb-2 uppercase">
+                                        {logo.title}
+                                    </h2>
+                                    <h3 className="text-xs font-mono opacity-50 tracking-widest mb-6">
+                                        {logo.subtitle}
+                                    </h3>
+                                    <p className="text-sm leading-relaxed opacity-70 text-left font-light text-balance">
+                                        {logo.philosophy}
+                                    </p>
+                                </div>
+
+                                {/* Bottom Divider */}
+                                <div className="divider-line mt-8 mx-auto"></div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Showcase Images Section */}
+                    <div className="max-w-7xl w-full mb-32">
+                        <div className="text-center mb-16">
+                            <h2 className="text-3xl font-extralight tracking-wider mb-4">At icon size</h2>
+                            <p className="font-mono text-[10px] uppercase tracking-ultra-wide opacity-40">
+                                One build at every size, on the app's own #212121 tile
+                            </p>
+                        </div>
+                        <div dangerouslySetInnerHTML={{ __html: "<div class=\"flex items-end gap-10 flex-wrap justify-center\">\n                          <div class=\"flex flex-col items-center gap-3\"><svg width=\"256\" height=\"256\" viewBox=\"0 0 100 100\" xmlns=\"http://www.w3.org/2000/svg\" style=\"color:#ECECEC\"><rect width=\"100\" height=\"100\" rx=\"22.5\" fill=\"#212121\"/>\n  <rect x=\".3\" y=\".3\" width=\"99.4\" height=\"99.4\" rx=\"22.2\" fill=\"none\" stroke=\"#ffffff\" stroke-opacity=\".07\" stroke-width=\".6\"/>\n  <g transform=\"translate(50 50) scale(0.78) translate(-50 -50)\">\n  <circle cx=\"50\" cy=\"22\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"76.63\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"72.65\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"66.46\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.65\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"78\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"22\" cy=\"50\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"41.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"33.54\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"27.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"23.37\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"30.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"69.01\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"65.25\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.46\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"69.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"45.66\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"37.84\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"32.43\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"39\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"61\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"57.78\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"61\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"39\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"42.22\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"78\" cy=\"50\" r=\"3.8\" fill=\"#C549B7\"/>\n  </g></svg><div class=\"font-mono text-[9px] opacity-30\">256</div></div>\n                          <div class=\"flex flex-col items-center gap-3\"><svg width=\"128\" height=\"128\" viewBox=\"0 0 100 100\" xmlns=\"http://www.w3.org/2000/svg\" style=\"color:#ECECEC\"><rect width=\"100\" height=\"100\" rx=\"22.5\" fill=\"#212121\"/>\n  <rect x=\".3\" y=\".3\" width=\"99.4\" height=\"99.4\" rx=\"22.2\" fill=\"none\" stroke=\"#ffffff\" stroke-opacity=\".07\" stroke-width=\".6\"/>\n  <g transform=\"translate(50 50) scale(0.78) translate(-50 -50)\">\n  <circle cx=\"50\" cy=\"22\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"76.63\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"72.65\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"66.46\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.65\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"78\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"22\" cy=\"50\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"41.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"33.54\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"27.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"23.37\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"30.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"69.01\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"65.25\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.46\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"69.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"45.66\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"37.84\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"32.43\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"39\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"61\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"57.78\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"61\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"39\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"42.22\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"78\" cy=\"50\" r=\"3.8\" fill=\"#C549B7\"/>\n  </g></svg><div class=\"font-mono text-[9px] opacity-30\">128</div></div>\n                          <div class=\"flex flex-col items-center gap-3\"><svg width=\"64\" height=\"64\" viewBox=\"0 0 100 100\" xmlns=\"http://www.w3.org/2000/svg\" style=\"color:#ECECEC\"><rect width=\"100\" height=\"100\" rx=\"22.5\" fill=\"#212121\"/>\n  <rect x=\".3\" y=\".3\" width=\"99.4\" height=\"99.4\" rx=\"22.2\" fill=\"none\" stroke=\"#ffffff\" stroke-opacity=\".07\" stroke-width=\".6\"/>\n  <g transform=\"translate(50 50) scale(0.78) translate(-50 -50)\">\n  <circle cx=\"50\" cy=\"22\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"76.63\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"72.65\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"66.46\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.65\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"78\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"22\" cy=\"50\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"41.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"33.54\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"27.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"23.37\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"30.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"69.01\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"65.25\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.46\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"69.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"45.66\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"37.84\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"32.43\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"39\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"61\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"57.78\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"61\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"39\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"42.22\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"78\" cy=\"50\" r=\"3.8\" fill=\"#C549B7\"/>\n  </g></svg><div class=\"font-mono text-[9px] opacity-30\">64</div></div>\n                          <div class=\"flex flex-col items-center gap-3\"><svg width=\"48\" height=\"48\" viewBox=\"0 0 100 100\" xmlns=\"http://www.w3.org/2000/svg\" style=\"color:#ECECEC\"><rect width=\"100\" height=\"100\" rx=\"22.5\" fill=\"#212121\"/>\n  <rect x=\".3\" y=\".3\" width=\"99.4\" height=\"99.4\" rx=\"22.2\" fill=\"none\" stroke=\"#ffffff\" stroke-opacity=\".07\" stroke-width=\".6\"/>\n  <g transform=\"translate(50 50) scale(0.78) translate(-50 -50)\">\n  <circle cx=\"50\" cy=\"22\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"76.63\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"72.65\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"66.46\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.65\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"78\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"22\" cy=\"50\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"41.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"33.54\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"27.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"23.37\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"30.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"69.01\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"65.25\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.46\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"69.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"45.66\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"37.84\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"32.43\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"39\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"61\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"57.78\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"61\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"39\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"42.22\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"78\" cy=\"50\" r=\"3.8\" fill=\"#C549B7\"/>\n  </g></svg><div class=\"font-mono text-[9px] opacity-30\">48</div></div>\n                          <div class=\"flex flex-col items-center gap-3\"><svg width=\"32\" height=\"32\" viewBox=\"0 0 100 100\" xmlns=\"http://www.w3.org/2000/svg\" style=\"color:#ECECEC\"><rect width=\"100\" height=\"100\" rx=\"22.5\" fill=\"#212121\"/>\n  <rect x=\".3\" y=\".3\" width=\"99.4\" height=\"99.4\" rx=\"22.2\" fill=\"none\" stroke=\"#ffffff\" stroke-opacity=\".07\" stroke-width=\".6\"/>\n  <g transform=\"translate(50 50) scale(0.78) translate(-50 -50)\">\n  <circle cx=\"50\" cy=\"22\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"76.63\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"72.65\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"66.46\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.65\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"78\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"22\" cy=\"50\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"41.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"33.54\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"27.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"23.37\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"30.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"69.01\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"65.25\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.46\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"69.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"45.66\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"37.84\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"32.43\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"39\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"61\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"57.78\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"61\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"39\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"42.22\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"78\" cy=\"50\" r=\"3.8\" fill=\"#C549B7\"/>\n  </g></svg><div class=\"font-mono text-[9px] opacity-30\">32</div></div>\n                          <div class=\"flex flex-col items-center gap-3\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 100 100\" xmlns=\"http://www.w3.org/2000/svg\" style=\"color:#ECECEC\"><rect width=\"100\" height=\"100\" rx=\"22.5\" fill=\"#212121\"/>\n  <rect x=\".3\" y=\".3\" width=\"99.4\" height=\"99.4\" rx=\"22.2\" fill=\"none\" stroke=\"#ffffff\" stroke-opacity=\".07\" stroke-width=\".6\"/>\n  <g transform=\"translate(50 50) scale(0.78) translate(-50 -50)\">\n  <circle cx=\"50\" cy=\"22\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"76.63\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"72.65\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"66.46\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.65\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"78\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"76.63\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"72.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"66.46\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"58.65\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"22\" cy=\"50\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"23.37\" cy=\"41.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"27.35\" cy=\"33.54\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"33.54\" cy=\"27.35\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.35\" cy=\"23.37\" r=\"2.6\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"30.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"69.01\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"65.25\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"58.46\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"69.5\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"67.57\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"62.16\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"54.34\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"30.99\" cy=\"45.66\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"34.75\" cy=\"37.84\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"41.54\" cy=\"32.43\" r=\"2.3\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"39\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"61\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"57.78\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"50\" cy=\"61\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"57.78\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"39\" cy=\"50\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"42.22\" cy=\"42.22\" r=\"2\" fill=\"#ECECEC\"/>\n  <circle cx=\"78\" cy=\"50\" r=\"3.8\" fill=\"#C549B7\"/>\n  </g></svg><div class=\"font-mono text-[9px] opacity-30\">16</div></div>\n                        </div>" }} />
+                    </div>
+
+                    {/* Footer */}
+                    <div className="mt-32 max-w-2xl text-center">
+                        <p className="font-mono text-xs opacity-40 uppercase tracking-ultra-wide leading-loose">
+                            Generated with Logo Generator<br/>
+                            2026
+                        </p>
+                    </div>
+
+                </div>
+            );
+        };
+
+        ReactDOM.render(<LogoShowcase />, document.getElementById('root'));
+    </script>
+
+</body>
+</html>

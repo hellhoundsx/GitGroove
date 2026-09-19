@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
 import { glassAvailable, registerIpc, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND } from './ipc';
@@ -20,6 +21,10 @@ const isStealth = process.env.GITCLIENT_STEALTH === '1';
 // packaged app) leaves the variable unset and keeps the real profile.
 if (process.env.GITCLIENT_USER_DATA) app.setPath('userData', process.env.GITCLIENT_USER_DATA);
 
+// `__dirname` is `out/main` at runtime, so two levels up is the checkout root. The kit that
+// produced this file is `assets/branding/` — see its README.
+const APP_ICON = join(__dirname, '../../assets/branding/gitgroove.ico');
+
 function createWindow(): BrowserWindow {
   // One material, decided here and nowhere else (GC-213). There is no preference to read and
   // nothing remembered from the last run: either the compositor can give us glass or it cannot,
@@ -39,6 +44,15 @@ function createWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     show: false,
+    // The window icon: the taskbar, Alt-Tab and the Windows window menu. It is the .ico rather
+    // than a PNG because that file carries every size from 16 to 256 and lets Windows pick,
+    // where a single PNG is downscaled once and badly.
+    //
+    // Guarded, and the guard is the point. `assets/` is outside every bundle electron-vite
+    // writes, so this path resolves only while the app runs from the checkout — which is all
+    // there is today, since nothing packages this app yet. The moment something does, the path
+    // stops resolving, and a missing icon must not be the thing that stops the window opening.
+    ...(existsSync(APP_ICON) ? { icon: APP_ICON } : {}),
     ...(isStealth ? { skipTaskbar: true, focusable: false, paintWhenInitiallyHidden: true } : {}),
     // With a material on, the window's own fill has to be transparent or it paints straight over
     // it and nothing shows through.

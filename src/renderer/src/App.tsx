@@ -23,6 +23,10 @@ import type { MenuItem } from './ui/ContextMenu';
 import type { MenuAnchor } from './ui/UiContext';
 import { canDropRef, type RefDragHandlers } from './ui/refDrag';
 import { cycle, makeTabs, neighbourOf, popClosed, pushClosed, readTabs, storedPaths, survivorOf, TABS_KEY, type Tab } from './tabs';
+// The mark, at the app's own ink rather than `currentColor`: an `<img>` cannot inherit a colour,
+// and with one palette there is nothing for it to inherit. Generated into this folder by
+// `assets/branding/gitgroove-logo.mjs`; edit the numbers there, never this file.
+import markUrl from './assets/gitgroove-mark.svg';
 
 /** Which tab was showing when the app was last closed, so a restart comes back to it. */
 const LAST_REPO_KEY = 'gitclient.lastRepo';
@@ -2770,10 +2774,14 @@ export function App(): JSX.Element {
           <div className="graph-panel">
             <div className="graph-empty">
               <div>
+                {/* The one screen with nothing on it but an invitation, so it is the one screen
+                    the mark is worth drawing on. Decorative: the name is spelled out directly
+                    beneath it, so an alt text here would only be read twice. */}
+                <img className="empty-mark" src={markUrl} alt="" width={72} height={72} />
                 {/* The one place in the app that sets type above 20px, so the one place that takes
                     Segoe UI Variable's Display cut (GC-212). A class rather than the inline size
                     it was, because the cut and the size are one decision and belong together. */}
-                <div className="empty-title">GitClient</div>
+                <div className="empty-title">GitGroove</div>
                 {/* With no git there is nothing to open, so name the cause here instead of the prompt (GC-025). */}
                 {gitError ? <div style={{ color: 'var(--danger)' }}>{gitError}</div> : <div>Open a repository to see its commit graph.</div>}
                 {error && error !== gitError && <div style={{ color: 'var(--danger)', marginTop: 8 }}>{error}</div>}

@@ -75,7 +75,7 @@ export function ErrorDetailsDialog({ summary, detail, auth, onClose }: Props): J
           {sso !== null && <p className="modal-note">{sso.what}</p>}
           {auth && (
             <p className="modal-note">
-              GitClient never sees or stores a credential: the system credential helper holds them, and this is what it and git reported.
+              GitGroove never sees or stores a credential: the system credential helper holds them, and this is what it and git reported.
             </p>
           )}
         </div>
