@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { release } from 'node:os';
 import type {
   ApplyPatchOptions,
   CheckoutOptions,
@@ -17,6 +18,7 @@ import type {
   ResetMode,
   ResolvedTheme,
   StashSaveRequest,
+  WindowMaterial,
   WorkdirDiffRequest,
 } from '@shared/types';
 import { isWebUrl } from '@shared/remotes';
@@ -53,8 +55,8 @@ const repoOf = (v: unknown): string => str(v, 'A repository path');
  * before any renderer exists to ask.
  */
 export const TITLE_BAR_OVERLAY: Record<ResolvedTheme, { color: string; symbolColor: string; height: number }> = {
-  dark: { color: '#2a2d34', symbolColor: '#d4d6db', height: 34 },
-  light: { color: '#e3e5ea', symbolColor: '#3a3d44', height: 34 },
+  dark: { color: '#17191d', symbolColor: '#d4d6db', height: 34 },
+  light: { color: '#e9ebf0', symbolColor: '#3a3d44', height: 34 },
 };
 
 /**
@@ -79,7 +81,7 @@ const THEMES: readonly ResolvedTheme[] = ['dark', 'light'];
  * painted before any renderer exists to ask (GC-102). The dark value used to be a `#1b1d22` of its
  * own in `index.ts`, one shade off the token it was standing in for.
  */
-export const WINDOW_BACKGROUND: Record<ResolvedTheme, string> = { dark: '#1c1e23', light: '#f1f2f5' };
+export const WINDOW_BACKGROUND: Record<ResolvedTheme, string> = { dark: '#17191d', light: '#e9ebf0' };
 
 /**
  * The theme setting itself lives in the renderer's `localStorage` — `prefs.ts` resolves `system`
@@ -105,9 +107,57 @@ export function rememberedTheme(): ResolvedTheme {
 
 function rememberTheme(theme: ResolvedTheme): void {
   try {
-    writeFileSync(themeFile(), JSON.stringify({ theme }));
+    const raw = JSON.parse(readFileSync(themeFile(), 'utf8')) as Record<string, unknown>;
+    writeFileSync(themeFile(), JSON.stringify({ ...raw, theme }));
   } catch {
-    /* a profile we cannot write to only costs the next start its first frame */
+    try {
+      writeFileSync(themeFile(), JSON.stringify({ theme }));
+    } catch {
+      /* a profile we cannot write to only costs the next start its first frame */
+    }
+  }
+}
+
+/** The three materials the renderer can ask for, validated like every other enum (GC-212). */
+const MATERIALS: readonly WindowMaterial[] = ['mica', 'acrylic', 'none'];
+
+/**
+ * Whether this process can put a material behind a window at all (GC-212). Three conditions, each
+ * ruling it out for a reason rather than out of caution:
+ *
+ * - **Windows 11** (build 22000) is where the materials exist.
+ * - **Not stealth.** A stealth launch is rendered offscreen, so there is no OS window for the
+ *   compositor to put anything behind; asking would leave the renderer stamping a translucent
+ *   ground over nothing and every unattended screenshot would come back over a void.
+ * - A **Windows 11 that refuses** — transparency effects switched off — needs nothing here: the OS
+ *   substitutes a solid backdrop itself, so the window is still painted.
+ */
+const materialsAvailable =
+  process.platform === 'win32' &&
+  process.env.GITCLIENT_STEALTH !== '1' &&
+  Number(release().split('.')[2] ?? 0) >= 22000;
+
+/** What the next window is built with, so the material is on from the first frame (GC-102's rule). */
+export function rememberedMaterial(): WindowMaterial {
+  if (!materialsAvailable) return 'none';
+  try {
+    const raw = JSON.parse(readFileSync(themeFile(), 'utf8')) as { material?: unknown };
+    return (MATERIALS as readonly string[]).includes(raw.material as string) ? (raw.material as WindowMaterial) : 'mica';
+  } catch {
+    return 'mica'; // no file yet: a Windows 11 app's own default
+  }
+}
+
+function rememberMaterial(material: WindowMaterial): void {
+  try {
+    const raw = JSON.parse(readFileSync(themeFile(), 'utf8')) as Record<string, unknown>;
+    writeFileSync(themeFile(), JSON.stringify({ ...raw, material }));
+  } catch {
+    try {
+      writeFileSync(themeFile(), JSON.stringify({ material }));
+    } catch {
+      /* as above: at worst the next start opens on the previous material */
+    }
   }
 }
 
@@ -212,6 +262,26 @@ export function registerIpc(): void {
     // Remembered whether or not there is a window to repaint: what the next start is built with
     // is the point, and this is the only moment the main process is ever told (GC-102).
     rememberTheme(resolved);
+  });
+  // The other channel that touches neither git nor the file system (GC-212). It answers with the
+  // material it **actually applied**, never with the one it was asked for: the renderer stamps that
+  // answer, so a platform or a launch that cannot have one never ends up with a translucent
+  // stylesheet over a ground nothing paints. `setBackgroundMaterial` at runtime is what makes the
+  // preference apply immediately, the way every other setting in this app does.
+  ipcMain.handle('window:material', (event, material: unknown): WindowMaterial => {
+    const asked = oneOf(material, MATERIALS, 'A window material');
+    const applied: WindowMaterial = materialsAvailable ? asked : 'none';
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+      try {
+        win.setBackgroundMaterial(applied);
+      } catch {
+        /* a platform whose window has no material to set; the answer below still says 'none' */
+        if (applied !== 'none') return 'none';
+      }
+    }
+    rememberMaterial(applied);
+    return applied;
   });
   // The watcher pushes on `repo:changed`; this is only the renderer saying what to watch (GC-011).
   ipcMain.handle('repo:watch', (event, repo: unknown) => {

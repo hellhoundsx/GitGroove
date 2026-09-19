@@ -2567,7 +2567,10 @@ export function App(): JSX.Element {
           <div className="graph-panel">
             <div className="graph-empty">
               <div>
-                <div style={{ fontSize: 'var(--fs-xl)', color: 'var(--text)' }}>GitClient</div>
+                {/* The one place in the app that sets type above 20px, so the one place that takes
+                    Segoe UI Variable's Display cut (GC-212). A class rather than the inline size
+                    it was, because the cut and the size are one decision and belong together. */}
+                <div className="empty-title">GitClient</div>
                 {/* With no git there is nothing to open, so name the cause here instead of the prompt (GC-025). */}
                 {gitError ? <div style={{ color: 'var(--danger)' }}>{gitError}</div> : <div>Open a repository to see its commit graph.</div>}
                 {error && error !== gitError && <div style={{ color: 'var(--danger)', marginTop: 8 }}>{error}</div>}

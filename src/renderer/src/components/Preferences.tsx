@@ -1,10 +1,16 @@
 import { type ChangeEvent, type JSX, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import type { PullMode, Theme } from '@shared/types';
+import type { PullMode, Theme, WindowMaterial } from '@shared/types';
 import { setPrefs, usePrefs, type DiffViewMode, type GraphColumns, type Prefs } from '../prefs';
 import { matches } from '../shortcuts';
 import { Icon } from '../ui/icons';
 import type { OptCols } from '../ui/useDragWidth';
+
+const MATERIALS: { material: WindowMaterial; label: string }[] = [
+  { material: 'mica', label: 'Mica' },
+  { material: 'acrylic', label: 'Acrylic' },
+  { material: 'none', label: 'Off' },
+];
 
 const THEMES: { theme: Theme; label: string }[] = [
   { theme: 'dark', label: 'Dark' },
@@ -111,6 +117,15 @@ export function Preferences({ onClose, drawnCols }: { onClose(): void; drawnCols
                 {THEMES.map((t) => (
                   <option key={t.theme} value={t.theme}>
                     {t.label}
+                  </option>
+                ))}
+              </Select>
+            </Row>
+            <Row label="Window material" hint="Windows 11 only. Mica tints the desktop behind the chrome; Acrylic frosts the whole window, but Windows flattens it whenever the window is not focused.">
+              <Select value={prefs.windowMaterial} onChange={(e) => setPrefs({ windowMaterial: e.target.value as WindowMaterial })}>
+                {MATERIALS.map((m) => (
+                  <option key={m.material} value={m.material}>
+                    {m.label}
                   </option>
                 ))}
               </Select>

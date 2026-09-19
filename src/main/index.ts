@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
-import { registerIpc, rememberedTheme, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND } from './ipc';
+import { registerIpc, rememberedMaterial, rememberedTheme, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND } from './ipc';
 import { isWebUrl } from '@shared/remotes';
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL;
@@ -25,6 +25,11 @@ function createWindow(): BrowserWindow {
   // `localStorage`, which does not exist yet, so the window is built from the main process's own
   // copy and the renderer's first `applyTheme()` then confirms it rather than correcting it.
   const theme = rememberedTheme();
+  // Same reasoning one setting over (GC-212): the material lives in the renderer's preferences,
+  // which do not exist yet, so the main process keeps its own copy and builds the window with it.
+  // Applying it at creation rather than from the renderer's first `setMaterial` is what stops the
+  // window opening opaque and flicking to glass a frame later.
+  const material = rememberedMaterial();
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -32,7 +37,12 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     ...(isStealth ? { skipTaskbar: true, focusable: false, paintWhenInitiallyHidden: true } : {}),
-    backgroundColor: WINDOW_BACKGROUND[theme],
+    // With a material on, the window's own fill has to be transparent or it paints straight over
+    // it and nothing shows through. `rememberedMaterial()` answers 'none' wherever a material
+    // cannot be had — another platform, an older Windows, a stealth launch — so this is one
+    // condition rather than three (GC-212).
+    backgroundColor: material === 'none' ? WINDOW_BACKGROUND[theme] : '#00000000',
+    backgroundMaterial: material,
     // Frameless with the OS window controls overlaid, so the renderer draws its own tabs bar.
     titleBarStyle: 'hidden',
     titleBarOverlay: TITLE_BAR_OVERLAY[theme],

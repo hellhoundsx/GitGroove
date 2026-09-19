@@ -174,6 +174,20 @@ export type PullMode = 'ff' | 'ff-only' | 'rebase';
 export type Theme = 'dark' | 'light' | 'system';
 /** The theme actually on screen: `system` already resolved by the renderer (GC-013). */
 export type ResolvedTheme = 'dark' | 'light';
+
+/**
+ * How far the OS window material is let into the app (GC-212).
+ *
+ * `mica` tints the desktop wallpaper behind the **chrome** — the title bar, the toolbar and the
+ * status bar — and leaves the content card opaque. It is what a Windows 11 app does, and it is
+ * deliberately quiet: Mica is a heavily blurred, desaturated wash, not frosted glass.
+ * `acrylic` is the loud one. The material itself is a much stronger frost, and the card goes
+ * translucent with it, so the wallpaper reads through the whole window. Note that Windows fades
+ * acrylic to a flat colour whenever the window is **not focused** — which for a tool that sits
+ * open beside an editor is most of the time, and is why `mica` is the default rather than this.
+ * `none` paints the ground and asks the OS for nothing.
+ */
+export type WindowMaterial = 'mica' | 'acrylic' | 'none';
 export type ResetMode = 'soft' | 'mixed' | 'hard';
 
 export interface CheckoutOptions {
@@ -238,6 +252,14 @@ export interface GitApi {
   getStatus(repo: string): Promise<RepoStatus>;
   /** Repaint the OS window controls for the theme now showing (GC-013). */
   setTheme(theme: ResolvedTheme): Promise<void>;
+  /**
+   * Ask for a window material and get back the one that was **actually applied** (GC-212). The
+   * renderer stamps that answer rather than what it asked for, because whether the request can be
+   * honoured is a main-process fact: an offscreen stealth window has no OS window to put a
+   * material behind, and Windows 10 and every other platform have no material at all. One place
+   * decides, so the stylesheet can never go translucent over a ground nothing is painting.
+   */
+  setMaterial(material: WindowMaterial): Promise<WindowMaterial>;
   /** Point the file-system watcher at a repository, or pass null to stop it (GC-011). */
   watchRepo(repo: string | null): Promise<void>;
   /** Subscribe to watcher pushes; the returned function unsubscribes (GC-011). */

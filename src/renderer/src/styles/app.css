@@ -50,6 +50,61 @@ body {
   user-select: none;
 }
 
+/*
+ * The window material, in two strengths (GC-212). `prefs.ts` stamps `data-material` with the value
+ * the **main process** actually applied, so the attribute is absent wherever a material could not
+ * be had — an older Windows, another platform, or the offscreen window an unattended run uses,
+ * which has no OS window for the compositor to put anything behind. Absent is the ordinary case and
+ * the ground is `--bg-app`.
+ *
+ * Either material stops the ground being painted, which is what lets the desktop through the
+ * chrome: the title bar, the toolbar and the status bar paint nothing of their own already.
+ */
+:root[data-material] body {
+  background: transparent;
+}
+/*
+ * `acrylic` goes one further and takes the content card with it, so the desktop reads through the
+ * working area too. This is the one place the app's own rule — the data is never translucent — is
+ * relaxed, and deliberately: it is opt-in, it is a flat alpha rather than a filter (so it costs the
+ * graph nothing per frame), and at 76% what comes through is a tint rather than an image. The
+ * blur is the OS's, already applied behind the window.
+ */
+:root[data-material='acrylic'] .main {
+  background: var(--bg-card-glass);
+}
+
+/*
+ * Optical sizing (GC-212). Segoe UI Variable ships three named families and they are three
+ * drawings, not one drawing at three sizes: `Small` is cut with wider apertures, looser fit and
+ * more generous sidebearings for 10-12px, `Text` is the reading cut, `Display` tightens the fit
+ * and sharpens the terminals for 20px and up.
+ *
+ * Which cut a thing takes is decided by its **size**, never by its role — a 12px branch name is
+ * content and a 12px count is furniture, and both want the Small cut because both are 12px. So
+ * the rule below names the containers that are wholly 12px and under, and a new one joins that
+ * list rather than setting a family of its own. `--font-ui` (the Text cut) is the body default
+ * and everything not named here keeps it.
+ */
+.left-panel,
+.statusbar,
+.graph-header,
+.detail-head,
+.file-row,
+.ref-chip,
+.tool-btn,
+.crumb .caption,
+.commit-form .counter,
+.commit-form .form-hint {
+  font-family: var(--font-ui-sm);
+}
+.empty-title {
+  font-family: var(--font-ui-lg);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--text);
+}
+
 button {
   font: inherit;
   color: inherit;
@@ -66,6 +121,11 @@ textarea {
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
+  /* Fluent's control stroke is not even on all four sides: the edge that reads as the control's
+     own thickness is drawn once more, along the top in dark and along the bottom in light, which
+     is what keeps an input from looking like a hole cut in the surface. One token, defined per
+     theme (GC-212). */
+  box-shadow: var(--control-edge);
   outline: none;
 }
 input:focus,
@@ -181,11 +241,24 @@ input[type='radio']:disabled {
   overflow: hidden;
 }
 
+/*
+ * The one content surface (GC-212). The three panels used to be three different greys sitting
+ * between a title bar, a toolbar and a status bar that were three more, so the window read as six
+ * horizontal stripes and the boundary that mattered least — toolbar against panel — was drawn the
+ * most strongly. They are one card now, inset from the window so the material is visible around
+ * it, and what divides refs from graph from detail is a 1px stroke rather than a change of fill.
+ * The panels inside it are transparent; this is the only thing in the working area that paints.
+ */
 .main {
   display: flex;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  margin: 0 var(--card-inset) var(--card-inset);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-4);
 }
 
 /* ---- Title bar / tabs ----------------------------------------------------- */
@@ -227,7 +300,12 @@ input[type='radio']:disabled {
   /* Less on the right than the left: the close glyph sits in it and carries its own box (GC-016). */
   padding: 0 var(--sp-2) 0 var(--sp-4);
   color: var(--text-muted);
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  /* Rounded on all four corners and inset from the bar (GC-212). The old tab was notched into the
+     title bar and joined the toolbar's fill below it, which said the two were one surface; there
+     is no surface under a tab now, so it is a pill sitting on the window's material. The 2px
+     side margin is also what puts a drag region between two tabs. */
+  margin: 4px 2px;
+  border-radius: var(--radius-md);
   -webkit-app-region: no-drag;
   white-space: nowrap;
   cursor: pointer;
@@ -247,9 +325,12 @@ input[type='radio']:disabled {
 .titlebar .tab > .tab-icon {
   flex: none;
 }
+/* The fill alone, no elevation: a shadow under a 26px pill measures 1.13 against the ground in
+   dark and is not visible at all, which makes it a paint nobody sees. What separates the showing
+   tab is that it is the card's colour and its neighbours are not. */
 .titlebar .tab.selected {
   color: var(--text-bright);
-  background: var(--bg-toolbar);
+  background: var(--bg-card);
 }
 /* The close glyph keeps its space at every moment, so the tab does not change width under the
    pointer as it appears; it is only shown on the tab being closed from or the one showing (GC-016). */
@@ -299,11 +380,12 @@ input[type='radio']:disabled {
 
 /* ---- Toolbar -------------------------------------------------------------- */
 
+/* No fill and no bottom rule: the toolbar sits on the window's material, and what separates it
+   from the work below is the card's own edge and the gap around it (GC-212). */
 .toolbar {
   display: flex;
   align-items: stretch;
   background: var(--bg-toolbar);
-  border-bottom: 1px solid var(--bg-titlebar);
 }
 .breadcrumb {
   display: flex;
@@ -470,7 +552,6 @@ input[type='radio']:disabled {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
   border-right: 1px solid var(--border);
   min-height: 0;
 }
@@ -546,6 +627,7 @@ input[type='radio']:disabled {
   height: 30px;
   flex: none;
   padding: 0 var(--sp-2);
+  background: var(--bg-subtle);
   border-top: 1px solid var(--border);
 }
 .section-toggle {
@@ -556,7 +638,7 @@ input[type='radio']:disabled {
   min-width: 0;
   height: 100%;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-semi);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -611,17 +693,38 @@ input[type='radio']:disabled {
   cursor: pointer;
 }
 .ref-row:hover {
-  background: var(--accent-hover);
+  background-color: var(--row-hover);
 }
+/*
+ * The checked-out branch and the selected row are both drawn as a bar at the row's leading edge
+ * rather than as a wash across it (GC-212), and the bar is a background-image so that neither
+ * needs a pseudo-element or a positioned row: `.col-ref`'s folded-refs block escapes its cell on
+ * z-index alone (GC-123) and a new positioned ancestor is not worth the risk for a 3px mark.
+ *
+ * Why a bar at all: the fill is the largest single area of colour a row can carry, and this window
+ * has ten colours in it already that *mean* something — a lane is a branch. A green field on the
+ * checked-out row and a blue field on the selected one were two more colours competing with those
+ * ten and standing for a state rather than for a ref. Fill is neutral now and state is a shape.
+ */
 .ref-row.head {
-  background: var(--head-row);
+  background-image: linear-gradient(var(--head-bar), var(--head-bar));
+  background-repeat: no-repeat;
+  background-position: 0 50%;
+  background-size: var(--sel-bar-w) var(--sel-bar-h);
   color: var(--text-bright);
 }
 /* A row standing at the selected commit takes the graph row's own tint, so both panels say the
    same thing about what is selected (GC-141). After `.head` so the checked-out branch, which is
    usually the one being selected, still shows it. */
 .ref-row.selected {
-  background: var(--accent-soft);
+  background-color: var(--row-selected);
+  background-image: linear-gradient(var(--sel-bar), var(--sel-bar));
+  background-repeat: no-repeat;
+  background-position: 0 50%;
+  background-size: var(--sel-bar-w) var(--sel-bar-h);
+}
+.ref-row.selected:hover {
+  background-color: var(--row-selected-hover);
 }
 .ref-row .ab {
   margin-left: auto;
@@ -707,7 +810,6 @@ input[type='radio']:disabled {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--bg-app);
 }
 /* Commit search: a bar above the graph header, revealed by the Search button or Ctrl+F */
 .graph-search {
@@ -731,7 +833,7 @@ input[type='radio']:disabled {
   height: 20px;
   padding: 0 6px;
   color: var(--text-bright);
-  background: var(--bg-app);
+  background: var(--bg-input);
   border: 1px solid var(--border);
   font-size: var(--fs-sm);
 }
@@ -748,8 +850,8 @@ input[type='radio']:disabled {
   max-width: 200px;
   height: 20px;
   border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-app);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
 }
 .graph-search .search-author.set {
   border-color: var(--accent);
@@ -821,7 +923,7 @@ input[type='radio']:disabled {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  background: var(--bg-panel);
+  background: var(--bg-subtle);
 }
 .graph-header > div {
   padding: 0 0 0 6px;
@@ -892,7 +994,7 @@ input[type='radio']:disabled {
   cursor: pointer;
 }
 .graph-row:hover {
-  background: var(--accent-hover);
+  background-color: var(--row-hover);
 }
 /* Search dims the rows that do not match instead of hiding them, so the graph stays continuous */
 .graph-row.unmatched {
@@ -902,7 +1004,14 @@ input[type='radio']:disabled {
   background: var(--match-row);
 }
 .graph-row.selected {
-  background: var(--accent-soft);
+  background-color: var(--row-selected);
+  background-image: linear-gradient(var(--sel-bar), var(--sel-bar));
+  background-repeat: no-repeat;
+  background-position: 0 50%;
+  background-size: var(--sel-bar-w) var(--sel-bar-h);
+}
+.graph-row.selected:hover {
+  background-color: var(--row-selected-hover);
 }
 /* positioned, because the folded refs open under the chip that stayed put — they hang off this
    cell, not off the +N chip they are reached through.
@@ -1064,7 +1173,7 @@ input[type='radio']:disabled {
    the expanded block too resized the block under the pointer, which read as a flicker. */
 .graph-row .col-ref > .ref-chip:hover {
   flex: none;
-  box-shadow: 0 0 0 1px var(--bg-app);
+  box-shadow: 0 0 0 1px var(--bg-card);
 }
 .graph-row .col-ref > .ref-chip:hover > .chip-name {
   overflow: visible;
@@ -1305,7 +1414,6 @@ input[type='radio']:disabled {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--bg-app);
   border-left: 1px solid var(--border);
   min-height: 0;
 }
@@ -1319,7 +1427,7 @@ input[type='radio']:disabled {
   place-items: center;
   /* The panel's own background, not the graph's: at `--bg-app` the strip was the border and the
      chevron alone, which is not enough to read as something to click on a 3440px window. */
-  background: var(--bg-panel);
+  background: var(--bg-subtle);
   border: none;
   border-left: 1px solid var(--border);
   color: var(--text-muted);
@@ -1337,7 +1445,7 @@ input[type='radio']:disabled {
   justify-content: space-between;
   gap: var(--sp-2);
   padding: 0 var(--sp-3);
-  background: var(--bg-panel);
+  background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-sm);
 }
@@ -1655,7 +1763,7 @@ input[type='radio']:disabled {
   height: 30px;
   padding: 0 var(--sp-2);
   margin-bottom: var(--sp-1);
-  background: var(--bg-panel);
+  background: var(--bg-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-bright);
   font-size: var(--fs-md);
@@ -1679,7 +1787,7 @@ input[type='radio']:disabled {
   overflow: hidden;
 }
 .file-row:hover {
-  background: var(--accent-hover);
+  background-color: var(--row-hover);
 }
 /* A path is one thing, and the file name is its identity (GC-192). Both surfaces that print a
    path as a dim folder plus a bright name are here — the detail panel's file rows and the file
@@ -1787,8 +1895,9 @@ input[type='radio']:disabled {
   gap: 6px;
   height: 24px;
   padding: 0 10px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-strong);
+  box-shadow: var(--control-edge);
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text);
@@ -2022,7 +2131,6 @@ input[type='radio']:disabled {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-app);
 }
 .file-view-head {
   height: 36px;
@@ -2353,10 +2461,14 @@ input[type='radio']:disabled {
   max-height: calc(100vh - 8px);
   overflow-y: auto;
   padding: 4px 0;
+  /* Acrylic (GC-212): a menu is temporary and it is the only kind of surface that appears over
+     content, which is exactly what Fluent makes translucent and why. Nothing that stays on screen
+     gets this treatment — see the note at the top of tokens.css. */
   background: var(--bg-menu);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  backdrop-filter: var(--flyout-blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-16);
   font-size: 13px;
 }
 .ctx-item {
@@ -2472,6 +2584,9 @@ input[type='radio']:disabled {
   display: grid;
   place-items: center;
   background: var(--backdrop);
+  /* The whole window frosts behind a dialog (GC-212). The one surface where a blur is free: what
+     is behind a modal is not being read, and pushing it out of focus is what a modal is for. */
+  backdrop-filter: var(--backdrop-blur);
 }
 .modal {
   width: 440px;
@@ -2489,10 +2604,12 @@ input[type='radio']:disabled {
      short of it. A body that does not scroll is unchanged — its content lands on the same pixel
      it always did, and nothing reserves a gutter. */
   padding: var(--sp-4) 0;
-  background: var(--bg-panel-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: var(--shadow);
+  background: var(--bg-menu);
+  backdrop-filter: var(--flyout-blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  /* The one surface that takes the whole window, so the one that takes the deepest elevation. */
+  box-shadow: var(--elev-64);
   display: flex;
   flex-direction: column;
   --modal-gap: var(--sp-3);
@@ -2583,9 +2700,10 @@ input[type='radio']:disabled {
   min-width: 260px;
   padding: 6px 0;
   background: var(--bg-menu);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+  backdrop-filter: var(--flyout-blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-16);
   font-size: 13px;
 }
 .popover-caption {
@@ -2788,9 +2906,9 @@ input[type='radio']:disabled {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: 0 var(--sp-3);
-  background: var(--bg-panel);
-  border-top: 1px solid var(--border);
+  /* Aligned with the card above it rather than with the window, so the run of text starts on the
+     same pixel the left panel's rows do. */
+  padding: 0 calc(var(--sp-3) + var(--card-inset));
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
@@ -2832,7 +2950,7 @@ img.avatar {
 .error-details-text {
   margin: 0;
   padding: var(--sp-2);
-  background: var(--bg-app);
+  background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-family: var(--font-mono);

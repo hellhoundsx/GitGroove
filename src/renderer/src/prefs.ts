@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { PullMode, ResolvedTheme, Theme } from '@shared/types';
+import type { PullMode, ResolvedTheme, Theme, WindowMaterial } from '@shared/types';
 
 // One home for every user preference. Everything lives under a single `gitclient.prefs` key so
 // settings do not keep sprouting their own keys; the per-repository pin and the ref column width
@@ -28,6 +28,13 @@ export interface Prefs {
   graphColumns: GraphColumns;
   /** Dark, light, or whatever the OS is set to (GC-013). */
   theme: Theme;
+  /**
+   * How far the OS window material is let in (GC-212). `mica` is the quiet one and the default:
+   * the desktop shows through the chrome only. `acrylic` is the loud one — a much stronger frost,
+   * and the content card goes translucent with it. `none` asks the OS for nothing.
+   * What is actually applied is the main process's answer, not this: see `applyMaterial`.
+   */
+  windowMaterial: WindowMaterial;
   /** Unified or side-by-side diffs; the file view's own toggle writes it back here (GC-014). */
   diffView: DiffViewMode;
   /** Diff with `-w`, so a whitespace-only reformat shows no hunk at all (GC-052). */
@@ -43,6 +50,7 @@ export const DEFAULT_PREFS: Prefs = {
   commitColumnGuide: true,
   graphColumns: { author: false, date: false, sha: false },
   theme: 'dark',
+  windowMaterial: 'mica',
   diffView: 'unified',
   diffIgnoreWhitespace: false,
   diffWordWrap: false,
@@ -55,6 +63,7 @@ const LEGACY_PULL_MODE_KEY = 'gitclient.pullMode';
 const isPullMode = (v: unknown): v is PullMode => v === 'ff' || v === 'ff-only' || v === 'rebase';
 const isTheme = (v: unknown): v is Theme => v === 'dark' || v === 'light' || v === 'system';
 const isDiffView = (v: unknown): v is DiffViewMode => v === 'unified' || v === 'split';
+const isMaterial = (v: unknown): v is WindowMaterial => v === 'mica' || v === 'acrylic' || v === 'none';
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
 
 /** Each column falls back on its own, so a truncated or half-written object still loads (GC-032). */
@@ -79,6 +88,7 @@ function load(): Prefs {
         commitColumnGuide: bool(o.commitColumnGuide, DEFAULT_PREFS.commitColumnGuide),
         graphColumns: graphColumns(o.graphColumns),
         theme: isTheme(o.theme) ? o.theme : DEFAULT_PREFS.theme,
+        windowMaterial: isMaterial(o.windowMaterial) ? o.windowMaterial : DEFAULT_PREFS.windowMaterial,
         diffView: isDiffView(o.diffView) ? o.diffView : DEFAULT_PREFS.diffView,
         diffIgnoreWhitespace: bool(o.diffIgnoreWhitespace, DEFAULT_PREFS.diffIgnoreWhitespace),
         diffWordWrap: bool(o.diffWordWrap, DEFAULT_PREFS.diffWordWrap),
@@ -139,6 +149,36 @@ function applyTheme(): void {
 
 applyTheme();
 
+// ---- window material (GC-212) -----------------------------------------------------------------
+
+/**
+ * Ask the main process for the material and stamp **its answer** on the document element, which is
+ * what the `[data-material]` rules in `app.css` key off.
+ *
+ * The answer rather than the request, because whether a material can be had is not something the
+ * renderer knows: a stealth launch is drawn offscreen with no OS window behind it, and Windows 10
+ * and every other platform have none at all. Stamping the request would leave the stylesheet
+ * translucent over a ground nothing is painting — a window rendered over a void.
+ *
+ * Nothing is stamped until the answer comes back, so the first frame is the opaque one. That is the
+ * safe direction: opaque settling into glass is invisible, where glass collapsing to opaque is a
+ * flash of the wrong window.
+ */
+function applyMaterial(): void {
+  if (typeof document === 'undefined') return;
+  const asked = current.windowMaterial;
+  const api = window.api?.setMaterial;
+  if (!api) return; // a test render, or a preload that predates the channel
+  void api(asked)
+    .then((applied) => {
+      if (applied === 'none') delete document.documentElement.dataset.material;
+      else document.documentElement.dataset.material = applied;
+    })
+    .catch(() => undefined);
+}
+
+applyMaterial();
+
 // Following the OS means following it as it changes, not only as the app starts. The listener is
 // registered once and does nothing unless the setting is `system`.
 if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
@@ -156,6 +196,7 @@ export function setPrefs(patch: Partial<Prefs>): void {
     /* ignore */
   }
   applyTheme();
+  applyMaterial();
   for (const fn of listeners) fn();
 }
 

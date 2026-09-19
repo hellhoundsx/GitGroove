@@ -67,6 +67,7 @@ describe('load', () => {
       commitColumnGuide: false,
       graphColumns: { author: true, date: true, sha: false },
       theme: 'light',
+      windowMaterial: 'acrylic',
       diffView: 'split',
       diffIgnoreWhitespace: true,
       diffWordWrap: true,
@@ -85,6 +86,7 @@ describe('load', () => {
       commitColumnGuide: DEFAULT_PREFS.commitColumnGuide,
       graphColumns: DEFAULT_PREFS.graphColumns,
       theme: DEFAULT_PREFS.theme,
+      windowMaterial: DEFAULT_PREFS.windowMaterial,
       diffView: DEFAULT_PREFS.diffView,
       diffIgnoreWhitespace: DEFAULT_PREFS.diffIgnoreWhitespace,
       diffWordWrap: DEFAULT_PREFS.diffWordWrap,
@@ -102,6 +104,29 @@ describe('load', () => {
       const { getPrefs, DEFAULT_PREFS } = await freshPrefs({ [KEY]: JSON.stringify({ theme }) });
       expect(getPrefs().theme).toBe(DEFAULT_PREFS.theme);
     }
+  });
+
+  // The window material is the second setting the main process is told about (GC-212), and the
+  // only one whose *answer* comes back from there: `applyMaterial` stamps what was applied, never
+  // what was asked for. What this file is responsible for is the half before that — a blob cannot
+  // put a value on the bridge that is not one of the three.
+  it('keeps a valid window material and falls back on anything else (GC-212)', async () => {
+    for (const windowMaterial of ['mica', 'acrylic', 'none']) {
+      const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify({ windowMaterial }) });
+      expect(getPrefs().windowMaterial).toBe(windowMaterial);
+    }
+    for (const windowMaterial of ['glass', '', 42, null, 'Mica']) {
+      const { getPrefs, DEFAULT_PREFS } = await freshPrefs({ [KEY]: JSON.stringify({ windowMaterial }) });
+      expect(getPrefs().windowMaterial).toBe(DEFAULT_PREFS.windowMaterial);
+    }
+  });
+
+  // Mica rather than acrylic, and the reason is not taste: Windows fades an acrylic window to a
+  // flat colour whenever it is not focused, which for a tool that sits open beside an editor is
+  // most of the time. A default that looks broken half the time is not a default.
+  it('defaults the window material to mica (GC-212)', async () => {
+    const { DEFAULT_PREFS } = await freshPrefs();
+    expect(DEFAULT_PREFS.windowMaterial).toBe('mica');
   });
 
   // The two diff toggles are plain booleans, and both default to off: a diff that hides

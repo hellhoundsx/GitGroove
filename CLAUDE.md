@@ -46,7 +46,7 @@ A git repository on branch `main`, remote `https://github.com/hellhoundsx/GitCli
 | React | 19 | no global `JSX` namespace, components `import { type JSX } from 'react'` |
 | TypeScript | 7 | no `baseUrl`, tsconfig `paths` are relative; `tsc --noEmit` per target |
 | lucide-react | 1.x | the only icon source; wrap with `Icon` from `ui/icons.tsx` |
-| @fontsource/open-sans | 5 | UI font, imported in `main.tsx` (400/600/700) |
+| @fontsource/open-sans | 5 | the bundled **fallback** UI font, imported in `main.tsx` (400/600/700); the face actually used is Segoe UI Variable, off the OS (GC-212) |
 | vitest | 5 | two projects (node + jsdom) |
 | jsdom | 30 | the `dom` project's environment |
 | @testing-library/react | 16 | needs `@testing-library/dom` 10 alongside it |
@@ -243,8 +243,8 @@ pure fs.
 `remote:*`, `stash:*`, `shell:*`, `window:*`. `ipc.ts` validates every argument (`str`, `strs`,
 `int`, `oneOf`); `repo:checkGit` is the only handler taking none. `repo:clone`, `repo:init` and `repo:chooseFolder` are the three that take no repository path,
 because there is no repository yet, so none of them goes through `repoFile()` (GC-128).
-`window:theme` is the other
-handler that never touches git: it repaints the OS window controls for the theme the renderer
+`window:theme` and `window:material` are the other two
+handlers that never touch git (GC-212, see Styling for the material). The first it repaints the OS window controls for the theme the renderer
 resolved **and remembers it**, and `TITLE_BAR_OVERLAY` with it lives in `ipc.ts` rather than
 `index.ts` because `index.ts` already imports `registerIpc` and the other direction would be a
 cycle (GC-013). Remembering is what lets `createWindow` build the window in the right theme at all
@@ -1271,8 +1271,8 @@ by turning the box RTL and a `/` at either end is reordered to the other one.
 `prefs.ts` is the single home for user settings: a typed `Prefs` with `DEFAULT_PREFS`, persisted as
 one JSON blob under `gitclient.prefs`, read with `usePrefs()` and written with `setPrefs(patch)`.
 `load()` validates each field and falls back to the default, so a hand-edited blob cannot break the
-app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `theme`, `diffView`,
-`diffIgnoreWhitespace`, `diffWordWrap` and `graphColumns` — the one nested value, so `load()` falls
+app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `theme`,
+`windowMaterial`, `diffView`, `diffIgnoreWhitespace`, `diffWordWrap` and `graphColumns` — the one nested value, so `load()` falls
 back per column and a `defaults()` helper copies it, a bare spread having shared the nested object.
 Adding a setting means: a field with a default in `prefs.ts`, validation in `load()`, a row in
 `components/Preferences.tsx`, and reading it with `usePrefs()`. There is no OK/Cancel; every change
@@ -1316,26 +1316,78 @@ one network call (SHA-256 of the lowercased email, `d=404`); failures are cached
 
 ### Styling
 
-`tokens.css` defines everything: Open Sans, 14px/20px base, 12px rows, the grey ramp
-(`--bg-app #1c1e23`, titlebar `#2a2d34`, toolbar `#33373f`, panel `#272a31`, raised `#32363f`,
-menu `#3d424d`), text as white alphas (.75/.6/.4), accent `#4d88ff`, semantic colours, ten lane
-colours and the layout metrics. `app.css` is one file with a section per component.
+`tokens.css` defines everything: the type stack, 14px/20px base, 12px rows, the surfaces, text as
+white alphas (.78/.6/.4), the accent, semantic colours, ten lane colours and the layout metrics.
+`app.css` is one file with a section per component.
+
+**The system is Fluent 2, taken for its mechanics and not for its spacing** (GC-212). Four of those
+mechanics are load-bearing and each is stated where it lives, in `tokens.css`'s own header:
+
+- **One ground and a stack of layers derived from it by alpha** — `--base`, then `--bg-card`
+  (white 4.5%), `--bg-subtle` (7%), `--bg-panel-raised` (9%) — replacing the six-step grey ramp.
+  The three panels are **one card**, inset `--card-inset` from the window, and what divides refs
+  from graph from detail is a stroke rather than a change of fill; the title bar, the toolbar and
+  the status bar paint nothing at all. Six horizontal stripes drew the boundary that mattered
+  least — toolbar against panel — most strongly.
+- **Elevation is a set, not one shadow**: `--elev-4` rests, `--elev-16` floats, `--elev-64` is the
+  dialog, and radius rises with the layer (4 controls / 6 buttons and rows / 8 what floats or
+  contains).
+- **Colour means branch; shape means state.** The ten lane colours are the only saturated colour in
+  the window, and `--accent` may not be a large field beside them: `--lane-8` is hue 218 and the
+  accent is the same blue (1.24:1 in light, where no honest lightness separates them). So a
+  selected row is a **neutral** fill with a 3x14 `--sel-bar` at its leading edge, drawn as a
+  `background-image` so no row needs a pseudo-element or a positioned ancestor — `.col-ref`'s
+  folded block escapes its cell on z-index alone (GC-123). The checked-out branch is a
+  `--head-bar` for the same reason. An accent field beside the graph brings the ambiguity back.
+- **Three rules decide translucency, and the first is the one the others are written around: no
+  blur behind data, ever.** Not behind a 28px row of 1px lane strokes, not behind a diff, at any
+  cost in frames. Then: **what floats is glass** — acrylic (`--bg-menu` plus `--flyout-blur`) on
+  `.ctx-menu`, `.popover` and `.modal` and nowhere else, plus `--backdrop-blur` on
+  `.modal-backdrop`, which is the one place a blur is free because pushing what is behind a dialog
+  out of focus is what a dialog is for. And: **the chrome always carries the window's material, the
+  card only if asked** — `:root[data-material] body` paints nothing, and
+  `:root[data-material='acrylic'] .main` takes `--bg-card-glass`. That last is the one relaxation
+  of rule 1, and it survives it by being a flat alpha rather than a filter: the graph pays nothing
+  per frame and the blur is the OS's, already applied behind the window.
+
+**The face is Segoe UI Variable, in its three optical cuts** (GC-212): `Small` for 10-12px,
+`Text` for the reading layer, `Display` for 20px and up, with Open Sans still bundled as the
+fallback. The cut is decided by **size, never by role** — a 12px branch name and a 12px count both
+want Small — so `app.css` names the containers that are wholly 12px and under in one rule and a new
+one joins that list rather than setting a family of its own.
+
+**The window material is the one piece of glass CSS cannot draw** (GC-212), since `backdrop-filter`
+reaches only inside the page and what is behind this window is the desktop. It is a preference,
+`prefs.windowMaterial`: **`mica`** (the default) tints the desktop behind the chrome only, and
+**`acrylic`** is the stronger frost with the content card translucent under it. Mica is the default
+for a reason worth keeping — Windows fades an **acrylic** window to a flat colour whenever it is
+not focused, which for a tool sitting open beside an editor is most of the time.
+
+**The renderer stamps what the main process *applied*, never what it asked for.** `window:material`
+answers with the effective material, because whether one can be had is a main-process fact:
+`materialsAvailable` in `ipc.ts` is Windows 11 (build 22000+) **and not stealth** — an offscreen
+window has no OS window for the compositor to put anything behind, and stamping the request there
+would leave the stylesheet translucent over a ground nothing paints, so every unattended screenshot
+would come back over a void. One place decides; `prefs.ts`'s `applyMaterial()` stamps the answer and
+deletes the attribute for `none`. Nothing is stamped until it comes back, which is the safe
+direction: opaque settling into glass is invisible, glass collapsing to opaque is a flash.
+`rememberedMaterial()` builds the window with it for the same reason `rememberedTheme()` does
+(GC-102), sharing `window-theme.json`, and `backgroundColor` must be transparent whenever it is not
+`none` or the window's own fill paints over the material.
 
 **Every colour lives in `tokens.css`, none in `app.css`** (GC-013): `:root` is the dark palette and
 `:root[data-theme='light']` redefines the same names for the light one, so a new colour is a token
-or it does not flip with the theme. **And the light block holds the dark ramp's ratios, not its
-lightnesses inverted** (GC-175): each adjoining surface pair is solved for the WCAG ratio its dark
-counterpart has — panel/app 1.162 against 1.161, toolbar/titlebar 1.161 against 1.155, titlebar/app
-1.208 against 1.210, raised/app 1.377 against 1.378, menu/panel 1.427 against 1.426 — and the
-ordering is dark's too: the app is the ground and every other surface sits lighter above it. The
-old block stepped *down* from the page for the panel and jumped to white for both raised surfaces,
-which left nothing above the panel to spend on a floating menu, and the whole frame read as one
-undivided white strip. The ground is #c7c9cd because the arithmetic leaves no choice — the app-to-
-menu span is 1.655:1 and white is the ceiling — so making light lighter means giving up one of the
-five ratios and saying which. `--border` is decided by the luminance step rather than by matching
-dark's alpha, since black and white sit at opposite ends of the sRGB curve. The values and the
-reasoning are in `docs/reference/gitkraken/02-design-tokens.md`, marked as ours rather than as an
-observation of GitKraken, whose own light surfaces sit within 1.05:1 of each other. The nine `rgba()` literals `app.css` used to carry became
+or it does not flip with the theme. **And the light block holds the dark ramp's ratios** — GC-175's
+rule, kept, but re-solved once GC-212 gave the boundary a stroke and an elevation set to carry as
+well as lightness. The whole ramp is compressed and the ground is therefore free to be light:
+#e9ebf0 rather than GC-175's #c7c9cd, with the two blocks now within 0.03 of each other at every
+adjoining pair (card/app 1.104 against 1.131, raised/app 1.193 against 1.310, menu/card 1.071
+against 1.066). GC-175 could only match dark by making light nearly as dark, because lightness was
+the only tool it had. The flyout row moved furthest and is the one to understand: a menu no longer
+separates by being 1.43 times lighter than the panel, it separates by a stroke, a shadow and a
+visibly blurred backdrop. **If the strokes or the elevation set are ever taken off, the light block
+is wrong and GC-175's numbers are the way back.** `--border` is still decided by the luminance step
+rather than by matching dark's alpha, since black and white sit at opposite ends of the sRGB curve. The nine `rgba()` literals `app.css` used to carry became
 `--head-row`, `--match-row`, `--banner-bg`, `--hover-overlay`, `--backdrop`, `--accent-strong`,
 `--success-strong` and `--diff-gutter`; `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` must keep
 printing nothing.
@@ -1694,6 +1746,14 @@ the second still get the first; a stash row's sha dropped whole for its message 
 the widest phrase it can produce; the band's paint a falloff from the lane defined once for all
 rows; and the folded block opened in a run by the class the CSS treats as hover, so a rendered
 stylesheet is what answers for it (App state, Detail panel, Main process, Graph, Testing);
+
+the three panels one card with strokes between them rather than six stripes of different grey, the
+chrome painting nothing so the window's material shows through it, no blur ever behind data and
+acrylic only on what floats, an accent that may not be a large field beside the lanes so state is a
+shape and colour is a branch, elevation a set of three rather than one shadow, the optical cut
+chosen by size and never by role, a window material asked for only where an OS window exists to put
+it behind and **stamped from what was applied rather than from what was asked**, and a light ramp
+free to be light because a stroke and a shadow now carry what lightness alone used to (Styling);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control

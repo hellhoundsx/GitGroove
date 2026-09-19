@@ -1,9 +1,45 @@
-/* GitClient design tokens. Own palette, calibrated against the study in docs/reference/gitkraken. */
+/*
+ * GitClient design tokens. Our own values, calibrated against the study in docs/reference/gitkraken
+ * and, since GC-212, against Fluent 2 — the design language of the desktop this app runs on.
+ *
+ * Fluent 2 is taken for its *mechanics*, not its spacing: layered materials, elevation as a shadow
+ * set, a radius scale that rises with the layer, Segoe UI Variable's three optical cuts, and
+ * selection drawn as a shape rather than as a field of colour. The density is ours and unchanged —
+ * 28px graph rows, 26px ref rows, 12px furniture. Fluent's own padding would cost this window
+ * about a third of its rows and this is an app for reading a lot of history at once.
+ *
+ * Three rules decide where translucency is allowed:
+ *
+ *   1. **No blur behind data, ever.** Not behind a 28px row of 1px lane strokes, not behind a diff.
+ *      That is the one thing this app draws that cannot survive being composited through a filter,
+ *      at any cost in frames, and it is the rule the other two are written around.
+ *   2. **What floats is glass.** Menus, popovers and dialogs are acrylic because they are temporary
+ *      and they are the only surfaces that appear *over* content — and the backdrop behind a modal
+ *      is blurred outright, since pushing what is behind it out of focus is what a modal is for.
+ *   3. **The chrome carries the window's material; the card carries it only if asked.** The title
+ *      bar, the toolbar and the status bar paint nothing, so the desktop is always visible through
+ *      them. The content card follows `prefs.windowMaterial`: opaque under `mica`, and translucent
+ *      under `acrylic`, which is a flat alpha and not a filter — so rule 1 still holds, the graph
+ *      pays nothing per frame, and what comes through is a tint rather than an image.
+ *
+ * And one rule decides colour: the ten lane colours are the only saturated colour in the window.
+ * `--accent` is deliberately not usable as a large field — see its note below.
+ */
 :root {
   color-scheme: dark;
 
-  /* Type */
-  --font-ui: 'Open Sans', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+  /* ---- Type ---------------------------------------------------------------
+     Segoe UI Variable ships as three named families and they are three different drawings, not one
+     drawing at three sizes: `Small` carries wider apertures, looser fit and a taller x-height for
+     10-12px, `Text` is the reading cut, `Display` tightens spacing and sharpens the terminals for
+     20px and up. The app already names those three jobs with its size tokens, so the cut is
+     attached wherever the size is (see the optical-size rules in app.css).
+
+     Open Sans stays in every stack as the bundled fallback: it is the one face the app ships, so a
+     machine without Segoe UI Variable still renders in a face we chose rather than in Arial. */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', 'Open Sans', system-ui, -apple-system, sans-serif;
+  --font-ui-sm: 'Segoe UI Variable Small', 'Segoe UI', 'Open Sans', system-ui, sans-serif;
+  --font-ui-lg: 'Segoe UI Variable Display', 'Segoe UI', 'Open Sans', system-ui, sans-serif;
   --font-mono: 'Cascadia Code', Consolas, 'JetBrains Mono', Menlo, monospace;
   --fs-xs: 10px;
   /* A stash row's age (GC-171, GC-199). Fixed, because content-sized was the defect: the box grew
@@ -21,21 +57,33 @@
   --fs-lg: 16px;
   --fs-xl: 20px;
   --lh: 20px;
+  /* Fluent's emphasis weight. 700 was the app's own and it is a shout at 12px: the section headers
+     it was used on are furniture, and furniture that bolder than the branch names under it reads
+     as the more important of the two. */
+  --fw-semi: 600;
 
-  /* Spacing and shape */
+  /* ---- Spacing and shape --------------------------------------------------- */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 24px;
-  --radius-sm: 3px;
-  --radius-md: 4px;
+  /* Radius rises with the layer, which is the whole of what it is for: a control, a row and a
+     flyout at one radius say the three are the same kind of thing. 4 / 6 / 8 is Fluent's scale
+     minus its 2px step, which at this density is indistinguishable from a square corner. */
+  --radius-sm: 4px; /* controls: checkbox, chip, tag */
+  --radius-md: 6px; /* buttons, inputs, rows, tabs */
+  --radius-lg: 8px; /* what floats or contains: flyouts, dialogs, the content card */
   --handle: 6px;
   /* The form controls' own box: the checkbox square and the select's chevron well (GC-101).
      14px matches the type's 14px/20px rather than Chromium's 13px, which matched nothing. */
   --control-box: 14px;
+  /* The accent bar that marks a selected row (GC-212). Fluent draws selection as a pill at the
+     row's leading edge; 3x14 is that shape at this row height. */
+  --sel-bar-w: 3px;
+  --sel-bar-h: 14px;
 
-  /* Layout metrics */
+  /* ---- Layout metrics ------------------------------------------------------ */
   --titlebar-h: 34px;
   --toolbar-h: 48px;
   --statusbar-h: 26px;
@@ -46,6 +94,10 @@
   --lane-w: 20px;
   /* default only: the graph panel overrides --ref-col-w on its own root while it is resized */
   --ref-col-w: 150px;
+  /* How far the content card is inset from the window on the sides and the bottom, so the window's
+     material is visible around it. Deliberately small: this is a tool window, and an inset large
+     enough to be decorative is a row of history given up on every screen. */
+  --card-inset: 8px;
   /* The authored line in the detail panel's `.author` row, measured: `authored 06/09/2026,
      12:15:42` wants 172px in the shared format GC-133 settled, and the format is a constant of
      the design rather than of the data. 180 is the round number above it, and it is the floor
@@ -54,63 +106,142 @@
 
   /* Scrollbars: thin, flat, no track, no arrow buttons (GC-079) */
   --scrollbar-w: 8px;
-  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.26);
 
-  /* Surfaces: a short grey ramp, warm-neutral, stepping ~10 per level */
-  --bg-app: #1c1e23;
-  --bg-titlebar: #2a2d34;
-  --bg-toolbar: #33373f;
-  --bg-panel: #272a31;
-  --bg-panel-raised: #32363f;
-  --bg-menu: #3d424d;
-  --bg-input: rgba(0, 0, 0, 0.2);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.2);
-  --shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+  /* ---- Surfaces -----------------------------------------------------------
+     One ground and a stack of layers derived from it by white alpha, written out as hex so the
+     values are inspectable and so no surface costs a blend at paint time. The alpha each one
+     approximates is on its line: that is the relationship to preserve when a value is retuned.
 
-  /* Text as white with alpha, so it sits on any surface */
-  --text: rgba(255, 255, 255, 0.75);
+     The ground is what a window material replaces. When one is applied the document carries
+     `data-material`, `body` drops its fill, and the OS paints the desktop through the window at
+     its own tint — so every surface below still stacks in the same order, over a ground that is no
+     longer flat. With no material the ground is this colour and nothing else changes. */
+  --base: #17191d; /* the window ground */
+  --bg-app: var(--base);
+  --bg-card: #212429; /* white 4.5% — the one working surface the three panels share */
+  --bg-panel: var(--bg-card);
+  --bg-panel-raised: #2b2f36; /* white 9% — inputs, wells, hover cards */
+  /* The band inside the card: section heads, the graph's column header, a file list's group head.
+     Between the card and raised, so a head reads as part of its section rather than as a control. */
+  --bg-subtle: #262a30; /* white 7% */
+  --bg-titlebar: transparent; /* the chrome shows the window's material */
+  --bg-toolbar: transparent;
+
+  /* ---- Acrylic ------------------------------------------------------------
+     Flyouts only. The fill is the card colour at 86% with a heavy blur and a lift in saturation,
+     which is what keeps an acrylic surface from going grey as it averages what is under it. The
+     alpha is what decides whether this works over the *graph*: 14% transmission is enough to see
+     that something is behind the menu and not enough for a magenta lane to tint a row of labels.
+     One layer, where Fluent pairs a tint with a luminosity layer — the second is only worth its
+     complexity over a strongly coloured backdrop, and this one is a grey card. Applied by
+     `.ctx-menu`, `.popover` and `.modal`, and nowhere else. */
+  --bg-menu: rgba(38, 42, 49, 0.72);
+  --flyout-blur: blur(48px) saturate(2.2);
+  /* What is behind a **modal** is blurred as well as dimmed (GC-212). A dialog takes the whole
+     window, so the backdrop is the one place the app can show what glass does at full size — and
+     unlike a menu, nothing behind it has to stay readable, which is the whole point of a modal. */
+  --backdrop-blur: blur(20px) saturate(1.2);
+  /* The content card while `acrylic` is the window material: translucent, so the desktop reads
+     through the working area and not only through the chrome. No `backdrop-filter` on it — the OS
+     material has already blurred what is behind the window, and a second blur over the graph is
+     the one thing this design will not spend (see the header above). */
+  --bg-card-glass: rgba(33, 36, 41, 0.76);
+
+  --bg-input: rgba(0, 0, 0, 0.24);
+  /* Strokes. The card stroke is a hairline that separates two surfaces; the control stroke is what
+     draws the edge of something you can click, and it is the heavier of the two on purpose. */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  /* Fluent's control stroke is bottom-heavier, which is what gives a button its slight sense of
+     sitting on the surface rather than being cut out of it. In dark the extra edge is a *light*
+     one along the top; in light it is a dark one along the bottom (see the light block). */
+  --control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* Elevation as a set, not one shadow (GC-212). Each is an ambient shadow plus a key shadow, and
+     which one a surface takes says how far above the page it is: 4 for something resting on a
+     surface, 16 for a flyout, 64 for a dialog, which is the only thing that takes the whole window. */
+  --elev-4: 0 2px 4px rgba(0, 0, 0, 0.28), 0 0 2px rgba(0, 0, 0, 0.22);
+  --elev-16: 0 8px 16px rgba(0, 0, 0, 0.34), 0 0 2px rgba(0, 0, 0, 0.26);
+  --elev-64: 0 32px 64px rgba(0, 0, 0, 0.42), 0 0 8px rgba(0, 0, 0, 0.3);
+  --shadow: var(--elev-16);
+
+  /* ---- Text --------------------------------------------------------------- */
+  --text: rgba(255, 255, 255, 0.78);
   --text-bright: #ffffff;
   --text-muted: rgba(255, 255, 255, 0.6);
   --text-dim: rgba(255, 255, 255, 0.4);
-  --text-inverse: #1c1e23;
-  --on-accent: #ffffff; /* the tick drawn inside a checked checkbox (GC-101) */
+  --text-inverse: #17191d;
+  /* Dark mode's accent is a light blue, so what is drawn *on* it — the tick in a checked box, the
+     dot in a radio — is dark. Fluent does the same, and for the same reason: a white tick on a
+     light-blue fill is a 1.4:1 mark that disappears at 14px. */
+  --on-accent: #0d1a2b;
 
-  /* Semantic */
-  --accent: #4d88ff;
-  --accent-soft: rgba(77, 136, 255, 0.2);
-  --accent-hover: rgba(77, 136, 255, 0.1);
-  --accent-strong: rgba(79, 140, 255, 0.5);
-  --success: #5cb85c;
-  --success-soft: rgba(92, 184, 92, 0.2);
-  --success-strong: rgba(85, 184, 106, 0.5);
-  --warning: #de9b43;
-  --danger: #d9413d;
-  --danger-soft: rgba(217, 65, 61, 0.2);
-  --link: #40c5ec;
+  /* ---- Semantic -----------------------------------------------------------
+     `--accent` is a light blue rather than the mid blue it was, and the reason is the lane
+     palette: `--lane-8` is #2a6fe0 at hue 218 and the old #4d88ff was hue 217. A branch colour and
+     a selection colour that are the same colour is a real ambiguity in a window whose entire
+     subject is which line belongs to which branch, and there is no free blue to move to — hue 192
+     is `--lane-0`. In dark the accent separates by lightness as well (this against lane 8 measures
+     2.18:1), but in light the two are 1.24:1 and there is no honest way to pull them apart without
+     moving a lane, so lightness is not what this rests on.
+
+     What it rests on is that the accent stopped being a field. A selected row is a *neutral* fill
+     with an accent bar at its leading edge (`--row-selected` and `--sel-bar` below), so the accent
+     is a 3px shape, a 1px ring and a filled control mark — and every one of those is in the panel
+     gutter or on a control, never in the lane column. The nearest a bar and a lane come to each
+     other is the width of the ref column. A change that puts the accent back into a large area
+     beside the graph brings the ambiguity back with it, in light first. */
+  --accent: #7ab3ff;
+  --accent-soft: rgba(122, 179, 255, 0.18);
+  --accent-hover: rgba(122, 179, 255, 0.12);
+  --accent-strong: rgba(122, 179, 255, 0.34);
+  --success: #6cc36c;
+  --success-soft: rgba(108, 195, 108, 0.2);
+  --success-strong: rgba(108, 195, 108, 0.5);
+  --warning: #e0a64f;
+  --danger: #e05a56;
+  --danger-soft: rgba(224, 90, 86, 0.2);
+  --link: #4fcdf0;
+
+  /* ---- Row states ---------------------------------------------------------
+     Neutral, all three, so the only colour on a row is the ref chips and the lanes. What says a
+     row is selected is `--sel-bar` drawn at its leading edge; the fill only separates it from the
+     rows above and below. Fluent's list states are these same three neutral fills. */
+  --row-hover: rgba(255, 255, 255, 0.05);
+  --row-selected: rgba(255, 255, 255, 0.09);
+  --row-selected-hover: rgba(255, 255, 255, 0.12);
+  --sel-bar: var(--accent);
+  /* The checked-out branch. A green bar rather than the green wash it was, for the reason above:
+     the wash was the second-largest field of colour in the left panel and it was not a lane. */
+  --head-bar: var(--success);
+  --head-row: transparent;
 
   /* Surface tints that were literals in app.css until the light theme needed them to flip (GC-013) */
-  --head-row: rgba(85, 184, 106, 0.25); /* the checked-out branch's row in the left panel */
-  --match-row: rgba(222, 155, 67, 0.14); /* a commit row the search matched */
-  --banner-bg: rgba(223, 162, 67, 0.15); /* the operation banner over the staging view */
-  --hover-overlay: rgba(255, 255, 255, 0.1); /* a row inside the folded-refs block under the pointer */
-  --backdrop: rgba(0, 0, 0, 0.5); /* behind a modal */
+  --match-row: rgba(224, 166, 79, 0.16); /* a commit row the search matched */
+  --banner-bg: rgba(224, 166, 79, 0.15); /* the operation banner over the staging view */
+  --hover-overlay: rgba(255, 255, 255, 0.06); /* a control on the title bar or the toolbar */
+  --backdrop: rgba(0, 0, 0, 0.44); /* behind a modal */
 
-  /* Diff */
-  --diff-add: rgba(92, 184, 92, 0.18);
-  --diff-del: rgba(217, 65, 61, 0.18);
+  /* ---- Diff ---------------------------------------------------------------- */
+  --diff-add: rgba(108, 195, 108, 0.16);
+  --diff-del: rgba(224, 90, 86, 0.16);
   /* The words that actually changed inside a tinted line (GC-104): the same hue again, so the
      mark reads as more of the line tint rather than as a second colour. */
-  --diff-add-word: rgba(92, 184, 92, 0.36);
-  --diff-del-word: rgba(217, 65, 61, 0.36);
-  --diff-gutter: rgba(0, 0, 0, 0.12); /* the line-number column beside a hunk */
+  --diff-add-word: rgba(108, 195, 108, 0.36);
+  --diff-del-word: rgba(224, 90, 86, 0.36);
+  --diff-gutter: rgba(0, 0, 0, 0.16); /* the line-number column beside a hunk */
   /* Lines picked for a partial stage (GC-121). The accent, not a third diff hue: the line keeps its
      own add/del tint underneath and this says which of them the button is about to act on. */
-  --diff-sel: rgba(77, 136, 255, 0.26);
-  --diff-sel-edge: rgba(77, 136, 255, 0.9);
+  --diff-sel: rgba(122, 179, 255, 0.24);
+  --diff-sel-edge: rgba(122, 179, 255, 0.9);
 
-  /* Graph lanes, cycled by column index. Slightly desaturated so several lanes can coexist.
+  /* ---- Graph lanes ---------------------------------------------------------
+     Cycled by column index, and the one saturated palette in the window. Unchanged by GC-212:
+     they were calibrated, they are the app's real colour identity, and everything else was made
+     quieter around them rather than the other way about.
+
      The ten are interleaved rather than walked round the wheel in order (GC-113): `laneColor` is
      the column index, so the lanes drawn side by side are always *consecutive* indices, and a hue
      ramp put exactly that pair closest together — lanes 3 and 4 were 25 degrees apart at a
@@ -132,12 +263,39 @@
 }
 
 /*
- * Light theme (GC-013). Our own values, picked to hold the same contrast relationships as the dark
- * ramp rather than lifted from GitKraken's light theme: the surfaces step the other way (the app
- * background is the darkest of them and a raised surface is white), text is black with the same
- * alphas white carried, and every accent is darkened until it reads on a light surface.
+ * Light theme (GC-013, GC-175, GC-212). Our own values.
  *
- * Only the values change. `data-theme` is stamped on the document element by `prefs.ts`, which
+ * GC-175 solved this block by luminance: each surface was given the WCAG ratio its dark
+ * counterpart had against the surface it adjoins, because the block before it was flat and
+ * nothing separated. That was the right fix with the tools it had — the app had one border alpha
+ * and one shadow, so lightness was the only thing left to carry a boundary, and it had to carry
+ * all of it. The ground came out at #c7c9cd as a direct consequence: the app-to-menu span is
+ * 1.655:1 and white is the ceiling, so the ground could not be lighter and hold the ramp.
+ *
+ * GC-212 gives the boundary two more tools — a card stroke and a three-step elevation set — and
+ * with those the ramp does not have to carry it alone. So the whole ramp is compressed, and
+ * because it is compressed the ground is free to be light: #e9ebf0 rather than #c7c9cd, which is
+ * where a Windows 11 app's ground actually sits. GC-175's principle survives intact — light holds
+ * the same relationships dark does — and the two blocks now measure within 0.03 of each other at
+ * every adjoining pair, where GC-175 could only match dark by making light nearly as dark:
+ *
+ *     pair            light   dark    GC-175's light
+ *     card / app      1.104   1.131   1.162 (panel/app)
+ *     raised / app    1.193   1.310   1.377
+ *     menu / card     1.071   1.066   1.427 (menu/panel)
+ *     subtle / card   1.065   1.079   —
+ *
+ * The menu row is the one that moved furthest and it is the one to understand: a flyout no longer
+ * separates by being 1.43 times lighter than the panel under it, because it now has a 1px stroke
+ * and `--elev-16` under it and it is acrylic, so what is beneath it is visibly blurred. That is
+ * how every flyout on this desktop is drawn.
+ *
+ * This is a deliberate revision of GC-175, not a drift back to the block GC-175 replaced. The test
+ * is the same one GC-175 set — every adjoining pair must read as two surfaces — and it is now met
+ * by stroke, shadow and blur as well as by lightness. If the strokes or the elevation set are ever
+ * taken off, this block is wrong, and GC-175's numbers are the way back.
+ *
+ * Only values change. `data-theme` is stamped on the document element by `prefs.ts`, which
  * resolves the `system` setting itself rather than leaving it to a media query, so the renderer
  * always knows which theme is showing and can tell the main process what to paint the window
  * controls (GC-013).
@@ -145,55 +303,44 @@
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --scrollbar-thumb: rgba(0, 0, 0, 0.22);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.36);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.34);
 
-  /* Surfaces: the dark ramp's own *relationships*, not its lightnesses inverted (GC-175).
-     The light block was built as a mirror of the dark one and never measured, and it came out
-     systematically flatter: panel over app was 1.066 against dark's 1.161, and a context menu
-     floating over a panel got 1.194 where dark gives it 1.426 — so the title bar, the tab bar,
-     the toolbar and the status bar read as one undivided white strip, and the graph panel and
-     the detail panel did not separate at all.
+  --base: #e9ebf0;
+  --bg-card: #f5f6f9;
+  --bg-panel-raised: #ffffff;
+  --bg-subtle: #edeff3;
+  --bg-menu: rgba(255, 255, 255, 0.78);
+  --bg-card-glass: rgba(245, 246, 249, 0.7);
 
-     Each surface below is solved for the WCAG ratio its dark counterpart has against the surface
-     it adjoins, and the ordering is dark's too: the app is the ground, the panel sits on it, and
-     raised and menu sit above that. That last part is what changed shape — the old ramp stepped
-     *down* from the page for the panel and jumped to white for both raised surfaces, which is
-     what left nothing above the panel to spend on the menu.
-
-     The ground is as dark as it is because the arithmetic leaves no choice: the span from app to
-     menu is 1.655:1 in dark, and white is the ceiling in light, so app + 0.05 = 1.05 / 1.655.
-     A lighter canvas than this cannot hold the ramp. Measured back from the running app:
-     panel/app 1.162 (dark 1.161), toolbar/titlebar 1.161 (1.155), titlebar/app 1.208 (1.210),
-     raised/app 1.377 (1.378), menu/panel 1.427 (1.426) — worst difference 0.006. */
-  --bg-app: #c7c9cd;
-  --bg-titlebar: #dadce0;
-  --bg-toolbar: #eaecf0;
-  --bg-panel: #d6d8dc;
-  --bg-panel-raised: #e8eaee;
-  --bg-menu: #ffffff;
-  --bg-input: rgba(0, 0, 0, 0.05);
+  --bg-input: rgba(0, 0, 0, 0.04);
   /* Decided by the luminance step, not by matching dark's number (GC-175): black and white sit at
-     opposite ends of the sRGB transfer curve, so the same alpha does not buy the same line. Dark's
-     0.08 white over the panel is a 1.282 step; 0.12 black over this one is 1.303, where the old
-     0.1 over the old panel was 1.249 — the weaker line on the weaker fill, at every boundary. */
-  --border: rgba(0, 0, 0, 0.12);
-  /* Same measurement: dark's 0.2 white is 1.913 over the panel, this is 1.937. */
-  --border-strong: rgba(0, 0, 0, 0.28);
-  --shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+     opposite ends of the sRGB transfer curve, so the same alpha does not buy the same line. These
+     carry more of the boundary than dark's do, which is the whole of GC-212's revision above. */
+  --border: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  /* The bottom-heavy control edge, which in light is what it is actually for: a dark line along
+     the lower edge of a button or an input, so the control reads as sitting on the surface. */
+  --control-edge: inset 0 -1px 0 rgba(0, 0, 0, 0.11);
+
+  --elev-4: 0 2px 4px rgba(0, 0, 0, 0.1), 0 0 2px rgba(0, 0, 0, 0.08);
+  --elev-16: 0 8px 16px rgba(0, 0, 0, 0.12), 0 0 2px rgba(0, 0, 0, 0.09);
+  --elev-64: 0 32px 64px rgba(0, 0, 0, 0.18), 0 0 8px rgba(0, 0, 0, 0.1);
 
   /* Text as black with alpha, mirroring the white alphas above */
-  --text: rgba(0, 0, 0, 0.8);
+  --text: rgba(0, 0, 0, 0.84);
   --text-bright: #14161a;
   --text-muted: rgba(0, 0, 0, 0.62);
   --text-dim: rgba(0, 0, 0, 0.45);
   --text-inverse: #ffffff;
+  --on-accent: #ffffff;
 
-  /* Semantic: darkened until each one reads against a white surface */
-  --accent: #2f6fe0;
-  --accent-soft: rgba(47, 111, 224, 0.16);
-  --accent-hover: rgba(47, 111, 224, 0.09);
-  --accent-strong: rgba(47, 111, 224, 0.34);
+  /* Semantic: darkened until each one reads against a white surface. The accent is mid rather than
+     light here, so what is drawn on it goes back to white. */
+  --accent: #0f6cbd;
+  --accent-soft: rgba(15, 108, 189, 0.14);
+  --accent-hover: rgba(15, 108, 189, 0.08);
+  --accent-strong: rgba(15, 108, 189, 0.3);
   --success: #2e7d32;
   --success-soft: rgba(46, 125, 50, 0.18);
   --success-strong: rgba(46, 125, 50, 0.34);
@@ -202,20 +349,23 @@
   --danger-soft: rgba(198, 40, 40, 0.16);
   --link: #0b6f96;
 
-  --head-row: rgba(46, 125, 50, 0.18);
+  --row-hover: rgba(0, 0, 0, 0.045);
+  --row-selected: rgba(0, 0, 0, 0.075);
+  --row-selected-hover: rgba(0, 0, 0, 0.1);
+
   --match-row: rgba(214, 148, 20, 0.22);
   --banner-bg: rgba(214, 148, 20, 0.2);
   /* The hover overlay darkens on a light surface, where a white wash would be invisible */
-  --hover-overlay: rgba(0, 0, 0, 0.07);
-  --backdrop: rgba(0, 0, 0, 0.32);
+  --hover-overlay: rgba(0, 0, 0, 0.05);
+  --backdrop: rgba(0, 0, 0, 0.3);
 
   --diff-add: rgba(46, 125, 50, 0.16);
   --diff-del: rgba(198, 40, 40, 0.13);
   --diff-add-word: rgba(46, 125, 50, 0.34);
   --diff-del-word: rgba(198, 40, 40, 0.3);
-  --diff-gutter: rgba(0, 0, 0, 0.06);
-  --diff-sel: rgba(21, 101, 192, 0.2);
-  --diff-sel-edge: rgba(21, 101, 192, 0.9);
+  --diff-gutter: rgba(0, 0, 0, 0.045);
+  --diff-sel: rgba(15, 108, 189, 0.18);
+  --diff-sel-edge: rgba(15, 108, 189, 0.9);
 
   /* Lanes, darkened so ten of them stay apart on white; the yellow and green move furthest.
      Re-derived in step with the dark ramp, in the same interleaved order (GC-113). */
