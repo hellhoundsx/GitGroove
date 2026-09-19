@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { authSummary, cloneRepo, cloneTargetName, getCompareFileDiffWith, getCompareWith, GitError, ignorePattern, isAuthMessage, resolveConflictWith, restoreStashWith, runGit, stashRenameWith, type GitRunner } from './git';
+import { authSummary, cloneRepo, getCompareFileDiffWith, getCompareWith, GitError, ignorePattern, isAuthMessage, resolveConflictWith, restoreStashWith, runGit, stashRenameWith, type GitRunner } from './git';
+import { cloneTargetName } from '@shared/remotes';
 import { ADVISORY, AUTH_FAILURE, conflictSides } from '@shared/types';
 
 // `restoreStashWith` is the whole of GC-092's decision: whether a failed `stash apply --index`

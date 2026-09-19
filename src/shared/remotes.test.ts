@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GitRef, Remote } from './types';
-import { defaultRemote, isWebUrl, remoteCopyOf, remoteUrlToWeb, ssoAuthUrl } from './remotes';
+import { defaultRemote, isWebUrl, remoteCopyOf, remoteUrlToWeb, splitRemoteRef, ssoAuthUrl } from './remotes';
 
 const r = (name: string): Remote => ({ name, fetchUrl: `https://example.invalid/${name}.git`, pushUrl: `https://example.invalid/${name}.git` });
 
@@ -207,5 +207,27 @@ describe('ssoAuthUrl', () => {
 
   it('answers null when there is no link and no host to build one on', () => {
     expect(ssoAuthUrl("ERROR: The 'Acme' organization has enabled or enforced SAML SSO.")).toBeNull();
+  });
+});
+
+describe('splitRemoteRef: which local branch a remote ref is a copy of (GC-217)', () => {
+  it('splits at the remote s own name, not at the first slash', () => {
+    expect(splitRemoteRef('origin/master', [r('origin')])).toEqual({ remote: 'origin', branch: 'master' });
+    // A branch name may carry slashes of its own, and they stay on the branch.
+    expect(splitRemoteRef('origin/feature/x', [r('origin')])).toEqual({ remote: 'origin', branch: 'feature/x' });
+    expect(splitRemoteRef('upstream/feature/x', [r('origin'), r('upstream')])).toEqual({ remote: 'upstream', branch: 'feature/x' });
+  });
+
+  it('answers null when no remote owns the prefix', () => {
+    expect(splitRemoteRef('origin/master', [])).toBeNull();
+    expect(splitRemoteRef('origin/master', [r('upstream')])).toBeNull();
+    // The remote's name alone is not a ref on it: there is no branch left over.
+    expect(splitRemoteRef('origin', [r('origin')])).toBeNull();
+  });
+
+  it('is the same split `remoteCopyOf` makes, which is why it is shared', () => {
+    const local: GitRef = { name: 'feature/x', fullName: 'refs/heads/feature/x', kind: 'head', sha: 'a', isHead: false, upstream: 'origin/feature/x' };
+    const remote: GitRef = { name: 'origin/feature/x', fullName: 'refs/remotes/origin/feature/x', kind: 'remote', sha: 'a', isHead: false };
+    expect(remoteCopyOf(local, [local, remote], [r('origin')])).toEqual(splitRemoteRef('origin/feature/x', [r('origin')]));
   });
 });

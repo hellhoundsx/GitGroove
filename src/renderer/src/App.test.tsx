@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { Commit, GitApi, RepoChange, RepoSnapshot, RepoStatus, StatusEntry } from '@shared/types';
+import type { Commit, GitApi, GitRef, RepoChange, RepoSnapshot, RepoStatus, StatusEntry } from '@shared/types';
 import { App } from './App';
 import { UiProvider } from './ui/UiContext';
 import { DEFAULT_PREFS, setPrefs } from './prefs';
@@ -690,13 +690,18 @@ describe('App parks the commit message with the tab it was written in (GC-148)',
   });
 });
 
-// GC-124: the dirty-tree guard used to count the working tree as it was when the callback holding
-// it was built. `runOnBranch` awaits a checkout before calling the sequencer's guard, so what the
-// guard measured and what git was about to act on were two different trees. Nothing was wrong
-// while both checkout paths left the same index — it was a trap, not a bug — and the shape of it
-// is reproducible from any menu that outlives a status change: the rows a `ContextMenu` is opened
-// with are captured, so their handlers are the closures from that render.
-describe('the checkout guard counts the tree as it is when it runs (GC-124)', () => {
+// GC-215: a checkout is attempted, not asked about. git carries uncommitted changes onto the
+// branch being checked out wherever it can — which is what someone double-clicking a branch is
+// asking for — so GC-004's dialog stood in front of the case that works, offering "Check out
+// anyway", which is precisely what git was about to do. The guard now sits on git's own refusal,
+// which is the one moment there is something to decide, and what it offers is the way through
+// rather than "anyway": stash, check out, put the changes back on top.
+//
+// These cases still open the branch menu over a tree that goes dirty behind it, because that is
+// also GC-124's shape — the rows a `ContextMenu` is opened with are captured, so their handlers
+// are closures from that render. The rule GC-124 fixed (read the tree from `statusRef`, never
+// from the closure) is untouched; it lives in `runSequencer`, which is the guard that still counts.
+describe('a checkout carries the working tree across, and asks only when git refuses (GC-215)', () => {
   const REFS = [
     { name: 'main', fullName: 'refs/heads/main', kind: 'head' as const, sha: 'a'.repeat(40), isHead: true },
     { name: 'feature', fullName: 'refs/heads/feature', kind: 'head' as const, sha: 'b'.repeat(40), isHead: false },
@@ -718,15 +723,16 @@ describe('the checkout guard counts the tree as it is when it runs (GC-124)', ()
     expect(groupCount('Unstaged')).toBe(1);
   }
 
-  it('asks about a file that appeared after the menu was opened', async () => {
+  it('checks a dirty tree out without asking, because git carries the changes across', async () => {
     await menuThenDirty();
     await settle(() => fireEvent.click(recentRow('feature')));
-    // The closure's snapshot was clean, so the old guard checked out silently. The ref is not.
-    expect(screen.getByText(/uncommitted changes in 1 file/i)).not.toBeNull();
-    expect(checkouts).toEqual([]);
+    await settle(() => loads[1]?.resolve(withRefs(UNSTAGED)));
+    // GC-004 asked here, and the answer on offer was the one git was going to give anyway.
+    expect(document.querySelector('.modal')).toBeNull();
+    expect(checkouts).toEqual(['feature']);
   });
 
-  it('stays silent when the file that was there has gone', async () => {
+  it('stays silent when the tree is clean, as it always did', async () => {
     render(
       <UiProvider>
         <App />
@@ -734,13 +740,64 @@ describe('the checkout guard counts the tree as it is when it runs (GC-124)', ()
     );
     await settle(() => loads[0]?.resolve(withRefs(UNSTAGED)));
     await settle(() => fireEvent.click(screen.getByTitle('Switch branch')));
-    // The other direction: the tree the closure holds is dirty and the live one is clean, so the
-    // guard must not ask about a file nobody would be losing.
     await settle(() => repoChanged?.({ repo: REPO, scope: 'tree' }));
     await settle(() => statuses[0]?.resolve(status([])));
     await settle(() => fireEvent.click(recentRow('feature')));
+    await settle(() => loads[1]?.resolve(withRefs([])));
     expect(document.querySelector('.modal')).toBeNull();
     expect(checkouts).toEqual(['feature']);
+  });
+
+  it('puts git s refusal to the user as a question with a way through it, not as a red line', async () => {
+    const calls: string[] = [];
+    let refuse = true;
+    Object.assign(window.api, {
+      checkout: async (_path: string, name: string) => {
+        calls.push(`checkout:${name}`);
+        if (!refuse) return;
+        refuse = false;
+        // The way Electron delivers a rejected handler, with git's own words inside it.
+        throw new Error(
+          ["Error invoking remote method 'ref:checkout': GitError: error: Your local changes to the following files would be overwritten by checkout:", '\ta.txt', 'Please commit your changes or stash them before you switch branches.', 'Aborting'].join('\n'),
+        );
+      },
+      stashSave: async () => {
+        calls.push('stash');
+      },
+      stashPop: async () => {
+        calls.push('pop');
+      },
+    });
+    await menuThenDirty();
+    await settle(() => fireEvent.click(recentRow('feature')));
+    // `run` reloads before it rethrows, so the dialog is on screen once that load lands.
+    await settle(() => loads[1]?.resolve(withRefs(UNSTAGED)));
+
+    // The question names the file git actually stopped on — not a count of everything
+    // uncommitted, which is what the staging list behind the dialog is already saying.
+    const asked = document.querySelector('.modal .modal-message')?.textContent ?? '';
+    expect(asked).toContain('a.txt');
+    expect(asked).toMatch(/stash your changes, check out feature, and put them back on top/i);
+    // And nothing red behind it: the user has not made the decision yet (GC-215's `quiet`).
+    expect(document.querySelector('.statusbar .err')).toBeNull();
+
+    await settle(() => fireEvent.click(document.querySelector('.modal-buttons .btn:last-child') as HTMLElement));
+    await settle(() => loads[2]?.resolve(withRefs([])));
+    // Stash, check out, and put the changes back on top of the branch that was asked for.
+    expect(calls).toEqual(['checkout:feature', 'stash', 'checkout:feature', 'pop']);
+  });
+
+  it('leaves every other failure on the status bar and does nothing else', async () => {
+    Object.assign(window.api, {
+      checkout: async () => {
+        throw new Error("Error invoking remote method 'ref:checkout': GitError: error: pathspec 'feature' did not match any file(s) known to git");
+      },
+    });
+    await menuThenDirty();
+    await settle(() => fireEvent.click(recentRow('feature')));
+    await settle(() => loads[1]?.resolve(withRefs(UNSTAGED)));
+    expect(document.querySelector('.modal')).toBeNull();
+    expect(document.querySelector('.statusbar .err .line')?.textContent).toContain('did not match');
   });
 });
 
@@ -830,5 +887,249 @@ describe('a failure with more to say than the bar can hold (GC-202)', () => {
 
     await settle(() => fireEvent.click(document.querySelector('.statusbar .err') as HTMLElement));
     expect(document.querySelector('.statusbar .err')).toBeNull();
+  });
+});
+
+// GC-217: double-clicking a remote branch used to run `checkout --track`, whose own fallback
+// switches to the local copy when one exists — and that was the whole of it, so clicking
+// `origin/master` while sitting on a `master` two commits behind checked out the branch already
+// checked out and changed nothing at all. The gesture names the *remote* branch, so landing on the
+// local one and stopping there answers half of it; the local copy is brought up to the ref clicked.
+describe('a remote branch checkout takes you to where the ref points (GC-217)', () => {
+  const LOCAL = 'a'.repeat(40);
+  const REMOTE = 'b'.repeat(40);
+  const ORIGIN = { name: 'origin', fetchUrl: 'https://example.invalid/r.git', pushUrl: 'https://example.invalid/r.git' };
+
+  /** `main` checked out at `localSha`, with `origin/main` standing at `REMOTE`. */
+  const withRemote = (localSha: string, extra: GitRef[] = []): RepoSnapshot => ({
+    ...snapshot([]),
+    refs: [
+      { name: 'main', fullName: 'refs/heads/main', kind: 'head', sha: localSha, isHead: true, upstream: 'origin/main' },
+      { name: 'origin/main', fullName: 'refs/remotes/origin/main', kind: 'remote', sha: REMOTE, isHead: false },
+      ...extra,
+    ],
+    remotes: [ORIGIN],
+  });
+
+  /** Every call the checkout made, in order, so "what did it actually run" is the assertion. */
+  function record(fastForward: () => Promise<void> = async () => undefined): string[] {
+    const calls: string[] = [];
+    Object.assign(window.api, {
+      checkout: async (_p: string, name: string, opts?: { track?: boolean }) => {
+        calls.push(`checkout:${name}${opts?.track ? ':track' : ''}`);
+      },
+      fastForward: async (_p: string, branch: string, upstream: string) => {
+        calls.push(`ff:${branch}->${upstream}`);
+        await fastForward();
+      },
+    });
+    return calls;
+  }
+
+  /** Open the branch crumb's menu and pick a row from it. */
+  async function pick(first: RepoSnapshot, row: string, then: RepoSnapshot): Promise<void> {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(first));
+    await settle(() => fireEvent.click(screen.getByTitle('Switch branch')));
+    await settle(() => fireEvent.click(recentRow(row)));
+    await settle(() => loads[1]?.resolve(then));
+  }
+
+  it('checks the local copy out and fast-forwards it to the ref that was clicked', async () => {
+    const calls = record();
+    await pick(withRemote(LOCAL), 'origin/main', withRemote(REMOTE));
+    expect(calls).toEqual(['checkout:origin/main:track', 'ff:main->origin/main']);
+    // Nothing to ask and nothing to report: the graph moving is the answer.
+    expect(document.querySelector('.modal')).toBeNull();
+    expect(document.querySelector('.statusbar .err')).toBeNull();
+    expect(document.querySelector('.statusbar .notice')).toBeNull();
+  });
+
+  it('attempts no fast-forward when the two are already the same commit', async () => {
+    const calls = record();
+    await pick(withRemote(REMOTE), 'origin/main', withRemote(REMOTE));
+    expect(calls).toEqual(['checkout:origin/main:track']);
+  });
+
+  it('attempts none for a remote branch with no local copy: --track makes it at that commit', async () => {
+    const calls = record();
+    const only: GitRef = { name: 'origin/solo', fullName: 'refs/remotes/origin/solo', kind: 'remote', sha: 'c'.repeat(40), isHead: false };
+    await pick(withRemote(LOCAL, [only]), 'origin/solo', withRemote(LOCAL, [only]));
+    expect(calls).toEqual(['checkout:origin/solo:track']);
+  });
+
+  /** git's own refusal when the two have each moved on. */
+  const DIVERGED = () => Promise.reject(new Error("Error invoking remote method 'ref:fastForward': GitError: fatal: Not possible to fast-forward, aborting."));
+
+  it('puts a divergence to the user as a choice, not as a line telling them about it', async () => {
+    // GC-221: the checkout happened and the catch-up could not, which is the one outcome only the
+    // user can settle. An advisory named the problem and offered nothing.
+    const calls = record(DIVERGED);
+    await pick(withRemote(LOCAL), 'origin/main', withRemote(LOCAL));
+    expect(calls).toEqual(['checkout:origin/main:track', 'ff:main->origin/main']);
+    const asked = document.querySelector('.modal .modal-message')?.textContent ?? '';
+    expect(asked).toContain('origin/main');
+    expect(asked).toMatch(/cannot be fast-forwarded/i);
+    // It is the destructive one of the two, so it says what it drops and is marked as such.
+    expect(asked).toMatch(/discards/i);
+    const buttons = [...document.querySelectorAll('.modal-buttons .btn')].map((b) => b.textContent?.trim());
+    expect(buttons).toEqual(['Cancel', 'Create a branch here…', 'Reset main to origin/main']);
+    expect(document.querySelector('.modal-buttons .btn:last-child')?.className).toContain('danger');
+    // Nothing red: the checkout the user asked for did happen.
+    expect(document.querySelector('.statusbar .err')).toBeNull();
+  });
+
+  it('cancelling it leaves the branch exactly where the checkout left it', async () => {
+    const calls = record(DIVERGED);
+    Object.assign(window.api, { reset: async () => calls.push('reset') });
+    await pick(withRemote(LOCAL), 'origin/main', withRemote(LOCAL));
+    await settle(() => fireEvent.click(document.querySelector('.modal-buttons .btn') as HTMLElement));
+    expect(calls).toEqual(['checkout:origin/main:track', 'ff:main->origin/main']);
+    expect(document.querySelector('.modal')).toBeNull();
+  });
+
+  it('and taking the reset moves the local branch onto the ref that was clicked', async () => {
+    const calls = record(DIVERGED);
+    Object.assign(window.api, {
+      reset: async (_p: string, mode: string, sha: string) => {
+        calls.push(`reset:${mode}:${sha}`);
+      },
+    });
+    await pick(withRemote(LOCAL), 'origin/main', withRemote(LOCAL));
+    await settle(() => fireEvent.click(document.querySelector('.modal-buttons .btn:last-child') as HTMLElement));
+    await settle(() => loads[2]?.resolve(withRemote(REMOTE)));
+    expect(calls).toEqual(['checkout:origin/main:track', 'ff:main->origin/main', 'reset:hard:origin/main']);
+  });
+
+  it('lets a working tree in the way through to GC-215 s question, naming the ref clicked', async () => {
+    // git says "would be overwritten by merge" for a blocked fast-forward, in the same shape it
+    // says "by checkout" — so this is the question, not a sentence about branches that have not
+    // diverged at all. The file is in the way of `origin/main`, not of the `main` already under
+    // the user's feet, and the question has to say so.
+    const calls = record(() =>
+      Promise.reject(new Error(["Error invoking remote method 'ref:fastForward': GitError: error: Your local changes to the following files would be overwritten by merge:", '\tshared.txt', 'Please commit your changes or stash them before you merge.', 'Aborting'].join('\n'))),
+    );
+    await pick(withRemote(LOCAL), 'origin/main', withRemote(LOCAL));
+    expect(calls).toEqual(['checkout:origin/main:track', 'ff:main->origin/main']);
+    const asked = document.querySelector('.modal .modal-message')?.textContent ?? '';
+    expect(asked).toContain('shared.txt');
+    expect(asked).toContain('origin/main would overwrite');
+    expect(asked).not.toContain('main would overwrite: shared.txt. Stash your changes, check out main,');
+    expect(document.querySelector('.statusbar .err')).toBeNull();
+  });
+});
+
+// GC-219: the app opens on the working-directory row, and that row is no longer drawn for a clean
+// tree — so the selection it opens on has to go somewhere that exists.
+describe('a clean tree leaves the selection on HEAD rather than on a row that is not there', () => {
+  const HEAD = 'c'.repeat(40);
+  const headCommit: Commit = {
+    sha: HEAD,
+    parents: [],
+    authorName: 'Ada',
+    authorEmail: 'ada@example.com',
+    authorDate: '2026-01-02T03:04:05Z',
+    committerName: 'Ada',
+    committerDate: '2026-01-02T03:04:05Z',
+    summary: 'the commit HEAD is on',
+    body: '',
+    refs: [],
+  };
+  const withHead = (entries: StatusEntry[]): RepoSnapshot => ({
+    ...snapshot(entries),
+    info: { path: REPO, name: 'repo', headSha: HEAD, branch: 'main' },
+    commits: [headCommit],
+  });
+
+  it('falls to HEAD when there is nothing in the working directory', async () => {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withHead([])));
+    // No row to stand on, so the graph draws none and the panel shows the commit instead of a
+    // staging view over three empty lists.
+    expect(document.querySelector('.graph-row.wip')).toBeNull();
+    expect(document.querySelector('.graph-row.selected')).not.toBeNull();
+    expect(document.querySelector('.detail-panel h2')?.textContent).toBe('the commit HEAD is on');
+  });
+
+  it('stays on the working-directory row while there is something in it', async () => {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withHead(UNSTAGED)));
+    expect(document.querySelector('.graph-row.wip')).not.toBeNull();
+    expect(document.querySelector('.graph-row.wip')?.className).toContain('selected');
+    expect(groupCount('Unstaged')).toBe(1);
+  });
+
+  it('goes back to the row the moment the working directory has something in it', async () => {
+    // `WIP` is the app's default, not a choice the user made, so it is still what the state holds
+    // — falling to HEAD is only what it *shows* while there is no row. A file appearing puts the
+    // selection back where it defaults to, with the panel on the thing that just happened. The
+    // state being written to HEAD instead would make that one-way, and a merge stopping with
+    // conflicts would arrive with nothing on screen about it.
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withHead([])));
+    expect(document.querySelector('.graph-row.wip')).toBeNull();
+    await settle(() => repoChanged?.({ repo: REPO, scope: 'tree' }));
+    await settle(() => statuses[0]?.resolve(status(UNSTAGED)));
+    expect(document.querySelector('.graph-row.wip')?.className).toContain('selected');
+    expect(groupCount('Unstaged')).toBe(1);
+  });
+
+  it('leaves a selection the user actually made alone, in both directions', async () => {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(withHead(UNSTAGED)));
+    // Pick the commit by hand; that is a sha, and none of the above applies to it.
+    await settle(() => fireEvent.click(screen.getByText('the commit HEAD is on')));
+    expect(document.querySelector('.detail-panel h2')?.textContent).toBe('the commit HEAD is on');
+    // The tree going clean and dirty again moves nothing.
+    await settle(() => repoChanged?.({ repo: REPO, scope: 'tree' }));
+    await settle(() => statuses[0]?.resolve(status([])));
+    expect(document.querySelector('.detail-panel h2')?.textContent).toBe('the commit HEAD is on');
+    await settle(() => repoChanged?.({ repo: REPO, scope: 'tree' }));
+    await settle(() => statuses[1]?.resolve(status(UNSTAGED)));
+    expect(document.querySelector('.detail-panel h2')?.textContent).toBe('the commit HEAD is on');
+    expect(document.querySelector('.graph-row.wip')?.className).not.toContain('selected');
+  });
+
+  it('keeps the row through an operation, which is the only way to reach Abort', async () => {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve({ ...withHead([]), status: { ...status([]), operation: 'rebase' } }));
+    expect(document.querySelector('.graph-row.wip')).not.toBeNull();
+    expect(document.querySelector('.graph-row.wip')?.className).toContain('selected');
+  });
+
+  it('leaves it alone on an unborn HEAD, where the working directory is all there is', async () => {
+    render(
+      <UiProvider>
+        <App />
+      </UiProvider>,
+    );
+    await settle(() => loads[0]?.resolve(snapshot([])));
+    // `headSha` is null: there is no commit to fall to, so the staging view is right.
+    expect(document.querySelector('.graph-row.wip')).toBeNull();
+    expect(groupCount('Unstaged')).toBe(0);
   });
 });

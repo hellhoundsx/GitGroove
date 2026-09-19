@@ -13,6 +13,17 @@ export interface PromptField {
   placeholder?: string;
   /** Whether OK waits for this field (default true). */
   required?: boolean;
+  /**
+   * A button inside the field that fills it in (GC-221). It answers the *field*, so it belongs to
+   * the field: the clone dialog's "Browse…" picks the folder for "Clone into" and nothing else,
+   * and as a third button beside Cancel and Clone it read as a third answer to the dialog.
+   *
+   * `pick` resolves with the value, or `null` when the user backed out — and the dialog **stays
+   * open** throughout, which is what replaced GC-185's arrangement: that closed the dialog,
+   * reopened it with the answer, and needed `fillsIn` so the button was not gated on the form it
+   * was there to complete. A field that fills itself in needs none of that.
+   */
+  pick?: { label: string; run: () => Promise<string | null> };
 }
 
 export interface PromptOptions {
@@ -37,14 +48,25 @@ export interface PromptOptions {
   /**
    * Optional third button, between Cancel and OK. Resolves with `choice: 'secondary'`.
    *
-   * `fillsIn` says the button does not **answer** the question but supplies part of the answer —
-   * the clone dialog's "Browse…", which is that dialog reopened with the folder the OS picker
-   * returned (GC-185). Such a button is not gated on the form being complete, because the form
-   * being incomplete is exactly when it is wanted; the two guard dialogs' secondaries do answer
-   * their question and stay gated, which is why the distinction lives here rather than as a
-   * special case in `App`. Omitted means an answer.
+   * It is gated on the form being complete, like OK, because it **answers** the dialog.
+   *
+   * It used to carry `fillsIn` for a button that supplied part of the answer instead — the clone
+   * dialog's "Browse…", which was that dialog closed and reopened with the folder the OS picker
+   * returned (GC-185). A field fills itself in now (`PromptField.pick`, GC-221), which is where
+   * such a button belongs, so nothing needs the exception and it went with it.
    */
-  secondary?: { label: string; fillsIn?: boolean };
+  secondary?: { label: string };
+  /**
+   * A line under the fields that answers what the dialog is about to do, recomputed as the user
+   * types (GC-221). The clone dialog is the caller: a URL and a parent folder do not say where the
+   * repository will land, and the sentence explaining that it lands in a new folder inside the one
+   * you choose was the dialog describing its own behaviour instead of showing it.
+   *
+   * `null` means there is nothing to say yet — an empty form, or a URL nothing can be read out of
+   * — and the line is absent rather than empty, so a dialog that has not been filled in looks
+   * exactly as it did.
+   */
+  note?: (values: Record<string, string>) => string | null;
 }
 
 export interface PromptResult {
@@ -85,18 +107,17 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
   // OK waits for every field that asked to be waited for, not only the first: a dialog with two
   // fields is not answered until both are (GC-026).
   const incomplete = fields.some((f) => f.required !== false && (values[f.name] ?? '').trim().length === 0);
+  // Derived on every render rather than kept in state: it is a function of what is typed, and the
+  // one thing it must never be is a frame behind the field it describes (GC-221).
+  const note = options.note ? options.note(Object.fromEntries(fields.map((f) => [f.name, (values[f.name] ?? '').trim()]))) : null;
 
   useEffect(() => {
     (hasInput ? inputRef.current : okRef.current)?.focus();
     inputRef.current?.select();
   }, [hasInput]);
 
-  // A secondary that fills the form in is live while the form is incomplete, so this guard has to
-  // agree with the button or a live button would do nothing when clicked (GC-185).
-  const fillsIn = (choice: 'ok' | 'secondary'): boolean => choice === 'secondary' && options.secondary?.fillsIn === true;
-
   const resolveWith = (choice: 'ok' | 'secondary'): void => {
-    if (incomplete && !fillsIn(choice)) return;
+    if (incomplete) return;
     const answers = Object.fromEntries(fields.map((f) => [f.name, (values[f.name] ?? '').trim()]));
     onResolve({ value: fields.length > 0 ? (answers[fields[0].name] ?? '') : '', values: answers, checked, choice });
   };
@@ -127,16 +148,35 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
             {fields.map((f, i) => (
               <label className="modal-field" key={f.name}>
                 {f.label && <span>{f.label}</span>}
-                <input
-                  ref={i === 0 ? inputRef : undefined}
-                  name={f.name}
-                  value={values[f.name] ?? ''}
-                  placeholder={f.placeholder}
-                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
-                  spellCheck={false}
-                />
+                {/* The input and its own picker share a row, so the button reads as belonging to
+                    this field rather than as a third answer to the dialog (GC-221). */}
+                <div className="modal-field-row">
+                  <input
+                    ref={i === 0 ? inputRef : undefined}
+                    name={f.name}
+                    value={values[f.name] ?? ''}
+                    placeholder={f.placeholder}
+                    onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                    spellCheck={false}
+                  />
+                  {f.pick && (
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        // The dialog stays open: this answers the field, not the question.
+                        void f.pick?.run().then((picked) => {
+                          if (picked !== null) setValues((v) => ({ ...v, [f.name]: picked }));
+                        });
+                      }}
+                    >
+                      {f.pick.label}
+                    </button>
+                  )}
+                </div>
               </label>
             ))}
+            {note !== null && <p className="modal-note-line">{note}</p>}
             {options.checkbox && (
               <label className="modal-check">
                 <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {options.checkbox.label}
@@ -149,7 +189,7 @@ export function Modal({ options, onResolve }: Props): JSX.Element {
             {options.cancelLabel ?? 'Cancel'}
           </button>
           {options.secondary && (
-            <button className="btn" disabled={incomplete && !fillsIn('secondary')} onClick={() => resolveWith('secondary')}>
+            <button className="btn" disabled={incomplete} onClick={() => resolveWith('secondary')}>
               {options.secondary.label}
             </button>
           )}

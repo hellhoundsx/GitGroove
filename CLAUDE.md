@@ -125,7 +125,8 @@ useless, a frameless window reports an empty title even on screen.
 
 `src/main/` is `index.ts` (the window), `git.ts`, `ipc.ts` and `watch.ts`; `src/preload/` is the
 contextBridge; `src/shared/` holds `types.ts` and `remotes.ts`; `src/renderer/src/` holds
-`App.tsx`, `components/`, `graph/`, `diff/`, `ui/`, `prefs.ts`, `shortcuts.ts`, `tabs.ts`, `time.ts` and
+`App.tsx`, `components/`, `graph/`, `diff/`, `ui/`, `checkout.ts`, `prefs.ts`, `shortcuts.ts`, `tabs.ts`,
+`time.ts` and
 `styles/` (`tokens.css` plus `app.css`, one file for every component). Outside `src/`: `docs/screenshots/`
 for screenshots of our app, `docs/reference/gitkraken/` for the study, and `tools/`
 (`launch-app.mjs`, `gk-recon/`, `e2e/`). Each is described below or under Testing.
@@ -382,12 +383,36 @@ under it the moment git answers with its canonical form.
   restore marks the parked selection as already revealed, and the pass still does what it is for:
   a selection made off-screen is scrolled into view.
 
+- **What is selected is not always what `selected` holds** (GC-219). With nothing to commit there
+  is no working-directory row to stand on, and `WIP` is what the app opens on, so `shown` — derived
+  during render, never written back — falls to `info.headSha` while that row is absent. The state
+  is deliberately left as `WIP`: it is the app's **default**, not a choice the user made, so a file
+  edited or a merge stopping with conflicts puts the selection straight back where it defaults to,
+  with the panel on the thing that just happened. Writing HEAD into the state would make that
+  one-way — the row would come back with the panel still on a commit, and the e2e suite's own
+  conflict step is what caught it. A selection the user did make is a sha, so none of this reaches
+  it, and an unborn HEAD has nothing to fall to and keeps the staging view. Every consumer reads
+  `shown`; only `setSelected` writes, and the tab is parked with the state so a switch back
+  restores the default rather than a commit nobody chose.
 - **`run(label, fn, opts)` is the only way git actions execute.** It sets busy, runs, reloads the
   snapshot (or only the status for staging actions), and **re-applies the error after the reload**,
   because git often exits non-zero while leaving a state the panels must show.
   It also takes a **busy token** on entry and clears `busy` — and applies its error — only while it
   still owns it (GC-084), so of two overlapping actions the one that finishes first no longer takes
-  the status bar away from the one still running. A `rethrow` caller gets its exception either way.
+  the status bar away from the one still running.
+  **`opts.at` names the control the work belongs to** (GC-214), which is what lets the button the
+  user actually clicked say so while the status bar says it in words at the other end of the
+  window. `takeBusy(label, at)` sets `busyAt` through the same door as the label, so GC-108's rule
+  covers both and a stale "who is working" is not a second thing to get wrong; a success sets
+  `done` to `{ at, n }` behind the same `owns()` guard, and a **failure sets nothing** — a failure
+  has a sentence to say and `report` has already put it where sentences go. `at` is set only where
+  the control is **still on screen when the work ends**: the six toolbar buttons and the commit
+  button. A menu row, a popover row (`Fetch all`) or a file row's stage button is gone or may be
+  gone by then, so those actions name no control and keep the status bar alone. A `rethrow` caller gets its exception either way.
+  **`opts.quiet` is the failure the caller answers itself** (GC-215) — a predicate, because only
+  some of an action's failures are its to answer: when it holds, `run` skips `report` and leaves
+  the bar alone, and `rethrow` still delivers the exception. `runCheckout` is the one caller, for
+  the refusal it turns into a question.
   **`takeBusy(label)` is where that token is taken, and every writer of `busy` goes through it**
   (GC-108) — `run()`, the mount effect and `openPath()`, the last two of which used to set and clear
   the bar with no token at all, so an action running when a repository was opened cleared the open's
@@ -402,14 +427,66 @@ under it the moment git answers with its canonical form.
   clears the open repository — a refresh nobody asked for must never do that. That failure path
   keeps `gitclient.lastRepo` but drops the path from `recentRepos`, so an entry whose folder moved
   stops being offered. `openPath(path)` is the one way a repository is switched.
-- Every checkout goes through `runCheckout(name, doCheckout)`, which asks first and offers "Stash
-  and check out" whenever a **tracked** file has staged, unstaged or conflicted changes. A tree
-  holding only untracked files checks out silently — git carries those across untouched — and the
-  prompt names the number of files actually at risk. **That count, and the sequencer's below, come
-  from `statusRef`, not from the closure's `snapshot`** (GC-124): the ref mirrors
-  `snapshot?.status` on every render the way `live` does, because `runOnBranch` awaits a checkout
-  before the sequencer's guard runs, and a guard that measures the tree from before it would offer
-  to stash nothing and then pop an unrelated stash.
+- **Every checkout goes through `runCheckout(name, doCheckout)`, and it tries first** (GC-215).
+  git carries uncommitted changes onto the branch being checked out wherever it can, which is what
+  someone double-clicking a branch is asking for — to be on that branch with their work still in
+  front of them — so the checkout is attempted and nothing is asked. GC-004 asked before every
+  dirty checkout instead, which put a dialog in front of the case that works and offered "Check out
+  anyway", the one answer that does nothing different. The **preference went with it**
+  (`confirmDirtyCheckout`): with the guard moved to git's own refusal, its "on" state was a warning
+  before something that was going to succeed, and the dialog it raised now appears exactly where it
+  is earned.
+  git refuses this one way, having touched nothing, and `checkoutBlock(message)` in
+  `renderer/src/checkout.ts` is what tells that refusal from every other failure — a pure read of
+  git's own words, the way `git.ts` reads `/already exists/` and `headline` reads this same text,
+  because only an error's `name` survives IPC and the paths are the part worth saying. It answers
+  the files and which of the two refusals it is (a tracked file the checkout would rewrite, or an
+  untracked one sitting where the branch has one), `blockedList` names the first three and counts
+  the rest, and the question offers the **way through** rather than "anyway": stash, check out, put
+  the changes back on top. `run`'s `quiet` predicate keeps that refusal off the status bar, since a
+  red line behind the dialog describes a decision the user has not made yet; every other failure is
+  reported there and `runCheckout` returns having done nothing.
+  **A conflicting pop is then the outcome to report, and it says so in words.** git's own line is
+  about the index it could not restore (GC-092) and git *keeps* the stash when a pop conflicts, so
+  the message names the conflicted count and says the stash was kept — advisory, not red, because
+  the branch was checked out and the changes did come back. The staging panel's Conflicted group is
+  already showing them.
+- **And a remote branch takes you to where it points** (GC-217). `checkoutRef` passes `--track`,
+  whose own fallback in `git.ts` switches to the local copy when one already exists — and that was
+  the whole of it, so double-clicking `origin/master` while sitting on a `master` two commits
+  behind ran a checkout of the branch already checked out and changed **nothing at all**: a
+  spinner, two reloads, the same `↓2` in the crumb. The gesture names the *remote* branch, so
+  landing on the local one and stopping there answers half of it. The local copy is therefore
+  brought up to the ref that was clicked, with `fastForward` — the same call the branch menu's row
+  makes (GC-100), which after the checkout is `git merge --ff-only`, so it can only move the branch
+  forward. Nothing is attempted when the two are already one commit or when there is no local copy
+  at all (`--track` makes it there); a branch merely *ahead* answers "Already up to date"; and one
+  that has **diverged** is an advisory naming both branches and the three ways out, not a failure —
+  the checkout asked for did happen. Only git's own `not possible to fast-forward` is read as
+  divergence, because everything else has to propagate as itself: a working tree in the way says
+  "would be overwritten by **merge**", which is GC-215's question, and a sentence about branches
+  that have not diverged would be a lie in front of it.
+  Both halves are inside one `run()`, so one busy token and one reload — and "Stash and check out"
+  re-runs the pair, landing the user on the branch at the remote's tip with their changes back on
+  top. Which is the whole of what the gesture asked for.
+  `runCheckout` therefore takes **two names**: `name`, the branch landed **on**, which every
+  sentence about the checkout uses, and `onto`, the ref being gone **to**, which the blocked
+  question uses — "a file that `master` would overwrite" says nothing to someone already standing
+  on `master`. They are the same for every other ref, and `onto` defaults to `name`.
+  **A divergence is a question, not a line** (GC-221): the checkout happened and the catch-up could
+  not, which is the one outcome only the user can settle, so the dialog offers `Reset <local> to
+  <remote>` — `danger`, and it says how many commits it drops — or `Create a branch here…`, which is
+  `createBranchAt` at the remote s commit. The advisory it replaces named the problem and offered
+  nothing. It is recorded by the action and asked *after* `run()` resolves, because a dialog cannot
+  be opened from inside one: the reload is still to come.
+  `splitRemoteRef` in `shared/remotes.ts` is what answers which local branch a remote ref is a copy
+  of: `remoteCopyOf`'s own split, exported rather than written twice (GC-134's reasoning, with its
+  tests).
+- **The sequencer's count comes from `statusRef`, not from the closure's `snapshot`** (GC-124): the
+  ref mirrors `snapshot?.status` on every render the way `live` does, because `runOnBranch` awaits
+  a checkout before the sequencer's guard runs, and a guard that measures the tree from before it
+  would offer to stash nothing and then pop an unrelated stash. `runCheckout` counts nothing now —
+  git's refusal names the files — so this is the sequencer's rule alone.
 - **Cherry-pick, revert, merge and rebase go through `runSequencer(what, label, action)`** (GC-090),
   the same shape one step further on: git refuses all four outright while anything is staged, so the
   guard asks first, naming the staged count, and offers Cancel or "Stash and continue" — never
@@ -469,7 +546,7 @@ under it the moment git answers with its canonical form.
   runs in the **parent** — `runGit` refuses a cwd that does not exist and the target is precisely
   what does not — and names the folder on the command line, so the absolute path it answers with is
   the path git used rather than something parsed out of a progress stream `runGit` buffers and
-  never sees. `cloneTargetName(url)` is that name, pure and tested; a URL it cannot name, and a
+  never sees. `cloneTargetName(url)` is that name — in `shared/remotes.ts` since GC-221, because the dialog names the folder while the user is still typing the URL: `PromptOptions.note` is a line under the fields recomputed on every keystroke, and the clone dialog shows the path it is about to create rather than a sentence explaining that it creates one. **Its folder picker is inside the field it fills in** (`PromptField.pick`), not a third button beside Cancel and Clone: it only ever answered "Clone into", and standing among the buttons that answer the dialog it read as a third way of answering it. The dialog stays open while the OS picker runs, which is what let GC-185s `fillsIn` — a secondary that closed the dialog and reopened it with the answer — be deleted outright. Pure and tested; a URL it cannot name, and a
   name that is a path rather than one folder, are both refused before anything is spawned.
   `initRepo(dir)` is `git init` in a folder that exists, answering the same kind of path. Both
   answer what `openPath` takes, so what they made joins the tab bar and `recentRepos` like any
@@ -695,6 +772,18 @@ but a wrong one, carrying lanes from commits that are no longer there.
   saturation or its lightness; moving a **hue** is a different change and has to be re-checked
   against both its neighbours.
 
+**The dash's period divides the row height, or a long run stutters** (GC-218). A row is its own
+`<svg>` and every dashed line starts its pattern at y = 0, so the pattern tiles down a run only
+when a whole number of periods fits in one row. It was `2 3` — period 5 in a 28px row — and
+28 % 5 = 3, so every row boundary shifted the phase by 3px: it walks 0, 3, 1, 4, 2 and realigns
+only every fifth row, drawing a short gap or a doubled dash once per row all the way down.
+Invisible on the WIP node's own 14px stub, which is where the dash started life; unmissable on a
+run spanning a screenful, which is what the WIP-to-HEAD run does whenever HEAD's tip is not the
+newest commit loaded. It is `3 4` now — 7 divides 28 four times, and 3 on / 4 off is the duty
+cycle nearest the one it replaces — and `dashTiles` holds the rule in a test, so a change to
+`ROW_H` fails rather than quietly staggering the line again. Every dashed mark shares it: the WIP
+node, a stash node, the run itself and a stash's line into its parent are all "not a commit yet".
+
 `GraphCell` renders one 28px row as inline SVG. **A join is three segments, never a diagonal**:
 down its own lane to `mid - JOIN_R`, one quarter arc, then horizontally to the node's centre line,
 mirrored below. `JOIN_R` is 8px — under `mid` (14) so a vertical piece survives in a 28px row,
@@ -730,6 +819,8 @@ already has it) or when the ref in flight goes. It takes **both** halves of the 
 `overflow: visible; z-index: 3`. The second is the load-bearing one — `.col-ref` is
 `overflow: hidden`, so a block opened without it is cut to the row's 28px and shows one line.
 
+**A merge commit says so on its node** (GC-221): `parents.length > 1` draws a small filled dot in the lane colour instead of the full circle and its avatar. The graph said it only in the lines — two curves leaving the node — which is legible while both parents are on screen and invisible when the second is a hundred rows down. **Smaller** deliberately: a merge carries no work of its own and its author is whoever ran it, so the node marks the spot rather than competing with the commits either side, and it is the one node that does not interrupt its lane line — the line runs behind it, which is what makes it read as a point on the branch rather than a stop on it. A full-size node carrying a merge glyph was tried first and drew the eye harder than the commits around it.
+
 **A stash is a row of its own, above the commit it was taken from** (GC-140, GC-170).
 `getStashes` reads the first field of `%P` on the same `git stash list` walk, so `Stash.parent`
 costs no extra spawn, and `stashesByParent` keys the stashes onto that commit. GC-140 drew them as
@@ -742,11 +833,29 @@ It is pure and exported: the WIP row when there is one, then every commit with t
 from it immediately above it, newest first in `git stash list` order. Everything that counts rows
 reads that list — the virtualiser, the scroll height, and `rowIndexOf`, which is now a `findIndex`
 over it and has no offset left to get wrong (GC-141's bug by construction). `lanes.ts` never sees
-a stash: the row borrows the lane of its parent, so the split-and-rejoin property is untouched.
+a stash: `stashLanes(parentRow, count, dashLane?)` takes the parent's laid-out row, so
+`layoutGraph`'s own lanes are untouched and the split-and-rejoin property holds.
 
-`GraphCell` draws it from the parent's layout: a full-size dashed circle with the archive glyph,
-the lane line running down into the tip, and every lane that passes the parent from above passing
-this row too, so nothing appears to break where a stash is inserted. A row inside the WIP-to-HEAD
+**And the row branches out of its parent rather than standing in its lane** (GC-216, asked for by
+Ricardo). GC-170 drew the node in the parent's own lane, where the row read as one more commit on
+that branch — a straight line with a dashed circle somewhere in it. A stash *is* a child of that
+commit, its first parent being the tip it was taken from, so it is drawn the way every other child
+is: a lane of its own beside the parent's, its line running down that lane, and the **parent's row
+draws the curve into its node** — `curveIn`, the same right-angle join, dashed (`stashIn`). Drawing
+the join inside the stash's own row instead would lay a dash over the solid line already in the
+parent's lane wherever that commit has a child above it, which is exactly what GC-144 forbids.
+`stashLanes` takes the free lanes to the right of the parent — `laneFree` answering which, plus the
+lane the WIP-to-HEAD run travels in, which is not `laneFree`'s to know since that run replaces a
+line rather than joining the layout (GC-144) — and hands them back in row order, so the stash
+**nearest** the parent takes the innermost lane and no two lines cross. `graphWidth` counts them:
+a stash reaching past the last lane its parent's row uses would otherwise be drawn off the end of
+the cell. The colour stays the parent's, because what the row hangs off is that branch.
+
+`GraphCell` draws it from the parent's layout: a full-size dashed circle with the archive glyph in
+the stash's own lane, its line running down to the join below, and every lane that passes the
+parent from above passing this row too — its through lines, its incoming curves, the parent's own
+lane, and the lanes of the stashes above this one on their way down to the same commit — so
+nothing appears to break where a stash is inserted. A row inside the WIP-to-HEAD
 run carries the dash as well (`stashDashFor`, `wipDashFor`'s own rule asked of the parent), or
 GC-144's "covers the whole distance" would fail at the one row a user is looking at. The message
 column reads the stash's own message with git's `On <branch>: ` or `WIP on <branch>: ` prefix
@@ -754,6 +863,26 @@ stripped — `stashMessageText`, for display only, never in the `title` and neve
 `stashRename` stores. The row is selectable like a commit row, right-click gives `stashMenuItems`
 and double-click applies, the same two gestures from the same source. A stash whose parent is
 outside the loaded range is never looked up and draws nothing.
+
+**The working-directory row is drawn only when there is a working directory to show** (GC-219,
+asked for by Ricardo). `hasWipRow(status)` is the rule, pure and exported: entries, or an
+operation in progress. It used to be drawn whenever a repository was open, so a clean tree spent a
+row of the graph, the dashed run down to HEAD that goes with it, and the selection the app opens
+on, all on the words "no changes". **An operation keeps the row even with a clean tree**: the
+staging view is where the banner and its Abort live and this row is the only way into that view, so
+a rebase stopped on an `edit` with nothing modified must not be a trap.
+
+**And the reserved lane above HEAD then carries the run, or nothing** — the half that only showed
+once the row was gone. `layoutGraph` seeds column 0 for HEAD's lineage from the first row, so above
+HEAD's row that lane is open with **nothing above it**: no node, no child, nothing the line could
+come from. What made it read as a line was the WIP node sitting on top of it, with `wipDash`
+replacing the solid stroke with the dash running down from that node (GC-144). Take the node away
+and the seed's own solid line stands there instead, running off the top of the graph for no commit
+at all — measured on a clean tree with HEAD on an old branch: `18:0-28` on every row, nodeless.
+So `wipDashFor` is asked on **every** row whether or not there is a WIP row — it answers two
+things, which stretch must not be drawn solid and where the dash goes instead — and `runDrawn`
+(`hasWip`) is what decides whether anything is drawn in its place. The suppression is the part that
+always applies.
 
 **The dashed WIP-to-HEAD run covers the whole distance, not the first 14px** (GC-144).
 `wipDashFor` in `lanes.ts` answers what each row draws of it, and `headOwnsLane` is the load-bearing
@@ -1321,7 +1450,7 @@ by turning the box RTL and a `/` at either end is reordered to the other one.
 `prefs.ts` is the single home for user settings: a typed `Prefs` with `DEFAULT_PREFS`, persisted as
 one JSON blob under `gitclient.prefs`, read with `usePrefs()` and written with `setPrefs(patch)`.
 `load()` validates each field and falls back to the default, so a hand-edited blob cannot break the
-app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`,
+app. Settings: `avatars`, `pullMode`, `commitColumnGuide`,
 `diffView`, `diffIgnoreWhitespace`, `diffWordWrap` and `graphColumns` — the one nested value, so `load()` falls
 back per column and a `defaults()` helper copies it, a bare spread having shared the nested object.
 Adding a setting means: a field with a default in `prefs.ts`, validation in `load()`, a row in
@@ -1415,9 +1544,26 @@ possibly something about blue". `--head-bar` is green for the checked-out branch
 **Three rules decide translucency, and the first is the one the others are written around: no
 blur behind data, ever.** Not behind a 28px row of 1px lane strokes, not behind a diff, at any
 cost in frames. Then: **what floats is glass** — `--bg-menu` plus `--flyout-blur` on `.ctx-menu`,
-`.popover` and `.modal` and nowhere else, plus `--backdrop-blur` on `.modal-backdrop`, which is
-the one place a blur is free because pushing what is behind a dialog out of focus is what a dialog
-is for. And: **nothing in the window is ever at the mercy of what is behind it** — the chrome
+`.popover` and `.modal` and nowhere else. **A modal blurs the window by blurring the window**
+(GC-220): `--content-blur` is a real `filter` on `.app.behind-modal`, not a `backdrop-filter` on the
+layer above it. A backdrop samples what is behind it, and on this window that is not a reliable
+thing to sample — with the acrylic material on, `body` is 74% and the panels are white tints, so
+the filter composites the desktop too, and a sampled blur was measured rendering at neither the
+radius nor the saturation its own computed style reported. A filter on the element blurs the pixels
+the element drew, identically with or without a material, and it screenshots honestly, which the
+sampled one did not. **Every modal is therefore a sibling of `.app`** — the three that were its
+last children (Preferences, Shortcuts, the error details) were being blurred along with the window
+they stand in front of, which made Preferences unreadable. A menu and a popover are not in this:
+they are small and anchored to what opened them, so `modalUp` is the backdrop-carrying layers only. **Both are a small blur and nothing but a blur** (GC-220). Each carried a `saturate()` — 1.8 on
+the flyouts, 1.1 on the backdrop — meant to stop a translucent surface going grey as it averages
+what is under it, and what it did instead was bloom: a blur does not dim what it smears, so a 2px
+lane stroke at full chroma comes out as a wash the width of the radius and a filled ref chip as a
+blob the size of the chip plus the radius, with the lift putting back exactly the chroma the
+spreading had diluted. Dropping the `saturate()` is **half** the fix and was measured not to be
+enough alone — at 20px a magenta chip is still a magenta blob, just an unboosted one — so the
+radius comes down to 8px as well. Both alphas are untouched: the fix was the filter, not the
+darkness. A `saturate()` added back, or the radius taken back up, is the bloom back with it. **The sticky file-list head takes the same treatment**, because its own filter stacks on the backdrop when a dialog is open: at `blur(18px) saturate(1.5)` the two heads came out more blurred and more saturated than the rows between them, so a panel behind a dialog read as bands rather than as one surface. One blur, one radius, no chroma lift, on every surface that has one.
+And: **nothing in the window is ever at the mercy of what is behind it** — the chrome
 — and **there is exactly one scrim.** `body` carries `--window-scrim` and nothing else does: the
 chrome paints nothing and simply shows it, `.main` paints nothing, and its children carry white
 **tints** over it (`--bg-card-glass` for the working surface, `--bg-sidebar-glass` for the two
@@ -1581,6 +1727,42 @@ width. **The detail panel does not do this**, and cannot without new state in `A
 class on a surviving element but two different elements, `.detail-panel` and the 16px
 `.detail-reveal`, so closing it unmounts the thing that would have to shrink.
 
+**An action that takes time says so in three places, and none of them for an action that does
+not** (GC-214). The layers are the control, the words and the window: `ActionMark` puts a spinner
+in the acting button — sharing one grid cell with its icon, which fades out under it, so nothing
+moves — the status bar's busy line says what is happening in prose, and `.busy-sweep` draws an
+indeterminate band along the bar's top edge for the one kind of command whose length nothing here
+can predict, a command that has left the machine. Indeterminate because there is nothing to
+determine: git writes its progress to a stream `runGit` buffers and never reads, so a percentage
+would be a fiction. Linear, like the spinner — an eased loop appears to stall twice a turn, and a
+progress indicator is the exception the "never linear for spatial movement" rule itself names.
+
+**`--dur-work` (200ms) is the threshold under which none of it is drawn at all**, and it is the
+part that matters most: a commit here takes 40ms and a push to GitHub takes four seconds through
+the same code, so a spinner drawn at once flashes on nine actions out of ten and reads as a fault.
+It is an `animation-delay` with `backwards` fill rather than a timer — an element removed before
+its delay elapses was never painted — so the fast path costs nothing and there is nothing to
+remember to cancel. Sampled on the running app at 20ms: a pull was `working` at t=22 with the
+spinner and the sweep both at opacity 0, crossed over between t=221 and t=281 (spinner 0→0.97,
+icon 1→0), and a Refresh that finished inside 120ms drew neither. Measured the same way, the tick
+that follows lives `--dur-done` (700ms): up by t=343, held, gone by t=821. In the narrow band
+where an action takes 200-350ms the spinner is brief, and that is accepted rather than fixed with
+a minimum-display timer: what follows it is always the tick, so the eye reads "working, then
+done" rather than a mark that appeared and vanished into nothing.
+
+The success mark is the app's second overshoot and the same one: `--ease-settle`, on the same
+grounds as the checkbox's tick — a small mark standing for a decision that landed. Its easing is
+**per keyframe**, because one curve over the whole animation would overshoot the fade-out too and
+a mark that bounces on its way out is still moving when the eye arrives. **The mark unmounts on its own `animationend`**, which is
+exact, needs no timer and is what lets the icon underneath know the flourish is over: the first
+version left it in the tree at `opacity: 0` with `forwards` fill, and a permanent mark meant the
+toolbar icon either stayed hidden for good or came back *under* the tick — measured on a Refresh
+whose arrows rendered tinted green, since a check over a circular arrow is still mostly a circular
+arrow. The icon steps aside for the spinner on `.working` and for the tick on `:has(.done)`, which
+is the only thing that knows the tick is showing. And the button that is working keeps
+`opacity: 1` while the rest of the row is dimmed by `:disabled` — "unavailable" and "busy" are
+different things and the row reads better for saying which is which.
+
 The status bar deliberately does **not** shake on an error: that is a state with a
 dismiss button on it, not a transient alert, and a thing that shakes on arrival still has to be
 read afterwards.
@@ -1609,6 +1791,11 @@ Conventions a new test must follow:
   render clear of `crypto.subtle` and gravatar, restores `DEFAULT_PREFS` and clears `localStorage`
   in `afterEach`, and fires hover as `mouseOver` — React synthesises `onMouseEnter` from the
   delegated `mouseover`, so a non-bubbling `mouseenter` never reaches the handler.
+- And it ends an animation under **both** names (GC-214). jsdom defines no `AnimationEvent`, so
+  React asks at startup whether the unprefixed event exists, concludes it does not, and registers
+  `webkitAnimationEnd`: an `animationend` dispatch then reaches the element — a hand-written
+  listener sees it — and never reaches the component. `ActionMark.test.tsx` fires both, and the
+  one that lands on an already-unmounted node is harmless.
 - It must **not** call `vi.resetModules()` when React Testing Library is imported statically: a
   re-import hands the component a second React instance and every hook throws. Only
   `prefs.test.ts`, which renders nothing, re-imports (its `load()` runs at import time).
@@ -1646,8 +1833,8 @@ closed, and a port nobody holds is the fallback.
 
 `npm run e2e:setup && npm run e2e`, after a build. `run.mjs` launches through
 `tools/launch-app.mjs`, so the whole suite is stealthy, and drives the built app over CDP,
-asserting against git after each step. 43 steps, 320 assertions. It ends with
-`total: 46.6s | git: 386 calls, 10.2s` — measured 2026-09-06, and the clock is worth reading as a
+asserting against git after each step. 43 steps, 334 assertions. It ends with
+`total: 57.7s | git: 412 calls, 12.0s` — measured 2026-09-19, and the clock is worth reading as a
 comparison rather than as a constant: the same suite has ended at 45s on an idle machine and takes
 about twice that with another Electron and a build running beside it. The line is
 the run's own clock (GC-080) beside the cost of its own
@@ -1803,7 +1990,7 @@ worker's `git status`. Nothing else reads it, and no ticket is ever written *in*
 
 Design decisions that must not be quietly undone, and where each is explained above: date order in
 the log, column 0 for HEAD, no early forking, right-angle joins, one ref chip, a stash as a row of
-its own above its parent rather than a marker in its ref cell, rows built by `displayRows` so
+its own branching out of its parent rather than a marker in its ref cell, rows built by `displayRows` so
 nothing adds the WIP offset by hand, a WIP-to-HEAD dash drawn in place of the line rather than over
 it and carried by a stash row that falls inside it (Graph); one Escape
 one layer, a drop that opens no empty menu and checks out the branch it acts on, one shortcut
@@ -1912,7 +2099,7 @@ rows; and the folded block opened in a run by the class the CSS treats as hover,
 stylesheet is what answers for it (App state, Detail panel, Main process, Graph, Testing);
 
 the chrome painting nothing so the window's material shows through it, no blur ever behind data and
-glass only on what floats, an accent that may not be a large field beside the lanes so state is a
+glass only on what floats, a modal that blurs the window rather than sampling it, with every modal a sibling of the window so none is inside its own blur; a merge commit marked on its node rather than only in the lines; a divergence put as a choice rather than as a sentence; a heading given its own leading, and the first-child reset scoped to the sections whose separator it removes rather than to any card that happens to be first; an accent that may not be a large field beside the lanes so state is a
 shape and colour is a branch, elevation a set of three rather than one shadow, and a window
 material asked for only where an OS window exists to put it behind (Styling);
 
@@ -1928,12 +2115,31 @@ been on the 100-degree line nudged clear of it; and the sticky file-list head th
 allowed to stay opaque under the glass, because an occluder that lets the rows through is not one
 (Styling, Graph, Detail panel, Main process);
 
+an action that takes time answered in three layers — the control that started it, the words, and
+an indeterminate line for a command that has left the machine — with none of it drawn until the
+work has lasted `--dur-work`, and a success marked where the click was while a failure is left to
+the sentence that explains it (Styling, App state);
+
 motion written only from the duration and easing tokens, so one `prefers-reduced-motion` block
 answers for all of it including what is written later; nothing animated in the data, and nothing
 incidentally animated in what a fit function measures — the side panel drawer being the one layout
 that moves, because there the width change is the thing asked for; entrances only, with a dismissal
 instant; and a scaling entrance measured by its layout box rather than its painted one (Styling, UI
 layer);
+
+a checkout attempted rather than asked about, because git carries the working tree across wherever
+it can, with the question moved onto git's own refusal and answered by the way through rather than
+by "anyway" — and the conflicting pop that may follow named in words, the kept stash included;
+a remote branch taking you to the commit it points at rather than only to its local copy, with the
+catch-up a fast-forward and nothing else, and the two names a checkout needs when the branch landed
+on is not the ref gone to; and
+a stash drawn as a child of the commit it was taken from, in a lane of its own with the join drawn
+by the parent's row, never over the line already in the parent's lane; a dash whose period
+divides the row height, because every row is its own `<svg>` and a pattern that does not tile
+staggers once per row down the whole of a long run; and no working-directory row without a working
+directory — with HEAD's reserved lane above it then drawing the run or nothing at all, and the
+selection falling to HEAD by derivation so that the row coming back takes it straight home
+(App state, Graph);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control

@@ -762,6 +762,21 @@ for (let i = 0; i < 5; i++) {
   if (idx < 0) break;
   git(['stash', 'drop', '-q', `stash@{${idx}}`]);
 }
+// The same step drives GC-215's refusal, which stashes the tree, checks out and pops it back. That
+// pop conflicts by construction — `main` has no `wip.txt` at all, which is why git refused in the
+// first place — so git keeps the stash, and a run that died there left it in the list. Dropped,
+// not popped, unlike every other recovery here: what it holds is the step's own edit to `wip.txt`
+// and nothing of the fixture's. The unmerged entry that pop leaves goes with it, and the file too,
+// but only on `main`, where it is not the fixture's to remove.
+for (let i = 0; i < 5; i++) {
+  const idx = git(['stash', 'list']).split('\n').findIndex((l) => l.includes('Before checking out '));
+  if (idx < 0) break;
+  git(['stash', 'drop', '-q', `stash@{${idx}}`]);
+}
+if (git(['branch', '--show-current']) === 'main') {
+  gitMay(['reset', '-q', '--', 'wip.txt']);
+  rmSync(join(R, 'wip.txt'), { force: true });
+}
 // step 5 parks the whole tree in an unnamed stash for a moment; pop it back if a run died there
 for (let i = 0; i < 5; i++) {
   if (!/^WIP on /.test(git(['stash', 'list', '-1', '--format=%gs']))) break;
@@ -947,16 +962,16 @@ log(await modal('test-branch', true));
 log(await act(() => modalOk()));
 check('branch created and checked out', git(['branch', '--show-current']) === 'test-branch');
 
-step(3, 'left panel context menu: checkout main (dirty tree prompts first)');
+step(3, 'left panel context menu: checkout main, carrying the dirty tree across (GC-215)');
+const beforeCheckout = status();
 log(await contextMenuOn('.left-panel .ref-row', 'main'));
 log('menu:', await menuList());
-log(await menuClick('Checkout main'));
-await waitModal();
-const dirtyPrompt = String(await modal(null, null));
-check('dirty checkout prompts', dirtyPrompt.includes('Uncommitted changes'), dirtyPrompt);
-check('prompt names the branch', String(await modalMessage()).includes('Check out main anyway?'), await modalMessage());
-log(await act(() => modalClick('Check out anyway')));
+log(await act(() => menuClick('Checkout main')));
+// GC-215: git carries these changes onto `main` itself, so there is nothing to ask. This used to
+// raise the guard and answer it with "Check out anyway", which is what git was going to do anyway.
+check('a dirty checkout git can carry asks nothing', (await ev(`!!document.querySelector('.modal')`)) === false);
 check('checked out main', git(['branch', '--show-current']) === 'main');
+check('and the working tree came with it', status() === beforeCheckout, `${status()} | was ${beforeCheckout}`);
 
 step(4, 'delete branch via menu + confirm');
 log(await contextMenuOn('.left-panel .ref-row', 'test-branch'));
@@ -1153,7 +1168,7 @@ log(await act(() => modalOk()));
 const afterDiscard = status();
 check('untracked file deleted after confirming', !existsSync(join(R, scratch)) && !afterDiscard.includes(scratch), afterDiscard);
 
-step(15, 'checkout guard: clean and untracked-only trees are silent, Cancel is inert, Stash and check out re-applies');
+step(15, 'checkout carries the tree across, and asks only where git refuses (GC-215)');
 // park the working tree so the clean-tree path can be exercised, restored at the end of the step
 git(['stash', 'push', '-u', '-q', '-m', GUARD_STASH]);
 log(await act(() => tool('Refresh')));
@@ -1184,68 +1199,75 @@ check(
   `modal=${promptedWhenUntracked} branch=${git(['branch', '--show-current'])} file=${existsSync(join(R, GUARD_FILE))}`,
 );
 
-// a change to a tracked file is at risk, so this one does prompt. The untracked file stays on disk
-// alongside it: the count in the message is the files at risk, so it must say one, not two (GC-019).
+// GC-215's headline: a *tracked* file the user has edited is carried across too, so long as the
+// branch being checked out writes it the same way — which is the ordinary case and the one GC-004
+// used to stop with a dialog. `feature.txt` is identical on `main` and `wip-branch`, so git simply
+// takes the edit with it; the untracked guard file rides along beside it.
 git(['checkout', '-q', 'main']);
 writeFileSync(join(R, GUARD_TRACKED), 'feature work\nmore\nguard edit\n');
 log(await act(() => tool('Refresh')));
-
-// The untracked clause in the message is conditional, so both shapes are asserted (GC-161). First
-// without one: the untracked guard file is taken off disk, and the sentence must then be exactly
-// what it was before that ticket — a clause describing nothing is worse than no clause.
-rmSync(join(R, GUARD_FILE), { force: true });
-log(await act(() => tool('Refresh')));
+const carried = status();
 log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
 log(await menuClick('Checkout wip-branch'));
-await waitModal();
-const trackedOnlyMessage = String(await modalMessage());
-check(
-  'with no untracked file the checkout guard says exactly what it always did',
-  trackedOnlyMessage.includes('in 1 file. Check out wip-branch anyway?') && !trackedOnlyMessage.includes('untracked'),
-  trackedOnlyMessage,
-);
-log(await modalClick('Cancel'));
-await waitNoModal();
+await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '').startsWith('wip-branch')`, 'the dirty checkout to land', 15000);
+const promptedWhenDirty = await ev(`!!document.querySelector('.modal')`);
 await waitIdle();
-// and back on disk: every assertion from here on compares against a tree that holds it
-writeFileSync(join(R, GUARD_FILE), 'guard\n');
-log(await act(() => tool('Refresh')));
+check(
+  'an edited tracked file is carried onto the branch with no prompt at all',
+  promptedWhenDirty === false && git(['branch', '--show-current']) === 'wip-branch' && status() === carried,
+  `modal=${promptedWhenDirty} branch=${git(['branch', '--show-current'])} tree=${status()} | was ${carried}`,
+);
 
-const dirtyBefore = status();
-const stashesBefore = git(['stash', 'list']).split('\n').filter(Boolean).length;
-log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
-log(await menuClick('Checkout wip-branch'));
+// And the one case git genuinely refuses: `wip.txt` exists on `wip-branch` and not on `main`, so
+// checking `main` out would have to delete a file that has been edited. git stops, having touched
+// nothing, and that is the only moment there is a question worth asking.
+git(['checkout', '-q', '--', GUARD_TRACKED]);
+rmSync(join(R, GUARD_FILE), { force: true });
+writeFileSync(join(R, 'wip.txt'), 'wip, edited\n');
+log(await act(() => tool('Refresh')));
+const blockedBefore = { branch: git(['branch', '--show-current']), tree: status(), stashes: git(['stash', 'list']).split('\n').filter(Boolean).length };
+log(await contextMenuOn('.left-panel .ref-row', 'main'));
+log(await menuClick('Checkout main'));
 await waitModal();
-check('prompt offers all three choices', String(await modalButtons()) === 'Cancel | Stash and check out | Check out anyway', await modalButtons());
-const dirtyMessage = String(await modalMessage());
-check('the prompt counts the file at risk, not the untracked ones', dirtyMessage.includes('in 1 file —'), dirtyMessage);
-// The count is tracked-only (GC-019) while "Stash and check out" passes `includeUntracked`, so the
-// two have different scope and the message has to say which in the same sentence (GC-161).
-check('the prompt says the stash takes the untracked file too', dirtyMessage.includes('stashing takes your untracked files with it as well'), dirtyMessage);
-await shot('modal-checkout-dirty.png');
+check('git s refusal is put as a question, with the way through on the button', String(await modalButtons()) === 'Cancel | Stash and check out', await modalButtons());
+const blockedMessage = String(await modalMessage());
+// git's own list, not a count of everything uncommitted: exactly the file it stopped on.
+check('the question names the file git stopped on', blockedMessage.includes('wip.txt') && blockedMessage.includes('put them back on top'), blockedMessage);
+check('and nothing red behind it', (await ev(`!!document.querySelector('.statusbar .err')`)) === false);
+await shot('modal-checkout-blocked.png');
 log(await modalClick('Cancel'));
 // the dialog has to be gone before the next one opens, or the wait for it would pass on this one
 await waitNoModal();
 await waitIdle();
 const afterCancel = { branch: git(['branch', '--show-current']), tree: status() };
-check('cancel leaves HEAD and the tree untouched', afterCancel.branch === 'main' && afterCancel.tree === dirtyBefore, `${afterCancel.branch} | ${afterCancel.tree}`);
+check('cancel leaves HEAD and the tree untouched', afterCancel.branch === blockedBefore.branch && afterCancel.tree === blockedBefore.tree, `${afterCancel.branch} | ${afterCancel.tree}`);
 
-log(await contextMenuOn('.left-panel .ref-row', 'wip-branch'));
-log(await menuClick('Checkout wip-branch'));
+// Take the way through. `main` has no `wip.txt` at all, so the pop cannot land cleanly — which is
+// the conflict the question warned about, and the thing the user has to be told in words: git's
+// own line here is about the index it could not restore, and it keeps the stash.
+log(await contextMenuOn('.left-panel .ref-row', 'main'));
+log(await menuClick('Checkout main'));
 await waitModal();
 log(await act(() => modalClick('Stash and check out')));
-// One read of each, used by both the condition and the detail (GC-081).
+await waitSettled();
 const afterStashCheckout = { branch: git(['branch', '--show-current']), tree: status(), stashes: git(['stash', 'list']).split('\n').filter(Boolean).length };
-check(
-  'stash and check out lands on the branch with the changes re-applied',
-  afterStashCheckout.branch === 'wip-branch' && afterStashCheckout.tree === dirtyBefore && afterStashCheckout.stashes === stashesBefore,
-  `${afterStashCheckout.branch} | ${afterStashCheckout.tree} | stashes=${afterStashCheckout.stashes}`,
-);
-// restore what this step parked so the run stays re-entrant, the tracked edit included: every later
-// step compares against the mixed working tree the stash is about to put back, and nothing else
+check('it lands on the branch that was asked for', afterStashCheckout.branch === 'main', afterStashCheckout.branch);
+check('with the change back on top of it, conflicted', afterStashCheckout.tree.includes('wip.txt'), afterStashCheckout.tree);
+const conflictNotice = String(await ev(`document.querySelector('.statusbar .notice')?.textContent ?? 'no notice'`));
+check('the conflict is announced, and so is the stash that was kept', /conflicts in 1 file/i.test(conflictNotice) && /stash is kept/i.test(conflictNotice), conflictNotice);
+check('which it was', afterStashCheckout.stashes === blockedBefore.stashes + 1, `${afterStashCheckout.stashes} vs ${blockedBefore.stashes}`);
+check('and it is a notice, not a red failure', (await ev(`!!document.querySelector('.statusbar .err')`)) === false);
+
+// restore what this step parked so the run stays re-entrant, the conflicted pop included: every
+// later step compares against the mixed working tree the stash is about to put back, and nothing
+// else. `reset` (mixed, never --hard) clears the unmerged entry; the fixture's own staged changes
+// are inside GUARD_STASH at this moment, so there is nothing of its own in the index to lose.
+git(['reset', '-q']);
+rmSync(join(R, 'wip.txt'), { force: true });
+git(['stash', 'drop', '-q']); // the "Before checking out main" stash the conflicting pop kept
 git(['checkout', '-q', 'main']);
-rmSync(join(R, GUARD_FILE), { force: true });
 git(['checkout', '-q', '--', GUARD_TRACKED]);
+rmSync(join(R, GUARD_FILE), { force: true });
 // --index, like every other recovery pop in this file: the tree it parked holds the fixture's own
 // staged README.md edit and main.txt deletion, and a plain pop hands them back unstaged (GC-082)
 git(['stash', 'pop', '--index', '-q']);
@@ -2019,7 +2041,7 @@ log(await act(() => sectionAction('Show all remote branches in the graph'), 'sho
 check('the graph comes back after a solo is cleared', (await graphRows()) === rowsBefore, `${await graphRows()} / ${rowsBefore}`);
 check('nothing is left hidden in localStorage', (await ev(`localStorage.getItem(${q(hiddenKeyName)})`)) === null, String(await ev(`localStorage.getItem(${q(hiddenKeyName)})`)));
 
-step(26, 'the branch crumb is a dropdown: local and remote branches, the owner toggle, and the checkout guard behind it');
+step(26, 'the branch crumb is a dropdown: local and remote branches, the owner toggle, and the checkout behind it');
 // GC-088. The crumb was drawn like the repository crumb beside it since GC-044 and did nothing;
 // it opens the branch list now. Both crumbs are `.crumb`, so the branch one is the second.
 const branchCrumb = () =>
@@ -2045,20 +2067,24 @@ log(await filterMenu('origin/wip'));
 await waitFor(`document.querySelectorAll('.ctx-menu .ctx-item').length === 1`, 'the menu to narrow to one row');
 check('only the matching row is left', (await menuList()).includes('origin/wip-branch'), await menuList());
 check('the group that emptied loses its caption', (await menuCaptions()) === 'Remote', await menuCaptions());
-log(await filterMenu('feature'));
-await waitFor(`document.querySelectorAll('.ctx-menu .ctx-item').length === 2`, 'the menu to narrow to the two feature rows');
+log(await filterMenu('release'));
+await waitFor(`document.querySelectorAll('.ctx-menu .ctx-item').length === 2`, 'the menu to narrow to the two release rows');
 check('both groups keep their caption while both still have a row', (await menuCaptions()) === 'Local | Remote', await menuCaptions());
 await shot('13b-branch-crumb-filtered.png');
-// Enter takes the first row still standing, through `checkoutRef` — so the dirty-tree guard is in
-// front of it exactly as it is for a click. The tree is deliberately dirty here and stays that way
-// for later steps, so what this asserts is the guard naming the branch Enter chose, not a
-// completed checkout; step 15 is where a checkout is carried through.
+// Enter takes the first row still standing, through `checkoutRef` — which since GC-215 simply
+// checks out, carrying the dirty tree with it rather than asking about it first. So HEAD moving is
+// what says which row Enter chose, which is better evidence than the dialog this used to read.
+// `release` is narrowed to rather than `feature` for the same reason it is safe here: it sits on
+// main's own commit, so the checkout and the one that puts HEAD back cost the fixture nothing,
+// and the tree every later step asserts against is untouched.
 await enterKey();
-await waitModal();
-check('Enter checks the first remaining row out, through the dirty-tree guard', (await modalMessage()).includes('Check out feature anyway?'), await modalMessage());
-log(await modalClick('Cancel'));
-await waitNoModal();
-check('Cancel after Enter leaves the checkout undone', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'main', git(['rev-parse', '--abbrev-ref', 'HEAD']));
+await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '').startsWith('release')`, 'Enter to check the first row out', 15000);
+await waitIdle();
+check('Enter checks the first remaining row out', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'release', git(['rev-parse', '--abbrev-ref', 'HEAD']));
+check('and asks nothing, because git carries the tree across', (await ev(`!!document.querySelector('.modal')`)) === false);
+git(['checkout', '-q', 'main']);
+log(await act(() => tool('Refresh')));
+check('HEAD is back on main for the steps that follow', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'main', git(['rev-parse', '--abbrev-ref', 'HEAD']));
 await waitNoMenu();
 log(await branchCrumb());
 await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the branch menu reopened with an empty filter');
@@ -2074,16 +2100,21 @@ await escape();
 await waitNoMenu();
 const afterEscape = JSON.parse(await layerState());
 check('Escape closes the menu and nothing behind it', afterEscape.menu === false && afterEscape.modal === false && afterEscape.popover === false && afterEscape.search === false, JSON.stringify(afterEscape));
-// Choosing another branch goes through `runCheckout`, so the dirty-tree guard applies unchanged.
+// Choosing another branch goes through `runCheckout`, which since GC-215 carries the dirty tree
+// onto it rather than asking first. `sandbox` again rather than `feature`: it is main's own
+// commit, so what this asserts — that the row picked is the branch checked out — costs the
+// fixture nothing, and the tree the steps below compare against is the one this found.
+const beforeCrumbCheckout = status();
 log(await branchCrumb());
 await waitFor(`!!document.querySelector('.ctx-menu .ctx-item')`, 'the branch menu once more');
-log(await menuClick('feature'));
-await waitModal();
-const atRisk = git(['status', '--porcelain']).split('\n').filter((l) => l && !l.startsWith('??')).length;
-check('the checkout guard names the files actually at risk', new RegExp(`${atRisk} files?`).test(await modalMessage()), await modalMessage());
-log(await modalClick('Cancel'));
-await waitNoModal();
-check('Cancel leaves the checkout undone', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'main', git(['rev-parse', '--abbrev-ref', 'HEAD']));
+log(await menuClick('sandbox'));
+await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '').startsWith('sandbox')`, 'the crumb s checkout to land', 15000);
+await waitIdle();
+check('choosing a row checks that branch out', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'sandbox', git(['rev-parse', '--abbrev-ref', 'HEAD']));
+check('with no dialog in the way and the tree carried across', (await ev(`!!document.querySelector('.modal')`)) === false && status() === beforeCrumbCheckout, `${status()} | was ${beforeCrumbCheckout}`);
+git(['checkout', '-q', 'main']);
+log(await act(() => tool('Refresh')));
+check('HEAD is back on main for the steps that follow', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'main', git(['rev-parse', '--abbrev-ref', 'HEAD']));
 
 step(27, 'a file row can write .gitignore, and only an untracked one offers it');
 // GC-093. `new.txt` is the fixture's untracked file; README.md is tracked and staged, where a
@@ -2632,15 +2663,18 @@ await waitFor(`${FEAT_FOLDER}?.classList.contains('open') === true`, 'the feat f
 check('clearing the filter restores the list, and the folder is as the user left it', String(await leafNames()) === withFolder, `${await leafNames()} | before: ${withFolder}`);
 
 // The row stands for the whole ref even though it draws one segment, and both ways of activating
-// it name the full ref. Double-click first: the fixture's tracked changes put the checkout guard
-// in front of it, which is what says which branch was aimed at — and Cancel leaves HEAD alone,
-// so the step still costs the fixture nothing.
+// it name the full ref. Double-click first: since GC-215 the checkout simply happens — git carries
+// the fixture's tracked changes onto the branch — so HEAD is what says which branch was aimed at.
+// `feat/alpha` was branched from `main` a few lines up and is that same commit, so both this
+// checkout and the one that puts HEAD back leave the working tree exactly as they found it.
 log(await liveClick('the alpha row, to double-click it', `(() => { const r = [...document.querySelectorAll(${q(LEAF_SEL)})].find(x => x.querySelector('.row-name')?.textContent === 'alpha'); if (!r) return 'MISS no alpha row'; r.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return 'double-clicked alpha'; })()`));
-await waitModal();
-check('double-clicking a row inside a folder checks out its full ref', String(await modalMessage()).includes('Check out feat/alpha anyway?'), String(await modalMessage()));
-log(await modalClick('Cancel'));
-await waitNoModal();
-check('and Cancel leaves HEAD where it was', git(['branch', '--show-current']) === 'main', git(['branch', '--show-current']));
+await waitFor(`(document.querySelector('.crumb .value.plain')?.innerText ?? '').startsWith('feat/alpha')`, 'the folder row s checkout to land', 15000);
+await waitIdle();
+check('double-clicking a row inside a folder checks out its full ref', git(['branch', '--show-current']) === 'feat/alpha', git(['branch', '--show-current']));
+check('and asks nothing on the way, git having carried the tree across', (await ev(`!!document.querySelector('.modal')`)) === false);
+git(['checkout', '-q', 'main']);
+log(await act(() => tool('Refresh')));
+check('HEAD is back on main, so the branch below can be deleted', git(['branch', '--show-current']) === 'main', git(['branch', '--show-current']));
 
 // The row stands for the whole ref even though it draws one segment: its menu says so.
 log(await contextMenuOn(LEAF_SEL, 'alpha'));
@@ -2928,7 +2962,20 @@ await waitModal();
 // away the URL already typed the moment a folder had to be picked for it.
 log(await modalFill({ url: REMOTE.replace(/\\/g, '/'), parent: MADE.replace(/\\/g, '/') }));
 await shot('modal-clone.png');
-check('the clone dialog offers Browse beside Cancel and Clone', (await modalButtons()) === 'Cancel | Browse… | Clone', await modalButtons());
+// Browse belongs to the field it fills in, not to the row of buttons that answer the dialog
+// (GC-221), so the dialog answers with two and the picker sits inside "Clone into".
+check('the dialog answers with Cancel and Clone, and nothing else', (await modalButtons()) === 'Cancel | Clone', await modalButtons());
+check(
+  'the folder picker is inside the field it fills in',
+  (await ev(`(() => {
+    const row = document.querySelector('.modal input[name="parent"]')?.closest('.modal-field-row');
+    const btn = row?.querySelector('button');
+    return btn ? btn.textContent.trim() : 'no button beside the field';
+  })()`)) === 'Browse…',
+  await ev(`document.querySelector('.modal input[name="parent"]')?.closest('.modal-field-row')?.querySelector('button')?.textContent ?? 'none'`),
+);
+// And the live line says where the clone will land, from the same answer `cloneRepo` names it with.
+check('the dialog says the path it is about to create', String(await ev(`document.querySelector('.modal-note-line')?.textContent ?? 'none'`)).includes('remote'), await ev(`document.querySelector('.modal-note-line')?.textContent ?? 'none'`));
 log(await modalOk());
 // The clone opens in a tab of its own, so the wait is on the tab bar rather than on the graph:
 // the fixture's own rows are on screen throughout and would satisfy a row count immediately.

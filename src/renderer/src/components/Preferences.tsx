@@ -47,7 +47,7 @@ function Select({ value, onChange, children }: { value: string; onChange(e: Chan
   );
 }
 
-function Toggle({ of, label, hint }: { of: 'avatars' | 'confirmDirtyCheckout' | 'commitColumnGuide' | 'diffIgnoreWhitespace' | 'diffWordWrap'; label: string; hint?: string }): JSX.Element {
+function Toggle({ of, label, hint }: { of: 'avatars' | 'commitColumnGuide' | 'diffIgnoreWhitespace' | 'diffWordWrap'; label: string; hint?: string }): JSX.Element {
   const prefs = usePrefs();
   return (
     <Row label={label} hint={hint}>
@@ -134,7 +134,6 @@ export function Preferences({ onClose, drawnCols }: { onClose(): void; drawnCols
                 ))}
               </Select>
             </Row>
-            <Toggle of="confirmDirtyCheckout" label="Confirm checkout with uncommitted changes" hint="Asks before checking out, and offers to stash the changes." />
           </div>
         </div>
         <div className="modal-buttons">

@@ -27,6 +27,15 @@ interface Props {
    * the only kind that can be sitting on a credential helper's window waiting for a person.
    */
   onCancelBusy?(): void;
+  /**
+   * A command that has left this machine is running (GC-214): the ambient third of the work
+   * layer, and the only one that is not attached to a control or to a word. A push has no
+   * progress to report — git writes its own to a stream nothing here reads — so what this draws
+   * is an indeterminate line along the top edge of the bar, which says "still alive" to the
+   * corner of the eye of someone watching the graph rather than the status text. Deferred by
+   * `--dur-work` like every other mark, so a fetch that answers at once never draws one.
+   */
+  remote?: boolean;
 }
 
 /**
@@ -57,12 +66,15 @@ export function headline(error: string): string {
 
 const baseName = (p: string): string => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? p;
 
-export function StatusBar({ repoPath, commitCount, busy, generation, error, notice, onDismissError, onDismissNotice, onErrorDetails, onCancelBusy }: Props): JSX.Element {
+export function StatusBar({ repoPath, commitCount, busy, generation, error, notice, onDismissError, onDismissNotice, onErrorDetails, onCancelBusy, remote }: Props): JSX.Element {
   return (
     // `data-gen` counts the snapshots and statuses the app has applied. It is the one thing on
     // screen that says a reload has finished rather than started, which is what the e2e suite waits
     // on instead of the fixed sleeps it used to pay for every git action (GC-080).
     <footer className="statusbar" data-gen={generation}>
+      {/* Above everything else in the bar and outside its flow, so a line that spans the window
+          costs the text beside it nothing (GC-214). */}
+      {remote && <span className="busy-sweep" aria-hidden="true" />}
       <span className="path" title={repoPath ?? undefined}>
         {repoPath ? baseName(repoPath) : 'No repository open'}
       </span>

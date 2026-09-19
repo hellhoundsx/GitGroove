@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react';
 import { Archive, Check, ChevronDown, ChevronUp, Cloud, Pin, Search, Tag, X } from 'lucide-react';
 import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
-import { continuesRange, layoutGraph, wipDashFor, type GraphLayout } from './lanes';
+import { continuesRange, layoutGraph, stashLanes, wipDashFor, type GraphLayout } from './lanes';
 import { BandGradients, GraphCell, LANE_W, ROW_H, laneColor } from './GraphCell';
 import { chipsFor, kindMarksOf, headChipFor, HEAD_REF, RefChip, type Chip } from './RefChip';
 import { FileKindIcon, Icon } from '../ui/icons';
@@ -193,6 +193,23 @@ export type GraphRow = { kind: 'wip'; sha: string } | { kind: 'stash'; sha: stri
  * topmost. A stash whose parent is not in the loaded range is never looked up here and so draws
  * nothing, exactly as its marker did.
  */
+/**
+ * Whether the working-directory row is drawn at all (GC-219, asked for by Ricardo).
+ *
+ * It used to be drawn whenever a repository was open, which on a clean tree is a row saying
+ * "no changes" — a line of the graph, the dashed run down to HEAD that goes with it, and the
+ * selection the app opens on, all spent on the absence of something. There is nothing to stage,
+ * nothing to commit and nothing to look at.
+ *
+ * **An operation in progress keeps it**, even with a clean tree: the staging view is where the
+ * banner and its Abort live, and this row is the only way into that view. A rebase stopped on an
+ * `edit` with nothing modified is exactly that state, and hiding the row there would strand the
+ * user inside an operation with no way to end it.
+ */
+export function hasWipRow(status: RepoStatus | null | undefined): boolean {
+  return !!status && (status.entries.length > 0 || status.operation !== null);
+}
+
 export function displayRows(commits: Commit[], hasWip: boolean, byParent: Map<string, Stash[]>): GraphRow[] {
   const rows: GraphRow[] = hasWip ? [{ kind: 'wip', sha: WIP }] : [];
   commits.forEach((c, at) => {
@@ -360,7 +377,7 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
 
   const stashesOn = useMemo(() => stashesByParent(stashes), [stashes]);
 
-  const graphWidth = Math.max(3, layout.laneCount) * LANE_W + 16;
+  const hasWip = hasWipRow(status);
   const headRowIndex = headSha ? layout.rows.findIndex((r) => r.sha === headSha) : -1;
   const headRow = headRowIndex >= 0 ? layout.rows[headRowIndex]! : null;
   const wipLane = headRow ? { lane: headRow.lane, color: headRow.color, linked: true } : { lane: 0, color: 0, linked: false };
@@ -368,6 +385,32 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   // which is what lets the run be drawn in place of the line already there (GC-144). It does when
   // nothing else is pinned: `layoutGraph` then reserves column 0 for HEAD from the first row.
   const headOwnsLane = headRow !== null && headRow.lane === 0 && (pinnedSha === null || pinnedSha === headSha);
+
+  /**
+   * Which lanes the stash rows above each commit branch out into (GC-216), keyed by that commit's
+   * index into the laid-out rows and in the order the rows are drawn — topmost first.
+   *
+   * Keyed by the parent's row index rather than its sha because both halves of the drawing read
+   * it by index: the stash row takes its own lane out of the list, and the commit row below takes
+   * the whole list as the curves arriving at its node.
+   */
+  const stashLanesByRow = useMemo(() => {
+    const m = new Map<number, number[]>();
+    layout.rows.forEach((parent, i) => {
+      const n = stashesOn.get(parent.sha)?.length ?? 0;
+      if (!n) return;
+      // The run passes every row above HEAD's, so a stash row inside it carries it too (GC-170) —
+      // and the lane it travels in is then one the stashes may not take.
+      const dash = hasWip && headRow && wipDashFor(parent, i, headRowIndex, headRow.lane, headOwnsLane) ? headRow.lane : undefined;
+      m.set(i, stashLanes(parent, n, dash));
+    });
+    return m;
+  }, [layout, stashesOn, hasWip, headRow, headRowIndex, headOwnsLane]);
+
+  // A stash branches out past the last lane its parent's row uses, so the column has to make room
+  // for it or the node is drawn off the end of the cell (GC-216).
+  const maxStashLane = useMemo(() => Math.max(-1, ...[...stashLanesByRow.values()].flat()), [stashLanesByRow]);
+  const graphWidth = Math.max(3, layout.laneCount, maxStashLane + 1) * LANE_W + 16;
 
   const counts = useMemo(() => {
     const c = { add: 0, mod: 0, del: 0, conflict: 0 };
@@ -522,7 +565,6 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
   };
 
   // ---- virtualisation -----------------------------------------------------
-  const hasWip = !!status;
   // The rows as drawn, which is the commits plus the working-directory row plus a row per stash
   // (GC-170). Everything below counts these rather than doing the offset arithmetic itself.
   const rowsList = useMemo(() => displayRows(commits, hasWip, stashesOn), [commits, hasWip, stashesOn]);
@@ -675,18 +717,24 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
    * it was taken from, and when that commit is HEAD — the ordinary case — the row lands inside
    * the run, so it has to carry it or the dash breaks in the one place a user is looking at both.
    * The rule is `wipDashFor`'s, asked of the parent row: the run passes every row above HEAD's.
+   * The lane alone since GC-216: with the node out of the parent's lane the run simply passes.
    */
-  const stashDashFor = (parent: (typeof layout.rows)[number], on: number): { lane: number; toNode: boolean } | undefined => {
-    if (!hasWip || !headRow) return undefined;
-    const dash = wipDashFor(parent, on, headRowIndex, headRow.lane, headOwnsLane);
-    if (!dash) return undefined;
-    return { lane: headRow.lane, toNode: headRow.lane === parent.lane };
+  const stashDashFor = (parent: (typeof layout.rows)[number], on: number): number | undefined => {
+    if (!headRow) return undefined;
+    return wipDashFor(parent, on, headRowIndex, headRow.lane, headOwnsLane) ? headRow.lane : undefined;
   };
 
   const renderStashRow = (s: Stash, on: number, index: number): JSX.Element | null => {
     const parent = layout.rows[on];
     if (!parent) return null;
     const color = laneColor(parent.color);
+    // Which of its parent's stashes this is, which is which lane of that group it branches into
+    // and how many of them pass this row on their own way down (GC-216). By `index` rather than
+    // by sha: it is what `git stash list` ordered them by and it is unique.
+    const group = stashesOn.get(parent.sha) ?? [];
+    const nth = Math.max(0, group.findIndex((x) => x.index === s.index));
+    const lanes = stashLanesByRow.get(on) ?? [];
+    const lane = lanes[nth] ?? parent.lane;
     return (
       <div
         key={s.sha}
@@ -698,13 +746,15 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
       >
         <div className="col-ref" />
         <div className="col-graph" style={{ width: graphWidth }}>
-          {/* The lane is the parent's, and what passes this row is what passes the parent from
-              above, so no line appears to break where a stash is inserted (GC-170). */}
+          {/* A lane of its own beside the parent's, joined to it by the curve the parent's row
+              draws (GC-216); what passes this row is what passes the parent from above, so no
+              line appears to break where a stash is inserted (GC-170). */}
           <GraphCell
             row={null}
             width={graphWidth}
-            stash={{ lane: parent.lane, color: parent.color, through: parent.through, above: parent.hasChildAbove, incoming: parent.incoming }}
+            stash={{ lane, color: parent.color, parentLane: parent.lane, through: parent.through, above: parent.hasChildAbove, incoming: parent.incoming, others: lanes.slice(0, nth) }}
             stashDash={stashDashFor(parent, on)}
+            runDrawn={hasWip}
           />
         </div>
         {/* The whole, untouched message on the title; git's `On <branch>: ` prefix off the line,
@@ -807,7 +857,12 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
     const room = chipRoom(refColApplied, chips.length > MAX_CHIPS);
     const joined = rowRefs.length > 0;
     const color = laneColor(row.color);
-    const wipDash = hasWip && headRow ? wipDashFor(row, i, headRowIndex, headRow.lane, headOwnsLane) : null;
+    // Computed whether or not there is a working-directory row, because it is two answers in one
+    // (GC-219): which stretch of HEAD's reserved lane this row must not draw solid, and — when a
+    // WIP node exists to run from — where the dash goes instead. With no such node the stretch is
+    // suppressed and nothing is drawn in its place, rather than the seed's line standing there
+    // running off the top of the graph.
+    const wipDash = headRow ? wipDashFor(row, i, headRowIndex, headRow.lane, headOwnsLane) : null;
     return (
       <div key={c.sha} className={`graph-row ${selected === c.sha ? 'selected' : ''} ${!filtering ? '' : matchSet.has(c.sha) ? 'match' : 'unmatched'}`} style={style} onClick={() => onSelect(c.sha)} onContextMenu={(e) => onCommitMenu(e, c)}>
         <div
@@ -850,7 +905,10 @@ export function CommitGraph({ commits, refs, status, headSha, pinnedSha, pinnedN
             width={graphWidth}
             wipDash={wipDash}
             wipDashLane={wipDash === 'through' ? headRow!.lane : undefined}
+            runDrawn={hasWip}
+            stashIn={stashLanesByRow.get(i)}
             connector={joined}
+            merge={c.parents.length > 1}
             author={{ name: c.authorName, email: c.authorEmail, initials: initialsOf(c.authorName) }}
           />
         </div>

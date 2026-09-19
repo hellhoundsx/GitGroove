@@ -240,6 +240,42 @@
      this is the smallest one that is visible at a 26px height. */
   --press-scale: 0.97;
 
+  /* ---- Work --------------------------------------------------------------
+     An action that takes time, which in this app means anything that reaches a remote: a push, a
+     pull, a fetch. The three numbers below are what the "something is happening" layer is built
+     from, and the first of them is the one that matters most.
+
+     **Nothing about work is drawn until the work has lasted `--dur-work`.** A commit on this
+     repository takes 40ms and a push to GitHub takes four seconds, and they went through exactly
+     the same code — so a spinner drawn at once is a spinner that *flashes* on nine actions out of
+     ten, which is noise that reads as a fault. 200ms is the usual threshold for "that was
+     instant" and it is applied here as an `animation-delay` with `backwards` fill rather than as
+     a timer: a mark whose element is removed before its delay elapses was never painted at all,
+     so the fast path costs nothing and needs nobody to remember to cancel anything.
+
+     Note that `--dur-work` is a **threshold**, not a duration, which is why the
+     `prefers-reduced-motion` block leaves it alone: waiting 200ms before saying "still working"
+     is not movement. */
+  --dur-work: 200ms;
+  /* The whole life of a success mark: the tick pops, is held long enough to be read, and fades.
+     Longer than the textbook's 400-500ms for a success state because this one is not the
+     centre of the screen — it is a 16px glyph on the control the user clicked, and it has to
+     survive a glance that arrives late. */
+  --dur-done: 700ms;
+  /* One pass of the indeterminate line. The band for "indeterminate, continuous, never frantic"
+     is 1.5-2.5s; this is the middle of it. */
+  --dur-sweep: 1.8s;
+  /* What the tick grows from. The app's one overshoot lands on it (`--ease-settle`), and from
+     0.4 rather than 0 so the mark is a thing arriving rather than a thing being inflated. */
+  --done-scale: 0.4;
+  /* Where the indeterminate line's glow starts and ends, as a background position: off one edge,
+     across, off the other. Two tokens rather than a keyframe with numbers in it, because this is
+     a continuous loop and the reduced-motion block has to be able to stop it travelling — at
+     50%/50% it is a static glow in the middle of the bar, which still says "working" without
+     anything crossing the window. */
+  --sweep-from: -40%;
+  --sweep-to: 140%;
+
   /* ---- Surfaces -----------------------------------------------------------
      Neutral greys, every one of them R=G=B, written out as hex so the values are inspectable and
      so no surface costs a blend at paint time. The white alpha each one approximates is on its
@@ -283,17 +319,36 @@
   --bg-toolbar: var(--bg-chrome);
 
   /* ---- Glass --------------------------------------------------------------
-     Flyouts only. The fill is a near-black at 80% with a heavy blur and a lift in saturation,
-     which is what keeps a translucent surface from going grey as it averages what is under it.
-     The alpha is what decides whether this works over the *graph*: 20% transmission is enough to
-     see that something is behind the menu and not enough for a magenta lane to tint a row of
-     labels. Applied by `.ctx-menu`, `.popover` and `.modal`, and nowhere else. */
+     Flyouts only: `.ctx-menu`, `.popover` and `.modal`, plus the backdrop behind a modal and the
+     sticky file-list head. The fill is a near-black at 80%, and its alpha is what decides whether
+     this works over the *graph*: 20% transmission is enough to see that something is behind.
+
+     **A small blur with the chroma taken out** (GC-220, asked for by Ricardo). It was
+     `blur(40px) saturate(1.8)` on the flyouts and `blur(20px) saturate(1.1)` on the backdrop, the
+     lift being there to stop a translucent surface going grey as it averages what is under it.
+     What it produced was bloom: a blur does not dim what it smears, so a 2px lane stroke at full
+     chroma comes out as a wash the width of the radius and a filled ref chip as a blob the size of
+     the chip plus the radius, and the lift then put back exactly the chroma the spreading had
+     diluted — coloured glow around every flyout, worst on a repository with many lanes and chips.
+
+     Three things were tried in order and only the third worked, each measured rather than reasoned
+     about. Dropping the `saturate()` is not enough: at 20px a magenta chip is still a magenta
+     blob, just an unboosted one. Bringing the radius down to 8px is not enough either: the chip
+     stops smearing into its neighbours but is still a *coloured* soft rectangle. `saturate(0)` is
+     what actually answers it, because the bloom **is** the colour — and, unlike raising the scrim,
+     it removes the glow without darkening anything, which is the part that matters.
+
+     **Measured on a real window, with the material on.** An offscreen stealth render has no
+     acrylic at all, and none of this is visible in one: with the material the window is genuinely
+     see-through — `body` is 74% and the panels are white tints — so what the backdrop filter
+     composites includes the desktop, and every value set from a stealth screenshot was set blind.
+     That is the same warning the material block at the end of this file carries, and it applies
+     here too: change these from a visible launch (`tools/launch-app.mjs --visible`), never from a
+     stealth one. */
   --bg-menu: rgba(38, 38, 38, 0.8);
-  --flyout-blur: blur(40px) saturate(1.8);
-  /* What is behind a **modal** is blurred as well as dimmed. A dialog takes the whole window, so
-     the backdrop is the one place the app can show what glass does at full size — and unlike a
-     menu, nothing behind it has to stay readable, which is the whole point of a modal. */
-  --backdrop-blur: blur(20px) saturate(1.1);
+  --flyout-blur: blur(24px);
+  /* Behind a **modal**, the same small blur over the scrim: same reason, same answer (GC-220). */
+  --content-blur: blur(16px);
   /* The sticky file-list head, and the **one** exception to "no blur behind data" (GC-213).
      Stated as an exception rather than smuggled in: what is behind this is file rows, which are
      data. Three things make it the right call anyway. It is a 30px strip in a 400px panel, not
@@ -303,8 +358,13 @@
      frosts what passes under it rather than covering it.
      It is also **not load-bearing for legibility**: `--bg-subtle` is opaque with no material and
      0.93 with one, which alone is what stops the text being read. The blur is what keeps the
-     remaining 7% from being a ghost of a glyph rather than a smear of the row's colour. */
-  --head-blur: blur(18px) saturate(1.5);
+     remaining 7% from being a ghost of a glyph rather than a smear of the row's colour.
+     It takes the same treatment as the two above, for the same reason (GC-220): it was
+     `blur(18px) saturate(1.5)`, and with a dialog open its own filter stacked on the backdrop's,
+     so the two sticky heads came out visibly more blurred and more saturated than the rows
+     between them — a panel in bands rather than a panel behind glass. One blur, one radius, no
+     chroma lift, on every surface that has one. */
+  --head-blur: blur(12px);
 
   /* What the working surface and the sidebars paint **while the material is on**: a tint over
      `--window-scrim`, not a glass of their own. Defined here as well as in the material block so
@@ -587,6 +647,12 @@
     --flyout-scale: 1;
     --dialog-scale: 1;
     --press-scale: 1;
+    --done-scale: 1;
     --ease-settle: var(--ease-standard);
+    /* The indeterminate line stops travelling and becomes a static glow. `--dur-work` is
+       deliberately not here: it is a threshold rather than a movement, and an action that takes
+       four seconds still has to say so. */
+    --sweep-from: 50%;
+    --sweep-to: 50%;
   }
 }

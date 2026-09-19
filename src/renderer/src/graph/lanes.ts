@@ -98,6 +98,36 @@ export function wipDashFor(row: RowLayout, index: number, headRowIndex: number, 
 }
 
 /**
+ * The lanes a commit's stash rows branch out into (GC-216).
+ *
+ * GC-170 drew a stash in its parent's own lane, so the row read as one more commit on that
+ * branch — a straight line with a dashed circle somewhere in it. A stash *is* a child of that
+ * commit (its first parent is the tip it was taken from), so it is drawn the way every other
+ * child is: in a lane of its own, joining the parent's node from the side. That is the whole
+ * change — the node, the line down its lane and the curve into the parent at the row below.
+ *
+ * `lanes.ts` still never sees a `Stash`: this takes the parent's laid-out row and a count, so
+ * `layoutGraph`'s own lanes are untouched and the split-and-rejoin property holds. The lanes are
+ * the free ones to the **right** of the parent, `laneFree` answering which — a lane carrying a
+ * through line, a curve into the node or the node itself would be crossed by the stash's own
+ * line. `dashLane` is out for the same reason and is not `laneFree`'s to know: the WIP-to-HEAD
+ * run is drawn in place of a line rather than over one (GC-144), so nothing in the layout marks
+ * the lane it travels in as taken.
+ *
+ * Reversed on the way out, so the returned order is the order the rows are drawn in — topmost
+ * first (`displayRows` puts `stash@{0}` furthest from its parent) — and the stash **nearest** the
+ * parent takes the innermost lane. The alternative nests them the other way round, crossing every
+ * stash's line over the ones below it.
+ */
+export function stashLanes(row: RowLayout, count: number, dashLane?: number): number[] {
+  const lanes: number[] = [];
+  for (let lane = row.lane + 1; lanes.length < count; lane++) {
+    if (laneFree(row, lane) && lane !== dashLane) lanes.push(lane);
+  }
+  return lanes.reverse();
+}
+
+/**
  * @param pinnedSha commit whose lineage must occupy column 0 (the checked-out branch). Column 0 is
  *   reserved for it from the first row, so the WIP row and the dashed link to HEAD always sit at the left.
  * @param prev the `state` of the layout this range continues (GC-012). When given, the lanes it

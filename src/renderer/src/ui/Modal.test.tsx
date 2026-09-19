@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Modal, promptFields, type PromptResult } from './Modal';
 
 // GC-026 gave the dialog several fields. The half that matters is that the single-field form did
@@ -102,31 +102,34 @@ describe('Modal', () => {
     expect(result).toEqual({ value: 'v1', values: { name: 'v1', message: '' }, checked: false, choice: 'ok' });
   });
 
-  // GC-185: the third button is not always an answer. The clone dialog's "Browse…" supplies the
-  // folder the form is waiting for, so gating it on the form being complete made the folder picker
-  // unreachable from a cold dialog, which is every first clone. The two guard dialogs' secondaries
-  // do answer their question and must stay gated.
-  it('keeps a secondary that fills the form in live while a required field is empty', () => {
+  // GC-221: a button that supplies part of the answer belongs to the field it supplies, not to
+  // the row that answers the dialog. This is what GC-185's `fillsIn` became — and unlike it, the
+  // dialog stays open, so nothing has to be reopened with the answer carried back into it.
+  it('fills a field in from its own picker, without closing the dialog', async () => {
     let result: PromptResult | null = null;
     render(
       <Modal
         options={{
           title: 'Clone repository',
           okLabel: 'Clone',
-          fields: [{ name: 'url' }, { name: 'parent' }],
-          secondary: { label: 'Browse…', fillsIn: true },
+          fields: [{ name: 'url' }, { name: 'parent', pick: { label: 'Browse…', run: async () => 'C:/picked' } }],
         }}
         onResolve={(r) => (result = r)}
       />,
     );
 
-    expect(secondaryButton().disabled).toBe(false);
-    expect(okButton().disabled).toBe(true);
+    const field = (name: string): HTMLInputElement => document.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+    const browse = [...document.querySelectorAll('.modal-field-row button')].find((b) => b.textContent === 'Browse…') as HTMLButtonElement;
+    expect(browse).toBeDefined();
+    // It sits inside the field's own row, not among the buttons that answer the dialog.
+    expect(browse.closest('.modal-buttons')).toBeNull();
 
-    // and clicking it resolves: `resolveWith`'s own guard has to agree with the button, or a live
-    // button does nothing.
-    fireEvent.click(secondaryButton());
-    expect(result).toEqual({ value: '', values: { url: '', parent: '' }, checked: false, choice: 'secondary' });
+    await act(async () => {
+      fireEvent.click(browse);
+    });
+    expect(field('parent').value).toBe('C:/picked');
+    // Still open: picking a folder is not an answer to "clone this?".
+    expect(result).toBeNull();
   });
 
   it('gates an ordinary secondary on the form being complete, as the two guards rely on', () => {

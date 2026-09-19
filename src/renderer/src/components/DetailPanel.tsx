@@ -6,6 +6,7 @@ import type { FileViewSource } from '../diff/DiffView';
 import { stashMessageText, WIP } from '../graph/CommitGraph';
 import { chipsFor, RefChip } from '../graph/RefChip';
 import { ChevronRight, Trash2 } from 'lucide-react';
+import { ActionMark } from '../ui/ActionMark';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';
 import { usePrefs } from '../prefs';
@@ -259,16 +260,30 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
   }, [focusSummary]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Which control started the work and which one last succeeded, exactly as `App`'s own `run`
+   * carries them (GC-214) — this panel has a `run` of its own because its actions reload the
+   * status rather than the snapshot, and the two should answer the same way. Only the commit
+   * button asks: the file rows' stage and unstage buttons come and go with the rows themselves,
+   * so a mark on one is a mark on a control that may not be there a moment later.
+   */
+  const [busyAt, setBusyAt] = useState<string | null>(null);
+  const [done, setDone] = useState<{ at: string; n: number } | null>(null);
 
-  const run = async (fn: () => Promise<void>): Promise<void> => {
+  const run = async (fn: () => Promise<void>, at?: string): Promise<void> => {
     setBusy(true);
+    setBusyAt(at ?? null);
     setError(null);
     try {
       await fn();
+      // Only on the way out without a failure: the catch below is what has something to say when
+      // there is one, and a tick over an error message would be the panel contradicting itself.
+      if (at) setDone((d) => ({ at, n: (d?.n ?? 0) + 1 }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setBusyAt(null);
     }
   };
 
@@ -284,7 +299,7 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
     void run(async () => {
       await actions.commit(summary, body, amend);
       onDraft({ summary: '', body: '', amend: false });
-    });
+    }, 'commit');
 
   return (
     <>
@@ -446,7 +461,12 @@ function StagingView({ status, headCommit, openFile, actions, focusSummary, draf
             }}
             spellCheck
           />
-          <button type="submit" className="btn primary large" disabled={!canCommit}>
+          {/* The one control in this panel that says what its own work is doing (GC-214). A
+              commit is usually fast enough that `--dur-work` swallows the spinner entirely and
+              only the tick is seen, which is the point: the form clearing is the app's proof that
+              it worked, and the tick is what says so in the half second before the eye finds it. */}
+          <button type="submit" className={`btn primary large ${busyAt === 'commit' ? 'working' : ''}`} disabled={!canCommit}>
+            <ActionMark working={busyAt === 'commit'} done={done?.at === 'commit' ? done.n : 0} />
             {concludingMerge && !summary.trim()
               ? 'Commit merge'
               : amend

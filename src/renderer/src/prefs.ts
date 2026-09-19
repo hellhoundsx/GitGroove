@@ -20,8 +20,6 @@ export interface Prefs {
   avatars: boolean;
   /** What the Pull button does when clicked. */
   pullMode: PullMode;
-  /** Ask before checking out with a dirty working tree (and offer to stash). */
-  confirmDirtyCheckout: boolean;
   /** Show the 72-character countdown on the commit summary field. */
   commitColumnGuide: boolean;
   /** Which optional columns the graph shows after the commit message. */
@@ -37,7 +35,6 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   avatars: true,
   pullMode: 'ff',
-  confirmDirtyCheckout: true,
   commitColumnGuide: true,
   graphColumns: { author: false, date: false, sha: false },
   diffView: 'unified',
@@ -71,7 +68,6 @@ function load(): Prefs {
       return {
         avatars: bool(o.avatars, DEFAULT_PREFS.avatars),
         pullMode: isPullMode(o.pullMode) ? o.pullMode : DEFAULT_PREFS.pullMode,
-        confirmDirtyCheckout: bool(o.confirmDirtyCheckout, DEFAULT_PREFS.confirmDirtyCheckout),
         commitColumnGuide: bool(o.commitColumnGuide, DEFAULT_PREFS.commitColumnGuide),
         graphColumns: graphColumns(o.graphColumns),
         diffView: isDiffView(o.diffView) ? o.diffView : DEFAULT_PREFS.diffView,

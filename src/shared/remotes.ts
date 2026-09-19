@@ -28,13 +28,19 @@ export function defaultRemote(remotes: readonly Remote[]): string | undefined {
  *
  * Pure, and here rather than in `App.tsx`, so the answer between a delete confirmation and the
  * checkbox naming a remote is the one thing in that path a test can hold (GC-134).
+ *
+ * The split itself is `splitRemoteRef` above, exported since GC-217 because checking a remote
+ * branch out needs the same answer — which local branch `origin/master` is a copy of — and two
+ * implementations of a rule with this much reasoning behind it is one too many.
  */
-export function remoteCopyOf(branch: GitRef, refs: readonly GitRef[], remotes: readonly Remote[]): { remote: string; branch: string } | null {
+export function splitRemoteRef(full: string, remotes: readonly Remote[]): { remote: string; branch: string } | null {
   const byLength = [...remotes].sort((a, b) => b.name.length - a.name.length);
-  const split = (full: string): { remote: string; branch: string } | null => {
-    const rem = byLength.find((m) => full.startsWith(`${m.name}/`));
-    return rem ? { remote: rem.name, branch: full.slice(rem.name.length + 1) } : null;
-  };
+  const rem = byLength.find((m) => full.startsWith(`${m.name}/`));
+  return rem ? { remote: rem.name, branch: full.slice(rem.name.length + 1) } : null;
+}
+
+export function remoteCopyOf(branch: GitRef, refs: readonly GitRef[], remotes: readonly Remote[]): { remote: string; branch: string } | null {
+  const split = (full: string): { remote: string; branch: string } | null => splitRemoteRef(full, remotes);
   const tracking = refs.filter((x) => x.kind === 'remote').map((x) => x.name);
   if (branch.upstream && tracking.includes(branch.upstream)) return split(branch.upstream);
   const same = tracking.find((n) => split(n)?.branch === branch.name);
@@ -206,4 +212,21 @@ export function ssoAuthUrl(message: string): SsoAuthorisation | null {
   const org = /\bThe '([^']+)' organization has enabled (?:or enforced )?SAML SSO/i.exec(message)?.[1];
   if (org === undefined) return null;
   return { url: `https://${host}/orgs/${encodeURIComponent(org)}/sso`, what: `Sign in to ${org} there, ${again}.` };
+}
+
+/**
+ * The folder `git clone <url>` would make, which is the last path segment of the URL with a
+ * trailing `.git` and any trailing slash taken off (GC-128). Pure, and exported so the name the
+ * dialog offers and the path the clone answers with come from one place rather than from git's
+ * own progress output, which `runGit` buffers and does not parse.
+ *
+ * `''` means the URL says nothing usable, and the caller has to be given a name instead — git
+ * would refuse such a clone anyway, but refusing it here says so before anything is spawned.
+ */
+export function cloneTargetName(url: string): string {
+  const trimmed = url.trim().replace(/[/\\]+$/, '');
+  // `scp`-style SSH (`git@host:owner/repo.git`) has no scheme to strip, and both forms end in the
+  // segment wanted, so the last separator of either kind is the only thing that has to be found.
+  const last = trimmed.split(/[/\\:]/).pop() ?? '';
+  return last.replace(/\.git$/i, '');
 }

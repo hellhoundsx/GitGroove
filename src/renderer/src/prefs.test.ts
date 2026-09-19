@@ -63,7 +63,6 @@ describe('load', () => {
     const blob = {
       avatars: false,
       pullMode: 'rebase',
-      confirmDirtyCheckout: false,
       commitColumnGuide: false,
       graphColumns: { author: true, date: true, sha: false },
       diffView: 'split',
@@ -80,7 +79,6 @@ describe('load', () => {
     expect(getPrefs()).toEqual({
       avatars: DEFAULT_PREFS.avatars,
       pullMode: 'rebase',
-      confirmDirtyCheckout: DEFAULT_PREFS.confirmDirtyCheckout,
       commitColumnGuide: DEFAULT_PREFS.commitColumnGuide,
       graphColumns: DEFAULT_PREFS.graphColumns,
       diffView: DEFAULT_PREFS.diffView,
@@ -147,7 +145,7 @@ describe('load', () => {
   });
 
   it('ignores the legacy key when a blob already exists', async () => {
-    const blob = { avatars: true, pullMode: 'ff', confirmDirtyCheckout: true, commitColumnGuide: true };
+    const blob = { avatars: true, pullMode: 'ff', commitColumnGuide: true };
     const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify(blob), [LEGACY_KEY]: 'rebase' });
     expect(getPrefs().pullMode).toBe('ff');
     expect(stored()).toEqual(blob);

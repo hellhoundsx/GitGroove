@@ -3,7 +3,7 @@ import { cleanup, createEvent, fireEvent, render } from '@testing-library/react'
 import type { ComponentProps } from 'react';
 import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
 import type { RefDragHandlers } from '../ui/refDrag';
-import { chipMarksFit, chipRoom, CommitGraph, displayRows, rowIndexOf, shouldRevealSelection, stashesByParent, stashMessageText } from './CommitGraph';
+import { chipMarksFit, chipRoom, CommitGraph, displayRows, hasWipRow, rowIndexOf, shouldRevealSelection, stashesByParent, stashMessageText } from './CommitGraph';
 import { chipsFor, headChipFor, kindMarksOf } from './RefChip';
 import { DEFAULT_PREFS, setPrefs } from '../prefs';
 
@@ -636,7 +636,9 @@ describe('what a chip says it is (GC-146)', () => {
 // reached nothing and was lost the moment the row was virtualised out, a file view opened or a tab
 // was switched. jsdom is enough for all of it: the field is controlled or it is not.
 describe('the WIP row commit field (GC-182)', () => {
-  const status: RepoStatus = { branch: 'main', upstream: null, ahead: 0, behind: 0, entries: [], operation: null };
+  // One changed file, because the row is drawn only when the working directory has something to
+  // draw it for (GC-219).
+  const status: RepoStatus = { branch: 'main', upstream: null, ahead: 0, behind: 0, entries: [{ path: 'a.txt', staged: null, unstaged: 'modified' }], operation: null };
   const wipInput = (c: HTMLElement): HTMLInputElement => c.querySelector<HTMLInputElement>('.wip-input')!;
 
   it('draws the draft summary rather than whatever the DOM node happens to hold', () => {
@@ -723,5 +725,143 @@ describe("the WIP row's change readout (GC-183)", () => {
     const plus = container.querySelector('.graph-row .readout .kind-added svg');
     expect(plus?.getAttribute('fill')).toBe('none');
     expect(plus?.getAttribute('stroke-width')).toBe('2.5');
+  });
+});
+
+describe('a stash branches out rather than standing in its parent s lane (GC-216)', () => {
+  const stash = (index: number, parent: string): Stash => ({
+    index,
+    sha: `s${index}`.padEnd(40, '0'),
+    message: `On main: work ${index}`,
+    date: '2026-01-02T03:04:05Z',
+    parent,
+  });
+  /** A stash row's node: the dashed circle, which the r = 10 mask beneath it is not. */
+  const stashNodes = (c: HTMLElement): number[] => [...c.querySelectorAll('.stash-row .col-graph circle[stroke-dasharray]')].map((e) => Number(e.getAttribute('cx')));
+  /** Every dashed curve on the commit rows, which is what a stash arrives by and nothing else does. */
+  const joins = (c: HTMLElement): string[] => [...c.querySelectorAll('.graph-row:not(.stash-row) .col-graph path[stroke-dasharray]')].map((e) => e.getAttribute('d') ?? '');
+  const graphW = (c: HTMLElement): string => (c.querySelector('.graph-row .col-graph') as HTMLElement).style.width;
+
+  it('puts the stash node in the first free lane beside its parent', () => {
+    const { container } = renderGraph({ stashes: [stash(0, commit.sha)] });
+    // laneX: 8px of padding, then 20px a lane, centred — so lane 0 is 18 and lane 1 is 38.
+    expect(stashNodes(container)).toEqual([38]);
+    expect(container.querySelector('.graph-row:not(.stash-row) .col-graph circle')?.getAttribute('cx')).toBe('18');
+  });
+
+  it('joins it to its parent with the right-angle curve every other child gets, dashed', () => {
+    const { container } = renderGraph({ stashes: [stash(0, commit.sha)] });
+    // Down its own lane, a quarter arc, then along the node's centre line — never a diagonal
+    // (GC-077), and dashed for the reason the node is: what arrives is not a commit on the branch.
+    expect(joins(container)).toEqual(['M 38 0 V 6 A 8 8 0 0 1 30 14 H 18']);
+  });
+
+  it('gives two stashes on one commit a lane each, nearest the parent innermost', () => {
+    const { container } = renderGraph({ stashes: [stash(0, commit.sha), stash(1, commit.sha)] });
+    // `git stash list` order top to bottom, so stash@{0} is the topmost row and the outermost
+    // lane: its line runs down past stash@{1}'s row without crossing it.
+    expect(stashNodes(container)).toEqual([58, 38]);
+    expect(joins(container)).toHaveLength(2);
+  });
+
+  it('widens the graph column to make room for the lane it branched into', () => {
+    // Three lanes is the column's floor, so one and two stashes are drawn inside it.
+    const plain = renderGraph();
+    expect(graphW(plain.container)).toBe('76px');
+    cleanup();
+    const two = renderGraph({ stashes: [stash(0, commit.sha), stash(1, commit.sha)] });
+    expect(graphW(two.container)).toBe('76px');
+    cleanup();
+    // A third reaches lane 3, and the column follows rather than drawing the node off the end.
+    const three = renderGraph({ stashes: [stash(0, commit.sha), stash(1, commit.sha), stash(2, commit.sha)] });
+    expect(graphW(three.container)).toBe('96px');
+  });
+});
+
+// GC-219: the working-directory row used to be drawn whenever a repository was open, so a clean
+// tree spent a row of the graph, the dashed run down to HEAD that goes with it, and the selection
+// the app opens on, all on the words "no changes".
+describe('the working-directory row is drawn only when there is a working directory to show (GC-219)', () => {
+  const clean: RepoStatus = { branch: 'main', upstream: null, ahead: 0, behind: 0, entries: [], operation: null };
+  const dirty: RepoStatus = { ...clean, entries: [{ path: 'a.txt', staged: null, unstaged: 'modified' }] };
+
+  it('answers the rule from the status alone', () => {
+    expect(hasWipRow(clean)).toBe(false);
+    expect(hasWipRow(dirty)).toBe(true);
+    expect(hasWipRow(null)).toBe(false);
+    expect(hasWipRow(undefined)).toBe(false);
+    // An untracked file is a change: git carries it across a checkout, but it is still something
+    // the user can stage.
+    expect(hasWipRow({ ...clean, entries: [{ path: 'new.txt', staged: null, unstaged: 'untracked' }] })).toBe(true);
+  });
+
+  it('keeps the row through an operation, even with nothing modified', () => {
+    // The staging view is where the operation banner and its Abort live, and this row is the only
+    // way into it — a rebase stopped on an `edit` with a clean tree must not be a trap.
+    expect(hasWipRow({ ...clean, operation: 'rebase' })).toBe(true);
+    expect(hasWipRow({ ...clean, operation: 'merge' })).toBe(true);
+  });
+
+  it('draws no row and no dashed run for a clean tree', () => {
+    const { container } = renderGraph({ status: clean });
+    expect(container.querySelectorAll('.graph-row.wip')).toHaveLength(0);
+    // The run exists to link the WIP node to HEAD; with no node there is nothing to link.
+    expect(container.querySelectorAll('.graph-row .col-graph line[stroke-dasharray]')).toHaveLength(0);
+    // And the commits are still all there, now starting at row 0.
+    expect(container.querySelectorAll('.graph-row')).toHaveLength(1);
+  });
+
+  it('draws it the moment the working directory has something in it', () => {
+    const { container } = renderGraph({ status: dirty });
+    expect(container.querySelectorAll('.graph-row.wip')).toHaveLength(1);
+    expect(container.querySelector('.graph-row.wip .readout')?.textContent).not.toContain('no changes');
+  });
+
+  it('and through an operation, where the readout is honestly empty', () => {
+    const { container } = renderGraph({ status: { ...clean, operation: 'rebase' } });
+    expect(container.querySelectorAll('.graph-row.wip')).toHaveLength(1);
+    expect(container.querySelector('.graph-row.wip .readout')?.textContent).toContain('no changes');
+  });
+
+  it('shifts the commit rows up, which `displayRows` answers for every counter at once', () => {
+    const rows = displayRows([commit], false, new Map());
+    expect(rows.map((r) => r.kind)).toEqual(['commit']);
+    expect(rowIndexOf(rows, commit.sha)).toBe(0);
+    // With the row back, everything moves down one and nothing does that arithmetic by hand.
+    const withWip = displayRows([commit], true, new Map());
+    expect(rowIndexOf(withWip, commit.sha)).toBe(1);
+  });
+});
+
+// GC-219, the half that only showed once the row was gone: `layoutGraph` reserves column 0 for
+// HEAD's lineage from the first row, so above HEAD's row that lane is open with nothing above it.
+// The WIP node sitting on top of it is what made it read as a line, and `wipDash` replaced the
+// solid stroke with the dash running down from that node (GC-144). Take the node away and the
+// seed's own line stands there instead, running off the top of the graph for no commit at all.
+describe('the reserved lane above HEAD carries the run, or nothing (GC-219)', () => {
+  const older: Commit = { ...commit, sha: 'd'.repeat(40), summary: 'the one HEAD is on' };
+  const newer: Commit = { ...commit, sha: 'e'.repeat(40), summary: 'a commit on another branch', parents: [] };
+  const clean: RepoStatus = { branch: 'main', upstream: null, ahead: 0, behind: 0, entries: [], operation: null };
+  const dirty: RepoStatus = { ...clean, entries: [{ path: 'a.txt', staged: null, unstaged: 'modified' }] };
+  /** Every vertical line the first row draws in lane 0, which is where the seed sits. */
+  const lane0 = (c: HTMLElement, dashed: boolean): number =>
+    [...(c.querySelector('.graph-row')?.querySelectorAll(`.col-graph line${dashed ? '[stroke-dasharray]' : ':not([stroke-dasharray])'}`) ?? [])].filter((l) => l.getAttribute('x1') === '18').length;
+
+  const render2 = (status: RepoStatus): ReturnType<typeof renderGraph> => renderGraph({ commits: [newer, older], headSha: older.sha, refs: [], status });
+
+  it('draws the run there while there is a working-directory row', () => {
+    const { container } = render2(dirty);
+    expect(container.querySelectorAll('.graph-row.wip')).toHaveLength(1);
+    // Dashed in place of the solid line, which is GC-144's rule unchanged.
+    expect(lane0(container, true)).toBe(1);
+    expect(lane0(container, false)).toBe(0);
+  });
+
+  it('draws nothing there when there is not', () => {
+    const { container } = render2(clean);
+    expect(container.querySelectorAll('.graph-row.wip')).toHaveLength(0);
+    // Neither a dash nor the seed's own solid line: there is no node above for either to come from.
+    expect(lane0(container, true)).toBe(0);
+    expect(lane0(container, false)).toBe(0);
   });
 });

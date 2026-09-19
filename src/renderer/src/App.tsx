@@ -3,7 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 import { Icon } from './ui/icons';
 import type { CheckoutOptions, Commit, ConflictSide, GitRef, IgnoreKind, Remote, RepoChange, RepoOperation, RepoSnapshot, RepoStatus, Stash, StatusEntry } from '@shared/types';
 import { ADVISORY, AUTH_FAILURE, conflictSides } from '@shared/types';
-import { defaultRemote, remoteCopyOf, remoteUrlToWeb } from '@shared/remotes';
+import { cloneTargetName, defaultRemote, remoteCopyOf, remoteUrlToWeb, splitRemoteRef } from '@shared/remotes';
 import { fitPanels, useDragWidth, useWindowWidth, MIN_GRAPH_W, type OptCols, type PanelFit } from './ui/useDragWidth';
 import { TitleBar } from './components/TitleBar';
 import { Toolbar } from './components/Toolbar';
@@ -11,11 +11,12 @@ import { LeftPanel } from './components/LeftPanel';
 import { DetailPanel, discardFileConfirm, type FileMenuTarget, type StagingActions } from './components/DetailPanel';
 import { StatusBar, headline } from './components/StatusBar';
 import { ErrorDetailsDialog } from './components/ErrorDetailsDialog';
-import { CommitGraph, WIP } from './graph/CommitGraph';
+import { CommitGraph, hasWipRow, WIP } from './graph/CommitGraph';
 import { DiffView, type FileViewSource } from './diff/DiffView';
 import { Preferences } from './components/Preferences';
 import { Shortcuts } from './components/Shortcuts';
 import { setPrefs, usePrefs } from './prefs';
+import { blockedList, checkoutBlock } from './checkout';
 import { firesWhileTyping, matches, type ShortcutId } from './shortcuts';
 import { useUi } from './ui/UiContext';
 import type { MenuItem } from './ui/ContextMenu';
@@ -284,6 +285,20 @@ export function App(): JSX.Element {
   panelW.current = applied;
   const [workdirVersion, setWorkdirVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null); // label of the running operation
+  /**
+   * Which control started it (GC-214). The status bar says what is happening in words; this is
+   * what lets the button the user actually clicked say it too, which is where they are looking.
+   * Null for work nobody clicked — a reload, a watcher refresh — and for work started from a menu
+   * row, because the mark belongs to a control that is still on screen when the work finishes and
+   * a menu row is gone the moment it is picked.
+   */
+  const [busyAt, setBusyAt] = useState<string | null>(null);
+  /**
+   * The control whose action last **succeeded**, and how many times. A counter rather than a flag
+   * because the tick is a CSS animation that ends invisible, so what replays it is the element
+   * being inserted again — see `ActionMark`.
+   */
+  const [done, setDone] = useState<{ at: string; n: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   /**
    * The other thing an action can have to say (GC-091): it did most of what was asked, and this is
@@ -424,6 +439,27 @@ export function App(): JSX.Element {
   }, [tabs]);
 
   /** The repository the showing tab stands for, which is not `repoPath` until its load has landed. */
+  /**
+   * What is actually selected, which is not always what `selected` holds (GC-219).
+   *
+   * With nothing to commit there is no working-directory row to stand on, and `WIP` is what the
+   * app opens on: left as it is, the graph would mark a row it is not drawing and the panel would
+   * open the staging view over three empty lists. So a `WIP` selection with no row to stand on
+   * *shows* as HEAD — the commit the repository is actually sitting on.
+   *
+   * **Derived, not an effect, and the state is deliberately left alone** (GC-075's shape). `WIP`
+   * is the app's default rather than a choice the user made, so when the working directory has
+   * something in it again — a file edited, a merge stopping with conflicts — the selection is
+   * simply back where it defaults to, and the panel is showing the thing that just happened.
+   * Writing HEAD into the state instead would make that one-way: the row would come back with the
+   * panel still on a commit, and a conflict would arrive with nothing on screen about it. A
+   * selection the user *did* make is a sha, so none of this touches it.
+   *
+   * With no commit to fall to — an unborn HEAD, where the working directory is all there is — it
+   * stays `WIP` and the staging view is right.
+   */
+  const shown = useMemo(() => (selected === WIP && !hasWipRow(snapshot?.status) ? (snapshot?.info.headSha ?? WIP) : selected), [selected, snapshot]);
+
   const activePath = tabs.find((t) => t.id === activeId)?.path ?? null;
 
   // What a restart reopens is the tab that was showing, so it follows the tab rather than the load
@@ -467,9 +503,12 @@ export function App(): JSX.Element {
    * action was still running cleared the spinner the action had put up (GC-108). Whichever started
    * last owns the bar, and only the owner may take it down.
    */
-  const takeBusy = useCallback((label: string): (() => boolean) => {
+  const takeBusy = useCallback((label: string, at: string | null = null): (() => boolean) => {
     const token = (busyToken.current += 1);
     setBusy(label);
+    // Through the same door as the label (GC-108, GC-214): a second writer of "who is working"
+    // is a second thing that can be left set by an action that has already lost the bar.
+    setBusyAt(at);
     return () => busyToken.current === token;
   }, []);
 
@@ -925,29 +964,31 @@ export function App(): JSX.Element {
    * already typed — which is what two dialogs in sequence would have done.
    */
   const cloneRepository = useCallback(async () => {
-    let url = '';
-    let parent = '';
-    for (;;) {
+    {
       const res = await ui.prompt({
         title: 'Clone repository',
-        message: 'The repository is cloned into a new folder inside the one you choose.',
         fields: [
-          { name: 'url', label: 'Repository URL', placeholder: 'https://github.com/owner/repo.git', defaultValue: url },
-          { name: 'parent', label: 'Clone into', placeholder: 'The folder to make it in', defaultValue: parent },
+          { name: 'url', label: 'Repository URL', placeholder: 'https://github.com/owner/repo.git' },
+          // The picker belongs to this field and fills it in without closing the dialog (GC-221),
+          // which is what replaced the third button beside Cancel and Clone: it only ever answered
+          // "Clone into", and standing with the two buttons that answer the dialog it read as a
+          // third way of answering it.
+          { name: 'parent', label: 'Clone into', placeholder: 'The folder to make it in', pick: { label: 'Browse…', run: () => window.api.chooseFolder('Clone into') } },
         ],
+        // The sentence this replaces said the clone lands in a new folder inside the one you
+        // choose, which is the dialog describing its own behaviour rather than showing it
+        // (GC-221). `cloneTargetName` is the same answer `cloneRepo` names the folder with, so
+        // what is shown here is the path that will exist — not a guess at it.
+        note: (v) => {
+          const folder = cloneTargetName(v.url ?? '');
+          if (!folder || !(v.parent ?? '')) return null;
+          return `Creates ${v.parent.replace(/[/\\]+$/, '')}${v.parent.includes('\\') ? '\\' : '/'}${folder}`;
+        },
         okLabel: 'Clone',
-        // It fills the form in rather than answering it, so it is live on a cold dialog — which
-        // is the only state a first clone has, and the state the picker exists for (GC-185).
-        secondary: { label: 'Browse…', fillsIn: true },
       });
       if (!res) return;
-      url = res.values.url ?? '';
-      parent = res.values.parent ?? '';
-      if (res.choice !== 'secondary') break;
-      const picked = await window.api.chooseFolder('Clone into');
-      if (picked) parent = picked;
+      await makeRepo('Cloning repository', () => window.api.cloneRepo(res.values.url ?? '', res.values.parent ?? ''));
     }
-    await makeRepo('Cloning repository', () => window.api.cloneRepo(url, parent));
   }, [makeRepo, ui]);
 
   /** Init asks for one thing, so the folder picker is the whole dialog (GC-128). */
@@ -1013,7 +1054,24 @@ export function App(): JSX.Element {
 
   /** Run a git operation with busy/error handling, then reload the snapshot (or only the status). */
   const run = useCallback(
-    async (label: string, fn: () => Promise<unknown>, opts: { statusOnly?: boolean; rethrow?: boolean; remote?: boolean } = {}): Promise<void> => {
+    async (
+      label: string,
+      fn: () => Promise<unknown>,
+      opts: {
+        statusOnly?: boolean;
+        rethrow?: boolean;
+        remote?: boolean;
+        at?: string;
+        /**
+         * A failure this caller answers itself, which keeps it off the status bar (GC-215). The
+         * checkout git refused because a file is in the way is put to the user as a question with
+         * a way out of it, and a red line behind that dialog describes a decision they have not
+         * made yet. It is a predicate rather than a flag because only some of an action's
+         * failures are the caller's to answer; `rethrow` is still what delivers it.
+         */
+        quiet?: (e: unknown) => boolean;
+      } = {},
+    ): Promise<void> => {
       if (!repo) return;
       // The user acted, so whatever a background load is about to return was captured before this
       // and must not land on top of the reload below (GC-068).
@@ -1021,7 +1079,7 @@ export function App(): JSX.Element {
       // The writes need an identity of their own, the way GC-068 gave the reads one (GC-084):
       // without it, of two actions overlapping, whichever finishes first clears the status bar
       // while the other is still running, and its own error lands over the other's state.
-      const owns = takeBusy(label);
+      const owns = takeBusy(label, opts.at ?? null);
       setError(null);
       setNotice(null);
       // The last refusal belongs to the action that produced it: a new one starts with none, so
@@ -1048,6 +1106,7 @@ export function App(): JSX.Element {
           if (owns()) {
             setBusy(null);
             setBusyRemote(false);
+            setBusyAt(null);
           }
         }
       }
@@ -1061,10 +1120,19 @@ export function App(): JSX.Element {
         // line everywhere else: the summary goes in the bar, the whole of git's message into the
         // dialog, which opens straight away because there is nothing the user can do until it is
         // read (GC-169).
-        if (owns()) report(failure);
+        // …and unless this is a failure the caller said it answers itself (GC-215), which is what
+        // keeps a dialog from opening over a red line saying the same thing.
+        if (owns() && opts.quiet?.(failure) !== true) report(failure);
         // The caller asked to handle the failure itself, and its own logic does not depend on
         // which action currently owns the status bar.
         if (opts.rethrow) throw failure;
+      } else if (opts.at && owns()) {
+        // It worked, and the control that started it says so (GC-214). Behind `owns()` like every
+        // other write here: a tick on a button whose work was overtaken by a later action would be
+        // marking something the user can no longer see the result of. There is no mark for the
+        // other branch — a failure has a sentence to say, and `report` has already put it where
+        // sentences go.
+        setDone((d) => ({ at: opts.at!, n: (d?.n ?? 0) + 1 }));
       }
     },
     [repo, load, refreshStatus, report, takeBusy],
@@ -1257,13 +1325,13 @@ export function App(): JSX.Element {
   }, [snapshot, fileView]);
 
   const commits = snapshot?.commits ?? [];
-  const selectedCommit = useMemo(() => (selected && selected !== WIP ? commits.find((c) => c.sha === selected) ?? null : null), [commits, selected]);
+  const selectedCommit = useMemo(() => (shown && shown !== WIP ? commits.find((c) => c.sha === shown) ?? null : null), [commits, shown]);
   /**
    * The stash a stash row's selection stands for (GC-170). Its sha is a commit git keeps out of
    * the graph's traversal, so it is never in `commits`: the panel is told about it separately, and
    * it is looked up before the commit so a selection can only ever be one of the two.
    */
-  const selectedStash = useMemo(() => (selected && selected !== WIP ? snapshot?.stashes.find((s) => s.sha === selected) ?? null : null), [snapshot, selected]);
+  const selectedStash = useMemo(() => (shown && shown !== WIP ? snapshot?.stashes.find((s) => s.sha === shown) ?? null : null), [snapshot, shown]);
   const headCommit = useMemo(() => (snapshot?.info.headSha ? commits.find((c) => c.sha === snapshot.info.headSha) ?? null : null), [commits, snapshot]);
   const headRef = useMemo(() => snapshot?.refs.find((r) => r.isHead) ?? null, [snapshot]);
   // Resolved on every snapshot so the pinned lane follows the branch as it gains commits; a pin on a
@@ -1296,7 +1364,7 @@ export function App(): JSX.Element {
    * needs no effect to enforce — a sha that is not the selection simply is not compare mode.
    */
   const [compareSha, setCompareSha] = useState<string | null>(null);
-  const comparing = compareSha !== null && compareSha === selected;
+  const comparing = compareSha !== null && compareSha === shown;
   const exitCompare = useCallback(() => {
     setCompareSha(null);
     // A file view opened from the comparison is describing a distance that is no longer on screen.
@@ -1305,51 +1373,84 @@ export function App(): JSX.Element {
 
   // ---- ref / commit / stash operations ------------------------------------------------
 
-  // Every checkout the UI can trigger goes through here: with a dirty working tree git either
-  // carries the changes over or refuses, so ask first and offer to stash them out of the way.
+  /**
+   * Every checkout the UI can trigger goes through here, and it **tries first** (GC-215).
+   *
+   * git carries uncommitted changes onto the branch being checked out wherever it can, which is
+   * what a user double-clicking a branch is asking for — they want to be on that branch, with
+   * their work still in front of them. GC-004 asked before every dirty checkout instead, so the
+   * ordinary case, where git would simply have done it, cost a dialog and an answer; and the
+   * answer on offer ("Check out anyway") was the one that does nothing different.
+   *
+   * So the guard moved to where it is earned. git refuses this one way, having touched nothing,
+   * and only then is there a question worth asking — and the thing to offer is not "anyway", which
+   * git has already refused, but the way through: stash, check out, and put the changes back on
+   * top of the new branch. `quiet` keeps that refusal off the status bar, since a red line behind
+   * the dialog would be describing a decision the user has not made yet; every other failure is
+   * reported and this returns having done nothing.
+   *
+   * A conflicting pop is then the one thing left to report, and it reports itself: GC-092's
+   * `restoreStashWith` lets git's own error through, the staging panel fills its Conflicted group,
+   * and the user is on the branch they asked for with the conflict in front of them.
+   */
   const runCheckout = useCallback(
-    async (name: string, doCheckout: () => Promise<void>): Promise<void> => {
-      // Untracked files come across a checkout untouched, so a tree holding nothing else is not at
-      // risk and must not be asked about (GC-019); the count names the files that are, which is the
-      // staging list minus those untracked rows.
-      // The tree as it is at the moment the guard runs, not as it was when this callback was
-      // built: `runOnBranch` awaits a checkout before it gets here (GC-124).
-      const entries = statusRef.current?.entries ?? [];
-      const atRisk = entries.filter((e) => !(e.staged === null && e.unstaged === 'untracked'));
-      // …but "Stash and check out" below does pass `includeUntracked`, because an untracked file
-      // can be in the way of a checkout even though an untouched one is not at risk. So the count
-      // and the button have different scope, and the message says so in the same sentence
-      // (GC-161), in the shape GC-097 gave the sequencer guard next door — which stashes *less*
-      // than its own refusal implies and had to say that. Only when there is something to say:
-      // with no untracked file the clause would describe nothing, and the message is unchanged.
-      const untracked = entries.length - atRisk.length;
-      if (prefs.confirmDirtyCheckout && atRisk.length) {
-        const r = await ui.prompt({
-          title: 'Uncommitted changes',
-          message: `You have uncommitted changes in ${atRisk.length} file${atRisk.length === 1 ? '' : 's'}${untracked ? ' — stashing takes your untracked files with it as well' : ''}. Check out ${name} anyway?`,
-          input: false,
-          okLabel: 'Check out anyway',
-          secondary: { label: 'Stash and check out' },
+    async (name: string, doCheckout: () => Promise<void>, onto: string = name): Promise<void> => {
+      try {
+        await run(`Checking out ${name}`, doCheckout, { rethrow: true, quiet: (e) => checkoutBlock(msg(e)) !== null });
+        return;
+      } catch (e) {
+        const block = checkoutBlock(msg(e));
+        // Anything else is on the status bar already, where `run` put it.
+        if (!block) return;
+        const files = blockedList(block.paths);
+        const n = block.paths.length;
+        // `onto` rather than `name`: the two differ when a remote branch was double-clicked
+        // (GC-217), where what is in the way is in the way of *that* commit while the branch
+        // landed on is the local copy — "a file that master would overwrite", on a user already
+        // sitting on `master`, describes nothing.
+        const what =
+          block.kind === 'untracked'
+            ? `${n === 1 ? 'An untracked file' : `${n} untracked files`} in the way of ${onto}`
+            : `${n === 1 ? 'A file you have changed' : `${n} files you have changed`} that ${onto} would overwrite`;
+        // The count is git's own list, not a reading of the staging panel: these are the files
+        // that were actually in the way, which is fewer than "everything uncommitted" — git
+        // carried the rest across before it stopped (GC-019's point, now answered by git itself).
+        const ok = await ui.confirm({
+          title: 'Changes in the way',
+          message: `${n ? what : `Something in the working tree is in the way of ${onto}`}${files ? `: ${files}` : ''}. Stash your changes, check out ${onto}, and put them back on top of it?`,
+          okLabel: 'Stash and check out',
         });
-        if (!r) return;
-        if (r.choice === 'secondary') {
-          await run(`Stashing and checking out ${name}`, async () => {
-            await window.api.stashSave(repo!, { includeUntracked: true, message: `Before checking out ${name}` });
-            try {
-              await doCheckout();
-            } catch (e) {
-              // restore the changes on the branch we never left, then report why
-              await window.api.stashPop(repo!, 0).catch(() => undefined);
-              throw e;
-            }
+        if (!ok) return;
+        await run(`Stashing and checking out ${name}`, async () => {
+          // `includeUntracked` either way: an untracked file can be in the way of a checkout as
+          // readily as a tracked one, and the stash that is about to be popped back has to carry
+          // whichever it was.
+          await window.api.stashSave(repo!, { includeUntracked: true, message: `Before checking out ${name}` });
+          try {
+            await doCheckout();
+          } catch (err) {
+            // restore the changes on the branch we never left, then report why
+            await window.api.stashPop(repo!, 0).catch(() => undefined);
+            throw err;
+          }
+          try {
             await window.api.stashPop(repo!, 0);
-          });
-          return;
-        }
+          } catch (err) {
+            // The branch was checked out and the changes did come back — onto a file the branch
+            // writes differently, which is the conflict the user was warned this might produce.
+            // git's own line here is about the index it could not restore (GC-092), which says
+            // nothing about the thing that actually happened, and git keeps the stash when a pop
+            // conflicts, so a line that does not mention it leaves one in the list unexplained.
+            // Advisory rather than a failure for GC-091's reason: the action did what was asked.
+            const after = await window.api.getStatus(repo!).catch(() => null);
+            const n = (after?.entries ?? []).filter((e) => e.unstaged === 'conflicted').length;
+            if (!n) throw err;
+            throw new Error(`${ADVISORY}: Checked out ${name}, and your changes came back with conflicts in ${n} file${n === 1 ? '' : 's'}. The stash is kept until they are resolved.`);
+          }
+        });
       }
-      await run(`Checking out ${name}`, doCheckout);
     },
-    [prefs.confirmDirtyCheckout, repo, run, ui],
+    [repo, run, ui],
   );
 
   // git refuses to start a cherry-pick, a revert, a merge or a rebase while anything is staged: it
@@ -1402,13 +1503,106 @@ export function App(): JSX.Element {
     [repo, run, ui],
   );
 
-  const checkoutRef = useCallback(
-    (r: GitRef): Promise<void> => {
-      if (r.isHead) return Promise.resolve();
-      const opts: CheckoutOptions = r.kind === 'tag' ? { detach: true } : r.kind === 'remote' ? { track: true } : {};
-      return runCheckout(r.name, () => window.api.checkout(repo!, r.name, opts));
+  /**
+   * Check a ref out: what a double-click on a chip or a panel row means, and what the menu row
+   * calls.
+   *
+   * **A remote branch takes you to where it points** (GC-217). `--track` makes the local copy when
+   * there is none, and git's own fallback in `checkout` switches to it when there is — but that
+   * fallback was the whole of it, so double-clicking `origin/master` while sitting on a `master`
+   * that was two commits behind ran a checkout of the branch already checked out and changed
+   * nothing at all: a spinner, two reloads, the same `↓2` in the crumb. The gesture names the
+   * *remote* branch, so landing on the local one and stopping there answers half of it.
+   *
+   * So the local copy is brought up to the ref that was clicked, and `fastForward` is what does
+   * it — the same call the branch menu's own row makes (GC-100), which after the checkout is
+   * `git merge --ff-only`, so it can only ever move the branch forward. Nothing is attempted when
+   * the two are already the same commit; a branch that is merely *ahead* answers "Already up to
+   * date" and is left alone; and one that has **diverged** cannot be fast-forwarded, which is an
+   * advisory rather than a failure (GC-091) — the checkout asked for did happen, and what is left
+   * is a decision only the user can make.
+   *
+   * Both halves sit inside one `run()`, so there is one busy token and one reload — and GC-215's
+   * refusal handling covers the pair: git says "would be overwritten by merge" in the same shape
+   * it says "by checkout", so a fast-forward blocked by the working tree raises the same question,
+   * and "Stash and check out" re-runs *both*, landing the user on the branch at the remote's tip
+   * with their changes back on top of it. Which is the whole of what the gesture was asking for.
+   *
+   * The snapshot is read from `live`, not from this closure: `runOnBranch` calls this after its
+   * own await, GC-124's rule.
+   */
+  const createBranchAt = useCallback(
+    async (startPoint: string, startLabel: string) => {
+      const r = await ui.prompt({ title: 'Create branch', message: `From ${startLabel}`, label: 'Branch name', placeholder: 'feature/name', checkbox: { label: 'Checkout after creating', defaultChecked: true }, okLabel: 'Create' });
+      if (r) await run('Creating branch', () => window.api.createBranch(repo!, { name: r.value, startPoint, checkout: r.checked }), { at: 'branch' });
     },
-    [repo, runCheckout],
+    [repo, run, ui],
+  );
+
+  const checkoutRef = useCallback(
+    async (r: GitRef): Promise<void> => {
+      if (r.isHead) return;
+      if (r.kind !== 'remote') {
+        const opts: CheckoutOptions = r.kind === 'tag' ? { detach: true } : {};
+        await runCheckout(r.name, () => window.api.checkout(repo!, r.name, opts));
+        return;
+      }
+      const snap = live.current.snapshot;
+      // Which local branch this is a copy of, split at the remote's own name rather than at the
+      // first slash, because a branch name may carry slashes of its own (GC-134).
+      const local = splitRemoteRef(r.name, snap?.remotes ?? [])?.branch ?? null;
+      const localRef = local === null ? undefined : snap?.refs.find((x) => x.kind === 'head' && x.name === local);
+      // Only when there is a local copy standing somewhere else: with none, `--track` creates it
+      // at this very commit and there is nothing left to catch up.
+      const catchUp = local !== null && localRef !== undefined && localRef.sha !== r.sha;
+      // Two names, because the two sentences want different ones: `name` is the branch the user
+      // ends up **on** — the local copy — and `onto` is the ref whose commit they are going **to**,
+      // which is what a file in the way is in the way of.
+      // Recorded rather than thrown, because what a divergence needs is a question and a dialog
+      // cannot be opened from inside `run()` — the reload it does is still to come (GC-221).
+      let diverged = false;
+      await runCheckout(
+        local ?? r.name,
+        async () => {
+          await window.api.checkout(repo!, r.name, { track: true });
+          if (!catchUp) return;
+          try {
+            await window.api.fastForward(repo!, local!, r.name);
+          } catch (e) {
+            // Only git's own divergence is a divergence. Everything else propagates as itself —
+            // which matters most for the working tree standing in the way, where git says
+            // "would be overwritten by merge" and GC-215's question is the right answer, not a
+            // sentence about branches that have not diverged at all.
+            if (!/not possible to fast-forward/i.test(msg(e))) throw e;
+            diverged = true;
+          }
+        },
+        r.name,
+      );
+      if (!diverged || local === null) return;
+      // The checkout happened and the catch-up could not, which is the one outcome the user has to
+      // decide (GC-221, asked for by Ricardo after GitKraken's own bar). An advisory line saying
+      // "these have diverged" named the problem and offered nothing; these are the two ways out
+      // that do not need the user to leave the dialog. Reset is `danger` and says what it drops,
+      // because it is the one of the two that destroys something.
+      const ahead = localRef?.ahead;
+      const drops = ahead ? `${ahead} commit${ahead === 1 ? '' : 's'}` : 'the commits';
+      const r2 = await ui.prompt({
+        title: 'Branches have diverged',
+        message: `You are on ${local}, which has commits ${r.name} does not — so it cannot be fast-forwarded. Resetting discards ${drops} ${local} has that ${r.name} does not, and any uncommitted changes with them.`,
+        input: false,
+        danger: true,
+        okLabel: `Reset ${local} to ${r.name}`,
+        secondary: { label: 'Create a branch here…' },
+      });
+      if (!r2) return;
+      if (r2.choice === 'secondary') {
+        await createBranchAt(r.sha, r.name);
+        return;
+      }
+      await run(`Resetting ${local} to ${r.name}`, () => window.api.reset(repo!, 'hard', r.name));
+    },
+    [createBranchAt, repo, run, runCheckout, ui],
   );
 
   /**
@@ -1435,14 +1629,6 @@ export function App(): JSX.Element {
       await runSequencer(what, label, action);
     },
     [checkoutRef, repo, runSequencer],
-  );
-
-  const createBranchAt = useCallback(
-    async (startPoint: string, startLabel: string) => {
-      const r = await ui.prompt({ title: 'Create branch', message: `From ${startLabel}`, label: 'Branch name', placeholder: 'feature/name', checkbox: { label: 'Checkout after creating', defaultChecked: true }, okLabel: 'Create' });
-      if (r) await run('Creating branch', () => window.api.createBranch(repo!, { name: r.value, startPoint, checkout: r.checked }));
-    },
-    [repo, run, ui],
   );
 
   const createTagAt = useCallback(
@@ -1535,7 +1721,7 @@ export function App(): JSX.Element {
         }))
       )
         return;
-      await run(`Force pushing ${branch} to ${target}`, () => window.api.push(repo!, { remote: target, branch, force: true, setUpstream: !headRef?.upstream }), { remote: true });
+      await run(`Force pushing ${branch} to ${target}`, () => window.api.push(repo!, { remote: target, branch, force: true, setUpstream: !headRef?.upstream }), { remote: true, at: 'push' });
     },
     [currentBranch, headRef, repo, run, snapshot, ui],
   );
@@ -1846,7 +2032,7 @@ export function App(): JSX.Element {
 
   const stashChanges = useCallback(async () => {
     const r = await ui.prompt({ title: 'Stash changes', label: 'Message (optional)', required: false, placeholder: 'WIP on ' + (currentBranch ?? 'HEAD'), checkbox: { label: 'Include untracked files', defaultChecked: true }, okLabel: 'Stash' });
-    if (r) await run('Stashing', () => window.api.stashSave(repo!, { message: r.value, includeUntracked: r.checked }));
+    if (r) await run('Stashing', () => window.api.stashSave(repo!, { message: r.value, includeUntracked: r.checked }), { at: 'stash' });
   }, [currentBranch, repo, run, ui]);
 
   const editStashMessage = useCallback(
@@ -2230,6 +2416,12 @@ export function App(): JSX.Element {
   // phase so that when it does close a layer it can stop the event before any React handler
   // underneath sees it — the find bar's input closes itself on Escape otherwise.
   const layerOpen = detailsOpen || shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen || pushOpen;
+  /**
+   * The layers that put a full-screen backdrop up, which is what the content blur belongs to
+   * (GC-220). A menu and a popover are small and anchored to the thing they came from; blurring
+   * the whole window behind one would be answering a right-click with a scene change.
+   */
+  const modalUp = detailsOpen || shortcutsOpen || prefsOpen || ui.dialogOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // The topmost layer owns the keyboard while it is up: it closes on Escape (and the overlay
@@ -2357,19 +2549,24 @@ export function App(): JSX.Element {
       const dir = matches('selectNext', e) ? 1 : matches('selectPrev', e) ? -1 : 0;
       if (dir === 0) return;
       e.preventDefault();
-      const order = [WIP, ...snapshot.commits.map((c) => c.sha)];
-      const i = selected ? order.indexOf(selected) : -1;
+      // Only the rows that are drawn: with no working-directory row, Up from the first commit has
+      // nowhere above it to go (GC-219).
+      const order = [...(hasWipRow(snapshot.status) ? [WIP] : []), ...snapshot.commits.map((c) => c.sha)];
+      const i = shown ? order.indexOf(shown) : -1;
       const next = dir === 1 ? Math.min(order.length - 1, i + 1) : Math.max(0, i - 1);
       const sha = order[next];
       if (sha !== undefined) setSelected(sha);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [snapshot, selected, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch, tabs, activeId, selectTab, newTab, closeTabs, reopenTab]);
+  }, [snapshot, shown, search.open, fileView, openSearch, closeSearch, layerOpen, shortcutsOpen, prefsOpen, pullOpen, pushOpen, ui, busy, repo, run, actions, createBranchAt, currentBranch, tabs, activeId, selectTab, newTab, closeTabs, reopenTab]);
 
   return (
-    <div
-      className={`app ${leftW.resizing || detailW.resizing ? 'resizing' : ''}`}
+    <>
+      <div
+      // A modal blurs what is behind it by blurring the window itself, not by sampling it
+      // (GC-220). Every modal is a sibling of this element, so none of them is in the blur.
+      className={`app ${leftW.resizing || detailW.resizing ? 'resizing' : ''} ${modalUp ? 'behind-modal' : ''}`}
       style={{ '--left-panel-w': `${applied.left}px`, '--detail-panel-w': `${applied.detail}px` } as CSSProperties}
     >
       <TitleBar
@@ -2385,6 +2582,10 @@ export function App(): JSX.Element {
       <Toolbar
         info={snapshot?.info ?? null}
         busy={busy !== null}
+        // Which of its buttons is working, and which one last succeeded (GC-214). The bar at
+        // the bottom of the window says what is happening; these say it where the click was.
+        busyAt={busyAt}
+        done={done}
         ahead={snapshot?.status.ahead ?? 0}
         behind={snapshot?.status.behind ?? 0}
         hasUpstream={!!headRef?.upstream}
@@ -2400,7 +2601,7 @@ export function App(): JSX.Element {
         onPullOpenChange={setPullOpen}
         onPushOpenChange={setPushOpen}
         onFetch={() => void run('Fetching', () => window.api.fetch(repo!), { remote: true })}
-        onPull={(mode, remote) => void run(remote ? `Pulling from ${remote}` : 'Pulling', () => window.api.pull(repo!, mode, remote), { remote: true })}
+        onPull={(mode, remote) => void run(remote ? `Pulling from ${remote}` : 'Pulling', () => window.api.pull(repo!, mode, remote), { remote: true, at: 'pull' })}
         onOpenPreferences={() => setPrefsOpen(true)}
         onOpenShortcuts={() => setShortcutsOpen(true)}
         onRepoMenu={openRepoMenu}
@@ -2410,12 +2611,12 @@ export function App(): JSX.Element {
         onPush={(remote, force) =>
           force
             ? void forcePush(remote)
-            : void run(remote ? `Pushing to ${remote}` : 'Pushing', () => window.api.push(repo!, { remote, setUpstream: !headRef?.upstream }), { remote: true })
+            : void run(remote ? `Pushing to ${remote}` : 'Pushing', () => window.api.push(repo!, { remote, setUpstream: !headRef?.upstream }), { remote: true, at: 'push' })
         }
         onCreateBranch={() => void createBranchAt('HEAD', currentBranch ?? 'HEAD')}
         onStash={() => void stashChanges()}
-        onPop={() => void run('Popping stash', () => window.api.stashPop(repo!, 0))}
-        onRefresh={() => void run('Refreshing', async () => undefined)}
+        onPop={() => void run('Popping stash', () => window.api.stashPop(repo!, 0), { at: 'pop' })}
+        onRefresh={() => void run('Refreshing', async () => undefined, { at: 'refresh' })}
         searchOpen={search.open}
         onSearch={() => {
           // While a diff is open the bar is hidden behind it: bring the graph back and refocus
@@ -2452,7 +2653,7 @@ export function App(): JSX.Element {
               // A single click selects the ref's tip, which costs no git call: the sha is already
               // on the `GitRef` and the graph's own effect brings the row into view (GC-141).
               onRefSelect={(r) => select(r.sha)}
-              selected={selected}
+              selected={shown}
               refDrag={refDrag}
               onStashSelect={(s) => select(s.sha)}
               onStashMenu={(e, s) => onMenu(e, stashMenuItems(s))}
@@ -2490,7 +2691,7 @@ export function App(): JSX.Element {
                 headSha={snapshot.info.headSha}
                 pinnedSha={pinnedRef?.sha ?? null}
                 pinnedName={pinnedRef?.name ?? null}
-                selected={selected}
+                selected={shown}
                 searchOpen={search.open}
                 searchTick={search.tick}
                 searchQuery={search.query}
@@ -2626,7 +2827,15 @@ export function App(): JSX.Element {
         // A credential helper's own window can wait for a person forever, so the one command that
         // can be sitting behind one is the one the user can stop (GC-169).
         onCancelBusy={busy && busyRemote ? () => void window.api.cancelRemote() : undefined}
+        // The ambient layer (GC-214): a command that has left this machine is the one kind
+        // whose length nothing here can predict, so it is the one that gets a line of its own.
+        remote={busy !== null && busyRemote}
       />
+      </div>
+      {/* Outside `.app`, with `.modal-backdrop` and for the same reason (GC-220): the window is
+          blurred behind a modal by a filter on `.app` itself, so a dialog rendered *inside* it is
+          blurred along with the window it is supposed to be standing in front of. These three were,
+          and Preferences was unreadable. Every modal in the app is now a sibling of the window. */}
       {detailsOpen && failureDetails && (
         <ErrorDetailsDialog summary={failureDetails.summary} detail={failureDetails.detail} auth={failureDetails.auth} onClose={() => setDetailsOpen(false)} />
       )}
@@ -2634,6 +2843,6 @@ export function App(): JSX.Element {
           nothing rather than the last answer some earlier window width produced (GC-117). */}
       {prefsOpen && <Preferences onClose={() => setPrefsOpen(false)} drawnCols={fileView ? null : drawnCols} />}
       {shortcutsOpen && <Shortcuts onClose={() => setShortcutsOpen(false)} />}
-    </div>
+    </>
   );
 }

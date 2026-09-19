@@ -1,6 +1,6 @@
 import type { Commit } from '@shared/types';
 import { describe, expect, it } from 'vitest';
-import { continuesRange, layoutGraph, wipDashFor, type RowLayout } from './lanes';
+import { continuesRange, layoutGraph, stashLanes, wipDashFor, type RowLayout } from './lanes';
 
 /** A commit with only the fields the layout reads; everything else is filler. */
 const commit = (sha: string, ...parents: string[]): Commit => ({
@@ -334,5 +334,45 @@ describe('wipDashFor', () => {
     // HEAD's row opens its lane there, so there is no line above the node to dash.
     expect(row(rows, 'h').hasChildAbove).toBe(false);
     expect(wipDashFor(row(rows, 'h'), 1, 1, headLane, false)).toBe('toNode');
+  });
+});
+
+describe('a stash branches out of the commit it was taken from (GC-216)', () => {
+  it('takes the first free lane to the right of its parent', () => {
+    // One straight line in lane 0, so lane 1 is the first thing free beside it.
+    const { rows } = layoutGraph([commit('a', 'b'), commit('b')]);
+    expect(row(rows, 'b').lane).toBe(0);
+    expect(stashLanes(row(rows, 'b'), 1)).toEqual([1]);
+  });
+
+  it('steps over every lane the parent row already uses', () => {
+    // `b` and `c` both fork from `d`, so `d`'s row has a node in one lane and a curve arriving in
+    // another. A stash's own line would cross either, so it may take neither.
+    const { rows } = layoutGraph([commit('a', 'b'), commit('b', 'd'), commit('c', 'd'), commit('d')]);
+    const d = row(rows, 'd');
+    const used = new Set([d.lane, ...d.through.map((s) => s.lane), ...d.incoming.map((s) => s.lane), ...d.outgoing.map((s) => s.lane)]);
+    expect(used.size).toBeGreaterThan(1);
+    for (const lane of stashLanes(d, 2)) expect(used.has(lane)).toBe(false);
+  });
+
+  it('leaves the lane the WIP-to-HEAD run travels in alone', () => {
+    // Nothing in the layout marks that lane taken — the run is drawn in place of a line rather
+    // than over one (GC-144) — so it is passed in rather than read off the row.
+    const { rows } = layoutGraph([commit('a', 'b'), commit('b')]);
+    const b = row(rows, 'b');
+    expect(stashLanes(b, 1, 1)).toEqual([2]);
+    expect(stashLanes(b, 2, 1)).toEqual([3, 2]);
+  });
+
+  it('gives the stash nearest its parent the innermost lane, so no two lines cross', () => {
+    // `displayRows` draws stash@{0} furthest from the parent, and this answers in that order: the
+    // topmost row is the outermost lane, and each one below it is one step closer.
+    const { rows } = layoutGraph([commit('a', 'b'), commit('b')]);
+    expect(stashLanes(row(rows, 'b'), 3)).toEqual([3, 2, 1]);
+  });
+
+  it('answers nothing for a commit with no stashes', () => {
+    const { rows } = layoutGraph([commit('a')]);
+    expect(stashLanes(row(rows, 'a'), 0)).toEqual([]);
   });
 });

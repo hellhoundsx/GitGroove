@@ -47,7 +47,6 @@ describe('Preferences', () => {
 
     // The row is its own setting: nothing else moved.
     expect(getPrefs().commitColumnGuide).toBe(DEFAULT_PREFS.commitColumnGuide);
-    expect(getPrefs().confirmDirtyCheckout).toBe(DEFAULT_PREFS.confirmDirtyCheckout);
     expect(getPrefs().pullMode).toBe(DEFAULT_PREFS.pullMode);
   });
 

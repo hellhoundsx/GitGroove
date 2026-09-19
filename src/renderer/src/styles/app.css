@@ -330,6 +330,86 @@ input[type='radio']:disabled {
     transform: rotate(360deg);
   }
 }
+/* A success mark's whole life: it pops in past 100%, is held long enough to be read at a glance,
+   and goes. The easing is **per keyframe** rather than on the shorthand, which is the only way to
+   get this shape — one curve over the whole thing would overshoot the fade-out as well as the
+   arrival, and a mark that bounces on its way out is a mark that is still moving when the eye
+   gets there. Ending at `opacity: 0` with `forwards` is what lets this need no timer at all:
+   see `ActionMark`. */
+@keyframes done-mark {
+  from {
+    opacity: 0;
+    transform: scale(var(--done-scale));
+    animation-timing-function: var(--ease-settle);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+    animation-timing-function: linear;
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1);
+    animation-timing-function: var(--ease-in);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+/* The indeterminate line, which moves a soft band of accent across the bar and starts again.
+   Both ends are tokens so the reduced-motion block can stop it travelling without a second copy
+   of the rule — see the Work block in tokens.css. */
+@keyframes sweep {
+  from {
+    background-position: var(--sweep-from) 0;
+  }
+  to {
+    background-position: var(--sweep-to) 0;
+  }
+}
+
+/*
+ * What a control says about its own work (GC-214), wherever it says it: a spinner while the work
+ * runs, a tick when it lands. Two surfaces use it — a toolbar button and the commit button — and
+ * this is the part they share, with where it *sits* left to each of them.
+ *
+ * A grid with everything in one cell rather than absolute positioning: the mark has to be able to
+ * sit on top of an 18px icon without the icon's box moving, and one cell is the cheapest way to
+ * say that two things occupy the same place.
+ *
+ * The spinner carries the deferral, and it is the whole reason this does not flash: `--dur-work`
+ * of delay with `backwards` fill means an action that finishes first removes an element that was
+ * never painted. The tick does not defer — for a fast action it is the only thing drawn at all.
+ */
+.action-mark {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.action-mark > * {
+  grid-area: 1 / 1;
+}
+.action-mark .spinner.work {
+  animation:
+    spin var(--dur-spin) linear infinite,
+    fade-in var(--dur-2) var(--ease-out) var(--dur-work) backwards;
+}
+.action-mark .done {
+  display: grid;
+  place-items: center;
+  color: var(--success);
+  /* The resting value, and it is not decoration: an animation with no `forwards` fill hands the
+     element back to its base style the instant it ends, and React unmounts the mark one frame
+     later on `animationend`. With no opacity declared here that frame computes 1, so a tick that
+     had just faded out flashed back to full strength for ~20ms before vanishing — measured at
+     t=961 opacity 0, t=980 opacity 1, t=1001 gone. The animation outranks this while it runs, so
+     the pop is unaffected. */
+  opacity: 0;
+  /* No `forwards`: the mark takes itself out of the tree on `animationend` (see `ActionMark`),
+     which is what lets the icon underneath know the flourish is over. */
+  animation: done-mark var(--dur-done);
+}
 
 /*
  * The pointer's answer, once, for every control that has one.
@@ -414,6 +494,28 @@ textarea {
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+/*
+ * The window behind a modal (GC-220).
+ *
+ * A real `filter` on the content, not a `backdrop-filter` on the layer above it. The backdrop
+ * sampled what was behind it, and on this window that is not a reliable thing to sample: with the
+ * acrylic material on, `body` is 74% and the panels are white tints, so the filter composites the
+ * desktop as well — and a sampled blur was measured rendering at neither the radius nor the
+ * saturation its own computed style reported, which is how several rounds of tuning came to
+ * nothing. A filter on the element blurs the pixels the element actually drew, and does it the
+ * same way with or without a material.
+ *
+ * `.modal-backdrop` is a **sibling** of `.app`, so the scrim and the dialog sit over this and are
+ * never in it. The transition is the window going out of focus, which is the slowest thing the app
+ * does (GC-214) — and `filter` is the one property here that cannot be composited without a
+ * repaint, so it is the longest duration and nothing else moves with it.
+ */
+.app.behind-modal {
+  filter: var(--content-blur);
+}
+.app {
+  transition: filter var(--dur-3) var(--ease-standard);
 }
 
 /*
@@ -681,6 +783,43 @@ textarea {
 .tool-btn svg {
   width: 18px;
   height: 18px;
+}
+/* The icon and whatever the button has to say about its own work share one cell, so a spinner
+   appearing never moves the label under it (GC-214). */
+.tool-btn .tool-icon {
+  display: grid;
+  place-items: center;
+}
+.tool-btn .tool-icon > * {
+  grid-area: 1 / 1;
+}
+/* The icon gives way to whichever mark is showing, and there are two of them with opposite
+   timing (GC-214).
+
+   The spinner's is deferred: entering the working state the icon waits out `--dur-work` with
+   everything else, so an action that finishes first never moved anything at all. Leaving it, the
+   icon comes straight back — the work is over and there is nothing left to defer.
+
+   The tick's is immediate, and it is a `:has()` because the tick is not a state of the button:
+   it is a mark that mounts, plays and unmounts itself on `animationend`, which is the only thing
+   that knows when it is over. Without this rule the tick and the icon are two glyphs in one 18px
+   cell — measured on a Refresh whose arrows came out tinted green, since a check over a circular
+   arrow is still mostly a circular arrow. */
+.tool-btn .tool-icon > svg {
+  transition: opacity var(--dur-1) var(--ease-standard);
+}
+.tool-btn.working .tool-icon > svg {
+  opacity: 0;
+  transition-delay: var(--dur-work);
+}
+.tool-btn .tool-icon:has(.done) > svg {
+  opacity: 0;
+}
+/* The button that is working keeps its full strength while the rest of the row recedes. Every
+   button is disabled while anything runs, but "unavailable" and "busy" are different things and
+   the row reads much better when it says which is which. */
+.tool-btn.working:disabled {
+  opacity: 1;
 }
 .tool-btn:hover {
   color: var(--text-bright);
@@ -1845,8 +1984,18 @@ textarea {
   border-top: 1px solid var(--border);
   padding-top: var(--sp-3);
 }
-/* The first block has nothing above it to be separated from, whichever view it belongs to. */
-.detail-body > :first-child {
+/* The first block has nothing above it to be separated from, whichever view it belongs to — and
+   this is the same four, not `:first-child` (GC-221). What the reset takes off is the *separator*,
+   which is the border and the padding that spaces the content off it; a **card**'s padding is its
+   own and means nothing of the sort. As `> :first-child` it reached the message box whenever the
+   box happened to be first, which is precisely a commit view on a clean working tree — no
+   `.banner.info` above it (GC-045) — and zeroed the 12px above its summary, so the heading's caps
+   sat on the border and the title read as cut off. Reported twice before it was found, because
+   the repository has to have nothing uncommitted for it to happen at all. */
+.detail-body > .author:first-child,
+.detail-body > .readout:first-child,
+.detail-body > .file-list:first-child,
+.detail-body > .commit-form:first-child {
   border-top: none;
   padding-top: 0;
 }
@@ -1891,6 +2040,14 @@ textarea {
 .message-box h2 {
   margin: 0 0 var(--sp-2);
   font-size: var(--fs-lg);
+  /* Its own leading, rather than the body's `--lh` (GC-221, reported by Ricardo). 20px on 16px
+     text is 1.25, and at that ratio Inter's ascent fills the line box exactly: measured on the
+     real window, the inked top of the first line sat on the box's content edge to the pixel, so
+     a capital or an ascender touched the padding and the summary read as cut off at the top. A
+     subject long enough to wrap — most of them — then stacked those lines 20px apart as well,
+     which is what made the block look cramped rather than just tight. 1.35 puts about 3px of
+     half-leading above the caps and opens the wrapped lines by the same amount. */
+  line-height: 1.35;
   font-weight: 600;
   color: var(--text-bright);
 }
@@ -2346,6 +2503,33 @@ textarea {
    which is ChatGPT's send button. */
 .commit-form .btn {
   height: 32px;
+  /* The box the work mark is positioned in (GC-214). */
+  position: relative;
+}
+/* Out of the flow, at the leading edge: in the flow it would push the label sideways the moment
+   a commit started, and the label is centred on a button that spans the panel (GC-214). */
+.commit-form .btn .action-mark {
+  position: absolute;
+  left: var(--sp-3);
+  top: 50%;
+  transform: translateY(-50%);
+}
+/* On the white primary the spinner's own two colours are both wrong — its ring is a white alpha
+   and its head is the accent, which are values for a dark surface. `currentColor` is the
+   button's near-black text, so the arc is drawn in the one colour that is certain to read on
+   whatever fill this button has. */
+.commit-form .btn.primary .spinner {
+  border-color: transparent;
+  border-top-color: currentColor;
+}
+/* And the tick goes with it. Green on white is a 2.2:1 mark; the app's own rule is that colour
+   means a branch and *shape* means a state, so on this surface the shape carries it alone. */
+.commit-form .btn.primary .action-mark .done {
+  color: inherit;
+}
+/* Committing is not the same as unavailable, the toolbar's own distinction one panel over. */
+.commit-form .btn.working:disabled {
+  opacity: 1;
 }
 .commit-form .btn.primary:not(:disabled) {
   background: var(--btn-primary-bg);
@@ -3045,9 +3229,7 @@ textarea {
   display: grid;
   place-items: center;
   background: var(--backdrop);
-  /* The whole window frosts behind a dialog (GC-212). The one surface where a blur is free: what
-     is behind a modal is not being read, and pushing it out of focus is what a modal is for. */
-  backdrop-filter: var(--backdrop-blur);
+  /* No `backdrop-filter` here: the window is blurred by `.app.behind-modal` instead (GC-220). */
   /* The window going out of focus, which is the slowest thing the app does and the only one that
      covers the whole of it (GC-214). Opacity alone: it is a full-screen layer with a blur on it,
      and the one property that composites without asking the filter to run again. */
@@ -3115,6 +3297,31 @@ textarea {
   color: var(--text-muted);
   font-size: var(--fs-sm);
   white-space: pre-wrap;
+}
+/* The live answer under a dialog's fields (GC-221): what the dialog is about to do, recomputed as
+   the user types. Quieter than `.modal-message`, because it is a consequence of the form rather
+   than an instruction about it, and it breaks anywhere so a long path wraps instead of widening
+   the dialog. */
+.modal-note-line {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+/* A field and its own picker on one row (GC-221): the input takes what is left, the button is
+   its natural width and never shrinks, so a long path ellipsises inside the input rather than
+   squeezing the thing that fills it in. */
+.modal-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.modal-field-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.modal-field-row .btn {
+  flex: none;
 }
 .modal-field {
   display: flex;
@@ -3406,6 +3613,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+  /* The box the indeterminate line is positioned in (GC-214). */
+  position: relative;
   /* Aligned with the card above it rather than with the window, so the run of text starts on the
      same pixel the left panel's rows do. */
   padding: 0 calc(var(--sp-3) + var(--card-inset));
@@ -3418,6 +3627,38 @@ textarea {
 }
 .statusbar .spacer {
   flex: 1;
+}
+/*
+ * A command that has left this machine is running (GC-214). The third layer of the work system
+ * and the only one attached to neither a control nor a word: the button says *which* action, the
+ * busy line says *what* in words, and this says *still alive* to the corner of the eye of someone
+ * watching the graph rather than reading the bar.
+ *
+ * Indeterminate on purpose, because there is nothing to determine: git writes its progress to a
+ * stream `runGit` buffers and never reads, so a percentage here would be a fiction. Linear, like
+ * the spinner and for the same reason — an eased loop appears to stall twice a turn — and this is
+ * the one place the app's "never linear for spatial movement" rule does not apply, since a
+ * progress indicator is exactly the exception that rule names.
+ *
+ * Full-bleed across the padding box rather than inset with the text: the line is a property of
+ * the window, not of the status bar's contents. It takes no space and the bar's own layout is
+ * untouched.
+ */
+.busy-sweep {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  pointer-events: none;
+  /* A soft band rather than a hard block: its edges are where the eye is least asked to track it,
+     which is what keeps a 2px line at the bottom of the window ambient rather than insistent. */
+  background-image: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation:
+    sweep var(--dur-sweep) linear infinite,
+    fade-in var(--dur-2) var(--ease-out) var(--dur-work) backwards;
 }
 .statusbar .err {
   color: var(--danger);

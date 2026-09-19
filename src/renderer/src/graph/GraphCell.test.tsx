@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { type JSX } from 'react';
 import { cleanup, render } from '@testing-library/react';
 import type { RowLayout } from './lanes';
-import { BandGradients, GraphCell, laneX } from './GraphCell';
+import { BandGradients, DASH_PERIOD, dashTiles, GraphCell, laneX, NODE, ROW_H } from './GraphCell';
 
 // GC-077: the guard for the join shape. A line entering or leaving a node in another lane must
 // run in its own lane, turn through one quarter arc and finish along the node's centre line —
@@ -92,20 +92,22 @@ describe('GraphCell band', () => {
   };
   const num = (el: Element, name: string): number => Number(el.getAttribute(name));
 
-  const kinds: [string, JSX.Element][] = [
-    ['a commit row', <GraphCell key="c" row={row()} width={200} />],
-    ['the WIP row', <GraphCell key="w" row={null} wip={{ lane: 0, color: 0, linked: true }} width={200} />],
-    ['a stash row', <GraphCell key="s" row={null} stash={{ lane: 0, color: 0, through: [], incoming: [], above: true }} width={200} />],
+  // The third entry is the lane the node is actually in, which a stash row branches out of its
+  // parent's (GC-216): the band follows the node, so that is what it has to be measured against.
+  const kinds: [string, JSX.Element, number][] = [
+    ['a commit row', <GraphCell key="c" row={row()} width={200} />, 0],
+    ['the WIP row', <GraphCell key="w" row={null} wip={{ lane: 0, color: 0, linked: true }} width={200} />, 0],
+    ['a stash row', <GraphCell key="s" row={null} stash={{ lane: 1, color: 0, parentLane: 0, through: [], incoming: [], above: true, others: [] }} width={200} />, 1],
   ];
 
-  for (const [what, element] of kinds) {
+  for (const [what, element, lane] of kinds) {
     it(`starts the band at the node's centre on ${what}, so no row shows between them`, () => {
       const { container } = render(element);
       const band = bandOf(container);
       // At the centre the band is under the node at every y the circle covers, so there is no x
       // at which the row's own background can lie between the two.
-      expect(num(band, 'x')).toBe(laneX(0));
-      expect(num(band, 'width')).toBe(200 - laneX(0));
+      expect(num(band, 'x')).toBe(laneX(lane));
+      expect(num(band, 'width')).toBe(200 - laneX(lane));
       // GC-186's promises, unchanged: 22px, centred on the row, and drawn first.
       expect(num(band, 'height')).toBe(22);
       expect(num(band, 'y')).toBe(14 - 11);
@@ -165,7 +167,7 @@ describe('the band is lit from the lane rather than printed on the row (GC-201)'
     for (const element of [
       <GraphCell key="c" row={row({ lane: 2, color: 2 })} width={200} />,
       <GraphCell key="w" row={null} wip={{ lane: 2, color: 2, linked: true }} width={200} />,
-      <GraphCell key="s" row={null} stash={{ lane: 2, color: 2, through: [], incoming: [], above: true }} width={200} />,
+      <GraphCell key="s" row={null} stash={{ lane: 3, color: 2, parentLane: 2, through: [], incoming: [], above: true, others: [] }} width={200} />,
     ]) {
       const { container } = render(element);
       // The reference and the flat fallback the SVG `fill` syntax allows, so a band is drawn
@@ -193,5 +195,71 @@ describe('the band is lit from the lane rather than printed on the row (GC-201)'
       // Left to right in the rect's own box, which starts at the node's centre on every row.
       expect([g.getAttribute('x1'), g.getAttribute('x2'), g.getAttribute('y1'), g.getAttribute('y2')]).toEqual(['0', '1', '0', '0']);
     }
+  });
+});
+
+describe('the dash tiles across row boundaries (GC-218)', () => {
+  it('has a period that divides the row height, so the pattern never restarts mid-run', () => {
+    // A row is its own `<svg>` and every dashed line starts its pattern at y = 0, so this is the
+    // only thing that makes a run spanning many rows look like one line.
+    expect(dashTiles(ROW_H, DASH_PERIOD)).toBe(true);
+    expect(ROW_H % DASH_PERIOD).toBe(0);
+  });
+
+  it('is what the old 2/3 pattern failed: 28 is not a multiple of 5', () => {
+    // Left here as the thing the rule is written against — the phase walked 0, 3, 1, 4, 2 and drew
+    // a short gap or a doubled dash once per row, all the way down.
+    expect(dashTiles(28, 5)).toBe(false);
+    expect(dashTiles(28, 7)).toBe(true);
+    expect(dashTiles(28, 0)).toBe(false);
+  });
+
+  it('draws every dashed mark from that one pattern', () => {
+    // The WIP node, a stash node and a stash's line are all "not a commit yet", so one vocabulary.
+    const dashes = (element: JSX.Element): string[] => {
+      const { container } = render(element);
+      const out = [...container.querySelectorAll('[stroke-dasharray]')].map((e) => e.getAttribute('stroke-dasharray') ?? '');
+      cleanup();
+      return out;
+    };
+    const wip = dashes(<GraphCell key="w" row={null} wip={{ lane: 0, color: 0, linked: true }} width={200} />);
+    const stash = dashes(<GraphCell key="s" row={null} stash={{ lane: 1, color: 0, parentLane: 0, through: [], incoming: [], above: true, others: [] }} width={200} />);
+    const joined = dashes(<GraphCell key="c" row={row()} stashIn={[1]} width={200} />);
+    expect(wip.length).toBeGreaterThan(0);
+    expect(stash.length).toBeGreaterThan(0);
+    expect(joined.length).toBeGreaterThan(0);
+    for (const d of [...wip, ...stash, ...joined]) expect(d.split(' ').reduce((a, b) => a + Number(b), 0)).toBe(DASH_PERIOD);
+  });
+});
+
+// GC-221: a merge is the one structural thing about a commit, and the graph said it only in the
+// lines — legible while both parents are on screen, invisible when the second is far below.
+describe('a merge commit says so on its node (GC-221)', () => {
+  /** The merge dot: small, filled, and the only node in the graph drawn with no stroke at all. */
+  const mergeDot = (c: HTMLElement): Element | undefined => [...c.querySelectorAll('circle')].find((e) => e.getAttribute('stroke') === null);
+
+  it('draws a small filled dot in place of the node and its avatar', () => {
+    const { container } = render(<GraphCell row={row({ lane: 2, color: 2 })} merge width={200} author={{ name: 'Ada', email: 'a@e.com', initials: 'A' }} />);
+    const dot = mergeDot(container);
+    expect(dot).toBeDefined();
+    // Smaller than a commit node, which is the whole point: a merge carries no work of its own.
+    expect(Number(dot?.getAttribute('r'))).toBeLessThan(NODE / 2 - 1);
+    expect(dot?.getAttribute('fill')).toBe('var(--lane-2)');
+    // The avatar's initials are what it replaces, so they must not also be there.
+    expect(container.textContent).not.toContain('A');
+  });
+
+  it('leaves an ordinary commit exactly as it was', () => {
+    const { container } = render(<GraphCell row={row()} width={200} author={{ name: 'Ada', email: 'a@e.com', initials: 'A' }} />);
+    expect(mergeDot(container)).toBeUndefined();
+    expect(container.textContent).toContain('A');
+  });
+
+  it('does not interrupt its lane line, so it reads as a point on the branch', () => {
+    // Every other node is an occluder with `--node-fill` behind it; this one is not drawn over
+    // the line at all, which is what makes it a marker rather than a stop.
+    const { container } = render(<GraphCell row={row()} merge width={200} />);
+    const fills = [...container.querySelectorAll('circle')].map((c) => c.getAttribute('fill'));
+    expect(fills).not.toContain('var(--node-fill)');
   });
 });

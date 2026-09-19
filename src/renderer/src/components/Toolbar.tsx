@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react';
 import { Archive, ArchiveRestore, ChevronDown, Download, GitBranch, Keyboard, Redo2, RefreshCw, Search, Settings, Undo2, Upload, type LucideIcon } from 'lucide-react';
 import type { PullMode, RepoInfo } from '@shared/types';
+import { ActionMark } from '../ui/ActionMark';
 import { Icon } from '../ui/icons';
 import type { MenuAnchor } from '../ui/UiContext';
 
@@ -26,6 +27,14 @@ export interface ToolbarHandlers {
 interface Props extends ToolbarHandlers {
   info: RepoInfo | null;
   busy: boolean;
+  /**
+   * Which control's own action is running, and which one last succeeded (GC-214). `busy` is still
+   * the flag that disables the row — every button is unavailable while anything runs — and these
+   * two say *which* of them the work belongs to. Optional, because a toolbar that is handed
+   * neither behaves exactly as it did before them.
+   */
+  busyAt?: string | null;
+  done?: { at: string; n: number } | null;
   ahead: number;
   behind: number;
   hasUpstream: boolean;
@@ -55,10 +64,38 @@ const PULL_MODES: { mode: PullMode; label: string }[] = [
   { mode: 'rebase', label: 'Pull (rebase)' },
 ];
 
-function ToolButton({ label, icon, title, disabled, active, onClick }: { label: string; icon: LucideIcon; title?: string; disabled?: boolean; active?: boolean; onClick?: () => void }): JSX.Element {
+/**
+ * `working` and `done` are the button's own (GC-214), not the toolbar's: a row where every button
+ * is disabled says only that *something* is happening, and the one that says what is the one that
+ * was clicked. The icon and the mark share a single grid cell, so a spinner never moves the label
+ * — and neither is drawn at all for an action that finishes inside `--dur-work`, which is most of
+ * them.
+ */
+function ToolButton({
+  label,
+  icon,
+  title,
+  disabled,
+  active,
+  working,
+  done,
+  onClick,
+}: {
+  label: string;
+  icon: LucideIcon;
+  title?: string;
+  disabled?: boolean;
+  active?: boolean;
+  working?: boolean;
+  done?: number;
+  onClick?: () => void;
+}): JSX.Element {
   return (
-    <button className={`tool-btn ${active ? 'active' : ''}`} title={title ?? label} disabled={disabled} onClick={onClick}>
-      <Icon of={icon} size={18} />
+    <button className={`tool-btn ${active ? 'active' : ''} ${working ? 'working' : ''}`} title={title ?? label} disabled={disabled} onClick={onClick}>
+      <span className="tool-icon">
+        <Icon of={icon} size={18} />
+        <ActionMark working={!!working} done={done ?? 0} />
+      </span>
       <span>{label}</span>
     </button>
   );
@@ -86,6 +123,11 @@ export function Toolbar(p: Props): JSX.Element {
     window.addEventListener('mousedown', onDown);
     return () => window.removeEventListener('mousedown', onDown);
   }, [pullOpen, setPullOpen, pushOpen, setPushOpen]);
+
+  // Which button a piece of work belongs to, asked once per button (GC-214). The ids are the
+  // toolbar's own vocabulary and `App` passes them to `run`; a button nothing is happening to
+  // gets { false, 0 } and draws nothing at all.
+  const mark = (id: string): { working: boolean; done: number } => ({ working: p.busyAt === id, done: p.done?.at === id ? p.done.n : 0 });
 
   const pullLabel = PULL_MODES.find((m) => m.mode === p.pullMode)?.label ?? 'Pull';
   // One remote gains nothing from being asked which, so Pull's popover keeps only the mode rows it
@@ -161,7 +203,7 @@ export function Toolbar(p: Props): JSX.Element {
         <ToolButton label="Redo" icon={Redo2} disabled />
         <span className="tool-sep" />
         <div className="split-btn pull" ref={pullRef}>
-          <ToolButton label="Pull" icon={Download} title={remoteHint ?? pullLabel} disabled={noRepo || p.busy || !p.hasRemotes} onClick={() => p.onPull(p.pullMode)} />
+          <ToolButton label="Pull" icon={Download} title={remoteHint ?? pullLabel} disabled={noRepo || p.busy || !p.hasRemotes} {...mark('pull')} onClick={() => p.onPull(p.pullMode)} />
           <button className="caret-btn" title="Pull options" disabled={noRepo || p.busy} onClick={() => setPullOpen(!pullOpen)}>
             <Icon of={ChevronDown} size={11} />
           </button>
@@ -216,7 +258,7 @@ export function Toolbar(p: Props): JSX.Element {
         {/* The caret is the push's options, not only "which remote" (GC-057, GC-203), so it is
             there whenever the button beside it can push at all. */}
         <div className="split-btn push" ref={pushRef}>
-          <ToolButton label="Push" icon={Upload} title={pushTitle} disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} onClick={() => p.onPush()} />
+          <ToolButton label="Push" icon={Upload} title={pushTitle} disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} {...mark('push')} onClick={() => p.onPush()} />
           <button className="caret-btn" title="Push options" disabled={noRepo || p.busy || !p.hasRemotes || !p.info?.branch} onClick={() => setPushOpen(!pushOpen)}>
             <Icon of={ChevronDown} size={11} />
           </button>
@@ -259,11 +301,11 @@ export function Toolbar(p: Props): JSX.Element {
             </div>
           )}
         </div>
-        <ToolButton label="Branch" icon={GitBranch} title="Create a branch at HEAD" disabled={noRepo || p.busy} onClick={p.onCreateBranch} />
-        <ToolButton label="Stash" icon={Archive} title={p.hasChanges ? 'Stash working changes' : 'No changes to stash'} disabled={noRepo || p.busy || !p.hasChanges} onClick={p.onStash} />
-        <ToolButton label="Pop" icon={ArchiveRestore} title={p.stashCount ? `Pop the latest of ${p.stashCount} stash${p.stashCount === 1 ? '' : 'es'}` : 'No stashes'} disabled={noRepo || p.busy || p.stashCount === 0} onClick={p.onPop} />
+        <ToolButton label="Branch" icon={GitBranch} title="Create a branch at HEAD" disabled={noRepo || p.busy} {...mark('branch')} onClick={p.onCreateBranch} />
+        <ToolButton label="Stash" icon={Archive} title={p.hasChanges ? 'Stash working changes' : 'No changes to stash'} disabled={noRepo || p.busy || !p.hasChanges} {...mark('stash')} onClick={p.onStash} />
+        <ToolButton label="Pop" icon={ArchiveRestore} title={p.stashCount ? `Pop the latest of ${p.stashCount} stash${p.stashCount === 1 ? '' : 'es'}` : 'No stashes'} disabled={noRepo || p.busy || p.stashCount === 0} {...mark('pop')} onClick={p.onPop} />
         <span className="tool-sep" />
-        <ToolButton label="Refresh" icon={RefreshCw} disabled={noRepo || p.busy} onClick={p.onRefresh} />
+        <ToolButton label="Refresh" icon={RefreshCw} disabled={noRepo || p.busy} {...mark('refresh')} onClick={p.onRefresh} />
       </div>
       <div className="actions right">
         <ToolButton label="Search" icon={Search} title="Find a commit (Ctrl+F)" active={p.searchOpen} disabled={noRepo} onClick={p.onSearch} />

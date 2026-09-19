@@ -33,7 +33,7 @@ import type {
 } from '@shared/types';
 // Values, not types: the two words both processes agree a failure is named by (GC-091, GC-169).
 import { ADVISORY, AUTH_FAILURE } from '@shared/types';
-import { defaultRemote } from '@shared/remotes';
+import { cloneTargetName, defaultRemote } from '@shared/remotes';
 
 const FIELD = '\x1f';
 const RECORD = '\x1e';
@@ -1016,22 +1016,8 @@ export async function push(cwd: string, req: PushRequest): Promise<void> {
 // Making a repository (GC-128)
 // ---------------------------------------------------------------------------
 
-/**
- * The folder `git clone <url>` would make, which is the last path segment of the URL with a
- * trailing `.git` and any trailing slash taken off (GC-128). Pure, and exported so the name the
- * dialog offers and the path the clone answers with come from one place rather than from git's
- * own progress output, which `runGit` buffers and does not parse.
- *
- * `''` means the URL says nothing usable, and the caller has to be given a name instead — git
- * would refuse such a clone anyway, but refusing it here says so before anything is spawned.
- */
-export function cloneTargetName(url: string): string {
-  const trimmed = url.trim().replace(/[/\\]+$/, '');
-  // `scp`-style SSH (`git@host:owner/repo.git`) has no scheme to strip, and both forms end in the
-  // segment wanted, so the last separator of either kind is the only thing that has to be found.
-  const last = trimmed.split(/[/\\:]/).pop() ?? '';
-  return last.replace(/\.git$/i, '');
-}
+// `cloneTargetName` lives in `shared/remotes.ts`: the clone dialog names the folder while the
+// user is still typing the URL, so both processes need the same answer (GC-221).
 
 /**
  * Clone `url` into a new folder under `parentDir`, and answer the absolute path of what was made,
