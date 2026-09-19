@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GitRef, Remote } from './types';
-import { defaultRemote, isWebUrl, remoteCopyOf, remoteUrlToWeb } from './remotes';
+import { defaultRemote, isWebUrl, remoteCopyOf, remoteUrlToWeb, ssoAuthUrl } from './remotes';
 
 const r = (name: string): Remote => ({ name, fetchUrl: `https://example.invalid/${name}.git`, pushUrl: `https://example.invalid/${name}.git` });
 
@@ -128,5 +128,84 @@ describe('isWebUrl', () => {
     expect(isWebUrl('ms-settings:privacy')).toBe(false);
     expect(isWebUrl('/srv/git/repo.git')).toBe(false);
     expect(isWebUrl('')).toBe(false);
+  });
+});
+
+// The messages below are what GitHub, Git Credential Manager and git actually write. The first is
+// the one Ricardo hit on `catena-feed`: over https the helper names the organisation *and* the
+// OAuth application, and gives no link at all.
+const GCM_HTTPS = [
+  "remote: The 'Catena-Media' organization has enabled or enforced SAML SSO.",
+  "remote: To access this repository, you must re-authorize the OAuth Application 'Git Credential Manager'.",
+  "fatal: unable to access 'https://github.com/Catena-Media/catena-feed.git/': The requested URL returned error: 403",
+].join('\n');
+
+// The same organisation, naming no application: a SAML session is then the whole of what is missing.
+const ORG_ONLY = [
+  "remote: The 'Catena-Media' organization has enabled or enforced SAML SSO.",
+  "fatal: unable to access 'https://github.com/Catena-Media/catena-feed.git/': The requested URL returned error: 403",
+].join('\n');
+
+const WITH_LINK = [
+  "remote: The 'Catena-Media' organization has enabled or enforced SAML SSO.",
+  'remote: To access this repository, visit https://github.com/orgs/Catena-Media/sso?authorization_request=AB_cd12 and sign in.',
+  "fatal: unable to access 'https://github.com/Catena-Media/catena-feed.git/': The requested URL returned error: 403",
+].join('\n');
+
+describe('ssoAuthUrl', () => {
+  it('sends a named OAuth application to the authorisations page, not to the organisation', () => {
+    // The regression this exists for: the org page gives the *browser* a SAML session and leaves
+    // the token git keeps sending untouched, so signing in there changed nothing at all.
+    expect(ssoAuthUrl(GCM_HTTPS)?.url).toBe('https://github.com/settings/applications');
+    expect(ssoAuthUrl(GCM_HTTPS)?.what).toContain('Git Credential Manager');
+  });
+
+  it('sends an organisation that named no application to its sign-in page', () => {
+    expect(ssoAuthUrl(ORG_ONLY)?.url).toBe('https://github.com/orgs/Catena-Media/sso');
+  });
+
+  it('prefers the link git printed, keeping the grant it carries', () => {
+    expect(ssoAuthUrl(WITH_LINK)?.url).toBe('https://github.com/orgs/Catena-Media/sso?authorization_request=AB_cd12');
+  });
+
+  it('always ends by saying the command has to be run again', () => {
+    // Nothing the browser does reaches back into an operation that has already failed, which is
+    // exactly how this looked like it had done nothing.
+    for (const m of [GCM_HTTPS, ORG_ONLY, WITH_LINK]) expect(ssoAuthUrl(m)?.what).toMatch(/run the command again|authorise it afresh/);
+  });
+
+  it('keeps an Enterprise Server organisation on its own host', () => {
+    const msg = GCM_HTTPS.replace(/github\.com/g, 'ghe.corp.invalid:8443');
+    expect(ssoAuthUrl(msg)?.url).toBe('https://ghe.corp.invalid:8443/settings/applications');
+  });
+
+  it('refuses a link to a host git was not talking to, and derives instead', () => {
+    // A remote prints its own output, so a server offering to authorise somewhere else is a
+    // server sending the user off its own host. The derived form is used in its place.
+    const msg = WITH_LINK.replace('https://github.com/orgs/Catena-Media/sso', 'https://evil.invalid/orgs/Catena-Media/sso');
+    expect(ssoAuthUrl(msg)?.url).toBe('https://github.com/orgs/Catena-Media/sso');
+  });
+
+  it('refuses a printed link that is not https', () => {
+    const msg = WITH_LINK.replace('https://github.com/orgs', 'http://github.com/orgs');
+    expect(ssoAuthUrl(msg)?.url).toBe('https://github.com/orgs/Catena-Media/sso');
+  });
+
+  it('takes trailing sentence punctuation off a printed link', () => {
+    const msg = ['remote: visit https://github.com/orgs/Acme/sso.', "fatal: unable to access 'https://github.com/Acme/x.git/': The requested URL returned error: 403"].join('\n');
+    expect(ssoAuthUrl(msg)?.url).toBe('https://github.com/orgs/Acme/sso');
+  });
+
+  it('encodes the organisation name, so a path cannot be escaped through it', () => {
+    expect(ssoAuthUrl(ORG_ONLY.replace('Catena-Media', '../../settings'))?.url).toBe('https://github.com/orgs/..%2F..%2Fsettings/sso');
+  });
+
+  it('answers null for a credential failure that is not SSO', () => {
+    const msg = ['remote: Invalid username or password.', "fatal: unable to access 'https://github.com/Acme/x.git/': The requested URL returned error: 403"].join('\n');
+    expect(ssoAuthUrl(msg)).toBeNull();
+  });
+
+  it('answers null when there is no link and no host to build one on', () => {
+    expect(ssoAuthUrl("ERROR: The 'Acme' organization has enabled or enforced SAML SSO.")).toBeNull();
   });
 });

@@ -162,7 +162,7 @@ function NodeAvatar({ x, y, author, color }: { x: number; y: number; author: Pro
   const showImage = url && !broken && !avatarFailed(url);
   return (
     <>
-      <circle cx={x} cy={y} r={r - 1} fill="var(--bg-panel-raised)" stroke={color} strokeWidth={2} />
+      <circle cx={x} cy={y} r={r - 1} fill="var(--node-fill)" stroke={color} strokeWidth={2} />
       {showImage ? (
         <image
           href={url}
@@ -217,8 +217,8 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
         {stashDash?.toNode && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
         {stash.above && !stashDash?.toNode && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} />}
         <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />
-        <NodeMask x={x} fill="var(--bg-panel)" />
-        <circle cx={x} cy={mid} r={r} fill="var(--bg-panel)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
+        <NodeMask x={x} fill="var(--node-fill)" />
+        <circle cx={x} cy={mid} r={r} fill="var(--node-fill)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
         {/* The glyph inside the node. A lucide icon is its own `svg`, so it is positioned by a
             `g` around it rather than by x/y of its own, and drawn in the lane's colour. */}
         <g transform={`translate(${x - 6}, ${mid - 6})`} color={color}>
@@ -234,8 +234,8 @@ export function GraphCell({ row, width, wip, stash, stashDash, wipDash = null, w
       <svg width={width} height={ROW_H} aria-hidden="true">
         <Band x={x} color={color} width={width} />
         {wip.linked && <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
-        <NodeMask x={x} fill="var(--bg-app)" />
-        <circle cx={x} cy={mid} r={NODE / 2 - 1} fill="var(--bg-app)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
+        <NodeMask x={x} fill="var(--node-fill)" />
+        <circle cx={x} cy={mid} r={NODE / 2 - 1} fill="var(--node-fill)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
       </svg>
     );
   }

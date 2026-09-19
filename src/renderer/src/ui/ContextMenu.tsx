@@ -3,6 +3,19 @@ import { matches } from '../shortcuts';
 
 export interface MenuItem {
   label?: string;
+  /**
+   * The same action's label where there is less room for it (GC-213). The menu itself never uses
+   * this — it is for a surface that renders these items as a row of buttons, which today is the
+   * stash view's head (GC-178).
+   *
+   * It exists because the two surfaces need different amounts of the noun, not different actions:
+   * a stash's menu is opened from a row in a list of many, so "Apply stash" is right there, while
+   * the panel's head already says `stash@{0}: 59ff3b1` two inches to the left and repeating the
+   * word four times cost 160px the 400px panel does not have — the four buttons wrapped onto two
+   * ragged lines. Behaviour, hint, `danger` and the confirmation all still come from the one item,
+   * so the surfaces cannot drift on anything that matters; only on how much they restate.
+   */
+  short?: string;
   hint?: string; // right-aligned secondary text, e.g. a shortcut or explanation
   hintPath?: boolean; // the hint is a path: ellipsise it at its start so the tail stays (GC-067)
   caption?: boolean; // a non-interactive heading over the group beneath it (GC-067)
@@ -96,8 +109,16 @@ export function ContextMenu({ menu, onClose }: Props): JSX.Element {
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const r = el.getBoundingClientRect();
-    setPos({ x: Math.max(4, Math.min(menu.x, window.innerWidth - r.width - 4)), y: Math.max(4, Math.min(menu.y, window.innerHeight - r.height - 4)) });
+    // `offsetWidth`/`offsetHeight`, never `getBoundingClientRect()` (GC-214). The menu opens
+    // out of the pointer with a keyframe that starts it at 96%, and this effect runs before the
+    // first paint — which is precisely when that keyframe is what the element computes, because
+    // a CSS animation's first frame is resolved with the style that inserted it. A rect measured
+    // here is 4% smaller than the menu about to be drawn, so the clamp would allow a position
+    // that puts 17px of a 420px branch menu over the right edge of the window. The layout box
+    // ignores transforms, and "how wide is this menu" is what the clamp has always meant.
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    setPos({ x: Math.max(4, Math.min(menu.x, window.innerWidth - w - 4)), y: Math.max(4, Math.min(menu.y, window.innerHeight - h - 4)) });
   }, [menu]);
 
   useEffect(() => {

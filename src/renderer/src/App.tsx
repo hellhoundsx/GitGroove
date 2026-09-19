@@ -1865,15 +1865,17 @@ export function App(): JSX.Element {
 
   const stashMenuItems = useCallback(
     (s: Stash): MenuItem[] => [
-      { label: 'Apply stash', onClick: () => run('Applying stash', () => window.api.stashApply(repo!, s.index)) },
-      { label: 'Pop stash', hint: 'apply and drop', onClick: () => run('Popping stash', () => window.api.stashPop(repo!, s.index)) },
+      // `short` is what the stash view's head draws instead of the label (GC-213): its own title
+      // already says which stash these act on, so the word costs 160px there and says nothing.
+      { label: 'Apply stash', short: 'Apply', onClick: () => run('Applying stash', () => window.api.stashApply(repo!, s.index)) },
+      { label: 'Pop stash', short: 'Pop', hint: 'apply and drop', onClick: () => run('Popping stash', () => window.api.stashPop(repo!, s.index)) },
       // The default is the reflog subject the list already shows, and what is typed replaces it
       // whole — `git stash store -m` sets the subject exactly, so an edited entry loses git's own
       // `On <branch>:` prefix unless the user keeps it. The message names the move to the top,
       // which is the store's doing and not something the user asked for (GC-129).
-      { label: 'Edit message…', onClick: () => void editStashMessage(s) },
+      { label: 'Edit message…', short: 'Message…', onClick: () => void editStashMessage(s) },
       { separator: true },
-      { label: 'Drop stash', danger: true, onClick: async () => (await ui.confirm({ title: 'Drop this stash?', message: s.message, okLabel: 'Drop', danger: true })) && run('Dropping stash', () => window.api.stashDrop(repo!, s.index)) },
+      { label: 'Drop stash', short: 'Drop', danger: true, onClick: async () => (await ui.confirm({ title: 'Drop this stash?', message: s.message, okLabel: 'Drop', danger: true })) && run('Dropping stash', () => window.api.stashDrop(repo!, s.index)) },
     ],
     [editStashMessage, repo, run, ui],
   );

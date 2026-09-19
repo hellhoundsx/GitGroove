@@ -3,7 +3,7 @@ import type { Commit, CommitFile, FileChangeKind, GitRef, RepoStatus, Stash, Sta
 import type { CommitDraft } from '../App';
 import type { FileViewSource } from '../diff/DiffView';
 // The sentinel for the working-directory row: the commit view's banner selects it (GC-045).
-import { WIP } from '../graph/CommitGraph';
+import { stashMessageText, WIP } from '../graph/CommitGraph';
 import { chipsFor, RefChip } from '../graph/RefChip';
 import { ChevronRight, Trash2 } from 'lucide-react';
 import { FileKindIcon, Icon } from '../ui/icons';
@@ -691,7 +691,10 @@ function StashView({
 
   return (
     <>
-      <div className="detail-head">
+      {/* `stash` on the head so only this one wraps (GC-213): the commit view's head next door
+          holds ref chips that wrap inside their own box, and a wrapping parent would move the
+          whole block to a second line instead (GC-087). */}
+      <div className="detail-head stash">
         <span className="commit-id">
           stash@{'{'}
           {stash.index}
@@ -709,15 +712,23 @@ function StashView({
           {stashActions(stash)
             .filter((i) => !i.separator && i.label)
             .map((i) => (
-              <button key={i.label} className={`btn ${i.danger ? 'danger' : ''}`} disabled={i.disabled} title={i.hint} onClick={() => void i.onClick?.()}>
-                {i.label}
+              <button key={i.label} className={`btn ${i.danger ? 'danger' : ''}`} disabled={i.disabled} title={i.hint ?? i.label} onClick={() => void i.onClick?.()}>
+                {i.short ?? i.label}
               </button>
             ))}
         </span>
       </div>
       <div className="detail-body">
         <div className="message-box">
-          <h2>{stash.message}</h2>
+          {/* git's own `On <branch>: ` off this line too (GC-213). GC-170 kept the raw message
+              here deliberately — the marker it replaced could only show a tooltip, so showing
+              everything was the point — but the prefix is the one part of it that says nothing:
+              the head two lines up already names the stash, the branch is `On main` for every
+              stash taken on main, and it pushed the words the user actually wrote off the front
+              of the title. `stashMessageText` is the same answer the graph row and the left
+              panel's row give, so all three surfaces now read alike; the whole message stays on
+              the `title`, and `stashRename` still stores and edits the untouched one. */}
+          <h2 title={stash.message}>{stashMessageText(stash.message)}</h2>
         </div>
         <div className="author">
           <div />

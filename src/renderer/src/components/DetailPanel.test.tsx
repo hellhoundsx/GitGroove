@@ -22,11 +22,11 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/** The one call `CommitView` makes; `prefs.ts` reaches for `setTheme` on every write. */
+/** The one call `CommitView` makes. */
 const stubApi = (files: CommitFile[] = []): void => {
   (window as unknown as { api: Record<string, unknown> }).api = {
     getCommitFiles: () => Promise.resolve(files),
-    setTheme: () => Promise.resolve(),
+
   };
 };
 
@@ -294,28 +294,50 @@ describe('the stash view’s actions (GC-178)', () => {
     );
   }
 
-  /** The shape `App`'s `stashMenuItems` actually returns, separator included. */
+  /** The shape `App`'s `stashMenuItems` actually returns, `short` and separator included. */
   const menu = (fired: string[]): MenuItem[] => [
-    { label: 'Apply stash', onClick: () => fired.push('apply') },
-    { label: 'Pop stash', hint: 'apply and drop', onClick: () => fired.push('pop') },
-    { label: 'Edit message…', onClick: () => fired.push('edit') },
+    { label: 'Apply stash', short: 'Apply', onClick: () => fired.push('apply') },
+    { label: 'Pop stash', short: 'Pop', hint: 'apply and drop', onClick: () => fired.push('pop') },
+    { label: 'Edit message…', short: 'Message…', onClick: () => fired.push('edit') },
     { separator: true },
-    { label: 'Drop stash', danger: true, onClick: () => fired.push('drop') },
+    { label: 'Drop stash', short: 'Drop', danger: true, onClick: () => fired.push('drop') },
   ];
 
   it('draws the menu’s four actions, in its order, and none of its furniture', () => {
     renderStash(menu([]));
     const labels = [...document.querySelectorAll('.stash-actions .btn')].map((b) => b.textContent);
-    expect(labels).toEqual(['Apply stash', 'Pop stash', 'Edit message…', 'Drop stash']);
+    // `short`, not `label`: this head already says which stash these act on, and the four long
+    // labels came to 390px against 376px of room, which wrapped them onto two ragged lines
+    // (GC-213). The menu itself still says "Apply stash".
+    expect(labels).toEqual(['Apply', 'Pop', 'Message…', 'Drop']);
     // The separator is not a button, and the destructive row keeps the class that says so.
     expect(document.querySelectorAll('.stash-actions .btn.danger')).toHaveLength(1);
-    expect(document.querySelector('.stash-actions .btn.danger')?.textContent).toBe('Drop stash');
+    expect(document.querySelector('.stash-actions .btn.danger')?.textContent).toBe('Drop');
+  });
+
+  // `short` is an addition to `MenuItem`, so every item that has not been given one has to keep
+  // drawing exactly what it always did — the field is an override, not a requirement.
+  it('falls back to the label for an item with no short form', () => {
+    renderStash([{ label: 'Apply stash', onClick: noop }, { label: 'Pop stash', short: 'Pop', onClick: noop }]);
+    const labels = [...document.querySelectorAll('.stash-actions .btn')].map((b) => b.textContent);
+    expect(labels).toEqual(['Apply stash', 'Pop']);
+  });
+
+  // The long label is what the button promises on hover, so the short form costs no meaning:
+  // whichever of the two is drawn, the other is one pointer away.
+  it('keeps the full label reachable as the button’s title', () => {
+    renderStash(menu([]));
+    const apply = [...document.querySelectorAll('.stash-actions .btn')].find((b) => b.textContent === 'Apply');
+    expect(apply?.getAttribute('title')).toBe('Apply stash');
+    // An item with a hint keeps the hint, which was already the title and says more than the label.
+    const pop = [...document.querySelectorAll('.stash-actions .btn')].find((b) => b.textContent === 'Pop');
+    expect(pop?.getAttribute('title')).toBe('apply and drop');
   });
 
   it('runs the menu’s own handler, which is what makes the two surfaces ask the same question', () => {
     const fired: string[] = [];
     renderStash(menu(fired));
-    fireEvent.click(screen.getByText('Drop stash'));
+    fireEvent.click(screen.getByText('Drop'));
     // Not a second implementation of Drop: it is `stashMenuItems`' `onClick`, confirmation and all.
     expect(fired).toEqual(['drop']);
   });

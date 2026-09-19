@@ -46,7 +46,8 @@ A git repository on branch `main`, remote `https://github.com/hellhoundsx/GitCli
 | React | 19 | no global `JSX` namespace, components `import { type JSX } from 'react'` |
 | TypeScript | 7 | no `baseUrl`, tsconfig `paths` are relative; `tsc --noEmit` per target |
 | lucide-react | 1.x | the only icon source; wrap with `Icon` from `ui/icons.tsx` |
-| @fontsource/open-sans | 5 | the bundled **fallback** UI font, imported in `main.tsx` (400/600/700); the face actually used is Segoe UI Variable, off the OS (GC-212) |
+| @fontsource-variable/inter | 5 | **the UI font** (GC-213), imported in `main.tsx`; one variable file for the whole weight axis, and it carries the optical-size axis `optical-sizing: auto` drives |
+| @fontsource/open-sans | 5 | the bundled **fallback**, imported in `main.tsx` (400/600/700), behind Inter and Segoe UI Variable |
 | vitest | 5 | two projects (node + jsdom) |
 | jsdom | 30 | the `dom` project's environment |
 | @testing-library/react | 16 | needs `@testing-library/dom` 10 alongside it |
@@ -240,19 +241,17 @@ are.
 pure fs.
 
 **IPC and preload** — channels grouped by prefix: `repo:*`, `commit:*`, `workdir:*`, `ref:*`,
-`remote:*`, `stash:*`, `shell:*`, `window:*`. `ipc.ts` validates every argument (`str`, `strs`,
+`remote:*`, `stash:*` and `shell:*`. `ipc.ts` validates every argument (`str`, `strs`,
 `int`, `oneOf`); `repo:checkGit` is the only handler taking none. `repo:clone`, `repo:init` and `repo:chooseFolder` are the three that take no repository path,
 because there is no repository yet, so none of them goes through `repoFile()` (GC-128).
-`window:theme` and `window:material` are the other two
-handlers that never touch git (GC-212, see Styling for the material). The first it repaints the OS window controls for the theme the renderer
-resolved **and remembers it**, and `TITLE_BAR_OVERLAY` with it lives in `ipc.ts` rather than
-`index.ts` because `index.ts` already imports `registerIpc` and the other direction would be a
-cycle (GC-013). Remembering is what lets `createWindow` build the window in the right theme at all
-(GC-102): the setting lives in the renderer's `localStorage`, which does not exist yet, so the main
-process keeps its own copy in `window-theme.json` under the profile's `userData` — per Electron
-profile, so a launcher run cannot change what Ricardo's own window opens as (GC-060) — and
-`rememberedTheme()` feeds both `WINDOW_BACKGROUND` and `TITLE_BAR_OVERLAY` where two dark literals
-used to sit. Nothing remembered still means dark. Adding an API means: type in
+**The `window:*` group is gone** (GC-213), along with the two settings it served: `window:theme`
+repainted the OS window controls for a theme that no longer varies, and `window:material`
+answered which of three materials had been applied when there is now one. `TITLE_BAR_OVERLAY`
+and `WINDOW_BACKGROUND` are single constants in `ipc.ts` rather than a pair each — kept there
+rather than in `index.ts` because `index.ts` already imports `registerIpc` and the other
+direction would be a cycle (GC-013) — and `window-theme.json` under every profile went with
+them. With one palette there is nothing to remember and nothing to get wrong on the first frame,
+which is the whole of what GC-102 existed to solve. Adding an API means: type in
 `shared/types.ts`, function in `git.ts`, handler in `ipc.ts`, entry in `preload/index.ts`.
 `remote:cancel` is the only handler besides `repo:checkGit` that takes no arguments at all: what
 it stops is a process, not something inside a repository (GC-169). `shell:*` is the group that
@@ -569,6 +568,12 @@ a zero floor, exactly as the collapsed left rail does.
   and last rows reachable on a short window. It clamps rather than flips, so a cap costs it
   nothing. `ContextMenu`'s wheel listener ignores a wheel **inside** the menu, or a capped menu
   could not be scrolled: that wheel is the user reaching its last row, not the page moving.
+- **A surface that draws menu items as buttons reads `MenuItem.short`** (GC-213). The menu never
+  uses it; it is for the stash view's head, which renders `stashMenuItems`' own items (GC-178) in
+  a 400px row beside `stash@{0}: 59ff3b1`. The four long labels came to 390px against 376px of
+  room and wrapped onto two ragged lines, because the menu needs the noun — it is opened from a
+  row in a list of many — and the head does not. Handler, hint, `danger` and confirmation still
+  come from the one item, so the two surfaces cannot drift on anything but how much they restate.
 - `MenuItem` supports `label`, `hint`, `onClick`, `disabled`, `danger`, `separator`, `hintPath` (a
   hint ellipsised at its *start*, so the folder naming an entry survives) and `caption` (a
   non-interactive heading rendered as `div.ctx-caption`, so no menu selector picks it up). In a row
@@ -682,7 +687,13 @@ but a wrong one, carrying lanes from commits that are no longer there.
 - Colour is the lane index (`--lane-0..9`), stable as lanes recycle. The ten are **interleaved,
   not a hue ramp** (GC-113): `laneColor[i] = i % 10`, so the lanes drawn side by side are always
   consecutive indices, and a ramp put exactly that pair closest together. Every adjacent pair is
-  at least 100 degrees of hue apart in both themes, 9/0 included.
+  at least 100 degrees of hue apart, 9/0 included. GC-213 **softened them and moved no hue** —
+  saturation back ~15%, lightness up 6 points, max hue drift **0.57 degrees** over the whole set,
+  worst adjacent pair **100.47** (1/2, which was 100.1 before, so a straight desaturation rounded
+  it to 99.9 and those two carry a deliberate 0.2-degree nudge apart), and every lane at **3.06 or
+  better** against the #212121 ground where a 2px stroke wants 3. Retuning one means moving its
+  saturation or its lightness; moving a **hue** is a different change and has to be re-checked
+  against both its neighbours.
 
 `GraphCell` renders one 28px row as inline SVG. **A join is three segments, never a diagonal**:
 down its own lane to `mid - JOIN_R`, one quarter arc, then horizontally to the node's centre line,
@@ -1170,7 +1181,8 @@ item whose `overflow` is anything but `visible` has an automatic minimum size of
 could be crushed, and a 29-file list beside it, having no overflow of its own, crushed it to 12px
 of the 160 it wanted. It is `flex: none` now with the cap moved onto its `pre`, so the summary is
 whole at whatever height it needs and only the description scrolls; `.file-list` takes
-`flex: 1 1 auto; min-height: 30px; overflow: auto` and is what scrolls in all three views, with
+`flex: 1 1 0; max-height: max-content; overflow: auto` and a floor of **its head and one whole
+row** and is what scrolls in all three views, with
 `.file-row` and `.group-head` `flex: none` inside it — a row's 26px is a basis a bounded flex
 column will otherwise shrink, and 29 of them came out at 15px each, all on screen and none
 readable. The `.group-head` is `sticky`, since the count and the Stage-all button are what a list
@@ -1202,13 +1214,44 @@ one Chromium draws an ellipsis in — measurably whole and visibly `…Name10.t�
 text is re-isolated LTR inside that RTL box, or the trailing `/` is reordered to the other end
 (GC-093).
 
+**The lists share the column by what each one holds, and flexbox is what does it** (GC-213, the
+behaviour `GC-207` specifies). `flex-basis: 0` asks for an equal share and `max-height:
+max-content` clamps a list to its content; resolving that max violation freezes the item and
+redistributes what it gave up to the others, repeatedly — which is `fitSections`' fill, level by
+level, with no measurement, no `ResizeObserver` and no state. It replaces `flex: 1 1 auto`, where
+the basis was each list's content and shrinkage is proportional to basis, so the **bigger** list
+kept the bigger share: measured at a 400px panel with 6 unstaged and 38 staged, Unstaged was
+given 76px — one whole row and a sliced second, for six files — against Staged's 416. It is now
+202 (all six rows, no scrollbar) and 290 (nine rows and a scrollbar), and the inverse case is
+symmetric: with 42 unstaged and 2 staged, Staged takes exactly its 90px of content and Unstaged
+the remaining 402. `.commit-form` sits at y 647 in every one of those, which is GC-191's promise.
+A closed group is `flex: none` and still takes no part (GC-197). **`GC-207` is still open**: what
+is left of it is its unit test, which has no function to test here, and whether the split should
+be draggable.
+
+**A list's floor is its head and one whole row** (GC-213), `calc(30px + var(--sp-1) + var(--row-h))`,
+built from the parts rather than rounded so a list sitting on it ends *between* rows and never
+through one. It was 30px — the head alone — which is exactly what GC-153 rejected one panel over:
+measured on a 620px window with 1 unstaged and 17 staged, Unstaged was given 30px and its single
+file was not on screen at all, and Staged came out at 182px, which is a head, five rows and a
+sixth sliced through the middle. This is the floor only; **how the lists divide what is left is
+`GC-207`**, still `todo`, and it names this value as its own.
+
 **One boundary treatment, listed once for both views** (GC-142). A block in `.detail-body` is
-either a **card**, which carries its own border — the message box, a banner, an error — or a
+either a **card** — the message box, a banner, an error — or a
 **section**, separated from the block above it by a 1px rule and the body's own 12px: `.author`,
-`.readout`, `.file-list` and `.commit-form`, with `:first-child` taking neither. A file list's
+`.readout` and `.commit-form`, with `:first-child` taking neither. `.file-list` is the exception
+and takes **no rule** (GC-213): it is the one section that opens with a filled, inset head, so the
+hairline was a second divider sitting directly on the first, and the body's own 12px gap already
+separates it. A file list's
 `.group-head` is a band rather than a second hairline, which is what makes Unstaged and Staged read
 as two groups, and the commit view's file list carries the same head so a file list is one thing in
-both views. **`.author` is a wrapping flex row — avatar, identity, parents — and the parents take a
+both views. **A banner is a card with a coloured edge, not a coloured outlined box** (GC-213): the
+app's raised surface at the app's own radius with a 3px `--sel-bar`-width bar at its leading edge
+— warning, danger or, for the working-directory banner, the accent — drawn as an inset shadow so
+it follows the radius. The outline it replaces was a saturated ring in a window whose one rule is
+that saturated colour means a branch, at the last `--radius-sm` in the panel, and `.info` drew the
+accent as a full border *and* a tinted field. **`.author` is a wrapping flex row — avatar, identity, parents — and the parents take a
 line of their own rather than being crushed on this one** (GC-142, GC-157, GC-196). It was a
 three-column grid whose parents column gave way, which fixed GC-157's overlap and then went one
 step too far: measured at the panel's 300px minimum, the date's floor resolved to 165px and it
@@ -1234,8 +1277,15 @@ list), or **stash view** (GC-170): `stash` is asked about first, because a stash
 a sha the loaded commits do not hold and the panel would otherwise fall through to the staging view
 and say nothing about what was selected. It copies the commit view — a stash *is* a commit, so its
 files come from the same `commit:files` call on its own sha — and says the three things the marker
-it replaced could only say in a tooltip: which stash it is, its whole untouched message, prefix
-included, and how long it has been there. **The commit view's header draws its refs as chips, not as git's decoration** (GC-087):
+it replaced could only say in a tooltip: which stash it is, its message, and how long it has been
+there. That message is **`stashMessageText`'s**, not the raw one (GC-213): GC-170 drew git's
+`On <branch>: ` here on purpose, the marker having managed only a tooltip, but the prefix is the
+one part that says nothing — the head one line up already names the stash, every stash taken on a
+branch carries the same words, and they pushed what the user actually wrote off the front of the
+title. All three surfaces that draw a stash message now agree; the whole one is on the `title`,
+and `stashRename` still stores and edits the untouched string. Its four actions are
+`stashMenuItems`' own items rendered as buttons (GC-178), drawn at `MenuItem.short` where an item
+has one — see the UI layer. **The commit view's header draws its refs as chips, not as git's decoration** (GC-087):
 `chipsFor` over the refs sitting on that commit, from `graph/RefChip.tsx`, so the ordering and the
 absorb rule are the graph's; they wrap under `commit: <sha>` in a `.ref-chips` row rather than
 ellipsising, which is what used to cut `origin/m…` off the end and lose the remote. `App` hands the
@@ -1271,19 +1321,20 @@ by turning the box RTL and a `/` at either end is reordered to the other one.
 `prefs.ts` is the single home for user settings: a typed `Prefs` with `DEFAULT_PREFS`, persisted as
 one JSON blob under `gitclient.prefs`, read with `usePrefs()` and written with `setPrefs(patch)`.
 `load()` validates each field and falls back to the default, so a hand-edited blob cannot break the
-app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`, `theme`,
-`windowMaterial`, `diffView`, `diffIgnoreWhitespace`, `diffWordWrap` and `graphColumns` — the one nested value, so `load()` falls
+app. Settings: `avatars`, `pullMode`, `confirmDirtyCheckout`, `commitColumnGuide`,
+`diffView`, `diffIgnoreWhitespace`, `diffWordWrap` and `graphColumns` — the one nested value, so `load()` falls
 back per column and a `defaults()` helper copies it, a bare spread having shared the nested object.
 Adding a setting means: a field with a default in `prefs.ts`, validation in `load()`, a row in
 `components/Preferences.tsx`, and reading it with `usePrefs()`. There is no OK/Cancel; every change
 applies immediately.
 
-**`theme` is `dark` | `light` | `system`, and `prefs.ts` resolves `system` itself** with `matchMedia`
-rather than leaving it to a media query (GC-013): there has to be one answer to which theme is
-showing, because the renderer hands it to the main process over `window:theme` to repaint the OS
-window controls — the one part of the frame CSS cannot reach. `applyTheme()` stamps `data-theme` on
-the document element on load, on every `setPrefs` and when the OS setting changes; it is guarded on
-`document` because a node-environment test imports this module.
+**`theme` and `windowMaterial` are no longer settings** (GC-213). There is one palette and one
+material, so `resolveTheme`, `applyTheme`, the `prefers-color-scheme` listener, the `data-theme`
+stamp and the round trip that asked the main process which material it had applied are all gone;
+what is left in `prefs.ts` is what a preference actually is, a value the user picked. A blob
+still carrying the two old keys loads cleanly and drops them, which is a unit test. The material
+is stamped by `main.tsx` from a `?material=acrylic` query parameter the **main process** puts on the
+URL, before the first render — see Styling.
 
 Remembered **state** deliberately stays on its own keys, never in the blob:
 
@@ -1317,80 +1368,118 @@ one network call (SHA-256 of the lowercased email, `d=404`); failures are cached
 ### Styling
 
 `tokens.css` defines everything: the type stack, 14px/20px base, 12px rows, the surfaces, text as
-white alphas (.78/.6/.4), the accent, semantic colours, ten lane colours and the layout metrics.
+white alphas (.90/.68/.52), the accent, semantic colours, ten lane colours and the layout metrics.
 `app.css` is one file with a section per component.
 
-**The system is Fluent 2, taken for its mechanics and not for its spacing** (GC-212). Four of those
-mechanics are load-bearing and each is stated where it lives, in `tokens.css`'s own header:
+**There is one look.** The theme setting (dark / light / system) and the material setting
+(mica / acrylic / none) are both gone (GC-213): `tokens.css` is a single `:root` block plus one
+`[data-material]` override, and the light palette went with the setting. **No selector anywhere
+keys off `data-theme` and nothing stamps it** — `grep -n "data-theme" src/` prints two lines and
+both are comments saying so. A rule that brings the attribute back is bringing a second palette
+back with it.
 
-- **One ground and a stack of layers derived from it by alpha** — `--base`, then `--bg-card`
-  (white 4.5%), `--bg-subtle` (7%), `--bg-panel-raised` (9%) — replacing the six-step grey ramp.
-  The three panels are **one card**, inset `--card-inset` from the window, and what divides refs
-  from graph from detail is a stroke rather than a change of fill; the title bar, the toolbar and
-  the status bar paint nothing at all. Six horizontal stripes drew the boundary that mattered
-  least — toolbar against panel — most strongly.
+**The language is the ChatGPT desktop app, taken for its language and not for its spacing**
+(GC-213), the way GC-212 took Fluent's mechanics and left its padding. The density is ours and
+unchanged: 28px graph rows, 26px ref rows, 12px furniture. Five things carry it, each stated
+where it lives, in `tokens.css`'s own header:
+
+- **Neutral near-black, not blue-black.** Every grey is R=G=B. Fluent's ground was cool — #17191d
+  has 6 points of blue over red — and a neutral one is most of why ChatGPT's dark mode reads as
+  paper-in-the-dark rather than as a themed window.
+- **A tone step, not a stroke.** `--base` (#141414) is the window ground, the two side panels take
+  `--bg-sidebar` (#181818) and the graph takes `--bg-card` (#212121), with **no line between
+  them** — the sidebar is *darker* than the working surface, which is the structural thing to
+  keep. This reverses GC-212's "three panels, one card, divided by strokes" deliberately, because
+  the boundary is carried by fill now. `--border` survives only for things that genuinely are
+  outlines, and is quieter than it was.
+- **Radius rises and the small controls go to a capsule**: 6 / 10 / 16 against Fluent's 4 / 6 / 8,
+  plus `--radius-pill` for anything wider than it is tall (a button, a segmented switch, a chip)
+  and `--radius-xs` (4px) for the one mark that could not be lifted — at 6px on a 14px box a
+  checkbox is 43% round and reads as a radio.
+- **The primary action is white**, not the accent: `--btn-primary-bg` / `-fg` / `-hover`, which is
+  ChatGPT's send button and its every confirming dialog button. That takes the largest field of
+  accent blue out of a window whose lane palette already owns blue.
 - **Elevation is a set, not one shadow**: `--elev-4` rests, `--elev-16` floats, `--elev-64` is the
-  dialog, and radius rises with the layer (4 controls / 6 buttons and rows / 8 what floats or
-  contains).
-- **Colour means branch; shape means state.** The ten lane colours are the only saturated colour in
-  the window, and `--accent` may not be a large field beside them: `--lane-8` is hue 218 and the
-  accent is the same blue (1.24:1 in light, where no honest lightness separates them). So a
-  selected row is a **neutral** fill with a 3x14 `--sel-bar` at its leading edge, drawn as a
-  `background-image` so no row needs a pseudo-element or a positioned ancestor — `.col-ref`'s
-  folded block escapes its cell on z-index alone (GC-123). The checked-out branch is a
-  `--head-bar` for the same reason. An accent field beside the graph brings the ambiguity back.
-- **Three rules decide translucency, and the first is the one the others are written around: no
-  blur behind data, ever.** Not behind a 28px row of 1px lane strokes, not behind a diff, at any
-  cost in frames. Then: **what floats is glass** — acrylic (`--bg-menu` plus `--flyout-blur`) on
-  `.ctx-menu`, `.popover` and `.modal` and nowhere else, plus `--backdrop-blur` on
-  `.modal-backdrop`, which is the one place a blur is free because pushing what is behind a dialog
-  out of focus is what a dialog is for. And: **the chrome always carries the window's material, the
-  card only if asked** — `:root[data-material] body` paints nothing, and
-  `:root[data-material='acrylic'] .main` takes `--bg-card-glass`. That last is the one relaxation
-  of rule 1, and it survives it by being a flat alpha rather than a filter: the graph pays nothing
-  per frame and the blur is the OS's, already applied behind the window.
+  dialog — softer and wider than Fluent's, which is ChatGPT's own shape.
 
-**The face is Segoe UI Variable, in its three optical cuts** (GC-212): `Small` for 10-12px,
-`Text` for the reading layer, `Display` for 20px and up, with Open Sans still bundled as the
-fallback. The cut is decided by **size, never by role** — a 12px branch name and a 12px count both
-want Small — so `app.css` names the containers that are wholly 12px and under in one rule and a new
-one joins that list rather than setting a family of its own.
+**Colour means branch; shape means state** — GC-212's rule, kept and taken further. The ten lane
+colours are the only saturated colour in the window and `--accent` may not be a large field beside
+them: `--lane-8` is hue 218 and the accent is the same blue. A selected row is a **neutral** fill
+with a 3x14 `--sel-bar` at its leading edge, drawn as a `background-image` so no row needs a
+pseudo-element or a positioned ancestor (`.col-ref`'s folded block escapes its cell on z-index
+alone, GC-123) — and since GC-213 that bar is **white**, not the accent, because a mark with no
+hue in it says "selected" beside a magenta lane where a blue one said "selected, and also
+possibly something about blue". `--head-bar` is green for the checked-out branch, green being a
+*state*. What is left of `--accent` is a link, a checked control and the diff's line picker.
 
-**The window material is the one piece of glass CSS cannot draw** (GC-212), since `backdrop-filter`
-reaches only inside the page and what is behind this window is the desktop. It is a preference,
-`prefs.windowMaterial`: **`mica`** (the default) tints the desktop behind the chrome only, and
-**`acrylic`** is the stronger frost with the content card translucent under it. Mica is the default
-for a reason worth keeping — Windows fades an **acrylic** window to a flat colour whenever it is
-not focused, which for a tool sitting open beside an editor is most of the time.
+**Three rules decide translucency, and the first is the one the others are written around: no
+blur behind data, ever.** Not behind a 28px row of 1px lane strokes, not behind a diff, at any
+cost in frames. Then: **what floats is glass** — `--bg-menu` plus `--flyout-blur` on `.ctx-menu`,
+`.popover` and `.modal` and nowhere else, plus `--backdrop-blur` on `.modal-backdrop`, which is
+the one place a blur is free because pushing what is behind a dialog out of focus is what a dialog
+is for. And: **nothing in the window is ever at the mercy of what is behind it** — the chrome
+— and **there is exactly one scrim.** `body` carries `--window-scrim` and nothing else does: the
+chrome paints nothing and simply shows it, `.main` paints nothing, and its children carry white
+**tints** over it (`--bg-card-glass` for the working surface, `--bg-sidebar-glass` for the two
+panels) reproducing the flat ramp's own steps — ground, +4 for a sidebar, +13 for the work.
+`.main > *` rather than the containers by name, because the centre is `.graph-panel`,
+`.file-view` or the empty state depending on what is open. All flat alphas rather than filters,
+so the graph pays nothing per frame and the blur is the OS's, already applied behind the window.
 
-**The renderer stamps what the main process *applied*, never what it asked for.** `window:material`
-answers with the effective material, because whether one can be had is a main-process fact:
-`materialsAvailable` in `ipc.ts` is Windows 11 (build 22000+) **and not stealth** — an offscreen
-window has no OS window for the compositor to put anything behind, and stamping the request there
-would leave the stylesheet translucent over a ground nothing paints, so every unattended screenshot
-would come back over a void. One place decides; `prefs.ts`'s `applyMaterial()` stamps the answer and
-deletes the attribute for `none`. Nothing is stamped until it comes back, which is the safe
-direction: opaque settling into glass is invisible, glass collapsing to opaque is a flash.
-`rememberedMaterial()` builds the window with it for the same reason `rememberedTheme()` does
-(GC-102), sharing `window-theme.json`, and `backgroundColor` must be transparent whenever it is not
-`none` or the window's own fill paints over the material.
+Two wrong answers came first and both are worth knowing. **A scrim per surface** gave the side
+panels 0.56 over the card's 0.76 — they are its *children*, so it composited to 0.89 while the
+chrome beside them sat at 0.66, and the window read as three unrelated materials with the header
+the most see-through thing on screen. **Matching the alphas** fixed the chrome and left the last
+hole: the `--card-inset` gutter around the card is painted by no element but `body`, so that 8px
+frame was raw acrylic with no scrim at all. One scrim on the one element that covers the whole
+window is what makes the gutter, the title bar, the toolbar and the status bar the same pixels.
 
-**Every colour lives in `tokens.css`, none in `app.css`** (GC-013): `:root` is the dark palette and
-`:root[data-theme='light']` redefines the same names for the light one, so a new colour is a token
-or it does not flip with the theme. **And the light block holds the dark ramp's ratios** — GC-175's
-rule, kept, but re-solved once GC-212 gave the boundary a stroke and an elevation set to carry as
-well as lightness. The whole ramp is compressed and the ground is therefore free to be light:
-#e9ebf0 rather than GC-175's #c7c9cd, with the two blocks now within 0.03 of each other at every
-adjoining pair (card/app 1.104 against 1.131, raised/app 1.193 against 1.310, menu/card 1.071
-against 1.066). GC-175 could only match dark by making light nearly as dark, because lightness was
-the only tool it had. The flyout row moved furthest and is the one to understand: a menu no longer
-separates by being 1.43 times lighter than the panel, it separates by a stroke, a shadow and a
-visibly blurred backdrop. **If the strokes or the elevation set are ever taken off, the light block
-is wrong and GC-175's numbers are the way back.** `--border` is still decided by the luminance step
-rather than by matching dark's alpha, since black and white sit at opposite ends of the sRGB curve. The nine `rgba()` literals `app.css` used to carry became
-`--head-row`, `--match-row`, `--banner-bg`, `--hover-overlay`, `--backdrop`, `--accent-strong`,
-`--success-strong` and `--diff-gutter`; `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` must keep
-printing nothing.
+**The sticky file-list head is the one exception to "no blur behind data"** (GC-213), and it is
+stated as one rather than smuggled in: what is behind it is file rows. It is a 30px strip in a
+400px panel rather than the graph or a diff, so the frame cost the rule is written about is not
+in question; nothing is meant to be legible through it, since it is an occluder and a blur is the
+strongest form of occluding there is; and it is what the reference does. `--head-blur` is **not
+load-bearing for legibility** — `--bg-subtle`'s own alpha is what stops the text being read, and
+the blur is what keeps the remaining 7% from being a ghost of a glyph rather than a smear.
+
+**Two surfaces stay opaque under the material, and both have to.** `--bg-subtle` is the sticky
+file-list head (GC-209), so its job is to hide the rows passing under it; `--node-fill` is the
+graph node, whose job is to interrupt the lane line it sits on. Both took a token the material
+turns into a white veil so a *field* lifts the glass, and both stopped occluding — the node most
+visibly, with the lane line running through every circle in the graph. **All three node kinds
+take `--node-fill`**, where they used to take three different values: over a flat ground that
+read as a raised disc and two holes, and over glass as a grey disc and two dark spots, because a
+hole needs something behind it to be a hole in. The dash is what says a node is not a commit.
+
+**The face is Inter** (GC-213), bundled as `@fontsource-variable/inter` and as close to ChatGPT's
+as Windows can get — SF Pro is macOS-only and ChatGPT Sans is not distributed. One variable file
+covers the whole weight axis, and `optical-sizing: auto` on `body` drives Inter's own optical axis,
+which is what **replaces GC-212's three named Segoe cuts**: the size-keyed family rule that named
+every container wholly 12px and under is gone, and nothing has to be kept in step with it. Segoe
+UI Variable stays in the stack behind Inter and Open Sans behind that.
+
+**The window material is the one piece of glass CSS cannot draw**, since `backdrop-filter` reaches
+only inside the page and what is behind this window is the desktop. It is **acrylic, always, where
+the OS can give us one** — no longer a preference. **Acrylic and not mica, which GC-213 tried
+first and got wrong**: mica is a desaturated, heavily blurred wallpaper *tint* that Windows draws
+to be almost invisible, and behind a content card at any alpha the graph is readable through it
+comes to nothing — on the real window it looked like no transparency at all. Acrylic is the only
+material on this platform that reads as glass. Its cost is real and accepted: Windows flattens an
+acrylic window to a solid colour whenever it is **not focused**. `glassAvailable` in `ipc.ts` is Windows 11
+(build 22000+) **and not stealth**: an offscreen window has no OS window for the compositor to put
+anything behind, and a translucent stylesheet over a ground nothing paints would bring every
+unattended screenshot back over a void. `index.ts` builds the window with it *and* puts
+`?material=acrylic` on the URL, so `main.tsx` stamps `data-material` **before the first render**
+rather than a round trip later (GC-213 — the IPC channel and `prefs.ts`'s `applyMaterial` both
+went). `backgroundColor` must be transparent whenever the material is on, or the window's own fill
+paints over it. **A material cannot be tuned without a real on-screen window**: an offscreen
+render has no material at all and a harness backdrop is a guess at one, so every value in that
+block was set from a screenshot of the actual app and should be changed the same way.
+
+**Every colour lives in `tokens.css`, none in `app.css`** (GC-013), and with one palette that is
+now the whole of the rule: a new colour is a token or it is in the wrong file.
+`grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' app.css` must keep printing nothing, which
+`tools/repo-hygiene` does not check and a reviewer should.
 
 - **The form controls are the app's own too** (GC-101, GC-125). `input[type='checkbox']` and
   `input[type='radio']` are each styled once, globally, by type rather than by a class — there is
@@ -1426,6 +1515,81 @@ printing nothing.
 - The app grid uses `grid-template-columns: minmax(0, 1fr)` and `.main` has `min-width: 0;
   overflow: hidden`, or nowrap commit messages grow the frame past the window.
 - Section headers are uppercase via CSS, so tests must compare `textContent` lowercased.
+
+**Motion is a token, and that is the whole of why it can be switched off** (GC-214). `tokens.css`
+carries three durations — `--dur-1` (90ms, the pointer's own answer), `--dur-2` (140ms, a control
+or a flyout), `--dur-3` (220ms, the window changing) — four curves (`--ease-standard` for most of
+it, `--ease-out` for entrances, `--ease-in` for the one thing that exits, `--ease-settle` for the
+app's single overshoot), the distances a surface travels as it arrives, and `--dur-spin`. **Every
+transition and every keyframe in `app.css` is written from them**, because the app's entire answer
+to `prefers-reduced-motion: reduce` is one block at the end of `tokens.css` that overrides those
+values and nothing else: the distances go to zero, the overshoot goes flat, and the two longer
+durations come down to the shortest, so an animation written after it is covered by it
+automatically. A literal duration in `app.css` is invisible to that block —
+`grep -nE '[0-9]+m?s' app.css` should find them only inside comments. The shared vocabulary (the
+keyframes, and the one transition that answers a hover) is a **Motion** section near the top of
+`app.css`; where each is used stays in its own component's section like every other rule.
+
+The personality is the sober one, one step faster than the archetype's 200/300/450, because almost
+every animation in this window is the direct answer to a pointer and the interaction budget — a
+hover inside 100ms, a press inside 150 — binds before the element-size table does. Three things do
+not move at all, and each is a rule rather than an omission:
+
+- **Nothing in the data.** No transition and no animation on `.graph-row`, its cells, a ref chip or
+  a diff line. A virtualised row is the same DOM node holding a different commit a moment later, so
+  a class landing on it is not a state *changing*; transitioned, a fast scroll leaves selection and
+  match tints fading in and out of rows they never belonged to. It is also the one thing the window
+  exists to draw, and it pays nothing per frame — the same rule that keeps a blur off it.
+- **Nothing a fit function measures, incidentally.** The panel widths, the ref column and the left
+  panel's section heights are computed from measured rects (`fitPanels`, `fitRefCol`,
+  `fitSections`, `onNatural`), and a `ResizeObserver` firing on an intermediate size runs the fit
+  against a width that exists for 140ms — dropping a column, and another on the way back. The word
+  is load-bearing: what is forbidden is a *hover* or an *entrance* moving a box something else is
+  reading. The **left panel's own collapse is the exception**, and the only layout in the window
+  that animates, because there the width change is precisely what the user asked for and the graph
+  re-fitting as it happens is the answer rather than a side effect — it is also the path a drag on
+  the panel's edge already takes sixty times a second. See the drawer, below.
+- **Nothing on the way out.** Entrances only. A menu, a popover and a dialog are unmounted the
+  moment they close, and keeping a dead layer on screen long enough to animate it would put
+  something clickable over the app, leave the e2e suite waiting on a layer that is visibly gone and
+  not yet absent, and make `App`'s one-Escape-one-layer rule a question of timing.
+
+What does move: the two flyouts open out of their anchor (`flyout-in`, 96% with `transform-origin`
+at the corner they are placed by), a dialog and its backdrop arrive (`dialog-in`, `fade-in`), a
+banner and the status bar's busy, error and notice lines rise into a slot the layout has already
+given them (`rise-in`), the file view fades while its head rises — its body is code being read, and
+4px of travel is 4px of text sliding under the reader's eye — every control answers the pointer in
+90ms, a button gives 3% under it, and a checked box's tick is the one mark in the window that
+overshoots.
+
+**The side panel is a drawer, and it is the one layout in the window that animates** (GC-214):
+`width` on `.left-panel` at `--dur-3`, which covers both directions at once because `LeftPanel`
+returns two different `<aside>`s from the same place in the tree — React reuses the node and only
+the class changes, the rail's `width: 44px` against the panel's own variable, so nothing had to
+learn that a panel can be "closing". Its contents are the second layer: `.panel-head`,
+`.sections` and the rail's items each fade in behind the edge on a `--dur-1` delay with
+`animation-fill-mode: backwards` — without the fill they are drawn at full strength through the
+delay and the fade becomes a flash. Because the standard curve front-loads the distance, the
+panel is at 90% of its width by the halfway point, so the contents land in a box that is
+already the right size. Two things hold it up: `.app.resizing .left-panel` sets
+`transition: none`, because `useDragWidth` writes a width per `pointermove` and GC-111/115/118
+are three tickets about that width being the one the pointer is at; and `.panel-head` and
+`.sections` clip themselves, since `overflow: hidden` on `.left-panel` — the obvious place —
+would take half of `.panel-resize` with it, the handle straddling the panel's edge on a -2px
+margin. Measured frozen mid-transition at 55/110/165ms: nothing spills the panel's box at any
+width. **The detail panel does not do this**, and cannot without new state in `App`: it is not a
+class on a surviving element but two different elements, `.detail-panel` and the 16px
+`.detail-reveal`, so closing it unmounts the thing that would have to shrink.
+
+The status bar deliberately does **not** shake on an error: that is a state with a
+dismiss button on it, not a transient alert, and a thing that shakes on arrival still has to be
+read afterwards.
+
+**An entrance that scales is a rect that lies** (GC-214). `ContextMenu`'s viewport clamp measures
+`offsetWidth`/`offsetHeight` and never `getBoundingClientRect()`: it runs in a layout effect before
+the first paint, which is exactly when the keyframe's own 96% is what the element computes.
+Measured on the running window, 284.73 painted against 297 laid out — 12px of a 420px branch menu
+hanging over the right edge. A surface that animates is measured by its layout box.
 
 ## Testing
 
@@ -1747,13 +1911,29 @@ the widest phrase it can produce; the band's paint a falloff from the lane defin
 rows; and the folded block opened in a run by the class the CSS treats as hover, so a rendered
 stylesheet is what answers for it (App state, Detail panel, Main process, Graph, Testing);
 
-the three panels one card with strokes between them rather than six stripes of different grey, the
-chrome painting nothing so the window's material shows through it, no blur ever behind data and
-acrylic only on what floats, an accent that may not be a large field beside the lanes so state is a
-shape and colour is a branch, elevation a set of three rather than one shadow, the optical cut
-chosen by size and never by role, a window material asked for only where an OS window exists to put
-it behind and **stamped from what was applied rather than from what was asked**, and a light ramp
-free to be light because a stroke and a shadow now carry what lightness alone used to (Styling);
+the chrome painting nothing so the window's material shows through it, no blur ever behind data and
+glass only on what floats, an accent that may not be a large field beside the lanes so state is a
+shape and colour is a branch, elevation a set of three rather than one shadow, and a window
+material asked for only where an OS window exists to put it behind (Styling);
+
+one look and one material, with the theme and the material settings deleted rather than defaulted
+so no selector keys off `data-theme` and nothing has a second palette to drift from; the sidebars
+separated from the working surface by a **fill** rather than a stroke, and darker than it; the
+primary action white because colour in this window means a branch or a state, never an action;
+the selection bar white for the same reason; the material decided before a renderer exists and
+carried to it on the URL so it is stamped before the first frame rather than a round trip later;
+one variable face with its own optical axis in place of three named cuts kept in step by a list
+of selectors; the lane palette softened with **every hue held** and the one pair that has always
+been on the 100-degree line nudged clear of it; and the sticky file-list head the single surface
+allowed to stay opaque under the glass, because an occluder that lets the rows through is not one
+(Styling, Graph, Detail panel, Main process);
+
+motion written only from the duration and easing tokens, so one `prefers-reduced-motion` block
+answers for all of it including what is written later; nothing animated in the data, and nothing
+incidentally animated in what a fit function measures — the side panel drawer being the one layout
+that moves, because there the width change is the thing asked for; entrances only, with a dismissal
+instant; and a scaling entrance measured by its layout box rather than its painted one (Styling, UI
+layer);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control

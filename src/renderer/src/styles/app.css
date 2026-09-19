@@ -28,12 +28,21 @@ body,
   background: transparent;
 }
 
+/* Idle scroll containers draw no thumb at all, and one appears when the pointer is inside the
+   container it belongs to. A permanent 8px bar down the side of every panel is the loudest
+   furniture in a window that is mostly panels — the left column had one standing in it at rest
+   with nothing being scrolled. Still one global rule set and still no per-component rule
+   (GC-079): the reveal is part of it, so a new scroll container inherits the behaviour. */
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
+  background: transparent;
   border-radius: 4px;
 }
 
-::-webkit-scrollbar-thumb:hover {
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+
+*::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
@@ -48,61 +57,73 @@ body {
   color: var(--text);
   background: var(--bg-app);
   user-select: none;
+  /* Inter's own optical axis, which is what replaces GC-212's three named Segoe cuts: one
+     variable face adjusting its own drawing by size, rather than a rule naming every container
+     that is wholly 12px and under and a convention about keeping that list current (GC-213). */
+  optical-sizing: auto;
+  /* ChatGPT renders its text on the light side of the stem weight and it is a large part of why
+     its dark mode does not read as heavy. Chromium's default on Windows is already close, but
+     the app has a lot of 10-12px furniture and this keeps it from thickening. */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /*
- * The window material, in two strengths (GC-212). `prefs.ts` stamps `data-material` with the value
- * the **main process** actually applied, so the attribute is absent wherever a material could not
- * be had — an older Windows, another platform, or the offscreen window an unattended run uses,
- * which has no OS window for the compositor to put anything behind. Absent is the ordinary case and
- * the ground is `--bg-app`.
+ * Mica, where the compositor can give us one (GC-212, GC-213). `main.tsx` stamps `data-material`
+ * before the first render from a query parameter the **main process** puts on the URL, so the
+ * attribute is present only where a material was actually applied — absent on an older Windows,
+ * another platform, or the offscreen window an unattended run uses, which has no OS window for
+ * the compositor to put anything behind. Absent is the ordinary case and the ground is `--bg-app`.
  *
- * Either material stops the ground being painted, which is what lets the desktop through the
- * chrome: the title bar, the toolbar and the status bar paint nothing of their own already.
+ * The material stops the ground being painted, which is what lets the desktop through the chrome:
+ * the title bar, the toolbar and the status bar paint nothing of their own already.
  */
+/* The window's one scrim, and the only element that carries it (GC-213). It has to be `body`
+   rather than the chrome, because `body` is the only thing that covers the whole window — the
+   8px `--card-inset` gutter around the card is painted by nothing else, and with the scrim on
+   the chrome that frame was raw acrylic with no scrim at all while every surface inside it had
+   one. The title bar, the toolbar and the status bar already paint nothing, so they show this
+   and are literally the same pixels as the gutter, which is what makes them match. */
 :root[data-material] body {
+  background: var(--window-scrim);
+}
+/*
+ * With the material on, the card goes translucent, so the desktop reads through the window and
+ * not only through the chrome — at the **same alpha the chrome takes**, so the two are one
+ * material rather than two.
+ *
+ * The sidebars are a flat black veil *over* the card, not a glass of their own (GC-213). They
+ * are its children, so a translucent fill on them composites with the card's underneath: 0.56 on
+ * top of 0.76 came out at 0.89 while the chrome beside them sat at 0.66, and the window read as
+ * three unrelated materials with the header the most see-through thing on screen. A veil keeps
+ * the sidebar a tone step below the work — which is the relationship being copied — without
+ * making it a different kind of surface.
+ *
+ * This is the one place the app's own rule (the data is never translucent) is relaxed, and
+ * deliberately: these are flat alphas and not filters, so the graph pays nothing per frame and
+ * the blur is the OS's, already applied behind the window.
+ */
+:root[data-material] .main {
   background: transparent;
 }
-/*
- * `acrylic` goes one further and takes the content card with it, so the desktop reads through the
- * working area too. This is the one place the app's own rule — the data is never translucent — is
- * relaxed, and deliberately: it is opt-in, it is a flat alpha rather than a filter (so it costs the
- * graph nothing per frame), and at 76% what comes through is a tint rather than an image. The
- * blur is the OS's, already applied behind the window.
- */
-:root[data-material='acrylic'] .main {
+/* `.main > *` rather than the containers by name: the centre is `.graph-panel`, `.file-view` or
+   the empty state depending on what is open, and a tint that has to be listed per container is
+   a tint that will be missed by the next one. `.main` itself paints nothing, or a panel's tint
+   would land on top of the card's and the nesting this block exists to undo would be back. */
+:root[data-material] .main > * {
   background: var(--bg-card-glass);
 }
-
-/*
- * Optical sizing (GC-212). Segoe UI Variable ships three named families and they are three
- * drawings, not one drawing at three sizes: `Small` is cut with wider apertures, looser fit and
- * more generous sidebearings for 10-12px, `Text` is the reading cut, `Display` tightens the fit
- * and sharpens the terminals for 20px and up.
- *
- * Which cut a thing takes is decided by its **size**, never by its role — a 12px branch name is
- * content and a 12px count is furniture, and both want the Small cut because both are 12px. So
- * the rule below names the containers that are wholly 12px and under, and a new one joins that
- * list rather than setting a family of its own. `--font-ui` (the Text cut) is the body default
- * and everything not named here keeps it.
- */
-.left-panel,
-.statusbar,
-.graph-header,
-.detail-head,
-.file-row,
-.ref-chip,
-.tool-btn,
-.crumb .caption,
-.commit-form .counter,
-.commit-form .form-hint {
-  font-family: var(--font-ui-sm);
+:root[data-material] .left-panel,
+:root[data-material] .detail-panel,
+:root[data-material] .detail-reveal {
+  background: var(--bg-sidebar-glass);
 }
+
 .empty-title {
-  font-family: var(--font-ui-lg);
   font-size: var(--fs-xl);
   font-weight: 600;
-  color: var(--text);
+  letter-spacing: -0.01em;
+  color: var(--text-bright);
 }
 
 button {
@@ -114,23 +135,27 @@ button {
   cursor: pointer;
 }
 
+/* A field is a filled shape with no outline and a large radius (GC-213), which is the composer
+   in the reference scaled down to a 28px control. The 1px border is kept but transparent at
+   rest, so focusing one costs no reflow — the alternative is an outline, which would be drawn
+   outside the box and overlap whatever sits 1px away in a dense panel. */
 input,
 textarea {
   font: inherit;
   color: var(--text-bright);
   background: var(--bg-input);
-  border: 1px solid var(--border-strong);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  /* Fluent's control stroke is not even on all four sides: the edge that reads as the control's
-     own thickness is drawn once more, along the top in dark and along the bottom in light, which
-     is what keeps an input from looking like a hole cut in the surface. One token, defined per
-     theme (GC-212). */
   box-shadow: var(--control-edge);
   outline: none;
 }
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-dim);
+}
 input:focus,
 textarea:focus {
-  border-color: var(--accent);
+  border-color: var(--border-focus);
 }
 
 /*
@@ -151,7 +176,7 @@ input[type='checkbox'] {
   margin: 0;
   background: var(--bg-panel-raised);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   cursor: pointer;
 }
 input[type='checkbox']:hover:not(:disabled) {
@@ -171,6 +196,11 @@ input[type='checkbox']:checked::after {
   border: solid var(--on-accent);
   border-width: 0 2px 2px 0;
   transform: rotate(42deg);
+  /* The one overshoot in the window (GC-214). A tick is the smallest mark the app draws and the
+     only one that stands for a decision the user just made, which is exactly the size and the
+     moment an overshoot is for: at 14px it reads as the box *taking* the answer. The box's own
+     fill eases at the pointer's speed underneath it, so the two arrive together. */
+  animation: tick-in var(--dur-2) var(--ease-settle);
 }
 /* A visible ring, since the `outline: none` on `input` above would otherwise leave a focused
    checkbox looking exactly like an unfocused one. */
@@ -219,6 +249,8 @@ input[type='radio']:checked::after {
   margin: -3px 0 0 -3px;
   border-radius: 50%;
   background: var(--on-accent);
+  /* The same mark as the checkbox's tick and so the same arrival (GC-214). */
+  animation: dot-in var(--dur-2) var(--ease-settle);
 }
 input[type='radio']:focus-visible {
   outline: 2px solid var(--accent);
@@ -227,6 +259,149 @@ input[type='radio']:focus-visible {
 input[type='radio']:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* ---- Motion ----------------------------------------------------------------
+   The shared half of it: the keyframes every entrance in this file is drawn from, and the one
+   transition that answers the pointer. Where each is *used* stays in its own component's
+   section, the way every other rule here does — what lives in this one is the vocabulary, so
+   that two controls cannot answer a hover at two different speeds and a new surface has an
+   entrance to reach for rather than one to invent.
+
+   Every duration, curve and distance below is a token. That is load-bearing rather than tidy:
+   one `prefers-reduced-motion` block at the end of tokens.css overrides those tokens and
+   nothing else, so it answers for animations written after it — and a literal `140ms` here is
+   invisible to it. See the Motion block in tokens.css for the rest of the reasoning.
+
+   A keyframe with only a `from` is deliberate: the implicit `to` is whatever the element
+   already computes, so an entrance never restates the resting style and cannot drift from it. */
+
+/* A flyout opening out of its anchor: the context menu, the toolbar's popovers. Which corner it
+   grows from is `transform-origin`, and that belongs to the surface. */
+@keyframes flyout-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--flyout-scale));
+  }
+}
+/* A dialog, which arrives rather than opening out of anything: it has no anchor on screen, so it
+   takes the small rise as well and is the one surface that does both. */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise-lg)) scale(var(--dialog-scale));
+  }
+}
+/* Something settling into a slot the layout has already given it: a banner, a status line, a
+   view's head. The last few pixels only — the box never moves, so nothing reflows. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise));
+  }
+}
+/* No travel at all, for the two surfaces that must not move: a backdrop, and anything whose
+   rect is measured or whose body is text being read. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+/* The tick inside a checked box, and the app's one overshoot. It keeps the 42deg the mark is
+   drawn at — it is two borders of a rotated box rather than an icon — and grows past 100% into
+   it. */
+@keyframes tick-in {
+  from {
+    opacity: 0;
+    transform: rotate(42deg) scale(0.4);
+  }
+}
+/* The dot inside a checked radio: the same, with no rotation to preserve. */
+@keyframes dot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+/* The one animation in the app that repeats. Its rule stays in the status bar's section with the
+   rest of the busy line; the keyframes live here with the others. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * The pointer's answer, once, for every control that has one.
+ *
+ * The list is every selector in this file whose `:hover` changes a colour, minus three kinds
+ * that must not have it — and the exclusions are the interesting part:
+ *
+ *   - **The graph rows, and everything inside them.** `.graph-row` is virtualised: the same DOM
+ *     node is reused for a different commit as the body scrolls, so a class landing on it is not
+ *     a state *changing*, it is a different row arriving in an old box. Transitioned, a fast
+ *     scroll would leave selection and match tints fading in and out of rows they never belonged
+ *     to. The data is also the one thing this window exists to draw, and it pays nothing per
+ *     frame — the same rule that keeps a blur off it.
+ *   - **Anything a fit function measures.** The panels, the ref column and the left panel's
+ *     sections are sized from measured rects (`fitPanels`, `fitRefCol`, `fitSections`, and
+ *     `onNatural` reading a section's own height), and a `ResizeObserver` firing on an
+ *     intermediate size would run the fit against a width that exists for 140ms, drop a column,
+ *     and drop another on the way back.
+ *   - **A hover that changes `display`.** A ref row's action, a file row's buttons and the folded
+ *     ref block *appear* rather than change; `display` does not interpolate, and the machinery
+ *     that would make it (`transition-behavior: allow-discrete`, `@starting-style`) buys a fade
+ *     on something already under the pointer, which is the one place motion is least needed.
+ *
+ * `background-color` and not `background`: a selected row's bar, the checked-out row's bar and
+ * the tab's hover tint are all `background-image`, and they are meant to be instant. The fill
+ * eases under the pointer while the mark that says *what a row is* snaps.
+ */
+.btn,
+.icon-btn,
+.tool-btn,
+.caret-btn,
+.seg-btn,
+.ctx-item,
+.popover-row,
+.crumb.as-button,
+.crumb.as-button .value,
+.crumb.as-button svg,
+.titlebar .tab,
+.titlebar .tab-icon-btn,
+.titlebar .tab-close,
+.section-toggle,
+.section-action,
+.ref-row,
+.ref-row .row-action,
+.file-row,
+.history-row,
+.recent-row,
+.rail-item,
+.detail-reveal,
+.graph-search .author-btn,
+.graph-search .author-clear,
+.graph-search .search-btn,
+.statusbar .cancel-busy,
+.pref-select,
+input,
+textarea {
+  transition:
+    background-color var(--dur-1) var(--ease-standard),
+    color var(--dur-1) var(--ease-standard),
+    border-color var(--dur-1) var(--ease-standard),
+    opacity var(--dur-1) var(--ease-standard),
+    transform var(--dur-1) var(--ease-standard);
+}
+/* The one transform the app puts on a control: it gives under the finger and comes back. Only
+   the things that are actually buttons — a row in a list is picked, not pressed, and a row that
+   shrinks as it is clicked reads as the list moving. `:not(:disabled)` because a dead control
+   must answer with nothing at all, not with a press it will not honour. */
+.btn:active:not(:disabled),
+.icon-btn:active:not(:disabled),
+.tool-btn:active:not(:disabled),
+.seg-btn:active:not(:disabled) {
+  transform: scale(var(--press-scale));
 }
 
 /* ---- App frame ---------------------------------------------------------- */
@@ -296,9 +471,14 @@ input[type='radio']:disabled {
 .titlebar .tab {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 6px;
   /* Less on the right than the left: the close glyph sits in it and carries its own box (GC-016). */
-  padding: 0 var(--sp-2) 0 var(--sp-4);
+  padding: 0 var(--sp-1) 0 10px;
+  /* A tab is furniture, and at the 14px body size it was the largest text in the top 34px of the
+     window — larger than the branch name in the toolbar under it (GC-213). 12px at the medium
+     weight is the size the rest of the chrome is written at. */
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-med);
   color: var(--text-muted);
   /* Rounded on all four corners and inset from the bar (GC-212). The old tab was notched into the
      title bar and joined the toolbar's fill below it, which said the two were one surface; there
@@ -314,6 +494,13 @@ input[type='radio']:disabled {
      is as wide as its name up to the cap, and the twentieth is reached by scrolling rather than by
      squashing the other nineteen to their icons (GC-149). */
   flex: none;
+  /* A new tab fades in, and **only** fades (GC-214). A tab's own rect is measured — `TitleBar`
+     scrolls the showing one into view on every change, and a right-click on one anchors its menu
+     at `getBoundingClientRect()` — so this is the rule about not animating what is measured,
+     applied to the one surface where the cost of ignoring it would be a menu 4px off its tab.
+     It plays for every tab at startup, which is the only stagger in the app and is free: they
+     mount together and the row is the first thing drawn. */
+  animation: fade-in var(--dur-2) var(--ease-standard);
 }
 /* A repository with a long folder name gives way rather than pushing `+` off the bar. The name is
    the only part that may shrink: an icon at half width says less than no icon at all. */
@@ -387,11 +574,14 @@ input[type='radio']:disabled {
   align-items: stretch;
   background: var(--bg-toolbar);
 }
+/* 4px rather than 12px, and an 8px gap rather than 16 (GC-213): the crumbs are real buttons with
+   a box of their own now, and that box carries 8px of padding each side. The text lands within a
+   pixel of where it always did; what changed is that the space belongs to the control. */
 .breadcrumb {
   display: flex;
   align-items: center;
-  padding: 0 var(--sp-3);
-  gap: var(--sp-4);
+  padding: 0 var(--sp-1);
+  gap: var(--sp-2);
 }
 .crumb {
   display: flex;
@@ -423,6 +613,11 @@ input[type='radio']:disabled {
   align-items: center;
   gap: var(--sp-2);
   text-align: left;
+  /* The box the hover tint is drawn in, the treatment `.tool-btn` and the tab row already take
+     (GC-193, GC-213). Nothing is drawn here at rest. */
+  padding: 0 var(--sp-2);
+  margin: 6px 0;
+  border-radius: var(--radius-md);
 }
 .crumb .stack {
   display: flex;
@@ -438,9 +633,15 @@ input[type='radio']:disabled {
   color: var(--text-dim);
   pointer-events: none;
 }
+/* A shape, not a colour (GC-213). These two were the last controls in the window answering the
+   pointer by turning blue, which in a window where blue is a lane colour says the wrong thing —
+   and GC-193 had already settled that a hover is a background here. */
+.crumb.as-button:hover {
+  background: var(--hover-overlay);
+}
 .crumb.as-button:hover .value,
 .crumb.as-button:hover svg {
-  color: var(--accent);
+  color: var(--text-bright);
 }
 .toolbar .actions {
   display: flex;
@@ -463,8 +664,10 @@ input[type='radio']:disabled {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  color: var(--text);
+  gap: 3px;
+  /* Muted at rest so the icons lead and the row reads as one quiet strip rather than as nine
+     labelled controls. The hover rule already lifts it to --text-bright. */
+  color: var(--text-muted);
   font-size: var(--fs-xs);
   line-height: 1;
   white-space: nowrap;
@@ -498,10 +701,10 @@ input[type='radio']:disabled {
 .tool-btn.active {
   color: var(--accent);
 }
+/* Kept as a gap rather than a line: the toolbar's groups are already separated by being groups,
+   and eight hairlines across the top of the window was the busiest thing in it. */
 .tool-sep {
-  width: 1px;
-  margin: 10px 4px;
-  background: var(--border);
+  width: var(--sp-3);
 }
 
 /* ---- Panel resize handles (GC-050) ---------------------------------------
@@ -532,7 +735,7 @@ input[type='radio']:disabled {
   inset: 0 1px;
   background: var(--border-strong);
   opacity: 0;
-  transition: opacity 100ms ease;
+  transition: opacity var(--dur-1) var(--ease-standard);
 }
 .panel-resize:hover::before,
 .app.resizing .panel-resize::before {
@@ -546,20 +749,87 @@ input[type='radio']:disabled {
 
 /* ---- Left panel ----------------------------------------------------------- */
 
+/*
+ * The sidebar, and the one structural thing GC-213 took from ChatGPT (see rule 2 at the top of
+ * tokens.css): it is a tone step **down** from the working surface, with no line between them.
+ * GC-212 had all three panels sharing one `--bg-card` and divided by nothing at all, which read
+ * as one undifferentiated field; the line it had before that read as a seam. A fill is what
+ * ChatGPT uses and it is the one that says "this column is furniture and that one is the work"
+ * without drawing anything.
+ *
+ * `.main` is `overflow: hidden` with the card's radius on it, so this is clipped to the card's
+ * corners and needs no radius of its own.
+ */
 .left-panel {
   width: var(--left-panel-w);
   flex: none;
   position: relative;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   min-height: 0;
+  background: var(--bg-sidebar);
+  /*
+   * The drawer, and the one box in the window whose **layout** animates (GC-214).
+   *
+   * The Motion section says nothing a fit function measures may move, and this is the exception
+   * that says what that rule is actually about. The rule is there to stop an *incidental*
+   * animation — a hover, an entrance, a thing arriving — perturbing a box whose size something
+   * else is reading, because then a `ResizeObserver` runs `fitRefCol` against a width that
+   * exists for 140ms and nobody asked for. Collapsing this panel is the opposite: the width
+   * change **is** what the user asked for, and the graph re-fitting as it happens is the right
+   * answer rather than a side effect. It is also a path the app already takes frame by frame —
+   * dragging the panel's own edge writes a new width on every `pointermove` and the same fits run
+   * then, sixty times a second, for as long as the drag lasts.
+   *
+   * One element and one property, which is what makes it this cheap: `LeftPanel` returns two
+   * different `<aside>`s but they sit at the same place in the tree with the same tag, so React
+   * reuses the node and only the class changes — the rail's `width: 44px` against this one's
+   * variable. Both directions are the same transition read in opposite directions, and nothing
+   * had to learn that a panel can be "closing".
+   */
+  transition: width var(--dur-3) var(--ease-standard);
 }
+/* Except under a drag, where it would be a catastrophe rather than a polish: `useDragWidth`
+   writes a width per `pointermove` and GC-111/115/118 are three tickets about that width being
+   the one the pointer is at. A transition turns one-for-one tracking into the panel trailing the
+   cursor by a fifth of a second. `.app.resizing` is already on the root for the duration of the
+   drag, so the suppression costs nothing and cannot be forgotten. */
+.app.resizing .left-panel {
+  transition: none;
+}
+/* The second layer of the same movement. The panel's width is the primary — the thing the eye
+   follows — and what it is full of arrives just behind it, once there is room to read it: 90ms of
+   delay against the 220 the edge takes, so the contents land as the panel does rather than
+   racing it. `backwards` is load-bearing, and it is the whole of what makes this a fade: without
+   it the contents are drawn at full strength through the delay and then fade *from* nothing,
+   which is a flash.
+   Both states are here because both are an arrival — the sections when it opens, the rail's icons
+   when it closes — and because React replaces the children wholesale either way, which is exactly
+   when a keyframe plays. There is deliberately no stagger down the four sections: the budget for
+   one (40ms x 4, landing at 330ms) is longer than the drawer itself, and this is a tool's
+   furniture rather than a hero. */
+.left-panel .panel-head,
+.left-panel .sections,
+.left-panel.collapsed .rail-item {
+  animation: fade-in var(--dur-2) var(--ease-out) var(--dur-1) backwards;
+}
+/* Nothing may lean out of the drawer while it is narrow. The rows inside already clip themselves
+   (`.ref-row` is `overflow: hidden`), but their containers did not, and at 44px a section head or
+   the panel head's own icon is wider than the box it is in. Not `overflow: hidden` on
+   `.left-panel` itself, which would have been the obvious place and is wrong: `.panel-resize`
+   sits at the panel's edge with a `-2px` margin so the 4px handle straddles the boundary, and
+   clipping the panel takes half of the drag target with it. */
 .left-panel .panel-head {
   padding: var(--sp-2) var(--sp-3);
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+  /* Nothing leans out of the drawer while it is narrow (GC-214). The rows further down clip
+     themselves; this one's collapse button and branch name are a flex row that does not, and at
+     44px they are wider than the box. Not `overflow: hidden` on `.left-panel` itself, which is
+     the obvious place and is wrong: `.panel-resize` straddles the panel's edge on a -2px margin,
+     so clipping the panel takes half the drag target with it. */
+  overflow: hidden;
 }
 .left-panel .viewing {
   display: flex;
@@ -579,10 +849,12 @@ input[type='radio']:disabled {
   white-space: nowrap;
 }
 .left-panel .filter {
-  height: 22px;
-  padding: 0 var(--sp-2);
+  height: 28px;
+  padding: 0 var(--sp-3);
   font-size: var(--fs-sm);
   width: 100%;
+  border-radius: var(--radius-md);
+  border-color: transparent;
 }
 /* A column of sections that each scroll inside themselves, rather than one scroll box over all
    four (GC-153). `overflow-y: auto` here is the fallback and nothing else: the heights the panel
@@ -594,6 +866,9 @@ input[type='radio']:disabled {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  /* Never sideways — a column of nowrap rows has nothing to scroll to horizontally — and it is
+     what keeps a section head inside the drawer while the drawer is 44px wide (GC-214). */
+  overflow-x: hidden;
 }
 .panel-section {
   flex: none;
@@ -621,14 +896,18 @@ input[type='radio']:disabled {
   background: var(--accent);
   opacity: 0.5;
 }
+/* A label over its rows, not a bar across the panel. The band and the rule it used to carry were
+   the two heaviest marks in the left column and they divided things that were already divided by
+   being in different places. */
 .section-head {
   display: flex;
   align-items: center;
   height: 30px;
   flex: none;
-  padding: 0 var(--sp-2);
-  background: var(--bg-subtle);
-  border-top: 1px solid var(--border);
+  /* The label lines up with the rows it heads: a header indented further than its own children
+     reads as one of them. */
+  padding: 0 calc(var(--sp-2) + var(--row-inset)) 0 var(--row-inset);
+  margin-top: var(--sp-1);
 }
 .section-toggle {
   display: flex;
@@ -639,9 +918,9 @@ input[type='radio']:disabled {
   height: 100%;
   font-size: var(--fs-sm);
   font-weight: var(--fw-semi);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-dim);
+  text-transform: none;
+  letter-spacing: 0;
   cursor: pointer;
 }
 .section-toggle:hover {
@@ -649,7 +928,7 @@ input[type='radio']:disabled {
 }
 .section-head .chev {
   flex: none;
-  transition: transform 0.12s;
+  transition: transform var(--dur-2) var(--ease-standard);
 }
 .section-head .section-icon {
   flex: none;
@@ -682,10 +961,13 @@ input[type='radio']:disabled {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  height: 26px;
+  height: 28px;
   /* 16px per folder level (GC-051); a row outside a folder is at depth 0 and unchanged. */
-  padding-left: calc(26px + var(--row-depth, 0) * 16px);
+  padding-left: calc(20px + var(--row-depth, 0) * 16px);
   padding-right: var(--sp-2);
+  /* The pill: inset from the column so its corners have something to be round against. */
+  margin: 0 var(--row-inset);
+  border-radius: var(--radius-md);
   font-size: var(--fs-sm);
   white-space: nowrap;
   overflow: hidden;
@@ -707,6 +989,7 @@ input[type='radio']:disabled {
  * ten and standing for a state rather than for a ref. Fill is neutral now and state is a shape.
  */
 .ref-row.head {
+  background-color: var(--row-selected);
   background-image: linear-gradient(var(--head-bar), var(--head-bar));
   background-repeat: no-repeat;
   background-position: 0 50%;
@@ -740,7 +1023,7 @@ input[type='radio']:disabled {
    count is refs beneath it at any depth, never sub-folders. */
 .ref-row.folder .chev {
   flex: none;
-  transition: transform 0.12s;
+  transition: transform var(--dur-2) var(--ease-standard);
 }
 .ref-row.folder.open .chev {
   transform: rotate(90deg);
@@ -821,6 +1104,10 @@ input[type='radio']:disabled {
   padding: 0 6px;
   background: var(--bg-panel-raised);
   border-bottom: 1px solid var(--border);
+  /* Opacity alone (GC-214): the bar takes its 28px out of the graph the moment it is rendered,
+     and anything that moved here would be moving *over* the header it just pushed down. The
+     graph below it must not be animated at all — see the Motion section. */
+  animation: fade-in var(--dur-2) var(--ease-out);
 }
 .graph-search .search-icon {
   color: var(--text-dim);
@@ -921,9 +1208,8 @@ input[type='radio']:disabled {
   margin-bottom: 2px;
   font-size: 11px;
   color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  background: var(--bg-subtle);
+  text-transform: none;
+  letter-spacing: 0;
 }
 .graph-header > div {
   padding: 0 0 0 6px;
@@ -971,7 +1257,7 @@ input[type='radio']:disabled {
   inset: 3px 1px;
   background: var(--border-strong);
   opacity: 0;
-  transition: opacity 100ms ease;
+  transition: opacity var(--dur-1) var(--ease-standard);
 }
 .graph-header .col-resize:hover::before,
 .graph-panel.resizing .col-resize::before {
@@ -1342,6 +1628,8 @@ input[type='radio']:disabled {
   color: var(--text-dim);
   text-align: center;
   gap: var(--sp-3);
+  /* The one screen with nothing on it but an invitation, so it is worth arriving (GC-214). */
+  animation: rise-in var(--dur-3) var(--ease-out);
 }
 /* Open, clone and initialise, side by side: the three ways to arrive at a repository, on the
    one screen where none is open yet (GC-128). A row rather than a stack, so the two the user is
@@ -1365,7 +1653,9 @@ input[type='radio']:disabled {
   text-align: left;
 }
 .recent-caption {
-  font-size: var(--fs-xs);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1408,28 +1698,29 @@ input[type='radio']:disabled {
 
 /* ---- Detail panel --------------------------------------------------------- */
 
+/* The other sidebar, and the same fill for the same reason (GC-213, see `.left-panel`). */
 .detail-panel {
   width: var(--detail-panel-w);
   flex: none;
   position: relative;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border);
   min-height: 0;
+  background: var(--bg-sidebar);
 }
 /* What is on screen in the detail panel's place while it is hidden (GC-136). The left panel
    collapses to a 44px rail with icons to keep; this one has none, so it is the narrowest thing
-   that can still be clicked — the same border the panel drew, made into a control. */
+   that can still be clicked. */
 .detail-reveal {
   flex: none;
   width: 16px;
   display: grid;
   place-items: center;
-  /* The panel's own background, not the graph's: at `--bg-app` the strip was the border and the
-     chevron alone, which is not enough to read as something to click on a 3440px window. */
-  background: var(--bg-subtle);
+  /* The panel's own fill, so the strip reads as the sliver of a sidebar it is (GC-213). It used
+     to be `--bg-subtle` plus the border the panel drew, which was the right answer while all
+     three panels shared one colour; now the sidebar has a colour of its own and this is it. */
+  background: var(--bg-sidebar);
   border: none;
-  border-left: 1px solid var(--border);
   color: var(--text-muted);
   cursor: pointer;
   padding: 0;
@@ -1445,8 +1736,6 @@ input[type='radio']:disabled {
   justify-content: space-between;
   gap: var(--sp-2);
   padding: 0 var(--sp-3);
-  background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border);
   font-size: var(--fs-sm);
 }
 /* The staging head's title, centred against the head itself (GC-196): it takes the middle and the
@@ -1479,12 +1768,33 @@ input[type='radio']:disabled {
    for the reason the ref chips beside it do: an action clipped to `Dro…` is one the user cannot
    read, and the head's height is already a minimum. Right-aligned, so it sits opposite the
    `stash@{n}` that names what these act on. */
+/*
+ * The four buttons move as one block (GC-213). `flex-wrap: wrap` on the *buttons* is what made
+ * this head ugly: at the 400px panel the four long labels came to 390px against 376px of room, so
+ * they broke 2+2 and the two rows started at different x — a ragged block, 64px tall, which is
+ * the worst of both answers. They are `nowrap` now and the **head** is what wraps (below), so
+ * either they all fit beside the title or they all sit on one tidy line under it. With `short`
+ * labels (GC-213, see `MenuItem.short`) the block is ~218px and the first case is the usual one.
+ */
 .detail-head .stash-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   gap: var(--sp-1);
-  padding: var(--sp-1) 0;
+}
+/* 10px rather than the button's own 12px: four of them in a row, and the 8px this saves is what
+   puts the block inside a 400px panel rather than 2px outside it. */
+.detail-head .stash-actions .btn {
+  padding: 0 10px;
+}
+/* The stash head, and only this one. The commit view's head next door holds ref chips that wrap
+   inside their own box, and a wrapping parent would move that whole block to a second line
+   instead of letting it break where it is meant to (GC-087). */
+.detail-head.stash {
+  flex-wrap: wrap;
+  row-gap: var(--sp-2);
+  padding-top: var(--sp-1);
+  padding-bottom: var(--sp-1);
 }
 /* `commit: <sha>` is one thing and never breaks in two: the wrapping chips beside it can take the
    rest of the row, but not the width of this (GC-087). */
@@ -1555,6 +1865,12 @@ input[type='radio']:disabled {
  */
 .detail-body > .file-list {
   padding-top: 0;
+  /* And no rule either (GC-213). Of the four section boundaries this is the only one whose block
+     opens with a filled, inset head, so the hairline was a second divider directly over a first —
+     which is what a line sitting on "Staged Files" looked like. `.detail-body`'s own 12px gap is
+     the separation, as it is between every other pair. The other three sections keep their rule:
+     they open with plain text and have nothing else to mark the boundary. */
+  border-top: none;
 }
 /* `flex: none`, and the cap moved off this box onto the description alone (GC-191). A flex item
    whose `overflow` is anything but `visible` has an automatic minimum size of **zero**, so a
@@ -1701,16 +2017,43 @@ input[type='radio']:disabled {
    proportion to what each is asking for, which is the study's "two lists sharing the vertical
    space" (`04-panels.md` line 66). `.detail-body` keeps its own `overflow: auto` as the fallback
    for a panel too short even for the blocks that cannot shrink. */
+/*
+ * The lists share the column by **what each one holds**, not equally (GC-207), and the browser's
+ * own flex algorithm is what does it: `flex-basis: 0` asks for an equal share, `max-height:
+ * max-content` clamps a list to its content, and resolving a max violation freezes that item and
+ * redistributes what it gave up to the others — repeatedly. That is `fitSections`' fill, level by
+ * level, for free and with no measurement, no `ResizeObserver` and no state.
+ *
+ * It replaces `flex: 1 1 auto`, where the basis was each list's content height and shrinkage is
+ * distributed in proportion to basis: the **bigger** list therefore kept the bigger share of what
+ * was left. Measured at a 400px panel with 6 unstaged and 38 staged, Unstaged was given 76px —
+ * one whole row and a sliced second, for six files — while Staged took 416. With this, Unstaged
+ * gets 202 (all six rows, no scrollbar) and Staged 290 (nine rows and a scrollbar), which is the
+ * group being staged *from* getting what it needs. `.commit-form` does not move in either case:
+ * measured at y 647 both ways, which is GC-191's promise and GC-207's third criterion.
+ */
 .file-list {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
-  /* Its head, and never less: a list squeezed under that has neither its count nor its Stage-all
-     button, which is the left panel's `MIN_SECTION_H` argument for a shorter box (GC-153). It is
-     also what an empty Staged list costs, so the three lists in the staging view share what is
-     left in proportion to what each is asking for and the empty one asks for its header. */
-  min-height: 30px;
+  flex: 1 1 0;
+  max-height: max-content;
   overflow: auto;
+}
+/* Its head **and one whole row** (GC-213). The floor was 30px — the head alone — which is the
+   very thing GC-153 rejected one panel over: "a section squeezed to its header alone is present
+   and useless". Measured on a 620px window with 1 unstaged and 17 staged files, the Unstaged list
+   was given exactly 30px and its single file was not on screen at all, while Staged came out at
+   182px, which is 34 + five rows + 8px — a sixth row sliced through the middle.
+   34 + 28: the head's 30 and its 4px bottom margin, then one row at its full 28. Built from the
+   parts rather than rounded, so a list sitting on the floor ends **between** rows and never
+   through one. It costs nothing in the common case — a one-row list wants exactly this. This is
+   the floor; the rule above is the share.
+   Scoped to `:has(.file-row)` because `min-height` beats `max-height` when the two conflict, so
+   an **empty** group — a Staged list with nothing in it, which is still drawn and asks only for
+   its header — would be held open at 62px for 34px of content. A group with no rows has no row
+   to keep on screen, so it has nothing to floor. */
+.file-list:has(.file-row) {
+  min-height: calc(30px + var(--sp-1) + var(--row-h));
 }
 /* A closed group is its head and nothing more, and it asks for no share of the column: the open
    one takes what it releases, which is the whole point of closing it (GC-197). `overflow: visible`
@@ -1735,7 +2078,7 @@ input[type='radio']:disabled {
 }
 .file-list .group-head .chev {
   flex: none;
-  transition: transform 0.12s;
+  transition: transform var(--dur-2) var(--ease-standard);
 }
 .file-list .group-head.open .chev {
   transform: rotate(90deg);
@@ -1745,6 +2088,13 @@ input[type='radio']:disabled {
 .file-list .group-head .count {
   color: var(--text-muted);
   font-weight: 400;
+}
+/* The group's action sits *inside* a 30px head, so it cannot be the 26px a standalone button is:
+   at 26 it left 2px of head above and below it and read as a pill wedged into a slot (GC-213).
+   22px is the same proportion a `.file-row`'s own 20px hover action has to its 28px row. */
+.file-list .group-head .btn {
+  height: 22px;
+  padding: 0 10px;
 }
 /* The list's own header, and the strongest of the boundaries: a band rather than another
    hairline, so Unstaged and Staged read as two groups rather than one run of rows (GC-142). Its
@@ -1762,11 +2112,26 @@ input[type='radio']:disabled {
   flex: none;
   height: 30px;
   padding: 0 var(--sp-2);
-  margin-bottom: var(--sp-1);
+  /* Inset exactly as a row is, so the head sits over the names it heads rather than spanning a
+     column its own children do not (GC-213). It was flush to the panel while the rows were 6px
+     in, which is most of what made this block read as three grids that disagreed.
+     **Horizontal and bottom only. Nothing on the top**, which is GC-209's rule restated for the
+     other box model: this element is inside a scroll container, so a top margin is part of that
+     container's scrollable content. 8px of it put a 70px content in a 68px box — a scrollbar on a
+     list holding **one** file, and two pixels of scroll that clipped the row. The separation from
+     the block above is `.detail-body`'s own 12px gap and always was; the margin was saying it
+     twice and the second copy came out of the list. */
+  margin: 0 var(--row-inset) var(--sp-1);
+  /* The one head in the app that paints, because it is the one that is sticky and has to hide
+     the rows passing under it (GC-209). Barely above the sidebar it sits on: it is an occluder
+     first and a band second, and at `--bg-card` it was a 9-point slab across the panel. */
   background: var(--bg-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--text-bright);
-  font-size: var(--fs-md);
+  /* The one blur behind data in the app, and the token says why (GC-213). With no material the
+     fill above is opaque and this draws nothing at all. */
+  backdrop-filter: var(--head-blur);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
   /* A heading's weight, not body text one size up (GC-196): at 400 this read as a large row rather
      than as the head of a group, next to a left panel whose section heads are bold. */
   font-weight: 600;
@@ -1779,10 +2144,12 @@ input[type='radio']:disabled {
      basis it could be shrunk from — measured, 29 rows in a 474px box came out at 15px each, all
      of them on screen and none of them readable. The list overflows and scrolls instead. */
   flex: none;
-  height: 26px;
+  height: 28px;
   padding: 0 var(--sp-2);
   font-size: var(--fs-sm);
-  border-radius: var(--radius-sm);
+  /* The same pill the left panel's rows take, so a row is one shape in both columns. */
+  margin: 0 var(--row-inset);
+  border-radius: var(--radius-md);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -1864,12 +2231,29 @@ input[type='radio']:disabled {
 /* `flex: none` said out loud (GC-191): this is the app's primary action and it keeps its place at
    every file count. It has no `overflow`, so nothing would shrink it anyway — but the block it
    sits under does now, and which of the two gives way is the whole of that ticket. */
+/* One container holding the whole commit, rather than a stack of separately bordered controls:
+   the summary, the description and the button are one action and now look like one. The fields
+   inside it draw nothing of their own — the container is the control. */
 .commit-form {
   margin-top: auto;
   flex: none;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+  padding: var(--sp-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.commit-form input:not([type='checkbox']):not([type='radio']),
+.commit-form textarea {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.commit-form input:not([type='checkbox']):not([type='radio']):focus,
+.commit-form textarea:focus {
+  border-color: var(--border-strong);
 }
 /* The text fields, which is what this rule always meant: it is the one component rule written
    against a bare `input`, and its 8px padding reached the Amend checkbox too — under
@@ -1883,91 +2267,139 @@ input[type='radio']:disabled {
 }
 .commit-form textarea {
   min-height: 70px;
-  resize: vertical;
+  /* The grip is a Chromium default painted over the corner of a designed container, and there is
+     nothing it can usefully resize now that the field has no edge of its own. */
+  resize: none;
 }
 
 /* ---- Buttons -------------------------------------------------------------- */
 
+/*
+ * A button is a filled capsule with no outline (GC-213). ChatGPT draws every one of them this
+ * way — the fill *is* the control, and an outline round a filled shape is the Fluent treatment
+ * this replaces. The capsule rather than `--radius-md`: these are all wider than they are tall,
+ * which is the rule `--radius-pill` exists for.
+ */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-strong);
-  box-shadow: var(--control-edge);
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  background: var(--bg-panel-raised);
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-med);
   color: var(--text);
 }
 .btn:hover {
   color: var(--text-bright);
-  border-color: var(--text-bright);
+  background: var(--row-selected-hover);
 }
+/*
+ * The one action on a dialog or a form, and it is **white** (GC-213). ChatGPT spends no colour at
+ * all on its primary: send, Upgrade and every confirming button are a white pill with near-black
+ * text, and colour in that window means a state rather than an action. This is also what takes
+ * the largest field of accent blue out of a window whose lane palette already owns blue.
+ */
 .btn.primary {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
 }
 .btn.primary:hover {
-  background: var(--accent-strong);
+  background: var(--btn-primary-hover);
+  color: var(--btn-primary-fg);
 }
+/*
+ * The other two variants are **not** coloured fields (GC-213). A green "Stage all changes" and a
+ * red "Discard changes" sitting a few pixels apart were two saturated pills in a window whose one
+ * rule is that saturated colour means a branch — and the reference spends no colour on a button
+ * at all. So `success` is an ordinary button: staging is the expected thing to do here, and a
+ * control that is merely *available* does not need a colour to say so.
+ *
+ * `danger` keeps its red, in the **text only**, which is the one place the app still says
+ * "this destroys something" — the same treatment `.ctx-item.danger` has always had, so a
+ * destructive row and a destructive button are finally one thing. The fill stays neutral and
+ * only the hover raises it, so the warning is on the control the pointer is actually over.
+ */
 .btn.success {
-  background: var(--success-soft);
-  border-color: var(--success);
-}
-.btn.success:hover {
-  background: var(--success-strong);
+  background: var(--bg-panel-raised);
+  color: var(--text);
 }
 .btn.danger {
+  background: var(--bg-panel-raised);
+  color: var(--danger);
+}
+.btn.danger:hover {
   background: var(--danger-soft);
-  border-color: var(--danger);
+  color: var(--danger);
 }
 .btn.large {
   height: 36px;
+  padding: 0 var(--sp-4);
   font-size: var(--fs-md);
 }
+/* Inside the composer the button is the composer's own action, and it is the single clearest
+   quotation of the reference in the app: a white capsule in the corner of a large rounded input,
+   which is ChatGPT's send button. */
+.commit-form .btn {
+  height: 32px;
+}
+.commit-form .btn.primary:not(:disabled) {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+}
+.commit-form .btn.primary:not(:disabled):hover {
+  background: var(--btn-primary-hover);
+}
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
 }
 
-/* A segmented switch: two or more buttons sharing one border, the chosen one filled. Used by the
-   file view's Unified / Split toggle (GC-014). */
+/* A segmented switch (GC-014), redrawn as a capsule track with a capsule thumb (GC-213): the
+   group is a sunken well and the chosen segment is a lighter pill inside it, which is the shape
+   every segmented control in the reference takes. The dividing hairline goes with the outline —
+   there is nothing to divide once the selected segment is a filled shape of its own. */
 .seg {
   display: flex;
   flex: none;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-track);
+  border-radius: var(--radius-pill);
 }
 .seg-btn {
-  height: 22px;
-  padding: 0 8px;
+  height: 20px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-med);
   color: var(--text-muted);
-}
-.seg-btn + .seg-btn {
-  border-left: 1px solid var(--border-strong);
 }
 .seg-btn:hover {
   color: var(--text-bright);
 }
 .seg-btn.on {
-  background: var(--accent-soft);
+  background: var(--bg-panel-raised);
   color: var(--text-bright);
 }
-/* A toggle rather than one choice of several (GC-052): it carries the segmented control's own
-   look, and its border with it, because it stands on its own rather than inside a `.seg`. */
+/* A toggle rather than one choice of several (GC-052): it stands on its own rather than inside a
+   `.seg`, so it carries the track's own fill as its resting state and lights to the thumb's when
+   it is on. */
 .seg-btn.toggle {
   display: flex;
   align-items: center;
   flex: none;
-  padding: 0 6px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  height: 24px;
+  padding: 0 10px;
+  background: var(--bg-track);
+  border-radius: var(--radius-pill);
+}
+.seg-btn.toggle.on {
+  background: var(--bg-panel-raised);
 }
 /* An unavailable segment stays put and says why in its title rather than disappearing (GC-188):
    it comes back the moment another file is opened, which is the reason the whitespace-disabled
@@ -2029,7 +2461,7 @@ input[type='radio']:disabled {
   cursor: default;
 }
 .file-row.active {
-  background: var(--accent-soft);
+  background: var(--row-selected);
 }
 .file-row .actions {
   margin-left: auto;
@@ -2126,15 +2558,22 @@ input[type='radio']:disabled {
 
 /* ---- File / diff view ------------------------------------------------------ */
 
+/* A view replacing the graph, in two layers (GC-214). The surface fades and does not move,
+   because what it is full of is code being read and 4px of travel is 4px of text sliding under
+   the reader's eye; the head rises into place on top of it, which is what gives the change a
+   direction. The quality rule this splits the difference on — never opacity alone for a change
+   that matters — is answered by the head, not by moving the body. */
 .file-view {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  animation: fade-in var(--dur-3) var(--ease-out);
 }
 .file-view-head {
   height: 36px;
   flex: none;
+  animation: rise-in var(--dur-3) var(--ease-out);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -2188,6 +2627,10 @@ input[type='radio']:disabled {
   flex: 1;
   overflow: auto;
   padding: var(--sp-2) var(--sp-3) var(--sp-4);
+  /* The dim below is the one state change in the app that is *about* waiting, so it is the one
+     that should not snap (GC-214): the hunks going quiet and coming back says a reload is in
+     flight far better than two instant steps, which read as a flicker. */
+  transition: opacity var(--dur-2) var(--ease-standard);
 }
 /* A reload of the same file on the same side is pending: the hunks stay put and dim, rather than
    the body blanking to the loading line, and every action on them is disabled (GC-086). */
@@ -2233,7 +2676,7 @@ input[type='radio']:disabled {
   background: var(--hover-overlay);
 }
 .history-row.selected {
-  background: var(--accent-soft);
+  background: var(--row-selected);
 }
 .history-summary {
   flex: 1 1 auto;
@@ -2460,16 +2903,28 @@ input[type='radio']:disabled {
   max-width: 420px;
   max-height: calc(100vh - 8px);
   overflow-y: auto;
-  padding: 4px 0;
-  /* Acrylic (GC-212): a menu is temporary and it is the only kind of surface that appears over
-     content, which is exactly what Fluent makes translucent and why. Nothing that stays on screen
-     gets this treatment — see the note at the top of tokens.css. */
+  /* Padding on all four sides, so a row is a pill inset from the menu's edge rather than a band
+     spanning it (GC-213) — the same relationship `--row-inset` gives a panel row, and what every
+     menu in the reference does. */
+  padding: var(--sp-1);
+  /* Glass (GC-212): a menu is temporary and it is the only kind of surface that appears over
+     content. Nothing that stays on screen gets this treatment — see the note at the top of
+     tokens.css. */
   background: var(--bg-menu);
   backdrop-filter: var(--flyout-blur);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--elev-16);
   font-size: 13px;
+  /* It opens out of the pointer (GC-214). The origin is the corner the menu is *placed* by —
+     `ContextMenu` puts its top-left at the click and only moves it when the clamp has to — so
+     the scale reads as the menu unfolding from where the user clicked rather than as a panel
+     fading in over the row they were aiming at. No travel: it is already where it belongs.
+     This is why the clamp measures `offsetWidth` rather than `getBoundingClientRect()` — a
+     scaled rect is 4% narrower than the menu about to be drawn, and the clamp would let it over
+     the right edge. */
+  transform-origin: top left;
+  animation: flyout-in var(--dur-2) var(--ease-out);
 }
 .ctx-item {
   display: flex;
@@ -2477,13 +2932,15 @@ input[type='radio']:disabled {
   gap: var(--sp-3);
   width: 100%;
   height: 28px;
-  padding: 0 14px;
+  /* 10px inside the menu's own 4px, so the label lands on the 14px it always did (GC-213). */
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
   text-align: left;
   color: var(--text);
   white-space: nowrap;
 }
 .ctx-item:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--row-hover);
   color: var(--text-bright);
 }
 .ctx-item:disabled {
@@ -2544,9 +3001,11 @@ input[type='radio']:disabled {
 .file-view-head .dir {
   direction: rtl;
 }
+/* Inset to the rows it divides, rather than running the full width of the menu: with the rows
+   now pills sitting 4px in, a rule that spans the box reads as a cut across the menu (GC-213). */
 .ctx-sep {
   height: 1px;
-  margin: 4px 0;
+  margin: 4px 6px;
   background: var(--border);
 }
 /* The filter at the top of a menu whose rows are a list rather than a set of actions (GC-096).
@@ -2554,9 +3013,9 @@ input[type='radio']:disabled {
    gets, so it reads as the head of the list it narrows. */
 .ctx-filter {
   display: block;
-  width: calc(100% - 12px);
-  height: 22px;
-  margin: 2px 6px 6px;
+  width: calc(100% - 4px);
+  height: 26px;
+  margin: 2px 2px 6px;
   padding: 0 var(--sp-2);
   font-size: var(--fs-sm);
 }
@@ -2566,8 +3025,10 @@ input[type='radio']:disabled {
   display: flex;
   align-items: center;
   height: 25px;
-  padding: 0 14px;
-  font-size: var(--fs-xs);
+  padding: 0 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2587,6 +3048,10 @@ input[type='radio']:disabled {
   /* The whole window frosts behind a dialog (GC-212). The one surface where a blur is free: what
      is behind a modal is not being read, and pushing it out of focus is what a modal is for. */
   backdrop-filter: var(--backdrop-blur);
+  /* The window going out of focus, which is the slowest thing the app does and the only one that
+     covers the whole of it (GC-214). Opacity alone: it is a full-screen layer with a blur on it,
+     and the one property that composites without asking the filter to run again. */
+  animation: fade-in var(--dur-3) var(--ease-standard);
 }
 .modal {
   width: 440px;
@@ -2614,6 +3079,12 @@ input[type='radio']:disabled {
   flex-direction: column;
   --modal-gap: var(--sp-3);
   gap: var(--modal-gap);
+  /* A dialog has no anchor on screen, so it does not open out of anything: it arrives, rising
+     the last 6px into place as it resolves (GC-214). It takes the longest of the three durations
+     and that is still 220ms, which is the deliberate part — every dialog here is a confirmation
+     the user asked for by picking a menu row and is about to answer with Enter, so the animation
+     has to be over before their hand is. */
+  animation: dialog-in var(--dur-3) var(--ease-out);
 }
 /* Every child of a modal takes the horizontal padding the modal gave up (GC-195). `> *` rather
    than the three names, because a modal is `h3` + `.modal-body` + `.modal-buttons` and nothing
@@ -2692,22 +3163,28 @@ input[type='radio']:disabled {
 .caret-btn:disabled {
   opacity: 0.45;
 }
+/* The same flyout the context menu is, with its rows inset into pills for the same reason
+   (GC-213): two surfaces that float over content must not be two different drawings. */
 .popover {
   position: absolute;
   top: 100%;
   left: 0;
   z-index: 800;
   min-width: 260px;
-  padding: 6px 0;
+  padding: var(--sp-1);
   background: var(--bg-menu);
   backdrop-filter: var(--flyout-blur);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--elev-16);
   font-size: 13px;
+  /* The same flyout as the menu, so the same arrival (GC-214). Its anchor is the caret it hangs
+     from, which is up and to the left of it: `top left` is that corner too. */
+  transform-origin: top left;
+  animation: flyout-in var(--dur-2) var(--ease-out);
 }
 .popover-caption {
-  padding: 4px 14px 8px;
+  padding: 4px 10px 8px;
   color: var(--text-dim);
   font-size: var(--fs-sm);
 }
@@ -2716,14 +3193,15 @@ input[type='radio']:disabled {
   align-items: center;
   gap: var(--sp-2);
   height: 28px;
-  padding: 0 14px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--text);
   width: 100%;
   text-align: left;
 }
 .popover-row:hover {
-  background: var(--accent-hover);
+  background: var(--row-hover);
   color: var(--text-bright);
 }
 .popover-row:disabled {
@@ -2752,25 +3230,44 @@ input[type='radio']:disabled {
 
 /* ---- Banners ------------------------------------------------------------------ */
 
+/*
+ * A card with a coloured edge, not a coloured outlined box (GC-213). Three things were wrong with
+ * the outline: it was a saturated ring in a window whose one rule is that saturated colour means
+ * a branch, it was the app's last `--radius-sm` block sitting between 10px rows and a 16px
+ * dialog, and the `.info` variant drew the **accent** as a full border plus a tinted field, which
+ * is the largest patch of accent blue GC-212 went to the trouble of removing everywhere else.
+ *
+ * So: the app's own raised surface at the app's own radius, and the severity is a 3px bar at the
+ * leading edge — the same shape `--sel-bar` and `--head-bar` already use to say something about a
+ * row without colouring it. Drawn as an inset shadow so it follows the radius and costs no
+ * pseudo-element, and the left padding makes room for it.
+ */
 .banner {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
-  border-radius: var(--radius-sm);
+  padding-left: calc(var(--sp-3) + var(--sel-bar-w));
+  border-radius: var(--radius-md);
   font-size: var(--fs-sm);
-  border: 1px solid var(--warning);
-  background: var(--banner-bg);
+  border: none;
+  background: var(--bg-panel-raised);
+  box-shadow: inset var(--sel-bar-w) 0 0 var(--warning);
+  /* A banner is the app telling the user something changed about the repository — a rebase is in
+     progress, the working directory is not empty — so it arrives rather than simply being there
+     on the next frame (GC-214). It rises into a slot the layout already gave it, so nothing
+     below it moves. */
+  animation: rise-in var(--dur-3) var(--ease-out);
 }
 .banner.danger {
-  border-color: var(--danger);
-  background: var(--danger-soft);
+  box-shadow: inset var(--sel-bar-w) 0 0 var(--danger);
 }
 /* the commit view's working-directory banner (GC-045): informational, not a warning, so it takes
-   the accent rather than the warning border every other banner carries */
+   the accent bar rather than the warning one every other banner carries — and only the bar, where
+   it used to take an accent border and an accent field as well (GC-213). It is true of nearly
+   every moment of a session, so of the three it is the one that must not shout. */
 .banner.info {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  box-shadow: inset var(--sel-bar-w) 0 0 var(--accent);
 }
 .banner span {
   flex: 1;
@@ -2843,19 +3340,22 @@ input[type='radio']:disabled {
   align-items: center;
   gap: 6px;
   color: var(--text);
+  /* The line that says a command is running, and the line that says how it went, are the same
+     slot and take the same arrival (GC-214) — at `--dur-2`, not `--dur-3`: this one appears
+     the instant a menu row is clicked and is the app's acknowledgement of the click. */
+  animation: rise-in var(--dur-2) var(--ease-out);
 }
+/* Linear, which is the one place in the app that a linear curve is right: a spinner that eases
+   is a spinner that appears to stall twice a turn. Its keyframes are in the Motion section with
+   the rest (GC-214), and `--dur-spin` is deliberately not one of the three durations — nothing
+   else in the window repeats. */
 .spinner {
   width: 10px;
   height: 10px;
   border: 2px solid var(--text-dim);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: spin var(--dur-spin) linear infinite;
 }
 .statusbar button.err {
   display: inline-flex;
@@ -2909,6 +3409,10 @@ input[type='radio']:disabled {
   /* Aligned with the card above it rather than with the window, so the run of text starts on the
      same pixel the left panel's rows do. */
   padding: 0 calc(var(--sp-3) + var(--card-inset));
+  /* The third piece of chrome, and it takes the same scrim as the other two: it is a strip of
+     10px text with nothing else on it, so it is the first thing a bright backdrop makes
+     unreadable. */
+  background: var(--bg-chrome);
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
@@ -2925,6 +3429,16 @@ input[type='radio']:disabled {
 }
 .statusbar .notice .dismiss {
   color: var(--text-dim);
+}
+/* Both severities arrive the way the busy line they replace did (GC-214), and neither does
+   anything louder than that. A shake is the textbook's answer for an error and it is the wrong
+   one here: this is not a transient alert but a state with a dismiss button on it, which sits
+   there until it is read, and something that shakes on arrival still has to be a thing you can
+   read afterwards. What says *which* severity it is stays what it always was — the colour and
+   the glyph. */
+.statusbar .err,
+.statusbar .notice {
+  animation: rise-in var(--dur-2) var(--ease-out);
 }
 
 /* ---- Icons and avatars ---------------------------------------------------------- */
@@ -2984,6 +3498,8 @@ img.avatar {
   gap: var(--sp-3);
 }
 .pref-group-title {
+  text-transform: none;
+  letter-spacing: 0;
   font-size: var(--fs-sm);
   font-weight: 600;
   text-transform: uppercase;
@@ -3079,6 +3595,8 @@ img.avatar {
   gap: 6px;
 }
 .shortcut-group-title {
+  text-transform: none;
+  letter-spacing: 0;
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);

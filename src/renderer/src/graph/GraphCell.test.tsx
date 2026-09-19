@@ -115,14 +115,18 @@ describe('GraphCell band', () => {
   it('masks the band out of a dashed node, in the node’s own fill', () => {
     // The two dashed nodes leave the outer half of their stroke open wherever the dash has a gap,
     // and the band would read through as a tinted ring; the mask is that fill taken out to r = 10.
-    for (const [fill, element] of [
-      ['var(--bg-app)', kinds[1][1]],
-      ['var(--bg-panel)', kinds[2][1]],
-    ] as [string, JSX.Element][]) {
+    // Asserted as "the same fill the node itself has" rather than against a named token, which is
+    // the property that actually matters and the one the literals stopped pinning: this test held
+    // `--bg-app` and `--bg-panel` and so failed when the three nodes were unified on `--node-fill`
+    // (GC-213), even though a mask matching its node is exactly what it is for.
+    for (const element of [kinds[1][1], kinds[2][1]]) {
       const { container } = render(element);
-      const masks = [...container.querySelectorAll('circle')].filter((c) => c.getAttribute('r') === '10');
+      const circles = [...container.querySelectorAll('circle')];
+      const masks = circles.filter((c) => c.getAttribute('r') === '10');
+      const node = circles.find((c) => c.getAttribute('stroke-dasharray'));
       expect(masks).toHaveLength(1);
-      expect(masks[0].getAttribute('fill')).toBe(fill);
+      expect(node).toBeDefined();
+      expect(masks[0].getAttribute('fill')).toBe(node?.getAttribute('fill'));
       expect(masks[0].getAttribute('stroke')).toBeNull();
       // Under the node it hides, and over the band it hides it from.
       const kids = [...(container.querySelector('svg')?.children ?? [])];
@@ -130,6 +134,22 @@ describe('GraphCell band', () => {
       expect(kids.indexOf(masks[0])).toBeLessThan(kids.length - 1);
       cleanup();
     }
+  });
+
+  // Whatever `--node-fill` is set to, it has to be **opaque** and it has to be the same for every
+  // kind of node (GC-213). Both halves were broken at once by the material: the commit node took
+  // `--bg-panel-raised`, which `[data-material]` turns into an 11% white veil so an input well
+  // lifts the glass, and the lane line ran straight through every circle in the graph; the other
+  // two took two different dark values and read as holes beside it. A node is an occluder.
+  it('draws every kind of node in one fill, so none of them lets its lane line through', () => {
+    const fills = kinds.map(([, element]) => {
+      const { container } = render(element);
+      const node = [...container.querySelectorAll('circle')].find((c) => c.getAttribute('r') !== '10');
+      const fill = node?.getAttribute('fill');
+      cleanup();
+      return fill;
+    });
+    expect(fills).toEqual(['var(--node-fill)', 'var(--node-fill)', 'var(--node-fill)']);
   });
 
   it('leaves the solid commit node unmasked: its stroke has no gaps to show the band through', () => {

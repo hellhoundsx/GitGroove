@@ -63,7 +63,7 @@ const HISTORY = [
 /** How many times each call was made, so "switching costs no reload" is a number (GC-166). */
 const calls = { diff: 0, fileLog: 0 };
 
-/** Only the calls `DiffView` makes; `prefs.ts` reaches for `setTheme` on every write. */
+/** Only the calls `DiffView` makes. */
 const stubApi = (diff = DIFF): void => {
   calls.diff = 0;
   calls.fileLog = 0;
@@ -80,7 +80,7 @@ const stubApi = (diff = DIFF): void => {
       calls.fileLog += 1;
       return Promise.resolve(HISTORY);
     },
-    setTheme: () => Promise.resolve(),
+
   };
 };
 
@@ -186,7 +186,6 @@ describe('DiffView says why the body is empty when the load fails (GC-083)', () 
     (window as unknown as { api: Record<string, unknown> }).api = {
       getWorkdirFileDiff: () => Promise.reject(new Error(ERROR)),
       getCommitFileDiff: () => Promise.reject(new Error(ERROR)),
-      setTheme: () => Promise.resolve(),
     };
     render(
       <UiProvider>

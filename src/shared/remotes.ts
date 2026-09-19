@@ -111,3 +111,99 @@ export function isWebUrl(url: string): boolean {
     return false;
   }
 }
+
+/**
+ * The host git was talking to when it failed, read off its own report of what it could not reach.
+ * Used to decide where an SSO authorisation lives, so an Enterprise Server organisation is sent to
+ * its own server and never to github.com.
+ */
+function accessedHost(message: string): string | null {
+  const m = /unable to access '([^']+)'/.exec(message);
+  if (!m) return null;
+  try {
+    const u = new URL(m[1]!);
+    return u.protocol === 'https:' ? u.host : null;
+  } catch {
+    return null;
+  }
+}
+
+/** An `/orgs/<org>/sso` path, which is what both github.com and an Enterprise Server write. */
+const SSO_PATH = /^\/orgs\/[^/]+\/sso(\/|$)/;
+
+/** Where an SSO refusal can be answered, and what answering it means once the page is open. */
+export interface SsoAuthorisation {
+  /** The page to open. Always `https:`, and always on the host git was talking to. */
+  url: string;
+  /**
+   * What to do there. The page on its own is not the instruction — an authorisations list is a
+   * list, and someone who does not already know which row matters is no better off on it than on
+   * the error. Every one of these ends in running the command again, because nothing the browser
+   * does reaches back into a git operation that has already failed.
+   */
+  what: string;
+}
+
+/**
+ * Where an organisation's SAML SSO authorisation lives, read out of the message git just failed
+ * with. This extends GC-169's flagging and GC-202's dialog: SSO is the one credential refusal that
+ * cannot be waited out or retried, because GitHub wants an interactive re-authorisation and says
+ * so in a `remote:` line — until now a line to read and copy, and this is what puts a button
+ * beside it.
+ *
+ * It performs no SAML and sees no credential. The app has no part in either and the system helper
+ * still owns them; all this answers is the page to open.
+ *
+ * Three readings, in order, because the refusal has two different answers and only one of them is
+ * the organisation's sign-in page:
+ *
+ * 1. **The URL git printed**, when it printed one — the ssh flow, where GitHub hangs an
+ *    `authorization_request` on it that lands on the one grant being asked for.
+ * 2. **The authorised-applications page**, when the message names an OAuth application. Over https
+ *    Git Credential Manager gives no link and says only that the application must be
+ *    re-authorised, and that is a thing done to a *credential*, not to a browser: signing into the
+ *    organisation gives the browser a SAML session and leaves the token git keeps sending exactly
+ *    as it was. Measured the hard way — the org page was what this answered first, and signing in
+ *    there changed nothing.
+ * 3. **The organisation's own page**, when only the organisation is named. Here a SAML session is
+ *    the whole of what is missing.
+ *
+ * A printed URL must be `https:` **and on the host git was accessing**, whenever that host can be
+ * read: git's message is a remote's own output, so a server that prints a link to somewhere else
+ * is refused and a derived form used instead. The org name is encoded for the same reason — it
+ * reaches a path, and `..` in it would otherwise leave `/orgs/`. The dialog shows the URL on the
+ * button, because someone authorising an application should see where they are being sent.
+ */
+export function ssoAuthUrl(message: string): SsoAuthorisation | null {
+  const host = accessedHost(message);
+  const again = 'then run the command again';
+
+  for (const raw of message.match(/https?:\/\/[^\s'"<>)\]]+/g) ?? []) {
+    // git's lines end in prose, so trailing punctuation is the sentence and not the URL.
+    try {
+      const url = new URL(raw.replace(/[.,;:]+$/, ''));
+      if (url.protocol !== 'https:' || !SSO_PATH.test(url.pathname)) continue;
+      if (host === null || url.host === host) return { url: url.toString(), what: `Authorise there, ${again}.` };
+    } catch {
+      // Not a URL this can read; the next one may be.
+    }
+  }
+  if (host === null) return null;
+
+  const app = /re-authori[sz]e the OAuth Application '([^']+)'/i.exec(message)?.[1];
+  if (app !== undefined) {
+    return {
+      url: `https://${host}/settings/applications`,
+      // The tab is named because the page has three and an OAuth application is on the third:
+      // `/settings/apps/authorizations` — the obvious-looking path, and what this tried first —
+      // opens Authorized *GitHub* Apps, where Git Credential Manager is not and never will be.
+      // "Open" and not "find": the row itself offers only Revoke, and the per-organisation Grant
+      // is on the application's own page behind its name.
+      what: `On the Authorized OAuth Apps tab, open ${app} and grant it access to the organisation — or revoke it, and running the command again will authorise it afresh.`,
+    };
+  }
+
+  const org = /\bThe '([^']+)' organization has enabled (?:or enforced )?SAML SSO/i.exec(message)?.[1];
+  if (org === undefined) return null;
+  return { url: `https://${host}/orgs/${encodeURIComponent(org)}/sso`, what: `Sign in to ${org} there, ${again}.` };
+}

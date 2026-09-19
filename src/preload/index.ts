@@ -16,8 +16,6 @@ const api: GitApi = {
   getLog: call('repo:log'),
   getFileLog: call('repo:fileLog'),
   getStatus: call('repo:status'),
-  setTheme: call('window:theme'),
-  setMaterial: call('window:material'),
   watchRepo: call('repo:watch'),
   // The one main -> renderer push (GC-011): it hands back an unsubscribe so a React effect can
   // clean up and a remount cannot stack listeners on the channel.

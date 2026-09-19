@@ -2811,10 +2811,16 @@ await shot('19-stash-rows.png');
 log(await liveClick('the newest stash row', `(() => { const r = document.querySelector('.graph-row.stash-row'); if (!r) return 'MISS no stash row'; r.click(); return 'selected the stash row'; })()`));
 await waitFor(`/^stash@/.test(document.querySelector('.detail-head .commit-id')?.textContent ?? '')`, 'the stash to reach the detail panel');
 const stashPanel = await ev(
-  `JSON.stringify({ head: document.querySelector('.detail-head .commit-id')?.textContent.trim() ?? null, msg: document.querySelector('.detail-body .message-box h2')?.textContent ?? null, when: document.querySelector('.detail-body .author .when')?.textContent ?? null, parent: document.querySelector('.detail-body .parents')?.textContent ?? null, selected: document.querySelectorAll('.graph-row.stash-row.selected').length })`,
+  `JSON.stringify({ head: document.querySelector('.detail-head .commit-id')?.textContent.trim() ?? null, msg: document.querySelector('.detail-body .message-box h2')?.textContent ?? null, msgTitle: document.querySelector('.detail-body .message-box h2')?.getAttribute('title') ?? null, when: document.querySelector('.detail-body .author .when')?.textContent ?? null, parent: document.querySelector('.detail-body .parents')?.textContent ?? null, selected: document.querySelectorAll('.graph-row.stash-row.selected').length })`,
 );
 const panel = JSON.parse(stashPanel);
-check('the panel names the stash and shows its whole message, prefix and all', /^stash@\{0\}:/.test(panel.head ?? '') && panel.msg === 'On main: newer stash', stashPanel);
+// GC-170 drew the raw message here on purpose — the marker it replaced could only manage a
+// tooltip, so showing everything was the point. GC-213 takes git's `On <branch>: ` back off it:
+// the head one line up already names the stash, every stash taken on a branch carries the same
+// prefix, and it pushed the words the user actually wrote off the front of the title. All three
+// surfaces that draw a stash message now agree, and the whole one is on the `title`.
+check('the panel names the stash and draws its message without git s prefix', /^stash@\{0\}:/.test(panel.head ?? '') && panel.msg === 'newer stash', stashPanel);
+check('and keeps the whole message, prefix and all, on the title', panel.msgTitle === 'On main: newer stash', stashPanel);
 check('with its age and the commit it was taken from', panel.when === 'stashed just now' && (panel.parent ?? '').startsWith('taken from: ' + git(['rev-parse', '--short=7', 'main'])), stashPanel);
 check('and the row takes the same selected treatment a commit row does', panel.selected === 1, stashPanel);
 

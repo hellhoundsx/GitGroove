@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
-import { registerIpc, rememberedMaterial, rememberedTheme, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND } from './ipc';
+import { glassAvailable, registerIpc, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND } from './ipc';
 import { isWebUrl } from '@shared/remotes';
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL;
@@ -21,15 +21,18 @@ const isStealth = process.env.GITCLIENT_STEALTH === '1';
 if (process.env.GITCLIENT_USER_DATA) app.setPath('userData', process.env.GITCLIENT_USER_DATA);
 
 function createWindow(): BrowserWindow {
-  // What the last renderer on this profile resolved (GC-102). The setting lives in the renderer's
-  // `localStorage`, which does not exist yet, so the window is built from the main process's own
-  // copy and the renderer's first `applyTheme()` then confirms it rather than correcting it.
-  const theme = rememberedTheme();
-  // Same reasoning one setting over (GC-212): the material lives in the renderer's preferences,
-  // which do not exist yet, so the main process keeps its own copy and builds the window with it.
-  // Applying it at creation rather than from the renderer's first `setMaterial` is what stops the
-  // window opening opaque and flicking to glass a frame later.
-  const material = rememberedMaterial();
+  // One material, decided here and nowhere else (GC-213). There is no preference to read and
+  // nothing remembered from the last run: either the compositor can give us glass or it cannot,
+  // which `glassAvailable` answers from the platform alone. Applying it at creation rather than
+  // from a renderer round trip is what stops the window opening opaque and flicking to glass a
+  // frame later, and it is now free — the answer is known before any renderer exists.
+  //
+  // **Acrylic, not mica.** Mica is a desaturated wallpaper *tint* — Windows draws it to be almost
+  // invisible, and behind a content card at any workable alpha it is nothing at all. The frosted
+  // glass this design is copying off the macOS reference is acrylic, and it is the only material
+  // on this platform that actually reads as one. The cost is real and accepted: Windows flattens
+  // acrylic to a solid colour whenever the window is **not focused**.
+  const glass = glassAvailable;
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -38,14 +41,12 @@ function createWindow(): BrowserWindow {
     show: false,
     ...(isStealth ? { skipTaskbar: true, focusable: false, paintWhenInitiallyHidden: true } : {}),
     // With a material on, the window's own fill has to be transparent or it paints straight over
-    // it and nothing shows through. `rememberedMaterial()` answers 'none' wherever a material
-    // cannot be had — another platform, an older Windows, a stealth launch — so this is one
-    // condition rather than three (GC-212).
-    backgroundColor: material === 'none' ? WINDOW_BACKGROUND[theme] : '#00000000',
-    backgroundMaterial: material,
+    // it and nothing shows through.
+    backgroundColor: glass ? '#00000000' : WINDOW_BACKGROUND,
+    backgroundMaterial: glass ? 'acrylic' : 'none',
     // Frameless with the OS window controls overlaid, so the renderer draws its own tabs bar.
     titleBarStyle: 'hidden',
-    titleBarOverlay: TITLE_BAR_OVERLAY[theme],
+    titleBarOverlay: TITLE_BAR_OVERLAY,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -71,10 +72,18 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
+  // The renderer is told what was applied on the URL rather than over IPC (GC-213), which is what
+  // lets `main.tsx` stamp `data-material` **before the first render** instead of a frame or two
+  // after a round trip resolves. Absent means no material, which is the case the stylesheet
+  // treats as ordinary — and it is the safe direction either way: opaque settling into glass is
+  // invisible, where glass collapsing to opaque is a flash of the wrong window.
+  const search = glass ? 'material=acrylic' : '';
   if (isDev) {
-    void win.loadURL(process.env.ELECTRON_RENDERER_URL!);
+    const url = new URL(process.env.ELECTRON_RENDERER_URL!);
+    if (search) url.search = search;
+    void win.loadURL(url.toString());
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'));
+    void win.loadFile(join(__dirname, '../renderer/index.html'), { search });
   }
   return win;
 }

@@ -13,13 +13,13 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run --reporter=dot",
-
     "test:watch": "vitest",
     "e2e:setup": "node tools/e2e/setup-testrepo.mjs",
     "e2e": "node tools/e2e/run.mjs",
     "recon:targets": "node tools/gk-recon/cdp.mjs targets"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@fontsource/open-sans": "^5.3.0",
     "lucide-react": "^1.41.0",
     "react": "^19.2.8",

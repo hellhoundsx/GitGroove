@@ -1,4 +1,5 @@
 import { useEffect, useRef, type JSX } from 'react';
+import { ssoAuthUrl } from '@shared/remotes';
 
 interface Props {
   /** The one line the status bar drew: what happened, and for a credential refusal on which remote (GC-169). */
@@ -32,8 +33,19 @@ interface Props {
  */
 export function ErrorDetailsDialog({ summary, detail, auth, onClose }: Props): JSX.Element {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const ssoRef = useRef<HTMLButtonElement>(null);
   const copiedRef = useRef<HTMLSpanElement>(null);
-  useEffect(() => closeRef.current?.focus(), []);
+  const failedRef = useRef<HTMLSpanElement>(null);
+  // Whichever button is the rightmost one, which is where this app puts the action a dialog is
+  // asking for: with somewhere to go, going there is the next step and closing is not.
+  useEffect(() => (ssoRef.current ?? closeRef.current)?.focus(), []);
+
+  /**
+   * Where the organisation's SAML SSO authorisation lives, when this refusal was one. Read from
+   * git's own message rather than from anything the app knows: the app performs no SAML and holds
+   * no credential, and all this does is take the user to the page that will re-authorise theirs.
+   */
+  const sso = auth ? ssoAuthUrl(detail) : null;
 
   const copy = (): void => {
     void navigator.clipboard.writeText(`${summary}\n${detail}`).then(() => {
@@ -57,6 +69,10 @@ export function ErrorDetailsDialog({ summary, detail, auth, onClose }: Props): J
           {/* `pre`, not a paragraph: git's message is line-oriented and its `hint:` and `remote:`
               lines are addressed to a person. Selectable, so it can be read out of here by hand. */}
           <pre className="error-details-text">{detail}</pre>
+          {/* The page on its own is not the instruction: an authorisations list is a list, and the
+              browser reaches nothing of an operation that has already failed. So what to do there,
+              and that it ends in running the command again, is said before the disclaimer. */}
+          {sso !== null && <p className="modal-note">{sso.what}</p>}
           {auth && (
             <p className="modal-note">
               GitClient never sees or stores a credential: the system credential helper holds them, and this is what it and git reported.
@@ -68,9 +84,28 @@ export function ErrorDetailsDialog({ summary, detail, auth, onClose }: Props): J
             Copy <span ref={copiedRef} className="copied" />
           </button>
           <span className="spacer" />
-          <button ref={closeRef} className="btn primary" onClick={onClose}>
+          <button ref={closeRef} className={sso === null ? 'btn primary' : 'btn'} onClick={onClose}>
             Close
           </button>
+          {/* The URL is on the button, because someone about to re-authorise an application should
+              be able to see where they are being sent — git's message is a remote's own output. */}
+          {sso !== null && (
+            <button
+              ref={ssoRef}
+              className="btn primary"
+              title={sso.url}
+              onClick={() => {
+                // The channel refuses any scheme but http(s) and this is only ever https, so a
+                // rejection is the channel and not the URL. It reports here rather than on the
+                // status bar, which is behind the backdrop while this is up.
+                void window.shell.openExternal(sso.url).catch(() => {
+                  if (failedRef.current) failedRef.current.textContent = 'Could not open';
+                });
+              }}
+            >
+              Authorise in browser <span ref={failedRef} className="copied" />
+            </button>
+          )}
         </div>
       </div>
     </div>

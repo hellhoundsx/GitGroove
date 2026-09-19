@@ -1,22 +1,10 @@
 import { type ChangeEvent, type JSX, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
-import type { PullMode, Theme, WindowMaterial } from '@shared/types';
+import type { PullMode } from '@shared/types';
 import { setPrefs, usePrefs, type DiffViewMode, type GraphColumns, type Prefs } from '../prefs';
 import { matches } from '../shortcuts';
 import { Icon } from '../ui/icons';
 import type { OptCols } from '../ui/useDragWidth';
-
-const MATERIALS: { material: WindowMaterial; label: string }[] = [
-  { material: 'mica', label: 'Mica' },
-  { material: 'acrylic', label: 'Acrylic' },
-  { material: 'none', label: 'Off' },
-];
-
-const THEMES: { theme: Theme; label: string }[] = [
-  { theme: 'dark', label: 'Dark' },
-  { theme: 'light', label: 'Light' },
-  { theme: 'system', label: 'Match the system' },
-];
 
 const DIFF_VIEWS: { mode: DiffViewMode; label: string }[] = [
   { mode: 'unified', label: 'Unified' },
@@ -112,24 +100,6 @@ export function Preferences({ onClose, drawnCols }: { onClose(): void; drawnCols
         <div className="modal-body">
           <div className="pref-group">
             <div className="pref-group-title">Appearance</div>
-            <Row label="Theme" hint="Applies immediately, window controls included.">
-              <Select value={prefs.theme} onChange={(e) => setPrefs({ theme: e.target.value as Theme })}>
-                {THEMES.map((t) => (
-                  <option key={t.theme} value={t.theme}>
-                    {t.label}
-                  </option>
-                ))}
-              </Select>
-            </Row>
-            <Row label="Window material" hint="Windows 11 only. Mica tints the desktop behind the chrome; Acrylic frosts the whole window, but Windows flattens it whenever the window is not focused.">
-              <Select value={prefs.windowMaterial} onChange={(e) => setPrefs({ windowMaterial: e.target.value as WindowMaterial })}>
-                {MATERIALS.map((m) => (
-                  <option key={m.material} value={m.material}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </Row>
             <Toggle of="avatars" label="Author avatars" hint="Fetches Gravatar images. Off means initials only, and no network requests." />
             <Toggle of="commitColumnGuide" label="72-character commit summary counter" hint="Counts down the characters left on the summary line." />
           </div>

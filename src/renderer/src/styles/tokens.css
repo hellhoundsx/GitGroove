@@ -1,26 +1,66 @@
 /*
  * GitClient design tokens. Our own values, calibrated against the study in docs/reference/gitkraken
- * and, since GC-212, against Fluent 2 — the design language of the desktop this app runs on.
+ * and, since GC-213, against the design language of the ChatGPT desktop app.
  *
- * Fluent 2 is taken for its *mechanics*, not its spacing: layered materials, elevation as a shadow
- * set, a radius scale that rises with the layer, Segoe UI Variable's three optical cuts, and
- * selection drawn as a shape rather than as a field of colour. The density is ours and unchanged —
- * 28px graph rows, 26px ref rows, 12px furniture. Fluent's own padding would cost this window
- * about a third of its rows and this is an app for reading a lot of history at once.
+ * There is **one look**. The theme setting (dark / light / system) and the material setting
+ * (mica / acrylic / none) are both gone, along with every token that existed to flip between them:
+ * this file is a single `:root` block and `app.css` keys off no `data-theme` at all. **Acrylic**
+ * is the one material, applied when the OS can give us one and absent when it cannot (an offscreen
+ * stealth launch, a Windows 10, any other platform) — so `[data-material]` is still a switch, but
+ * it is "did the compositor give us glass", not a preference. Mica was tried first and is the
+ * wrong material here; the block at the end of this file says why.
  *
- * Three rules decide where translucency is allowed:
+ * ChatGPT is taken for its *language*, not its spacing, the way GC-212 took Fluent's mechanics and
+ * left its padding. The density is ours and unchanged — 28px graph rows, 26px ref rows, 12px
+ * furniture. ChatGPT's own rhythm would cost this window about a third of its rows and this is an
+ * app for reading a lot of history at once.
+ *
+ * What was actually taken, in the order it matters:
+ *
+ *   1. **Neutral near-black, not blue-black.** Every grey here is R=G=B. The ramp this replaces
+ *      was cool — #17191d has 6 points of blue over red — which is Fluent's ground and reads as
+ *      a *tinted* dark. ChatGPT's greys have no cast at all, and that is most of why its dark
+ *      mode reads as paper-in-the-dark rather than as a themed window.
+ *   2. **A tone step, not a stroke.** ChatGPT's sidebar is a darker fill than its main column and
+ *      there is no line between them. So the two side panels take `--bg-sidebar` and the graph
+ *      takes `--bg-card`, and the dividers that used to separate them are gone. This reverses
+ *      GC-212's "the three panels are one card, divided by strokes" — deliberately, because the
+ *      boundary is now carried by fill. `--border` survives for the things that genuinely are
+ *      outlines (an input, a menu's edge, a table rule) and it is quieter than it was.
+ *   3. **Radius rises, and the small controls go to a pill.** 8 / 12 / 16, against Fluent's
+ *      4 / 6 / 8, plus `--radius-pill` for a button or a chip that is wider than it is tall.
+ *   4. **The primary button is white.** ChatGPT spends no colour on its main action: a white pill
+ *      with near-black text. `--btn-primary-*` is that, and it is why `--accent` is no longer
+ *      carrying the commit button.
+ *   5. **Text is brighter and the hierarchy is shorter.** #ececec / #b4b4b4 / #8f8f8f, written as
+ *      white alphas so they survive the glass. The old .78 primary was a full step dimmer than
+ *      ChatGPT's and it is the single change most visible at a glance.
+ *
+ * Three rules still decide where translucency is allowed, unchanged from GC-212 because they were
+ * right and because ChatGPT on macOS obeys the same ones:
  *
  *   1. **No blur behind data, ever.** Not behind a 28px row of 1px lane strokes, not behind a diff.
  *      That is the one thing this app draws that cannot survive being composited through a filter,
  *      at any cost in frames, and it is the rule the other two are written around.
- *   2. **What floats is glass.** Menus, popovers and dialogs are acrylic because they are temporary
- *      and they are the only surfaces that appear *over* content — and the backdrop behind a modal
- *      is blurred outright, since pushing what is behind it out of focus is what a modal is for.
- *   3. **The chrome carries the window's material; the card carries it only if asked.** The title
- *      bar, the toolbar and the status bar paint nothing, so the desktop is always visible through
- *      them. The content card follows `prefs.windowMaterial`: opaque under `mica`, and translucent
- *      under `acrylic`, which is a flat alpha and not a filter — so rule 1 still holds, the graph
- *      pays nothing per frame, and what comes through is a tint rather than an image.
+ *   2. **What floats is glass.** Menus, popovers and dialogs take a blur because they are
+ *      temporary and they are the only surfaces that appear *over* content — and the backdrop
+ *      behind a modal is blurred outright, since pushing what is behind it out of focus is what a
+ *      modal is for.
+ *   3. **Nothing in the window is ever at the mercy of what is behind it, and there is exactly
+ *      one scrim.** `body` carries `--window-scrim` and nothing else does: the chrome paints
+ *      nothing and shows it, and the card and the sidebars are white **tints** over it
+ *      (`--bg-card-glass`, `--bg-sidebar-glass`) rather than scrims of their own. One surface
+ *      decides how much desktop the window passes, so no two regions can disagree about it, and
+ *      the `--card-inset` gutter — which no element but `body` covers — is scrimmed like
+ *      everything else. All flat alphas rather than filters, so rule 1 still holds and the graph
+ *      pays nothing per frame. The block at the end of this file has the two wrong answers that
+ *      came before it and why each failed.
+ *
+ *      This started out as "the chrome paints nothing, so the desktop is always visible through
+ *      it", which is a nice sentence and a real bug: with an orange banner in a browser behind the
+ *      window, the toolbar *was* an orange bar, and the icons on it were unreadable. Legibility
+ *      cannot be a property of the user's other windows. The scrim is what makes the material a
+ *      tint — you can see the orange, warm and dark, behind a toolbar you can still read.
  *
  * And one rule decides colour: the ten lane colours are the only saturated colour in the window.
  * `--accent` is deliberately not usable as a large field — see its note below.
@@ -29,17 +69,21 @@
   color-scheme: dark;
 
   /* ---- Type ---------------------------------------------------------------
-     Segoe UI Variable ships as three named families and they are three different drawings, not one
-     drawing at three sizes: `Small` carries wider apertures, looser fit and a taller x-height for
-     10-12px, `Text` is the reading cut, `Display` tightens spacing and sharpens the terminals for
-     20px and up. The app already names those three jobs with its size tokens, so the cut is
-     attached wherever the size is (see the optical-size rules in app.css).
+     Inter, which is as close to ChatGPT's face as anything that can be had on Windows: SF Pro is
+     macOS-only and ChatGPT Sans is not distributed. Inter shares the skeleton both of them draw
+     from — a neutral grotesque with a tall x-height and open apertures — and it is the face most
+     of the web reaches for when it wants this look, which is itself the point: the reference is
+     what a ChatGPT window feels like, not a licence to the exact drawing.
 
-     Open Sans stays in every stack as the bundled fallback: it is the one face the app ships, so a
-     machine without Segoe UI Variable still renders in a face we chose rather than in Arial. */
-  --font-ui: 'Segoe UI Variable Text', 'Segoe UI', 'Open Sans', system-ui, -apple-system, sans-serif;
-  --font-ui-sm: 'Segoe UI Variable Small', 'Segoe UI', 'Open Sans', system-ui, sans-serif;
-  --font-ui-lg: 'Segoe UI Variable Display', 'Segoe UI', 'Open Sans', system-ui, sans-serif;
+     The variable cut is one file for the whole weight axis, so 400/500/600 cost nothing extra.
+     `optical-sizing: auto` (set on `body` in app.css) drives Inter's own optical axis, which is
+     what replaces GC-212's three named Segoe cuts: Inter does in one variable face what Segoe UI
+     Variable needed Small / Text / Display to do, so the size-keyed family rule in `app.css` is
+     gone and nothing has to be kept in step with it any more.
+
+     Segoe UI Variable stays in the stack behind Inter, and Open Sans behind that: the app still
+     ships Open Sans, so a machine that somehow has neither renders in a face we chose. */
+  --font-ui: 'Inter Variable', 'Inter', 'Segoe UI Variable Text', 'Segoe UI', 'Open Sans', system-ui, sans-serif;
   --font-mono: 'Cascadia Code', Consolas, 'JetBrains Mono', Menlo, monospace;
   --fs-xs: 10px;
   /* A stash row's age (GC-171, GC-199). Fixed, because content-sized was the defect: the box grew
@@ -57,10 +101,14 @@
   --fs-lg: 16px;
   --fs-xl: 20px;
   --lh: 20px;
-  /* Fluent's emphasis weight. 700 was the app's own and it is a shout at 12px: the section headers
-     it was used on are furniture, and furniture that bolder than the branch names under it reads
-     as the more important of the two. */
+  /* Inter's emphasis weight. 600 rather than 700: at 12px Inter's semibold is already heavier on
+     the page than Segoe's was, and the section headers this is used on are furniture — furniture
+     bolder than the branch names under it reads as the more important of the two. */
   --fw-semi: 600;
+  /* One step below it, for the places that want to be *slightly* more than body and were reaching
+     for 600: a tab's label, a button. ChatGPT leans on this weight heavily and it is most of why
+     its UI reads as quiet without reading as flat. */
+  --fw-med: 500;
 
   /* ---- Spacing and shape --------------------------------------------------- */
   --sp-1: 4px;
@@ -69,17 +117,30 @@
   --sp-4: 16px;
   --sp-5: 24px;
   /* Radius rises with the layer, which is the whole of what it is for: a control, a row and a
-     flyout at one radius say the three are the same kind of thing. 4 / 6 / 8 is Fluent's scale
-     minus its 2px step, which at this density is indistinguishable from a square corner. */
-  --radius-sm: 4px; /* controls: checkbox, chip, tag */
-  --radius-md: 6px; /* buttons, inputs, rows, tabs */
-  --radius-lg: 8px; /* what floats or contains: flyouts, dialogs, the content card */
+     flyout at one radius say the three are the same kind of thing. 8 / 12 / 16 against GC-212's
+     4 / 6 / 8 — ChatGPT's corners are its most immediately recognisable property after its
+     greys, and at this density the old scale reads as square. */
+  /* The smallest drawn mark, and the one thing the scale could not be lifted for: at 6px on the
+     14px `--control-box` a checkbox is 43% round and reads as a radio, which is the one shape it
+     must never be mistaken for. 4px is ChatGPT's own proportion on a box this size. */
+  --radius-xs: 4px;
+  --radius-sm: 6px; /* the small drawn controls: a tag, a menu row, a 20px icon well */
+  --radius-md: 10px; /* buttons, inputs, rows, tabs */
+  --radius-lg: 16px; /* what floats or contains: flyouts, dialogs, the content card */
+  /* A control wider than it is tall, which ChatGPT draws as a capsule rather than as a rounded
+     rectangle: the composer's send button, a filter chip, a segmented switch. */
+  --radius-pill: 999px;
+  /* How far a row sits in from its panel's edge, so selection is a pill floating in the column
+     rather than a band spanning it. The inset is the whole effect: at 0 a rounded row still reads
+     as a full-width stripe, because its corners have nothing to be round against. */
+  --row-inset: 6px;
   --handle: 6px;
   /* The form controls' own box: the checkbox square and the select's chevron well (GC-101).
      14px matches the type's 14px/20px rather than Chromium's 13px, which matched nothing. */
   --control-box: 14px;
-  /* The accent bar that marks a selected row (GC-212). Fluent draws selection as a pill at the
-     row's leading edge; 3x14 is that shape at this row height. */
+  /* The bar that marks a selected row. ChatGPT marks its selected conversation with a fill and
+     nothing else, which works in a sparse 36px list and does not in a 28px graph of a thousand
+     rows — so the bar stays, and what changed is its colour (see `--sel-bar`). */
   --sel-bar-w: 3px;
   --sel-bar-h: 14px;
 
@@ -106,277 +167,426 @@
 
   /* Scrollbars: thin, flat, no track, no arrow buttons (GC-079) */
   --scrollbar-w: 8px;
-  --scrollbar-thumb: rgba(255, 255, 255, 0.14);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.26);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.13);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+
+  /* ---- Motion --------------------------------------------------------------
+     How this window moves, which is: quickly, on the chrome, and not at all where the data is
+     (GC-214).
+
+     Three durations and four curves, and **every** transition and every keyframe in `app.css` is
+     written from them. That is not tidiness. It is the whole mechanism behind the
+     `prefers-reduced-motion` block at the end of this file: that block overrides these values
+     and nothing else, and every animation in the app — including one written after it — becomes
+     an instant, travel-free fade. A literal `140ms` in `app.css` is invisible to it, which is
+     why there are none left and why a new one is a bug rather than a matter of style.
+
+     The personality is the sober one: a dense professional tool, read for hours, in the dark,
+     where motion's job is to say *what just happened* and then be gone. Two places that costs
+     something against the textbook, and both are deliberate.
+
+     **The clock is one step faster than the archetype's** 200 / 300 / 450. A menu that takes
+     300ms is a menu you wait for, thirty times an hour; almost every animation in this window is
+     the direct answer to a pointer, so the interaction budget — a hover answered inside 100ms, a
+     press inside 150 — is the binding constraint rather than the element-size table. The one
+     surface that table would be right about is a dialog, and it takes the *fastest* of the three
+     anyway: every confirmation here is one the user asked for by picking a menu row and is about
+     to answer with Enter, so the animation has to be over before their hand is.
+
+     **Nothing exits.** The textbook pairs an entrance with an exit at 65-75% of its duration.
+     Here a dismissal is instant, which is that rule taken to its limit and is also the only
+     honest option: a menu, a popover and a dialog are all unmounted the moment they close, and
+     keeping a dead layer on screen long enough to animate it would put something clickable over
+     the app, leave the e2e suite waiting on a layer that is visibly gone and not yet absent, and
+     make `App`'s one-Escape-one-layer rule a question of timing. What appears, appears; what
+     goes, is gone. */
+  /* The pointer's own answer: a hover tint, a press, a box being checked, a focus ring. Under
+     the 100ms that reads as "instant, but drawn". */
+  --dur-1: 90ms;
+  /* A control or a small surface changing: a chevron turning, a flyout arriving, a busy line. */
+  --dur-2: 140ms;
+  /* The window changing: a dialog, a banner, one view replacing another. */
+  --dur-3: 220ms;
+  /* One turn of the spinner, and the only motion in the app that repeats. A second rather than
+     the 0.8 it has run at since it was written: much under a second reads as frantic, which is
+     the wrong thing to say about a `git fetch` that is going fine. */
+  --dur-spin: 1s;
+  /* The signature curve, and what most of the app moves on: near-linear out of the gate and a
+     long settle, so nothing here starts with a lurch. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  /* Entrances. It decelerates harder than the standard curve, so a surface that appears has
+     covered most of its distance by the time the eye arrives and is only settling when it is
+     actually looked at. */
+  --ease-out: cubic-bezier(0.05, 0.7, 0.1, 1);
+  /* Exits, of which there is exactly one — the resize handles' own fade. Named rather than
+     inlined because the direction is the whole point: a thing leaving accelerates away. */
+  --ease-in: cubic-bezier(0.3, 0, 1, 1);
+  /* The one curve in the window that overshoots, and it is spent on one mark: the 3x7 tick
+     inside a checked box. A 14px control is the right size for the app's entire vocabulary of
+     delight — the same 10% on a dialog would be a bounce, which this window does not do. */
+  --ease-settle: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  /* How far a thing travels as it arrives, and it is deliberately smaller than the textbook's
+     20-30px: the surfaces that move here are large and already close to where they belong. A
+     420px menu sliding 24px is a menu that was somewhere else a moment ago; 4px is the same menu
+     settling into place. */
+  --rise: 4px;
+  --rise-lg: 6px; /* a dialog, a view head: a bigger surface, a slightly longer arrival */
+  /* What a flyout grows from, so it reads as opening out of its anchor rather than fading in on
+     top of it. Which corner it grows from is `transform-origin`, and that belongs to the
+     surface. */
+  --flyout-scale: 0.96;
+  --dialog-scale: 0.97;
+  /* A button under the finger. The press is the only transform the app puts on a control, and
+     this is the smallest one that is visible at a 26px height. */
+  --press-scale: 0.97;
 
   /* ---- Surfaces -----------------------------------------------------------
-     One ground and a stack of layers derived from it by white alpha, written out as hex so the
-     values are inspectable and so no surface costs a blend at paint time. The alpha each one
-     approximates is on its line: that is the relationship to preserve when a value is retuned.
+     Neutral greys, every one of them R=G=B, written out as hex so the values are inspectable and
+     so no surface costs a blend at paint time. The white alpha each one approximates is on its
+     line: that is the relationship to preserve when a value is retuned.
 
-     The ground is what a window material replaces. When one is applied the document carries
+     The stack maps onto ChatGPT's own three: the window ground is what sits *behind* and around
+     the card, the two side panels are its sidebar, and the graph is its main column. Note that
+     the sidebar is **darker** than the working surface, not lighter, which is the opposite of
+     what this app did before and is the single structural thing to keep.
+
+     The ground is what a window material replaces. When mica is applied the document carries
      `data-material`, `body` drops its fill, and the OS paints the desktop through the window at
-     its own tint — so every surface below still stacks in the same order, over a ground that is no
-     longer flat. With no material the ground is this colour and nothing else changes. */
-  --base: #17191d; /* the window ground */
+     its own tint — so every surface below still stacks in the same order, over a ground that is
+     no longer flat. With no material the ground is this colour and nothing else changes. */
+  --base: #141414; /* the window ground, around and behind the card */
   --bg-app: var(--base);
-  --bg-card: #212429; /* white 4.5% — the one working surface the three panels share */
+  --bg-card: #212121; /* the working surface: the graph, a diff, the main column */
   --bg-panel: var(--bg-card);
-  --bg-panel-raised: #2b2f36; /* white 9% — inputs, wells, hover cards */
-  /* The band inside the card: section heads, the graph's column header, a file list's group head.
-     Between the card and raised, so a head reads as part of its section rather than as a control. */
-  --bg-subtle: #262a30; /* white 7% */
-  --bg-titlebar: transparent; /* the chrome shows the window's material */
-  --bg-toolbar: transparent;
+  /* The two side panels. A tone *step down* from the working surface and no line between them,
+     which is how ChatGPT separates its sidebar from its thread and is rule 2 at the top of this
+     file. It is also what makes the graph the brightest thing in the window, which is right: it
+     is the thing being read. */
+  --bg-sidebar: #181818;
+  --bg-panel-raised: #2f2f2f; /* white ~13% — inputs, wells, hover cards, the composer */
+  /* The one band left inside a surface: a file list's group head, which is `position: sticky` and
+     so is the one head in the app that **has** to paint (GC-209) — everything scrolling under it
+     would otherwise show through. The rest of them — the left panel's section heads, the graph's
+     column header, the detail panel's own head — paint nothing at all now and are a label over
+     their rows, which is what ChatGPT does and what took the last of the horizontal banding out
+     of the window.
+     A step *above* `--bg-sidebar`, because that is the surface it sits on: the detail panel. It
+     read as `--bg-card` for a moment, which was right while all three panels shared that colour
+     and is a 9-point jump now. Opaque, and it is the one surface in the card that stays opaque
+     under mica (see the block at the end) — an occluder that lets the rows through is not one. */
+  --bg-subtle: #1f1f1f;
+  /* The title bar, the toolbar and the status bar. With no window material there is nothing
+     behind them but `--bg-app`, which `body` is already painting, so transparent is exactly right
+     and this costs nothing. With mica it becomes a scrim — see the block at the end. */
+  --bg-chrome: transparent;
+  --bg-titlebar: var(--bg-chrome);
+  --bg-toolbar: var(--bg-chrome);
 
-  /* ---- Acrylic ------------------------------------------------------------
-     Flyouts only. The fill is the card colour at 86% with a heavy blur and a lift in saturation,
-     which is what keeps an acrylic surface from going grey as it averages what is under it. The
-     alpha is what decides whether this works over the *graph*: 14% transmission is enough to see
-     that something is behind the menu and not enough for a magenta lane to tint a row of labels.
-     One layer, where Fluent pairs a tint with a luminosity layer — the second is only worth its
-     complexity over a strongly coloured backdrop, and this one is a grey card. Applied by
-     `.ctx-menu`, `.popover` and `.modal`, and nowhere else. */
-  --bg-menu: rgba(38, 42, 49, 0.72);
-  --flyout-blur: blur(48px) saturate(2.2);
-  /* What is behind a **modal** is blurred as well as dimmed (GC-212). A dialog takes the whole
-     window, so the backdrop is the one place the app can show what glass does at full size — and
-     unlike a menu, nothing behind it has to stay readable, which is the whole point of a modal. */
-  --backdrop-blur: blur(20px) saturate(1.2);
-  /* The content card while `acrylic` is the window material: translucent, so the desktop reads
-     through the working area and not only through the chrome. No `backdrop-filter` on it — the OS
-     material has already blurred what is behind the window, and a second blur over the graph is
-     the one thing this design will not spend (see the header above). */
-  --bg-card-glass: rgba(33, 36, 41, 0.76);
+  /* ---- Glass --------------------------------------------------------------
+     Flyouts only. The fill is a near-black at 80% with a heavy blur and a lift in saturation,
+     which is what keeps a translucent surface from going grey as it averages what is under it.
+     The alpha is what decides whether this works over the *graph*: 20% transmission is enough to
+     see that something is behind the menu and not enough for a magenta lane to tint a row of
+     labels. Applied by `.ctx-menu`, `.popover` and `.modal`, and nowhere else. */
+  --bg-menu: rgba(38, 38, 38, 0.8);
+  --flyout-blur: blur(40px) saturate(1.8);
+  /* What is behind a **modal** is blurred as well as dimmed. A dialog takes the whole window, so
+     the backdrop is the one place the app can show what glass does at full size — and unlike a
+     menu, nothing behind it has to stay readable, which is the whole point of a modal. */
+  --backdrop-blur: blur(20px) saturate(1.1);
+  /* The sticky file-list head, and the **one** exception to "no blur behind data" (GC-213).
+     Stated as an exception rather than smuggled in: what is behind this is file rows, which are
+     data. Three things make it the right call anyway. It is a 30px strip in a 400px panel, not
+     the graph or a diff, so the frame cost the rule is written about is not in question. Nothing
+     is meant to be legible through it — it is an occluder, and a blur is the strongest form of
+     occluding there is. And it is what the reference does: a sticky header over a scrolling list
+     frosts what passes under it rather than covering it.
+     It is also **not load-bearing for legibility**: `--bg-subtle` is opaque with no material and
+     0.93 with one, which alone is what stops the text being read. The blur is what keeps the
+     remaining 7% from being a ghost of a glyph rather than a smear of the row's colour. */
+  --head-blur: blur(18px) saturate(1.5);
 
-  --bg-input: rgba(0, 0, 0, 0.24);
-  /* Strokes. The card stroke is a hairline that separates two surfaces; the control stroke is what
-     draws the edge of something you can click, and it is the heavier of the two on purpose. */
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  /* Fluent's control stroke is bottom-heavier, which is what gives a button its slight sense of
-     sitting on the surface rather than being cut out of it. In dark the extra edge is a *light*
-     one along the top; in light it is a dark one along the bottom (see the light block). */
-  --control-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  /* What the working surface and the sidebars paint **while the material is on**: a tint over
+     `--window-scrim`, not a glass of their own. Defined here as well as in the material block so
+     the names always resolve, and `none` because with no material the flat `--bg-card` and
+     `--bg-sidebar` above are what paint and nothing should be laid over them. No
+     `backdrop-filter` on either — the OS material has already blurred what is behind the window,
+     and a second blur over the graph is the one thing this design will not spend. */
+  --bg-card-glass: none;
+  --bg-sidebar-glass: none;
+  /* The window's scrim while the material is on. Here it is the flat ground, which is what
+     `body` paints anyway, so the name resolves to something sane if the material rule is ever
+     read without its block. */
+  --window-scrim: var(--bg-app);
 
-  /* Elevation as a set, not one shadow (GC-212). Each is an ambient shadow plus a key shadow, and
-     which one a surface takes says how far above the page it is: 4 for something resting on a
-     surface, 16 for a flyout, 64 for a dialog, which is the only thing that takes the whole window. */
-  --elev-4: 0 2px 4px rgba(0, 0, 0, 0.28), 0 0 2px rgba(0, 0, 0, 0.22);
-  --elev-16: 0 8px 16px rgba(0, 0, 0, 0.34), 0 0 2px rgba(0, 0, 0, 0.26);
-  --elev-64: 0 32px 64px rgba(0, 0, 0, 0.42), 0 0 8px rgba(0, 0, 0, 0.3);
+  --bg-input: #2f2f2f;
+  /* A sunken track, which is the one shape a filled palette needs and a bordered one did not: a
+     segmented control is a well with a raised thumb in it, and with `--bg-input` now a *raised*
+     #2f2f2f the track cannot also be that value — thumb and track came out identical and the
+     chosen segment was distinguishable only by its text being brighter. Below the card, so the
+     well reads as cut into the surface rather than sitting on it. */
+  --bg-track: #191919;
+  /* The commit node's disc, and **opaque on purpose, under the material as well** (GC-213). It
+     took `--bg-panel-raised`, which the material block turns into an 11% white veil so an input
+     well lifts the glass instead of covering it — correct for a field, and wrong for this: the
+     node is an occluder, its whole job is to interrupt the lane line it sits on, and at 11% the
+     line ran straight through every circle in the graph. The same mistake `--bg-subtle` was
+     given its own value for, in the one place it is most visible.
+     One value in both modes rather than a near-opaque second: a 20px disc that is simply solid
+     cannot be got wrong, and the node is the mark this whole column exists to draw.
+     **All three nodes take it** — the commit, the stash and the WIP — where they used to take
+     three different values (`--bg-panel-raised`, `--bg-panel` and `--bg-app`). Over a flat ground
+     those read as a raised disc and two holes, which was a reasonable distinction; over glass
+     two of them became dark spots beside a grey one, because a "hole" has nothing behind it to
+     be a hole in. The dash is what says a node is not a commit, and it says it on its own. */
+  --node-fill: #303030;
+  /* Strokes, and there are far fewer of them than there were: what used to be a hairline between
+     two panels is now a change of fill. What is left is the things that genuinely are outlines —
+     a menu's edge, a table rule, the ring round an input — so both values are quieter than the
+     ones they replace and `--border` in particular is barely a line. */
+  --border: rgba(255, 255, 255, 0.055);
+  --border-strong: rgba(255, 255, 255, 0.1);
+  /* The ring on a focused field. Neutral, not the accent: ChatGPT's focused composer lightens its
+     own edge and draws no colour, and the accent is down to a link and a checked control now. */
+  --border-focus: rgba(255, 255, 255, 0.32);
+  /* Fluent's bottom-heavy control edge, which said "this button sits on the surface". ChatGPT
+     draws no such thing: its controls are flat fills with a large radius and that is the whole
+     of the treatment. Kept as a token rather than deleted because `input` and `.btn` still read
+     it — one place to put it back if a control ever needs the lift again. */
+  --control-edge: none;
+
+  /* Elevation as a set, not one shadow. Each is an ambient shadow plus a key shadow, and which
+     one a surface takes says how far above the page it is: 4 for something resting on a surface,
+     16 for a flyout, 64 for a dialog, which is the only thing that takes the whole window.
+     Softer and wider than Fluent's, which is ChatGPT's own shape: a large, low-opacity spread
+     rather than a tight dark edge. */
+  --elev-4: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.24);
+  --elev-16: 0 10px 32px rgba(0, 0, 0, 0.44), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --elev-64: 0 24px 72px rgba(0, 0, 0, 0.56), 0 4px 12px rgba(0, 0, 0, 0.34);
   --shadow: var(--elev-16);
 
-  /* ---- Text --------------------------------------------------------------- */
-  --text: rgba(255, 255, 255, 0.78);
+  /* ---- Text ---------------------------------------------------------------
+     ChatGPT's three, as white alphas so they survive the glass: #ececec, #b4b4b4 and #8f8f8f over
+     a #212121 ground come to 0.90, 0.68 and 0.52. Every one is brighter than what it replaces —
+     the old primary was 0.78 — and the range between them is shorter, which is what makes a
+     ChatGPT window read as evenly lit rather than as a bright thing on a dim one. */
+  --text: rgba(255, 255, 255, 0.9);
   --text-bright: #ffffff;
-  --text-muted: rgba(255, 255, 255, 0.6);
-  --text-dim: rgba(255, 255, 255, 0.4);
-  --text-inverse: #17191d;
+  --text-muted: rgba(255, 255, 255, 0.68);
+  --text-dim: rgba(255, 255, 255, 0.52);
+  --text-inverse: #141414;
   /* Dark mode's accent is a light blue, so what is drawn *on* it — the tick in a checked box, the
-     dot in a radio — is dark. Fluent does the same, and for the same reason: a white tick on a
-     light-blue fill is a 1.4:1 mark that disappears at 14px. */
+     dot in a radio — is dark. A white tick on a light-blue fill is a 1.4:1 mark that disappears
+     at 14px. */
   --on-accent: #0d1a2b;
 
-  /* ---- Semantic -----------------------------------------------------------
-     `--accent` is a light blue rather than the mid blue it was, and the reason is the lane
-     palette: `--lane-8` is #2a6fe0 at hue 218 and the old #4d88ff was hue 217. A branch colour and
-     a selection colour that are the same colour is a real ambiguity in a window whose entire
-     subject is which line belongs to which branch, and there is no free blue to move to — hue 192
-     is `--lane-0`. In dark the accent separates by lightness as well (this against lane 8 measures
-     2.18:1), but in light the two are 1.24:1 and there is no honest way to pull them apart without
-     moving a lane, so lightness is not what this rests on.
+  /* ---- The primary action -------------------------------------------------
+     ChatGPT spends no colour at all on its main button: the send control, the "Upgrade" pill and
+     every confirming dialog button are white with near-black text, and colour in that window
+     means a *state* (a warning, a link) rather than an action. That is the whole reason these are
+     their own pair rather than more of `--accent`: the commit button used to be the largest field
+     of accent blue in the window, and it was competing with `--lane-8` for what blue means. */
+  --btn-primary-bg: #ffffff;
+  --btn-primary-fg: #141414;
+  --btn-primary-hover: #e4e4e4;
 
-     What it rests on is that the accent stopped being a field. A selected row is a *neutral* fill
-     with an accent bar at its leading edge (`--row-selected` and `--sel-bar` below), so the accent
-     is a 3px shape, a 1px ring and a filled control mark — and every one of those is in the panel
-     gutter or on a control, never in the lane column. The nearest a bar and a lane come to each
-     other is the width of the ref column. A change that puts the accent back into a large area
-     beside the graph brings the ambiguity back with it, in light first. */
+  /* ---- Semantic -----------------------------------------------------------
+     `--accent` is a light blue rather than a mid one, and the reason is the lane palette:
+     `--lane-8` is a blue at hue 218 and a mid accent lands on top of it. A branch colour and a
+     selection colour that are the same colour is a real ambiguity in a window whose entire
+     subject is which line belongs to which branch, and there is no free blue to move to — hue 192
+     is `--lane-0`.
+
+     What it rests on is that the accent is not a field. Since GC-213 it is not even the selection
+     mark: a selected row takes a *neutral* fill and a **white** bar (`--sel-bar` below), the way
+     ChatGPT marks its selected conversation, so what is left of the accent is a focus ring, a
+     link, a checked control and the diff's line picker. A change that puts the accent back into a
+     large area beside the graph brings the ambiguity back with it. */
   --accent: #7ab3ff;
-  --accent-soft: rgba(122, 179, 255, 0.18);
-  --accent-hover: rgba(122, 179, 255, 0.12);
-  --accent-strong: rgba(122, 179, 255, 0.34);
-  --success: #6cc36c;
-  --success-soft: rgba(108, 195, 108, 0.2);
-  --success-strong: rgba(108, 195, 108, 0.5);
-  --warning: #e0a64f;
-  --danger: #e05a56;
-  --danger-soft: rgba(224, 90, 86, 0.2);
-  --link: #4fcdf0;
+  --accent-soft: rgba(122, 179, 255, 0.16);
+  --accent-hover: rgba(255, 255, 255, 0.055);
+  --success: #5ec26a;
+  --success-soft: rgba(94, 194, 106, 0.18);
+  --success-strong: rgba(94, 194, 106, 0.44);
+  --warning: #e3a652;
+  --danger: #f4776f;
+  --danger-soft: rgba(244, 119, 111, 0.18);
+  --link: #7ab3ff;
 
   /* ---- Row states ---------------------------------------------------------
      Neutral, all three, so the only colour on a row is the ref chips and the lanes. What says a
      row is selected is `--sel-bar` drawn at its leading edge; the fill only separates it from the
-     rows above and below. Fluent's list states are these same three neutral fills. */
-  --row-hover: rgba(255, 255, 255, 0.05);
-  --row-selected: rgba(255, 255, 255, 0.09);
-  --row-selected-hover: rgba(255, 255, 255, 0.12);
-  --sel-bar: var(--accent);
-  /* The checked-out branch. A green bar rather than the green wash it was, for the reason above:
-     the wash was the second-largest field of colour in the left panel and it was not a lane. */
+     rows above and below. These are ChatGPT's own three sidebar states, which are the same idea
+     at slightly higher alphas than Fluent's — its list items sit on a darker ground. */
+  --row-hover: rgba(255, 255, 255, 0.055);
+  --row-selected: rgba(255, 255, 255, 0.1);
+  --row-selected-hover: rgba(255, 255, 255, 0.13);
+  /* White, not the accent (GC-213). ChatGPT's window has no accent colour to mark a selection
+     with, and the rule this app already had — colour means branch, shape means state — is served
+     better by a mark with no hue in it at all: a white bar beside a magenta lane says "selected",
+     where a blue one said "selected, and also possibly something about blue". */
+  --sel-bar: rgba(255, 255, 255, 0.92);
+  /* The checked-out branch. Green is the one semantic colour that survives here, because "this is
+     the branch you are on" is a state and states are what colour is still allowed to mean. */
   --head-bar: var(--success);
   --head-row: transparent;
 
-  /* Surface tints that were literals in app.css until the light theme needed them to flip (GC-013) */
-  --match-row: rgba(224, 166, 79, 0.16); /* a commit row the search matched */
-  --banner-bg: rgba(224, 166, 79, 0.15); /* the operation banner over the staging view */
-  --hover-overlay: rgba(255, 255, 255, 0.06); /* a control on the title bar or the toolbar */
-  --backdrop: rgba(0, 0, 0, 0.44); /* behind a modal */
+  /* Surface tints that were literals in app.css until they had to be tokens (GC-013) */
+  --match-row: rgba(227, 166, 82, 0.14); /* a commit row the search matched */
+  --banner-bg: rgba(227, 166, 82, 0.13); /* the operation banner over the staging view */
+  --hover-overlay: rgba(255, 255, 255, 0.055); /* a control on the title bar or the toolbar */
+  --backdrop: rgba(0, 0, 0, 0.5); /* behind a modal */
 
   /* ---- Diff ---------------------------------------------------------------- */
-  --diff-add: rgba(108, 195, 108, 0.16);
-  --diff-del: rgba(224, 90, 86, 0.16);
+  --diff-add: rgba(94, 194, 106, 0.14);
+  --diff-del: rgba(244, 119, 111, 0.13);
   /* The words that actually changed inside a tinted line (GC-104): the same hue again, so the
      mark reads as more of the line tint rather than as a second colour. */
-  --diff-add-word: rgba(108, 195, 108, 0.36);
-  --diff-del-word: rgba(224, 90, 86, 0.36);
-  --diff-gutter: rgba(0, 0, 0, 0.16); /* the line-number column beside a hunk */
+  --diff-add-word: rgba(94, 194, 106, 0.32);
+  --diff-del-word: rgba(244, 119, 111, 0.3);
+  --diff-gutter: rgba(0, 0, 0, 0.2); /* the line-number column beside a hunk */
   /* Lines picked for a partial stage (GC-121). The accent, not a third diff hue: the line keeps its
      own add/del tint underneath and this says which of them the button is about to act on. */
-  --diff-sel: rgba(122, 179, 255, 0.24);
+  --diff-sel: rgba(122, 179, 255, 0.22);
   --diff-sel-edge: rgba(122, 179, 255, 0.9);
 
   /* ---- Graph lanes ---------------------------------------------------------
-     Cycled by column index, and the one saturated palette in the window. Unchanged by GC-212:
-     they were calibrated, they are the app's real colour identity, and everything else was made
-     quieter around them rather than the other way about.
+     Cycled by column index, and the one saturated palette in the window.
 
-     The ten are interleaved rather than walked round the wheel in order (GC-113): `laneColor` is
-     the column index, so the lanes drawn side by side are always *consecutive* indices, and a hue
-     ramp put exactly that pair closest together — lanes 3 and 4 were 25 degrees apart at a
-     contrast ratio of 1.00, one line in two colours nobody could tell apart at the 2px stroke
-     `GraphCell` draws. The same ten values in a different order: every adjacent pair is now at
-     least 100 degrees apart in both themes, 0/1 — HEAD's column and the first branch beside it,
-     the shape of nearly every graph — most of all, and 9/0 too, since lane 10 recycles colour 0
-     next to lane 9. */
-  --lane-0: #1c9fbc;
-  --lane-1: #c22fb0;
-  --lane-2: #e6c23a;
-  --lane-3: #8d2ac2;
-  --lane-4: #7fcf45;
-  --lane-5: #d61e74;
-  --lane-6: #34c99a;
-  --lane-7: #c7262a;
-  --lane-8: #2a6fe0;
-  --lane-9: #e8623a;
+     GC-213 softened them and moved no hue. Every value here is the GC-113 palette with its
+     saturation pulled back roughly 12-18% and its lightness lifted a little, which is what lets
+     ten of them sit on a neutral #212121 without being the loudest thing in a window whose whole
+     point is now that it is quiet. The **hues are untouched**, so GC-113's property is untouched
+     with them: the ten are interleaved rather than walked round the wheel in order (`laneColor`
+     is the column index, so the lanes drawn side by side are always *consecutive* indices, and a
+     hue ramp put exactly that pair closest together), and every adjacent pair is still at least
+     100 degrees apart — 0/1, HEAD's column and the first branch beside it, most of all, and 9/0
+     too, since lane 10 recycles colour 0 next to lane 9.
+
+     The measurements, taken over the whole set: max hue drift from the GC-113 palette **0.57
+     degrees**, worst adjacent pair **100.47** (1/2, which was 100.1 before and is the pair the
+     property has always rested on — a straight desaturation rounded it to 99.9, so lanes 1 and 2
+     each carry a deliberate 0.2-degree nudge apart), and every lane at **3.06 or better** against
+     the new #212121 ground, where a 2px stroke wants 3.
+
+     Retuning one of these means moving its saturation or its lightness. Moving a **hue** is a
+     different change and has to be checked against every neighbour, 9/0 included. */
+  --lane-0: #2eadc9;
+  --lane-1: #c549b7;
+  --lane-2: #dec35f;
+  --lane-3: #9943c8;
+  --lane-4: #91cc66;
+  --lane-5: #d53e84;
+  --lane-6: #55c6a3;
+  --lane-7: #cc4043;
+  --lane-8: #5184d8;
+  --lane-9: #e07e61;
 }
 
 /*
- * Light theme (GC-013, GC-175, GC-212). Our own values.
+ * Acrylic, and what it costs each surface (GC-212, GC-213).
  *
- * GC-175 solved this block by luminance: each surface was given the WCAG ratio its dark
- * counterpart had against the surface it adjoins, because the block before it was flat and
- * nothing separated. That was the right fix with the tools it had — the app had one border alpha
- * and one shadow, so lightness was the only thing left to carry a boundary, and it had to carry
- * all of it. The ground came out at #c7c9cd as a direct consequence: the app-to-menu span is
- * 1.655:1 and white is the ceiling, so the ground could not be lighter and hold the ramp.
+ * **Acrylic, not mica, and the first attempt had it the other way round.** Mica is what a Windows
+ * 11 app is *supposed* to use and it is the wrong material for this design: it is a desaturated,
+ * heavily blurred wallpaper **tint**, drawn to be almost invisible, and behind a content card at
+ * any alpha the graph can be read through it comes to nothing at all — which is exactly what it
+ * looked like on the real window. The frosted glass the macOS reference has is acrylic, and on
+ * this platform acrylic is the only material that reads as glass. Its cost is real and accepted:
+ * Windows flattens an acrylic window to a solid colour whenever it is **not focused**.
  *
- * GC-212 gives the boundary two more tools — a card stroke and a three-step elevation set — and
- * with those the ramp does not have to carry it alone. So the whole ramp is compressed, and
- * because it is compressed the ground is free to be light: #e9ebf0 rather than #c7c9cd, which is
- * where a Windows 11 app's ground actually sits. GC-175's principle survives intact — light holds
- * the same relationships dark does — and the two blocks now measure within 0.03 of each other at
- * every adjoining pair, where GC-175 could only match dark by making light nearly as dark:
+ * `[data-material]` is stamped by `main.tsx` before the first render, from a query parameter the
+ * **main process** puts on the URL — so the attribute is present only where the compositor
+ * actually gave us a material, and absent on an older Windows, another platform, or the offscreen
+ * window an unattended run uses. It is no longer a preference and there is nothing to choose: one
+ * material, on where it can be had.
  *
- *     pair            light   dark    GC-175's light
- *     card / app      1.104   1.131   1.162 (panel/app)
- *     raised / app    1.193   1.310   1.377
- *     menu / card     1.071   1.066   1.427 (menu/panel)
- *     subtle / card   1.065   1.079   —
+ * Everything here is a flat alpha rather than a filter, so rule 1 at the top of this file still
+ * holds and the graph pays nothing per frame.
  *
- * The menu row is the one that moved furthest and it is the one to understand: a flyout no longer
- * separates by being 1.43 times lighter than the panel under it, because it now has a 1px stroke
- * and `--elev-16` under it and it is acrylic, so what is beneath it is visibly blurred. That is
- * how every flyout on this desktop is drawn.
+ * **One scrim, on `body`, and every region is a tint on top of it.** This is the shape of the
+ * whole block and it was got wrong twice before it was right. First each surface carried a scrim
+ * of its own, at three different alphas — and because the side panels are *children* of the card,
+ * theirs composited with the card's and came out at 0.89 while the chrome beside them sat at
+ * 0.66: three unrelated materials in one window, with the header the most see-through thing on
+ * screen. Then the alphas were matched, which fixed the chrome and left the last hole: the
+ * `--card-inset` gutter around the card is painted by **nothing**, so that 8px frame was raw
+ * acrylic with no scrim at all while every surface inside it had one.
  *
- * This is a deliberate revision of GC-175, not a drift back to the block GC-175 replaced. The test
- * is the same one GC-175 set — every adjoining pair must read as two surfaces — and it is now met
- * by stroke, shadow and blur as well as by lightness. If the strokes or the elevation set are ever
- * taken off, this block is wrong, and GC-175's numbers are the way back.
+ * So the scrim moved to the one element that covers the whole window. `body` carries it, the
+ * chrome paints nothing and simply shows it, and the card and the sidebars are **white tints**
+ * over it — `.main` itself paints nothing, its children do, or a tint on a panel would land on
+ * top of the card's tint and the nesting problem would be back. The gutter, the title bar, the
+ * toolbar and the status bar are then all literally the same pixels, which is what makes them
+ * match, and the two tints reproduce the flat palette's own ramp over whatever the scrim
+ * resolves to: ground, +4 for a sidebar, +13 for the working surface.
  *
- * Only values change. `data-theme` is stamped on the document element by `prefs.ts`, which
- * resolves the `system` setting itself rather than leaving it to a media query, so the renderer
- * always knows which theme is showing and can tell the main process what to paint the window
- * controls (GC-013).
+ * 0.74 is the scrim. It keeps a 10px toolbar label readable over the worst backdrop measured — a
+ * saturated orange banner in a browser window — while still letting that orange through as a
+ * warm cast. Less and the header goes with the wallpaper; more and the material stops being
+ * visible at all, at which point there is no reason to have asked the OS for one.
+ *
+ * **Every surface inside the card becomes a veil rather than a fill.** `--bg-panel-raised` and
+ * `--bg-input` are written as opaque hex in the base palette because that is cheaper and exact
+ * when the ground is flat; over glass the same values are opaque islands floating on a
+ * translucent pane, which is the single thing that most gives away a fake frosted window. Here
+ * they go back to the white alphas they were derived from, so an input well *lifts* the glass
+ * instead of covering it.
+ *
+ * **`--bg-subtle` is the one exception, and it has to be.** It is a sticky file-list head, so its
+ * job is to hide the rows passing under it; at a white alpha they show straight through, which is
+ * worse than an opaque band by a distance. It goes to 96% rather than 100% — enough glass to
+ * belong to the surface, not enough to be transparent to a scrolling row.
+ *
+ * A material cannot be tuned without a real on-screen window: an offscreen render has no material
+ * at all and a test harness backdrop is a guess at one. Every value in this block was set from a
+ * screenshot of the actual app and should be changed the same way.
  */
-:root[data-theme='light'] {
-  color-scheme: light;
+:root[data-material] {
+  /* The window's one scrim, painted by `body` and by nothing else. `--bg-chrome` is deliberately
+     **not** overridden here: the title bar, the toolbar and the status bar keep painting nothing
+     at all, so they show this and are the same pixels as the gutter around the card. */
+  --window-scrim: rgba(20, 20, 20, 0.74);
+  /* The two tints over it, which reproduce the flat palette's ramp: ground #141414, sidebar
+     #181818 (+4), working surface #212121 (+13). As white alphas so the step is the same number
+     of levels whatever the scrim resolves to over the user's desktop. */
+  --bg-card-glass: rgba(255, 255, 255, 0.05);
+  --bg-sidebar-glass: rgba(255, 255, 255, 0.016);
+  --bg-subtle: rgba(26, 26, 26, 0.93);
+  --bg-panel-raised: rgba(255, 255, 255, 0.11);
+  --bg-input: rgba(255, 255, 255, 0.09);
+  /* A hairline at 5.5% white survives on a flat #212121; on glass, where what is behind it moves
+     with the wallpaper, it needs the extra points to stay a line at every backdrop. */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
+}
 
-  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.34);
-
-  --base: #e9ebf0;
-  --bg-card: #f5f6f9;
-  --bg-panel-raised: #ffffff;
-  --bg-subtle: #edeff3;
-  --bg-menu: rgba(255, 255, 255, 0.78);
-  --bg-card-glass: rgba(245, 246, 249, 0.7);
-
-  --bg-input: rgba(0, 0, 0, 0.04);
-  /* Decided by the luminance step, not by matching dark's number (GC-175): black and white sit at
-     opposite ends of the sRGB transfer curve, so the same alpha does not buy the same line. These
-     carry more of the boundary than dark's do, which is the whole of GC-212's revision above. */
-  --border: rgba(0, 0, 0, 0.09);
-  --border-strong: rgba(0, 0, 0, 0.16);
-  /* The bottom-heavy control edge, which in light is what it is actually for: a dark line along
-     the lower edge of a button or an input, so the control reads as sitting on the surface. */
-  --control-edge: inset 0 -1px 0 rgba(0, 0, 0, 0.11);
-
-  --elev-4: 0 2px 4px rgba(0, 0, 0, 0.1), 0 0 2px rgba(0, 0, 0, 0.08);
-  --elev-16: 0 8px 16px rgba(0, 0, 0, 0.12), 0 0 2px rgba(0, 0, 0, 0.09);
-  --elev-64: 0 32px 64px rgba(0, 0, 0, 0.18), 0 0 8px rgba(0, 0, 0, 0.1);
-
-  /* Text as black with alpha, mirroring the white alphas above */
-  --text: rgba(0, 0, 0, 0.84);
-  --text-bright: #14161a;
-  --text-muted: rgba(0, 0, 0, 0.62);
-  --text-dim: rgba(0, 0, 0, 0.45);
-  --text-inverse: #ffffff;
-  --on-accent: #ffffff;
-
-  /* Semantic: darkened until each one reads against a white surface. The accent is mid rather than
-     light here, so what is drawn on it goes back to white. */
-  --accent: #0f6cbd;
-  --accent-soft: rgba(15, 108, 189, 0.14);
-  --accent-hover: rgba(15, 108, 189, 0.08);
-  --accent-strong: rgba(15, 108, 189, 0.3);
-  --success: #2e7d32;
-  --success-soft: rgba(46, 125, 50, 0.18);
-  --success-strong: rgba(46, 125, 50, 0.34);
-  --warning: #9a6410;
-  --danger: #c62828;
-  --danger-soft: rgba(198, 40, 40, 0.16);
-  --link: #0b6f96;
-
-  --row-hover: rgba(0, 0, 0, 0.045);
-  --row-selected: rgba(0, 0, 0, 0.075);
-  --row-selected-hover: rgba(0, 0, 0, 0.1);
-
-  --match-row: rgba(214, 148, 20, 0.22);
-  --banner-bg: rgba(214, 148, 20, 0.2);
-  /* The hover overlay darkens on a light surface, where a white wash would be invisible */
-  --hover-overlay: rgba(0, 0, 0, 0.05);
-  --backdrop: rgba(0, 0, 0, 0.3);
-
-  --diff-add: rgba(46, 125, 50, 0.16);
-  --diff-del: rgba(198, 40, 40, 0.13);
-  --diff-add-word: rgba(46, 125, 50, 0.34);
-  --diff-del-word: rgba(198, 40, 40, 0.3);
-  --diff-gutter: rgba(0, 0, 0, 0.045);
-  --diff-sel: rgba(15, 108, 189, 0.18);
-  --diff-sel-edge: rgba(15, 108, 189, 0.9);
-
-  /* Lanes, darkened so ten of them stay apart on white; the yellow and green move furthest.
-     Re-derived in step with the dark ramp, in the same interleaved order (GC-113). */
-  --lane-0: #0f7f99;
-  --lane-1: #a32496;
-  --lane-2: #8a6d0c;
-  --lane-3: #7420a3;
-  --lane-4: #4b8f22;
-  --lane-5: #b81b62;
-  --lane-6: #157f60;
-  --lane-7: #a81f23;
-  --lane-8: #1f57bd;
-  --lane-9: #bd4a22;
+/*
+ * Reduced motion, in one place (GC-214).
+ *
+ * Every duration, curve and distance the app animates on is a token in the block above, so this
+ * is the whole of its answer to `prefers-reduced-motion: reduce`: the distances go to zero, the
+ * overshoot goes flat, and the two longer durations come down to the shortest. What is left is
+ * an opacity change fast enough to read as a state changing rather than as a thing moving —
+ * which is what the setting asks for, and is not the same as turning motion off. A fade still
+ * says "this is new"; a surface that is simply *there* on the next frame says nothing at all.
+ *
+ * The spinner is deliberately untouched. It is a 10px disc, far below the size at which a
+ * rotation is a vestibular trigger, and it is the only thing in the window that says a command
+ * is still running: stopping it would cost a user information rather than save them discomfort.
+ *
+ * Because this overrides the tokens and not the rules, an animation added to `app.css` later is
+ * covered by it automatically — as long as it is written from the tokens. That is why the
+ * no-literals rule above is a rule and not a preference.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-2: var(--dur-1);
+    --dur-3: var(--dur-1);
+    --rise: 0px;
+    --rise-lg: 0px;
+    --flyout-scale: 1;
+    --dialog-scale: 1;
+    --press-scale: 1;
+    --ease-settle: var(--ease-standard);
+  }
 }

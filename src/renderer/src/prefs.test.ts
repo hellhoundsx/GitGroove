@@ -66,8 +66,6 @@ describe('load', () => {
       confirmDirtyCheckout: false,
       commitColumnGuide: false,
       graphColumns: { author: true, date: true, sha: false },
-      theme: 'light',
-      windowMaterial: 'acrylic',
       diffView: 'split',
       diffIgnoreWhitespace: true,
       diffWordWrap: true,
@@ -85,48 +83,23 @@ describe('load', () => {
       confirmDirtyCheckout: DEFAULT_PREFS.confirmDirtyCheckout,
       commitColumnGuide: DEFAULT_PREFS.commitColumnGuide,
       graphColumns: DEFAULT_PREFS.graphColumns,
-      theme: DEFAULT_PREFS.theme,
-      windowMaterial: DEFAULT_PREFS.windowMaterial,
       diffView: DEFAULT_PREFS.diffView,
       diffIgnoreWhitespace: DEFAULT_PREFS.diffIgnoreWhitespace,
       diffWordWrap: DEFAULT_PREFS.diffWordWrap,
     });
   });
 
-  // The theme is the one setting the main process is told about as well, so a blob carrying a
-  // value that is not one of the three has to land on the default rather than reach the bridge.
-  it('keeps a valid theme and falls back on anything else (GC-013)', async () => {
-    for (const theme of ['dark', 'light', 'system']) {
-      const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify({ theme }) });
-      expect(getPrefs().theme).toBe(theme);
-    }
-    for (const theme of ['neon', '', 42, null]) {
-      const { getPrefs, DEFAULT_PREFS } = await freshPrefs({ [KEY]: JSON.stringify({ theme }) });
-      expect(getPrefs().theme).toBe(DEFAULT_PREFS.theme);
-    }
-  });
-
-  // The window material is the second setting the main process is told about (GC-212), and the
-  // only one whose *answer* comes back from there: `applyMaterial` stamps what was applied, never
-  // what was asked for. What this file is responsible for is the half before that — a blob cannot
-  // put a value on the bridge that is not one of the three.
-  it('keeps a valid window material and falls back on anything else (GC-212)', async () => {
-    for (const windowMaterial of ['mica', 'acrylic', 'none']) {
-      const { getPrefs } = await freshPrefs({ [KEY]: JSON.stringify({ windowMaterial }) });
-      expect(getPrefs().windowMaterial).toBe(windowMaterial);
-    }
-    for (const windowMaterial of ['glass', '', 42, null, 'Mica']) {
-      const { getPrefs, DEFAULT_PREFS } = await freshPrefs({ [KEY]: JSON.stringify({ windowMaterial }) });
-      expect(getPrefs().windowMaterial).toBe(DEFAULT_PREFS.windowMaterial);
-    }
-  });
-
-  // Mica rather than acrylic, and the reason is not taste: Windows fades an acrylic window to a
-  // flat colour whenever it is not focused, which for a tool that sits open beside an editor is
-  // most of the time. A default that looks broken half the time is not a default.
-  it('defaults the window material to mica (GC-212)', async () => {
-    const { DEFAULT_PREFS } = await freshPrefs();
-    expect(DEFAULT_PREFS.windowMaterial).toBe('mica');
+  // The theme (GC-013) and the window material (GC-212) were both preferences and are neither any
+  // more (GC-213): there is one palette and one material, so there is nothing here to validate, no
+  // value a hand-edited blob can put on a bridge, and no bridge. The three tests that stood here
+  // went with them. What replaces them is the assertion below — that a blob still carrying the old
+  // keys loads cleanly rather than dragging them back into the live object.
+  it('ignores the theme and material keys a pre-GC-213 blob still carries', async () => {
+    const stale = { theme: 'light', windowMaterial: 'acrylic', pullMode: 'rebase' };
+    const { getPrefs, DEFAULT_PREFS } = await freshPrefs({ [KEY]: JSON.stringify(stale) });
+    expect(getPrefs()).toEqual({ ...DEFAULT_PREFS, pullMode: 'rebase' });
+    expect(getPrefs()).not.toHaveProperty('theme');
+    expect(getPrefs()).not.toHaveProperty('windowMaterial');
   });
 
   // The two diff toggles are plain booleans, and both default to off: a diff that hides

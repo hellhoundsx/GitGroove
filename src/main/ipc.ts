@@ -1,6 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { existsSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { release } from 'node:os';
 import type {
   ApplyPatchOptions,
@@ -16,9 +16,7 @@ import type {
   PullMode,
   PushRequest,
   ResetMode,
-  ResolvedTheme,
   StashSaveRequest,
-  WindowMaterial,
   WorkdirDiffRequest,
 } from '@shared/types';
 import { isWebUrl } from '@shared/remotes';
@@ -48,81 +46,24 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: st
 const repoOf = (v: unknown): string => str(v, 'A repository path');
 
 /**
- * The OS window controls are drawn by Windows, not by us, so they are the one part of the frame a
- * `tokens.css` theme cannot reach: they keep whatever colours the window was built with until the
- * renderer says the theme changed (GC-013). These two pairs are the `--bg-titlebar` and a text
- * colour from each palette, kept here rather than read from CSS because the window is created
- * before any renderer exists to ask.
- */
-export const TITLE_BAR_OVERLAY: Record<ResolvedTheme, { color: string; symbolColor: string; height: number }> = {
-  dark: { color: '#17191d', symbolColor: '#d4d6db', height: 34 },
-  light: { color: '#e9ebf0', symbolColor: '#3a3d44', height: 34 },
-};
-
-/**
- * Repaint one window's controls. Only Windows draws an overlay, and only a window built with
- * `titleBarStyle: 'hidden'` accepts one, so a platform that has neither is a no-op rather than an
- * error reaching the renderer as a failed IPC call.
- */
-function applyTitleBarOverlay(win: BrowserWindow, theme: ResolvedTheme): void {
-  if (process.platform !== 'win32') return;
-  try {
-    win.setTitleBarOverlay(TITLE_BAR_OVERLAY[theme]);
-  } catch {
-    /* a window without an overlay has nothing to repaint */
-  }
-}
-
-/** The two themes the window controls can be painted for, validated like every other enum (GC-013). */
-const THEMES: readonly ResolvedTheme[] = ['dark', 'light'];
-
-/**
- * `--bg-app` from each palette, for the same reason the overlay pairs are here: the window is
- * painted before any renderer exists to ask (GC-102). The dark value used to be a `#1b1d22` of its
- * own in `index.ts`, one shade off the token it was standing in for.
- */
-export const WINDOW_BACKGROUND: Record<ResolvedTheme, string> = { dark: '#17191d', light: '#e9ebf0' };
-
-/**
- * The theme setting itself lives in the renderer's `localStorage` — `prefs.ts` resolves `system`
- * there and reports the answer over `window:theme` (GC-013) — so the main process has no way to
- * know it at `createWindow` time and built every window dark, whatever the theme (GC-102). It gets
- * its own copy: one small file under the profile's `userData`, which is per Electron profile, so a
- * launcher run on its own port cannot change what Ricardo's window opens as (GC-060).
+ * The OS window controls are drawn by Windows, not by us, so they are the one part of the frame
+ * `tokens.css` cannot reach (GC-013). Kept here rather than read from CSS because the window is
+ * created before any renderer exists to ask.
  *
- * Read lazily rather than at module scope, because `index.ts` applies `GITCLIENT_USER_DATA` with
- * `app.setPath` after this module has been imported.
+ * One pair, not one per theme (GC-213): there is one look now, so these are `--bg-chrome`'s
+ * ground and a symbol colour off `--text-muted`, and nothing ever repaints them. `window:theme`
+ * and the `window-theme.json` that remembered what to build the next window with went with the
+ * setting — with a single palette there is nothing to remember and nothing to get wrong on the
+ * first frame, which is the whole of what GC-102 existed to solve.
  */
-const themeFile = (): string => join(app.getPath('userData'), 'window-theme.json');
+export const TITLE_BAR_OVERLAY = { color: '#141414', symbolColor: '#adadad', height: 34 };
 
-/** What to build the next window with. A first-ever start has nothing remembered, and stays dark. */
-export function rememberedTheme(): ResolvedTheme {
-  try {
-    const raw = JSON.parse(readFileSync(themeFile(), 'utf8')) as { theme?: unknown };
-    return (THEMES as readonly string[]).includes(raw.theme as string) ? (raw.theme as ResolvedTheme) : 'dark';
-  } catch {
-    return 'dark'; // no file yet, or one edited into something that is not a theme
-  }
-}
-
-function rememberTheme(theme: ResolvedTheme): void {
-  try {
-    const raw = JSON.parse(readFileSync(themeFile(), 'utf8')) as Record<string, unknown>;
-    writeFileSync(themeFile(), JSON.stringify({ ...raw, theme }));
-  } catch {
-    try {
-      writeFileSync(themeFile(), JSON.stringify({ theme }));
-    } catch {
-      /* a profile we cannot write to only costs the next start its first frame */
-    }
-  }
-}
-
-/** The three materials the renderer can ask for, validated like every other enum (GC-212). */
-const MATERIALS: readonly WindowMaterial[] = ['mica', 'acrylic', 'none'];
+/** `--bg-app`, for the same reason: the window is painted before any renderer exists to ask. */
+export const WINDOW_BACKGROUND = '#141414';
 
 /**
- * Whether this process can put a material behind a window at all (GC-212). Three conditions, each
+ * Whether this process can put the window material behind a window at all (GC-212). The material
+ * is **acrylic** (GC-213, see `index.ts`). Three conditions, each
  * ruling it out for a reason rather than out of caution:
  *
  * - **Windows 11** (build 22000) is where the materials exist.
@@ -131,35 +72,15 @@ const MATERIALS: readonly WindowMaterial[] = ['mica', 'acrylic', 'none'];
  *   ground over nothing and every unattended screenshot would come back over a void.
  * - A **Windows 11 that refuses** — transparency effects switched off — needs nothing here: the OS
  *   substitutes a solid backdrop itself, so the window is still painted.
+ *
+ * Exported because `index.ts` both builds the window with it and tells the renderer about it: the
+ * answer travels as a query parameter on the URL rather than over IPC (GC-213), so `main.tsx` can
+ * stamp `data-material` before the first render instead of a frame or two after it.
  */
-const materialsAvailable =
+export const glassAvailable =
   process.platform === 'win32' &&
   process.env.GITCLIENT_STEALTH !== '1' &&
   Number(release().split('.')[2] ?? 0) >= 22000;
-
-/** What the next window is built with, so the material is on from the first frame (GC-102's rule). */
-export function rememberedMaterial(): WindowMaterial {
-  if (!materialsAvailable) return 'none';
-  try {
-    const raw = JSON.parse(readFileSync(themeFile(), 'utf8')) as { material?: unknown };
-    return (MATERIALS as readonly string[]).includes(raw.material as string) ? (raw.material as WindowMaterial) : 'mica';
-  } catch {
-    return 'mica'; // no file yet: a Windows 11 app's own default
-  }
-}
-
-function rememberMaterial(material: WindowMaterial): void {
-  try {
-    const raw = JSON.parse(readFileSync(themeFile(), 'utf8')) as Record<string, unknown>;
-    writeFileSync(themeFile(), JSON.stringify({ ...raw, material }));
-  } catch {
-    try {
-      writeFileSync(themeFile(), JSON.stringify({ material }));
-    } catch {
-      /* as above: at worst the next start opens on the previous material */
-    }
-  }
-}
 
 /** The three patterns the row menu can write, validated like every other enum argument (GC-093). */
 const IGNORE_KINDS: readonly IgnoreKind[] = ['file', 'extension', 'folder'];
@@ -253,36 +174,11 @@ export function registerIpc(): void {
     return git.getFileLog(repoOf(repo), repoRelAny(repo, path), max);
   });
   ipcMain.handle('repo:status', (_e, repo: unknown) => git.getStatus(repoOf(repo)));
-  // The one channel that touches neither git nor the file system: the window controls Windows
-  // draws for us, repainted for the theme the renderer resolved (GC-013).
-  ipcMain.handle('window:theme', (event, theme: unknown) => {
-    const resolved = oneOf(theme, THEMES, 'A theme');
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) applyTitleBarOverlay(win, resolved);
-    // Remembered whether or not there is a window to repaint: what the next start is built with
-    // is the point, and this is the only moment the main process is ever told (GC-102).
-    rememberTheme(resolved);
-  });
-  // The other channel that touches neither git nor the file system (GC-212). It answers with the
-  // material it **actually applied**, never with the one it was asked for: the renderer stamps that
-  // answer, so a platform or a launch that cannot have one never ends up with a translucent
-  // stylesheet over a ground nothing paints. `setBackgroundMaterial` at runtime is what makes the
-  // preference apply immediately, the way every other setting in this app does.
-  ipcMain.handle('window:material', (event, material: unknown): WindowMaterial => {
-    const asked = oneOf(material, MATERIALS, 'A window material');
-    const applied: WindowMaterial = materialsAvailable ? asked : 'none';
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) {
-      try {
-        win.setBackgroundMaterial(applied);
-      } catch {
-        /* a platform whose window has no material to set; the answer below still says 'none' */
-        if (applied !== 'none') return 'none';
-      }
-    }
-    rememberMaterial(applied);
-    return applied;
-  });
+  // The `window:*` group is gone with the settings it served (GC-213). `window:theme` repainted
+  // the OS window controls for a theme that no longer varies, and `window:material` answered
+  // which of three materials had been applied when there is now one, decided before the window
+  // exists and told to the renderer on the URL. Two channels, two preload entries and a
+  // `window-theme.json` under every profile, all in service of a choice that has been removed.
   // The watcher pushes on `repo:changed`; this is only the renderer saying what to watch (GC-011).
   ipcMain.handle('repo:watch', (event, repo: unknown) => {
     watchRepo(event.sender, repo === null || repo === undefined ? null : repoOf(repo));
