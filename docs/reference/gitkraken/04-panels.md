@@ -57,6 +57,46 @@ Right: three small icon buttons (Launchpad list, keyboard shortcuts, gift),
 zoom select with magnifier icon (80% to 130%), Support link, plan badge (orange
 pill, 15px tall), version button.
 
+## Action bar: a push that would not fast-forward
+
+From Ricardo's own capture, 2026-09-20, on our own repository after an amend of a
+published commit -- local `main` and `origin/main` each carrying a commit titled
+"fix spacings" off the same parent. Not from the 2026-09-05 CDP session, so there is
+no DOM dump or computed style behind it; what follows is read off the screenshot.
+
+A bar spans the **full width of the window, above everything** -- above the graph's
+own column headers (BRANCH / TAG, GRAPH, COMMIT MESSAGE) and above the left panel's
+head. Message centred, then three buttons right of it:
+
+| Part | Content |
+| --- | --- |
+| Message | `'refs/heads/main' is behind 'refs/remotes/origin/main'. Update your branch by doing a Pull.` |
+| Button 1 | `Pull (fast-forward if possible)` -- green outline, green label, no fill |
+| Button 2 | `Force Push` -- red outline, red label, no fill |
+| Button 3 | `Cancel` -- neutral outline and label |
+
+Three things worth taking from it, and one worth not taking.
+
+- **It arrives instead of the refusal, not after it.** The presence of `Cancel`
+  says this interrupted an action the user started: GitKraken worked out that the
+  push would not fast-forward and asked rather than letting git refuse. The user
+  never meets a non-fast-forward error at all.
+- **Every way out is on it**, including the destructive one, and the safe one is
+  first and drawn in green while `Force Push` is drawn in red. The choice is
+  presented as a choice, not as an error with a remedy hidden elsewhere.
+- **It is chrome, not a modal.** No backdrop, nothing dimmed, the graph fully
+  readable underneath -- which is what lets the user look at the two "fix spacings"
+  rows in the graph while deciding.
+- **The wording is wrong and should not be copied.** `main` had not fallen *behind*
+  `origin/main`; the two had **diverged** -- one commit each side of the amend,
+  ahead 1 and behind 1 -- and "Update your branch by doing a Pull" describes the
+  answer to a different situation. It is the same imprecision git's own
+  `hint:` lines carry (see `INBOX.md`, 2026-09-20). GitKraken gets away with it
+  because `Force Push` is sitting right there; our own copy has no reason to repeat it,
+  and the app already knows ahead/behind from the snapshot.
+
+Fully-qualified ref names (`refs/heads/main`, not `main`) throughout the message.
+
 ## Detail panel: staging / WIP view
 
 Shown when the WIP row is selected. Screenshot `02-main-1080.png` right side.

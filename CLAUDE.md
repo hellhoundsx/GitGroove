@@ -1686,6 +1686,28 @@ now the whole of the rule: a new colour is a token or it is in the wrong file.
   split buttons' caret. `.crumb.as-button` is a row of a `.stack` and that icon, so the menu still
   hangs off the crumb's own bottom-left corner and the chevron is part of the button rather than a
   second target.
+- **The toolbar is three columns, so its centre group is placed by the window and not by what is
+  beside it** (GC-223). `.toolbar` is `minmax(0, 1fr) auto minmax(0, 1fr)`: the two side tracks
+  take free space in equal parts whatever they hold, so the action row sits at the window's own
+  centre and nothing on either side can move it. It was a flex row whose `.actions` carried
+  `margin: 0 auto`, which centres an item in the space *left over*, so every pixel the crumbs
+  gained or lost moved the whole row by half of it — measured at 1400px from real git states,
+  `↑1 ↓1` put its left edge at 498, no badge at 473.7, a push leaving `↓1` at 491.5 and a longer
+  branch name at 566.8. A 93px spread over four ordinary states, and the row twitched under the
+  pointer on every push, pull and checkout. It is 466 in all four now. The right-hand group was
+  always pinned to the end and still is.
+  The zero minimum is the load-bearing half — an `auto` minimum would let a long name grow its
+  track and shove the centre exactly as before — so **the crumbs ellipsise inside a bounded track**
+  instead, and three things make that real: `min-width: 0` on `.crumb.as-button`, which was the one
+  link in the chain still at `auto`; `max-width: 100%` on `.caption` and `.value`, because `.stack`
+  is a *column* flex container and its children are cross-axis items, left at max-content whatever
+  the stack is; and a `.name` span inside `.value`, so the text is the half that gives way and the
+  ahead/behind badge — the thing that says a push or a pull is owed — is `flex: none` beside it.
+  The two crumbs then share the track by what each one holds, `flex: 1 1 0` with
+  `max-width: max-content`, which is GC-213's rule for the staging panel's lists one axis over:
+  proportional shrinking let a 43-character branch name take 17px off `headrepo` and draw it as
+  `head…` with 466px of track to sit in. Verified symmetric — a long repository name ellipsises
+  and leaves `main` whole.
 - **One global `::-webkit-scrollbar` rule set** near the top: 8px, a flat thumb at a 4px radius,
   transparent track and corner, no buttons. Every scroll container gets it with no per-component
   rule. Do **not** also set the standard `scrollbar-width` or `scrollbar-color`: either makes
@@ -2177,6 +2199,12 @@ one flexible item per fixed-height row in the file view, with every control `fle
 row itself `nowrap`, so the path and the hunk's context are what give way and no label is ever
 broken across a row that cannot grow to hold it; and whole controls dropped after that, least
 identifying first, against a floor the file name keeps (Diff);
+
+the toolbar's centre group placed by the window rather than by the width of the crumbs beside it,
+so a badge appearing, a branch checked out or a repository switched moves nothing; the crumbs
+bounded and ellipsising inside their own track, with the name the half that gives way and the
+ahead/behind badge the half that does not; and that track shared by what each crumb holds rather
+than in proportion to what each wants (Styling);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control

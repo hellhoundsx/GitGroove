@@ -166,7 +166,12 @@ export function Toolbar(p: Props): JSX.Element {
               hangs off — the crumb's bottom-left corner — is unmoved. */}
           <span className="stack">
             <span className="caption">repository</span>
-            <span className="value">{p.info?.name ?? '—'}</span>
+            {/* The name is its own span so it is the half of the value that may shrink (GC-223):
+                a crumb's track is bounded now, and what gives way inside it is the text, never
+                the marks beside it. */}
+            <span className="value">
+              <span className="name">{p.info?.name ?? '—'}</span>
+            </span>
           </span>
           <Icon of={ChevronDown} size={14} />
         </button>
@@ -186,7 +191,7 @@ export function Toolbar(p: Props): JSX.Element {
             <span className="stack">
               <span className="caption">branch</span>
               <span className="value plain">
-                {p.info.branch ?? 'detached HEAD'}
+                <span className="name">{p.info.branch ?? 'detached HEAD'}</span>
                 {(p.ahead > 0 || p.behind > 0) && (
                   <span className="ab-badge" title={`${p.ahead} ahead, ${p.behind} behind the upstream`}>
                     {p.ahead > 0 && `↑${p.ahead}`} {p.behind > 0 && `↓${p.behind}`}

@@ -671,8 +671,27 @@ textarea {
 
 /* No fill and no bottom rule: the toolbar sits on the window's material, and what separates it
    from the work below is the card's own edge and the gap around it (GC-212). */
+/*
+ * Three columns, so the centre group is placed by the toolbar and not by what is beside it
+ * (GC-223).
+ *
+ * It was a flex row whose actions carried `margin: 0 auto`, which centres an item in the space
+ * *left over* — so every pixel the crumbs gained or lost moved the whole action row by half of
+ * it. Measured at 1400px, from git rather than by hand: `↑1 ↓1` put the row's left edge at 498,
+ * pushing to no badge at all moved it to 473.7 and a push leaving `↓1` to 491.5, and checking out
+ * a branch with a longer name moved it to 566.8 — a 93px spread over four ordinary states, and
+ * the row twitches under the pointer on every push, pull and checkout. The right-hand group never
+ * moved, being pinned to the end.
+ *
+ * `minmax(0, 1fr) auto minmax(0, 1fr)` gives the two side tracks free space in equal parts
+ * whatever they hold, so the centre track is the window's own centre and nothing on either side
+ * can move it. The zero minimum is the load-bearing half: an `auto` minimum would let a long
+ * repository name grow its track and shove the centre exactly as before, so the crumbs are given
+ * a bounded track and ellipsise inside it instead.
+ */
 .toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: stretch;
   background: var(--bg-toolbar);
 }
@@ -682,6 +701,9 @@ textarea {
 .breadcrumb {
   display: flex;
   align-items: center;
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
   padding: 0 var(--sp-1);
   gap: var(--sp-2);
 }
@@ -696,10 +718,40 @@ textarea {
   font-size: var(--fs-xs);
   color: var(--text-dim);
 }
+/*
+ * A row, so the text is the one part that gives way (GC-223). The crumbs share a bounded track
+ * now, and inside a crumb it is the name that shrinks: the ahead/behind badge is what says a push
+ * or a pull is owed and is the last thing worth clipping, and the chevron is what says the crumb
+ * opens a menu at all (GC-194). Same rule as the file view's head, one row up — one flexible item,
+ * everything else `flex: none`.
+ */
 .crumb .value {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   font-size: var(--fs-lg);
   color: var(--text-bright);
   font-weight: 600;
+}
+.crumb .value > * {
+  flex: none;
+}
+.crumb .caption,
+.crumb .value .name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* `.stack` is a **column** flex container, so its children are sized along the cross axis — which
+   is not shrunk, and `align-items: flex-start` leaves each at its max-content width whatever the
+   stack is. Measured at a 900px window, a 115px stack held a 384.9px value. A cap is what bounds
+   them; the shrinking then happens inside the value, where `.name` gives way and the badge does
+   not. */
+.crumb .caption,
+.crumb .value {
+  max-width: 100%;
 }
 .crumb .value.plain {
   font-weight: 400;
@@ -715,6 +767,21 @@ textarea {
   align-items: center;
   gap: var(--sp-2);
   text-align: left;
+  /* The crumb is itself a flex item of a track that is now bounded (GC-223), and a flex item's
+     default `min-width: auto` is what stops it shrinking — it was the one link in the chain still
+     at `auto`, measured 422.9px wide inside a 216px breadcrumb at a 900px window, spilling 330px
+     of branch name straight across the action row.
+
+     And the two crumbs share that track by what each one holds, which is GC-213's rule for the
+     staging panel's lists one axis over: `flex-basis: 0` asks for an equal half and
+     `max-width: max-content` clamps a crumb to its own name, and resolving that max violation
+     freezes it and hands what it gave up to the other. Plain `0 1 auto` shrinks in proportion to
+     natural width, so at a 1400px window a 43-character branch name took 17px off `headrepo` and
+     drew it as `head…` while it had 466px of track to sit in. Now the short name is whole and the
+     long one ellipsises, whichever of the two is which. */
+  flex: 1 1 0;
+  max-width: max-content;
+  min-width: 0;
   /* The box the hover tint is drawn in, the treatment `.tool-btn` and the tab row already take
      (GC-193, GC-213). Nothing is drawn here at rest. */
   padding: 0 var(--sp-2);
@@ -747,10 +814,10 @@ textarea {
 }
 .toolbar .actions {
   display: flex;
-  margin: 0 auto;
 }
 .toolbar .actions.right {
-  margin: 0 var(--sp-2) 0 0;
+  justify-self: end;
+  margin-right: var(--sp-2);
 }
 /* Sized to its label, not to a fixed 52px: "Preferences" is wider than that and used to spill
    out of the button and into the "Shortcuts" label next to it (GC-048). 52px stays as the
