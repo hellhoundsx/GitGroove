@@ -2757,6 +2757,7 @@ textarea {
 .file-view-head {
   height: 36px;
   flex: none;
+  container-type: inline-size;
   animation: rise-in var(--dur-3) var(--ease-out);
   display: flex;
   align-items: center;
@@ -2765,6 +2766,78 @@ textarea {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-md);
+  /* No label in this row is ever broken across lines. The row is a fixed 36px, so a label that
+     wraps does not make it taller — it spills out of it, over the toolbar above and the
+     sub-header below (GC-222). */
+  white-space: nowrap;
+}
+/*
+ * What gives way in the head, and in what order (GC-222).
+ *
+ * Every control here was a shrinkable flex item, so a head too narrow for all of them took the
+ * shortfall from *everything at once*, in proportion to natural width — which is the reverse of
+ * what it is worth. Measured on a 1400px window (head 938px) with `assets/branding/
+ * gitclient-logo-v1.prompt.md` open: `+13 −0` wrapped to two lines and stood 40px tall in the 36px
+ * row, the three `.icon-btn`s were squeezed from 24px to 21, `Stage file` and `Discard changes`
+ * gave up 7px each, and the path — the only thing on the row saying *which file this is* — gave
+ * up 38px it did not have to. By a 1100px window the path was 25px and the name was gone
+ * entirely, while `Diff | History` and `Unified | Split` sat at their full 220px between them.
+ *
+ * So: the path is the one flexible item, and it gives way first and completely — losing its
+ * folder's head and then ellipsising its name, which is GC-192's rule one level out. A control
+ * keeps its size or it is not drawn at all; none is ever half-drawn.
+ */
+.file-view-head > * {
+  flex: none;
+}
+.file-view-head > .path {
+  flex: 0 1 auto;
+}
+/*
+ * And what gives way after the path: whole controls, least identifying first (GC-222).
+ *
+ * `fitOptCols`' own rule for the graph's optional columns, in CSS rather than in a fit function,
+ * because every width here is a constant — so the thresholds are arithmetic and need no
+ * measurement, no `ResizeObserver` and no state, which is why GC-213 reached for flexbox over
+ * `fitSections` in the staging panel. A query is against the container's **content box**, so these
+ * are head width less its 24px of padding.
+ *
+ * Each is the width at which the controls stop leaving the path **160px** — the floor a file name
+ * keeps, which is `MIN_MSG_W` one panel over: the path is what this whole view is *of*, and a
+ * head that cannot name its file is no better for having kept a toggle. Measured, with the widest
+ * pair of action buttons the view can draw (`Stage file` 80 + `Discard changes` 122): everything
+ * drawn costs 710, and each rung takes its control and the 8px gap that went with it — stats 40,
+ * the two toggles 66, the two arrows 48, `Unified | Split` 112. That leaves 396 against the 414 a
+ * head has at the app's own 900px `minWidth` (a 438px head), so the actions and the close button
+ * are reachable at every width the window can reach, and below 556 the floor is simply the last
+ * thing to go, there being nothing left to drop for it.
+ *
+ * All four are reachable elsewhere, which is why they are the ones that go: the counts are what
+ * the diff body is showing, both toggles and the layout are preferences in Preferences, and
+ * scrolling is what the arrows do. `Diff | History` stays — inside this view it is the only way
+ * to the other mode. The cost of a fixed threshold is stated rather than hidden: a commit view
+ * draws no action buttons and so has ~218px of slack these numbers do not know about, and drops
+ * its counts earlier than it strictly must.
+ */
+@container (max-width: 870px) {
+  .file-view-head .stats {
+    display: none;
+  }
+}
+@container (max-width: 822px) {
+  .file-view-head .seg-btn.toggle {
+    display: none;
+  }
+}
+@container (max-width: 740px) {
+  .file-view-head .icon-btn.hunk-nav {
+    display: none;
+  }
+}
+@container (max-width: 676px) {
+  .file-view-head .seg.diff-layout {
+    display: none;
+  }
 }
 .file-view-head .name {
   color: var(--text-bright);
@@ -2915,6 +2988,24 @@ textarea {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   color: var(--text-muted);
+  /* The file view's own head, one row down and for the same reason (GC-222): a fixed 30px row
+     whose labels must therefore never break across lines. */
+  white-space: nowrap;
+}
+/*
+ * And the same priority (GC-222). `.hunk-range` is which lines this hunk is, `.hunk-actions` is
+ * what can be done with it, and `.hunk-ctx` — git's own guess at the enclosing declaration — is
+ * the one part that is context rather than identity. So the context is the only item that gives
+ * way, ellipsising as it already did and finally showing nothing; the range and the buttons keep
+ * their size. Every item was shrinkable before, so a narrow head wrapped `@@ -411,10 +411,10 @@`
+ * onto two lines and broke `Stage hunk` and `Discard hunk` across two each, in a row 30px tall.
+ */
+.hunk-head > * {
+  flex: none;
+}
+.hunk-head > .hunk-ctx {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .hunk-head .hunk-range {
   color: var(--link);

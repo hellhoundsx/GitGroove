@@ -1261,6 +1261,38 @@ the load key and **not** to the identity, so the hunks on screen stay and dim wh
 through no patch and stay live. Both toggles are preferences, so the header and Preferences cannot
 disagree.
 
+**The view's two fixed-height rows name what gives way, and nothing in them ever wraps** (GC-222).
+`.file-view-head` is 36px and `.hunk-head` 30px, so a label that wraps does not make its row taller
+— it spills out of it, over the toolbar above and the rows below. Every item in both was a
+shrinkable flex item, so a narrow row took the shortfall from *all* of them at once, in proportion
+to natural width, which is the reverse of what each is worth: measured on a 1400px window (a 938px
+head) with one deep path open, `+13 −0` stood 40px tall in the 36px row, the three `.icon-btn`s were
+squeezed from 24px to 21, and the **path** gave up 38px it did not have to; by a 1100px window the
+path was 25px and the file name was gone while `Diff | History` and `Unified | Split` sat at their
+full 220px. So each row now has one flexible item and every other is `flex: none`, with
+`white-space: nowrap` on the row itself: in the head that item is the `.path`, which loses its
+folder's head and then ellipsises its name (GC-192's rule one level out), and in a hunk head it is
+`.hunk-ctx`, git's guess at the enclosing declaration, the one part there that is context rather
+than identity. A control keeps its size or it is not drawn; none is ever half-drawn.
+
+**And what gives way after the path: whole controls, least identifying first.** `fitOptCols`' rule
+for the graph's optional columns, written as four `@container` rules rather than as a fit function,
+because every width in that row is a constant — so the thresholds are arithmetic and cost no
+measurement, no `ResizeObserver` and no state, which is why GC-213 reached for flexbox over
+`fitSections` in the staging panel. Each fires where the controls stop leaving the path **160px**,
+the floor a file name keeps, and a size query is against the container's **content box**, so the
+numbers are head width less its 24px of padding. The order is the counts (the diff body is showing
+them), the two toggles, the two arrows, then `Unified | Split` — all four reachable elsewhere, the
+three settings in Preferences and the arrows' job by scrolling. `Diff | History` stays, being the
+only way to the other mode from inside this view. Measured with the widest button pair the view can
+draw (`Stage file` + `Discard changes`), everything drawn costs 710 and the last rung leaves 396,
+against the 414 a head has at the app's own 900px `minWidth`, so the actions and the close button
+are reachable at every width the window can reach. Two costs are stated rather than hidden: a
+commit view draws no action buttons and so drops its counts ~218px earlier than it must, and below
+a 556px content box the path's floor is itself the last thing to go, there being nothing left to
+drop for it. A control added to either row joins this arithmetic — there is no test that will
+catch it, the thresholds being CSS.
+
 **A load that fails says so in the body** (GC-083): `loadError` is a `current` whose `text` is null,
 and it gets a fourth `.diff-empty` branch beside "Loading diff…", "No textual changes." and "Binary
 file." An action error is deliberately not that — it leaves the diff on screen and reports in the
@@ -2140,6 +2172,11 @@ staggers once per row down the whole of a long run; and no working-directory row
 directory — with HEAD's reserved lane above it then drawing the run or nothing at all, and the
 selection falling to HEAD by derivation so that the row coming back takes it straight home
 (App state, Graph);
+
+one flexible item per fixed-height row in the file view, with every control `flex: none` and the
+row itself `nowrap`, so the path and the hunk's context are what give way and no label is ever
+broken across a row that cannot grow to hold it; and whole controls dropped after that, least
+identifying first, against a floor the file name keeps (Diff);
 
 stealth launches, narrow stops asked for before they are taken, the per-port profile, and a launch owned by the process that made it
 until that process stops or releases it (Commands); the LF working copy, control

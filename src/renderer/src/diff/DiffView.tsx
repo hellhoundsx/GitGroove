@@ -411,10 +411,10 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
         <span className="spacer" />
         {/* Previous / next change, then the two toggles (GC-052). The arrows are disabled with
             one hunk or none, where there is nothing to move between. */}
-        <button className="icon-btn" title={inHistory ? HISTORY_OFF : 'Previous change'} aria-label="Previous change" disabled={inHistory || hunkCount < 2} onClick={() => gotoHunk('prev')}>
+        <button className="icon-btn hunk-nav" title={inHistory ? HISTORY_OFF : 'Previous change'} aria-label="Previous change" disabled={inHistory || hunkCount < 2} onClick={() => gotoHunk('prev')}>
           <Icon of={ChevronUp} size={14} />
         </button>
-        <button className="icon-btn" title={inHistory ? HISTORY_OFF : 'Next change'} aria-label="Next change" disabled={inHistory || hunkCount < 2} onClick={() => gotoHunk('next')}>
+        <button className="icon-btn hunk-nav" title={inHistory ? HISTORY_OFF : 'Next change'} aria-label="Next change" disabled={inHistory || hunkCount < 2} onClick={() => gotoHunk('next')}>
           <Icon of={ChevronDown} size={14} />
         </button>
         <button
@@ -455,7 +455,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
             </button>
           ))}
         </div>
-        <div className="seg" role="group" aria-label="Diff layout">
+        <div className="seg diff-layout" role="group" aria-label="Diff layout">
           {VIEW_MODES.map((m) => {
             const isSplit = m.mode === 'split';
             // Disabled rather than absent, and with the reason on it: the layout it cannot express
