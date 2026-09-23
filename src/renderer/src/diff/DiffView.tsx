@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { Commit, FileChangeKind } from '@shared/types';
 import { alignHunks, buildHunkPatch, buildLinePatch, hunkWordSpans, parseUnifiedDiff, splitHunkHeader, type DiffHunk, type DiffLine, type FileDiff, type WordSpan } from './parseDiff';
-import { ChevronDown, ChevronUp, Pilcrow, WrapText, X } from 'lucide-react';
+import { hunkSyntax, languageFor, mergeMarks, type SynToken } from './highlight';
+import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconPilcrow as Pilcrow, IconTextWrap as WrapText, IconX as X } from '@tabler/icons-react';
 import { formatDateTime, relativeTime } from '../time';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { useUi } from '../ui/UiContext';
@@ -46,17 +47,25 @@ const combinedTitle = (line: DiffLine): string | undefined => {
 };
 
 /**
- * One line's text, with the part of it that actually changed marked (GC-104). Both layouts render
- * through this, from the same map, so a line cannot be marked one way in one of them and another
- * way in the other. A line with no entry — a pure addition, a pure removal, a padded side, two
- * lines with nothing in common — is the plain text it always was.
+ * One line's text, coloured by its syntax and with the part of it that actually changed marked
+ * (GC-104). Both layouts render through this, from the same two maps, so a line cannot be drawn one
+ * way in one of them and another way in the other. A line with no entry in either — a meta line, a
+ * file with no language, two lines with nothing in common — is the plain text it always was.
  */
-function code(line: DiffLine, spans: Map<DiffLine, WordSpan[]>): JSX.Element {
+function code(line: DiffLine, spans: Map<DiffLine, WordSpan[]>, syntax: Map<DiffLine, SynToken[]>): JSX.Element {
   const marked = spans.get(line);
-  if (!marked) return <pre>{line.text}</pre>;
+  const tokens = syntax.get(line);
+  if (!marked && !tokens) return <pre>{line.text}</pre>;
   return (
     <pre>
-      {marked.map((s, i) => (s.changed ? <span className="word" key={i}>{s.text}</span> : <span key={i}>{s.text}</span>))}
+      {mergeMarks(line.text, tokens, marked).map((m, i) => {
+        const cls = [m.kind && `syn-${m.kind}`, m.changed && 'word'].filter(Boolean).join(' ');
+        return (
+          <span className={cls || undefined} key={i}>
+            {m.text}
+          </span>
+        );
+      })}
     </pre>
   );
 }
@@ -229,6 +238,15 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
     for (const h of file?.hunks ?? []) for (const [line, spans] of hunkWordSpans(h)) all.set(line, spans);
     return all;
   }, [file]);
+  // Syntax colour, from the path's language, once per parsed file and keyed the same way. A
+  // combined diff is a report about a merge with one marker column per parent, so it stays plain.
+  const syntax = useMemo(() => {
+    const all = new Map<DiffLine, SynToken[]>();
+    const lang = languageFor(view.path);
+    if (!lang || !file || file.combined) return all;
+    for (const h of file.hunks) for (const [line, tokens] of hunkSyntax(h, lang)) all.set(line, tokens);
+    return all;
+  }, [file, view.path]);
   const hunkCount = file?.binary ? 0 : (file?.hunks.length ?? 0);
   const [dir, name] = splitPath(view.path);
   const isWip = view.source === 'wip';
@@ -572,12 +590,12 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                         <td className={`no ${sideClass(r.left)}${selClass(hi, r.left)}`}>{r.left?.oldNo ?? ''}</td>
                         <td className={`mark ${sideClass(r.left)}${selClass(hi, r.left)}`}>{r.left?.type === 'del' ? '−' : ''}</td>
                         <td className={`code ${sideClass(r.left)}${selClass(hi, r.left)}${pickable(r.left)}`} {...lineProps(hi, h, r.left)}>
-                          {r.left && code(r.left, wordSpans)}
+                          {r.left && code(r.left, wordSpans, syntax)}
                         </td>
                         <td className={`no ${sideClass(r.right)}${selClass(hi, r.right)}`}>{r.right?.newNo ?? ''}</td>
                         <td className={`mark ${sideClass(r.right)}${selClass(hi, r.right)}`}>{r.right?.type === 'add' ? '+' : ''}</td>
                         <td className={`code ${sideClass(r.right)}${selClass(hi, r.right)}${pickable(r.right)}`} {...lineProps(hi, h, r.right)}>
-                          {r.right && code(r.right, wordSpans)}
+                          {r.right && code(r.right, wordSpans, syntax)}
                         </td>
                       </tr>
                     ))}
@@ -596,7 +614,7 @@ export function DiffView({ repo, view, version, onClose, onStageFile, onUnstageF
                         <td className="no">{l.oldNo ?? ''}</td>
                         <td className="no">{l.newNo ?? ''}</td>
                         <td className="mark">{l.combined ?? (l.type === 'add' ? '+' : l.type === 'del' ? '−' : '')}</td>
-                        <td className="code">{code(l, wordSpans)}</td>
+                        <td className="code">{code(l, wordSpans, syntax)}</td>
                       </tr>
                     ))}
                   </tbody>

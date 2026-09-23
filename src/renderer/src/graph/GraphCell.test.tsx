@@ -262,4 +262,63 @@ describe('a merge commit says so on its node (GC-221)', () => {
     const fills = [...container.querySelectorAll('circle')].map((c) => c.getAttribute('fill'));
     expect(fills).not.toContain('var(--node-fill)');
   });
+
+  it('meets its chip line: the connector runs under the dot rather than stopping at a full node s edge', () => {
+    const { container } = render(<GraphCell row={row({ lane: 2, color: 2 })} merge connector width={200} />);
+    const connector = [...container.querySelectorAll('line')].find((l) => l.getAttribute('x1') === '0');
+    const dot = mergeDot(container)!;
+    expect(Number(connector?.getAttribute('x2'))).toBeGreaterThanOrEqual(laneX(2) - Number(dot.getAttribute('r')));
+  });
+
+  it('draws the chip connector at 1px and under the graph, so every lane and join crossing it wins', () => {
+    const { container } = render(
+      <GraphCell row={row({ lane: 2, color: 2, through: [{ lane: 0, color: 0 }], outgoing: [{ lane: 1, color: 1 }] })} connector width={200} />,
+    );
+    const marks = [...container.querySelectorAll('line, path, circle')];
+    const connector = marks.findIndex((m) => m.tagName === 'line' && m.getAttribute('x1') === '0');
+    expect(connector).toBeGreaterThanOrEqual(0);
+    expect(marks[connector]!.getAttribute('stroke-width')).toBe('1');
+    // Nothing the graph draws comes before it.
+    expect(marks.slice(0, connector).length).toBe(0);
+  });
+});
+
+describe('only the checked-out branch s connector is drawn in full', () => {
+  const connectorOf = (c: HTMLElement): Element | undefined => [...c.querySelectorAll('line')].find((l) => l.getAttribute('x1') === '0');
+
+  it('fades every other row s line and keeps it at 1px', () => {
+    const { container } = render(<GraphCell row={row()} connector width={200} />);
+    const line = connectorOf(container)!;
+    expect(line.getAttribute('stroke-width')).toBe('1');
+    expect(line.getAttribute('stroke-opacity')).toBe('0.3');
+    expect(line.getAttribute('y1')).toBe(String(ROW_H / 2 + 0.5)); // row y 14..15
+  });
+
+  it('draws the checked-out branch s line solid at 2px, centred on the node', () => {
+    const { container } = render(<GraphCell row={row()} connector connectorHead width={200} />);
+    const line = connectorOf(container)!;
+    expect(line.getAttribute('stroke-width')).toBe('2');
+    expect(line.getAttribute('stroke-opacity')).toBeNull();
+    expect(line.getAttribute('y1')).toBe(String(ROW_H / 2)); // row y 13..15
+  });
+});
+
+describe('the WIP-to-HEAD run ends where a merge forks into HEAD s lane', () => {
+  // The merge sits in lane 1 and forks into HEAD's lane 0, which it also passes through above the
+  // node: that upper stretch is the run, the curve below it is real.
+  const fork = row({ lane: 1, color: 1, through: [{ lane: 0, color: 0 }], outgoing: [{ lane: 0, color: 0 }] });
+  const solidIn = (c: HTMLElement, lane: number): Element[] =>
+    [...c.querySelectorAll('line')].filter((l) => l.getAttribute('x1') === String(laneX(lane)) && !l.getAttribute('stroke-dasharray'));
+
+  it('drops the solid line in HEAD s lane on the fork row, and keeps the fork s curve', () => {
+    const { container } = render(<GraphCell row={fork} wipDash="aboveFork" wipDashLane={0} runDrawn={false} width={200} />);
+    expect(solidIn(container, 0)).toHaveLength(0);
+    expect(paths(container).some((d) => d.endsWith(`${laneX(0)} ${ROW_H / 2 + 8} V ${ROW_H}`))).toBe(true);
+  });
+
+  it('dashes only down to the fork when there is a WIP node to run from', () => {
+    const { container } = render(<GraphCell row={fork} wipDash="aboveFork" wipDashLane={0} width={200} />);
+    const dash = [...container.querySelectorAll('line')].find((l) => l.getAttribute('stroke-dasharray') && l.getAttribute('x1') === String(laneX(0)));
+    expect(dash?.getAttribute('y2')).toBe(String(ROW_H / 2));
+  });
 });

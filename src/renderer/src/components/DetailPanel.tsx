@@ -5,7 +5,7 @@ import type { FileViewSource } from '../diff/DiffView';
 // The sentinel for the working-directory row: the commit view's banner selects it (GC-045).
 import { stashMessageText, WIP } from '../graph/CommitGraph';
 import { chipsFor, RefChip } from '../graph/RefChip';
-import { ChevronRight, Trash2 } from 'lucide-react';
+import { IconChevronRight as ChevronRight, IconTrash as Trash2 } from '@tabler/icons-react';
 import { ActionMark } from '../ui/ActionMark';
 import { FileKindIcon, Icon } from '../ui/icons';
 import { Avatar } from '../ui/Avatar';

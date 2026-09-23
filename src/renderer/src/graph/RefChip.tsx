@@ -1,6 +1,6 @@
-import { type HTMLAttributes, type JSX } from 'react';
+import { type CSSProperties, type HTMLAttributes, type JSX } from 'react';
 import type { GitRef } from '@shared/types';
-import { Check, Cloud, Laptop, Pin, Tag, type LucideIcon } from 'lucide-react';
+import { IconCheck as Check, IconCloud as Cloud, IconDeviceLaptop as Laptop, IconPin as Pin, IconTag as Tag, type TablerIcon } from '@tabler/icons-react';
 import { Icon } from '../ui/icons';
 import type { RefDragAttrs } from '../ui/refDrag';
 
@@ -52,7 +52,7 @@ export function chipsFor(refs: GitRef[]): Chip[] {
  * Exported because `CommitGraph` counts them: how many there are is what decides whether they
  * fit beside the name in a narrow column (GC-071, GC-146).
  */
-export function kindMarksOf(chip: Chip): LucideIcon[] {
+export function kindMarksOf(chip: Chip): TablerIcon[] {
   const r = chip.ref;
   // The synthetic HEAD chip stands for a detached HEAD and is on no branch at all (GC-061), so it
   // takes no kind mark: a laptop on it would claim a local branch that does not exist.
@@ -60,6 +60,30 @@ export function kindMarksOf(chip: Chip): LucideIcon[] {
   if (r.kind === 'tag') return [Tag];
   if (r.kind === 'remote') return [Cloud];
   return chip.upstreamHere ? [Laptop, Cloud] : [Laptop];
+}
+
+/**
+ * A chip's lane fill. Every branch chip is a 30% blend of its lane over the panel — readable, and
+ * each one clearly its lane's — and the **checked-out** branch is the bright one: its lane's
+ * `--lane-N-chip`, the brightest fill that still holds white text at 4.6:1, with white text like
+ * every other chip and no ring (asked for by Ricardo, pointing at GitKraken, whose active chip is
+ * a vivid fill beside dark ones). Four versions came before it the same day: fading the other
+ * chips made every other ref hard to read, a 50% blend with a ring and a 55%-over-black fill were
+ * both too close to the others in brightness, and the whole lane colour needed dark text on most
+ * lanes. Inside the open `+N` block (`plain`) a chip takes the block's own background, except the
+ * checked-out one, which keeps its fill there too. A tag and a chip with no lane (the commit
+ * view's header) take the stylesheet's.
+ */
+export function chipStyle(r: GitRef, color: string | undefined, plain: boolean): CSSProperties | undefined {
+  if (color === undefined || r.kind === 'tag') return undefined;
+  if (r.isHead) return { background: headFill(color) };
+  return plain ? undefined : { background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` };
+}
+
+/** The checked-out chip's fill for a lane colour as `laneColor` writes it (`var(--lane-N)`). */
+export function headFill(color: string): string {
+  const lane = /^var\(--lane-(\d+)\)$/.exec(color);
+  return lane ? `var(--lane-${lane[1]}-chip)` : `color-mix(in srgb, ${color} 55%, var(--lane-shade))`;
 }
 
 interface Props extends HTMLAttributes<HTMLSpanElement> {
@@ -88,7 +112,7 @@ export function RefChip({ chip, color, pinned = false, plain = false, kindMarks 
       {...(dragAttrs ?? {})}
       {...rest}
       className={`ref-chip ${r.kind} ${r.isHead ? 'head' : ''} ${plain ? 'plain' : ''} ${className}`}
-      style={style ?? (plain || r.kind === 'tag' || color === undefined ? undefined : { background: `color-mix(in srgb, ${color} 30%, var(--bg-panel))` })}
+      style={style ?? chipStyle(r, color, plain)}
     >
       {/* Status leads: whether this is the checked-out ref, and whether it is pinned. */}
       {pinned && <Icon of={Pin} size={11} className="chip-icon pinned" />}

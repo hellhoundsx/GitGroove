@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { ContextMenu, filterMenuItems, type MenuItem } from './ContextMenu';
+import { ContextMenu, filterMenuItems, placeMenu, type MenuItem } from './ContextMenu';
 
 // Covers the filter row a menu whose rows are a list rather than a set of actions can carry
 // (GC-096). The narrowing rule is pure and tested as such; the component test is here for the two
@@ -85,5 +85,45 @@ describe('ContextMenu filter row (GC-096)', () => {
     fireEvent.keyDown(field(), { key: 'Enter' });
     expect(picked).toEqual([]);
     expect(rows()).toEqual(['No matches']);
+  });
+
+  it('keeps the field outside the part that scrolls, so a long list never scrolls it away', () => {
+    open();
+    expect(field().closest('.ctx-rows')).toBeNull();
+    const scroller = document.querySelector('.ctx-rows')!;
+    expect([...document.querySelectorAll('.ctx-item')].every((r) => scroller.contains(r))).toBe(true);
+  });
+});
+
+describe('placeMenu', () => {
+  // A 1400x800 window, and the branch crumb's dropdown hanging off a control whose bottom edge is
+  // at 74 — the numbers measured on the running app with sixty branches.
+  const view = { w: 1400, h: 800 };
+
+  it('leaves a right-click menu that fits at the pointer', () => {
+    expect(placeMenu({ x: 300, y: 200, anchored: false }, { w: 280, h: 300 }, view)).toEqual({ x: 300, y: 200, maxHeight: null });
+  });
+
+  it('slides a right-click menu up when it runs past the bottom, capped menus landing at the top (GC-120)', () => {
+    expect(placeMenu({ x: 300, y: 600, anchored: false }, { w: 280, h: 300 }, view)).toEqual({ x: 300, y: 496, maxHeight: null });
+    expect(placeMenu({ x: 300, y: 600, anchored: false }, { w: 280, h: 792 }, view)).toEqual({ x: 300, y: 4, maxHeight: null });
+  });
+
+  it('keeps a dropdown too long for the room below under its control, cut to that room', () => {
+    // It used to slide up to y 4 like a right-click menu and cover the control that opened it.
+    expect(placeMenu({ x: 165, y: 74, anchored: true }, { w: 280, h: 792 }, view)).toEqual({ x: 165, y: 74, maxHeight: 722 });
+  });
+
+  it('places a dropdown that fits exactly where it always was', () => {
+    expect(placeMenu({ x: 165, y: 74, anchored: true }, { w: 280, h: 400 }, view)).toEqual({ x: 165, y: 74, maxHeight: null });
+  });
+
+  it('slides a dropdown up after all when its control is too near the bottom to hang a usable list', () => {
+    expect(placeMenu({ x: 165, y: 700, anchored: true }, { w: 280, h: 400 }, view)).toEqual({ x: 165, y: 396, maxHeight: null });
+  });
+
+  it('keeps either kind inside the right edge', () => {
+    expect(placeMenu({ x: 1300, y: 74, anchored: true }, { w: 280, h: 400 }, view).x).toBe(1116);
+    expect(placeMenu({ x: 1300, y: 200, anchored: false }, { w: 280, h: 300 }, view).x).toBe(1116);
   });
 });

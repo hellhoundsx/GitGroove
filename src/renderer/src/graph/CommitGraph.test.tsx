@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react';
 import type { Commit, GitRef, RepoStatus, Stash } from '@shared/types';
 import type { RefDragHandlers } from '../ui/refDrag';
 import { chipMarksFit, chipRoom, CommitGraph, displayRows, hasWipRow, rowIndexOf, shouldRevealSelection, stashesByParent, stashMessageText } from './CommitGraph';
-import { chipsFor, headChipFor, kindMarksOf } from './RefChip';
+import { chipStyle, chipsFor, headChipFor, headFill, kindMarksOf } from './RefChip';
 import { DEFAULT_PREFS, setPrefs } from '../prefs';
 
 // GC-058: a guard for GC-022's folded-refs dropdown. `onMoreEnter` decides the direction from
@@ -597,7 +597,7 @@ describe('what a chip says it is (GC-146)', () => {
   it('marks a local branch, a remote one and a tag each as what it is', () => {
     // A plain local branch carried no mark at all before this: the one icon on `main`'s chip was
     // the cloud belonging to its remote copy, and nothing said a local branch was there.
-    expect(names(kindMarksOf({ ref: local, upstreamHere: false }))).toEqual(['Laptop']);
+    expect(names(kindMarksOf({ ref: local, upstreamHere: false }))).toEqual(['DeviceLaptop']);
     expect(names(kindMarksOf({ ref: remote, upstreamHere: false }))).toEqual(['Cloud']);
     expect(names(kindMarksOf({ ref: tag, upstreamHere: false }))).toEqual(['Tag']);
   });
@@ -608,7 +608,25 @@ describe('what a chip says it is (GC-146)', () => {
     const chips = chipsFor([tracking, remote]);
     expect(chips).toHaveLength(1);
     expect(chips[0]!.upstreamHere).toBe(true);
-    expect(names(kindMarksOf(chips[0]!))).toEqual(['Laptop', 'Cloud']);
+    expect(names(kindMarksOf(chips[0]!))).toEqual(['DeviceLaptop', 'Cloud']);
+  });
+
+  it('fills the checked-out branch with a saturated lane, and leaves the rest fully readable', () => {
+    // The branch you are on read no differently from the thirty around it (asked for by Ricardo);
+    // fading the others fixed that and made them hard to read, so the difference is on its own chip.
+    const lane = 'var(--lane-3)';
+    const head = { background: 'var(--lane-3-chip)' };
+    expect(chipStyle(tracking, lane, false)).toEqual(head);
+    expect(chipStyle(headChipFor('b'.repeat(40)), lane, false)).toEqual(head);
+    for (const other of [local, remote]) expect(chipStyle(other, lane, false)).toEqual({ background: `color-mix(in srgb, ${lane} 30%, var(--bg-panel))` });
+    // Tags keep the stylesheet's neutral fill; inside the open block only HEAD keeps its own.
+    expect(chipStyle(tag, lane, false)).toBeUndefined();
+    expect(chipStyle(local, lane, true)).toBeUndefined();
+    expect(chipStyle(tracking, lane, true)).toEqual(head);
+    // With no lane — the commit view's header — nothing is set inline at all.
+    expect(chipStyle(tracking, undefined, false)).toBeUndefined();
+    // A colour that is not a lane still gets a darkened fill rather than nothing.
+    expect(headFill('#ff0000')).toBe('color-mix(in srgb, #ff0000 55%, var(--lane-shade))');
   });
 
   it('leaves the synthetic HEAD chip unmarked, since it is on no branch', () => {

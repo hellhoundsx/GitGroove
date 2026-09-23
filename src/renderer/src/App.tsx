@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type JSX, type MouseEvent } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { IconChevronLeft as ChevronLeft } from '@tabler/icons-react';
 import { Icon } from './ui/icons';
 import type { CheckoutOptions, Commit, ConflictSide, GitRef, IgnoreKind, Remote, RepoChange, RepoOperation, RepoSnapshot, RepoStatus, Stash, StatusEntry } from '@shared/types';
 import { ADVISORY, AUTH_FAILURE, conflictSides } from '@shared/types';
@@ -2420,12 +2420,6 @@ export function App(): JSX.Element {
   // phase so that when it does close a layer it can stop the event before any React handler
   // underneath sees it — the find bar's input closes itself on Escape otherwise.
   const layerOpen = detailsOpen || shortcutsOpen || prefsOpen || ui.dialogOpen || ui.menuOpen || pullOpen || pushOpen;
-  /**
-   * The layers that put a full-screen backdrop up, which is what the content blur belongs to
-   * (GC-220). A menu and a popover are small and anchored to the thing they came from; blurring
-   * the whole window behind one would be answering a right-click with a scene change.
-   */
-  const modalUp = detailsOpen || shortcutsOpen || prefsOpen || ui.dialogOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // The topmost layer owns the keyboard while it is up: it closes on Escape (and the overlay
@@ -2570,7 +2564,7 @@ export function App(): JSX.Element {
       <div
       // A modal blurs what is behind it by blurring the window itself, not by sampling it
       // (GC-220). Every modal is a sibling of this element, so none of them is in the blur.
-      className={`app ${leftW.resizing || detailW.resizing ? 'resizing' : ''} ${modalUp ? 'behind-modal' : ''}`}
+      className={`app ${leftW.resizing || detailW.resizing ? 'resizing' : ''}`}
       style={{ '--left-panel-w': `${applied.left}px`, '--detail-panel-w': `${applied.detail}px` } as CSSProperties}
     >
       <TitleBar

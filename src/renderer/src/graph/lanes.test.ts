@@ -1,6 +1,6 @@
 import type { Commit } from '@shared/types';
 import { describe, expect, it } from 'vitest';
-import { continuesRange, layoutGraph, stashLanes, wipDashFor, type RowLayout } from './lanes';
+import { continuesRange, layoutGraph, runClaimedAt, stashLanes, wipDashFor, type RowLayout } from './lanes';
 
 /** A commit with only the fields the layout reads; everything else is filler. */
 const commit = (sha: string, ...parents: string[]): Commit => ({
@@ -313,6 +313,22 @@ describe('wipDashFor', () => {
     const { rows } = layoutGraph(history, 'd');
     expect(rows.findIndex((r) => r.sha === 'd')).toBe(3);
     expect(dashes(rows, 'd')).toEqual(['through', 'through', 'through', 'toNode', null]);
+  });
+
+  it('stops the run where a merge forks into HEAD s lane, because from there the line is real', () => {
+    // `m` merges HEAD's commit `h` in as its second parent. The seed holds lane 0, so the fork
+    // lands in it — and from `m`'s node down to `h` that lane carries `m`'s real line, not the run.
+    // Suppressing it there, as the whole lane used to be, left a gap above `h` whenever there was
+    // no WIP row to draw a dash in its place.
+    const history = [commit('m', 'x', 'h'), commit('k', 'x'), commit('h', 'r'), commit('x', 'r'), commit('r')];
+    const { rows } = layoutGraph(history, 'h');
+    expect(row(rows, 'm').outgoing.map((s) => s.lane)).toContain(0);
+    const at = rows.findIndex((r) => r.sha === 'h');
+    expect(runClaimedAt(rows, at, 0)).toBe(0);
+    expect(rows.map((r, i) => wipDashFor(r, i, at, 0, true, runClaimedAt(rows, at, 0)))).toEqual(['aboveFork', null, null, null, null]);
+    // Nothing forks into the lane in the ordinary case, and the run is the whole lane as before.
+    const plain = layoutGraph([commit('a', 'c'), commit('b', 'c'), commit('c')], 'b').rows;
+    expect(runClaimedAt(plain, 1, 0)).toBe(-1);
   });
 
   it('never dashes below HEAD s node or when HEAD is not in the loaded range', () => {

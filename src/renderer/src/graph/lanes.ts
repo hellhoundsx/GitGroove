@@ -65,12 +65,24 @@ export interface GraphLayout {
   state: LaneState;
 }
 
-/** What a row draws of the dashed WIP-to-HEAD run: the whole lane, the stretch above its node, or nothing. */
-export type WipDash = 'through' | 'toNode' | null;
+/**
+ * What a row draws of the dashed WIP-to-HEAD run: the whole lane, the stretch above its node, the
+ * stretch above the point where a merge forks into the lane (`aboveFork`), or nothing.
+ */
+export type WipDash = 'through' | 'toNode' | 'aboveFork' | null;
 
 /** Whether `lane` is untouched by this row — no node, no through line, nothing curving in or out. */
 export function laneFree(row: RowLayout, lane: number): boolean {
   return row.lane !== lane && !row.through.some((s) => s.lane === lane) && !row.incoming.some((s) => s.lane === lane) && !row.outgoing.some((s) => s.lane === lane);
+}
+
+/**
+ * The first row above HEAD's whose merge forks into HEAD's lane, or -1 — where the lane stops
+ * being the WIP-to-HEAD run and starts carrying a real line (see `wipDashFor`).
+ */
+export function runClaimedAt(rows: RowLayout[], headRowIndex: number, headLane: number): number {
+  for (let i = 0; i < headRowIndex; i++) if (rows[i]!.outgoing.some((s) => s.lane === headLane)) return i;
+  return -1;
 }
 
 /**
@@ -84,14 +96,23 @@ export function laneFree(row: RowLayout, lane: number): boolean {
  * first row (`layoutGraph` seeds `active[0]`), so while that holds, the line in it above HEAD's
  * row *is* the run and is drawn dashed in place of the solid one. A commit reaching HEAD's tip
  * from above cannot take that lane — the seed is holding it — so it arrives as an `incoming`
- * curve and never turns a real child's line into a dash. With another branch pinned to column 0
+ * curve and never turns a real child's line into a dash. **A merge can**, though: a second parent
+ * is found wherever a lane is already waiting for it, so a merge of HEAD's commit forks straight
+ * into the seed's lane, and from that row down to HEAD the lane carries the merge's real line.
+ * `claimedAt` is that row (`runClaimedAt`): the run ends in the top half of it, and every row
+ * below keeps its solid line — suppressing them left a gap above HEAD's node whenever there was no
+ * WIP row to draw a dash in their place. With another branch pinned to column 0
  * the seed is that branch's, HEAD's lane is an ordinary one, and only a lane nothing else is
  * using may carry the run.
  *
  * @param index the row's index into the laid-out rows, not the display index the WIP row shifts.
  */
-export function wipDashFor(row: RowLayout, index: number, headRowIndex: number, headLane: number, headOwnsLane: boolean): WipDash {
+export function wipDashFor(row: RowLayout, index: number, headRowIndex: number, headLane: number, headOwnsLane: boolean, claimedAt = -1): WipDash {
   if (headRowIndex < 0 || index > headRowIndex) return null;
+  if (headOwnsLane && claimedAt >= 0) {
+    if (index > claimedAt) return null;
+    if (index === claimedAt) return 'aboveFork';
+  }
   // HEAD's own row: dashed above the node, and solid below it — that segment leaves a real commit.
   if (index === headRowIndex) return headOwnsLane || !row.hasChildAbove ? 'toNode' : null;
   return headOwnsLane || laneFree(row, headLane) ? 'through' : null;

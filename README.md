@@ -36,7 +36,7 @@ TypeScript checks for both the Node and browser targets.
   tsconfig files are written relative to the config file.
 - React 19 types no longer declare a global `JSX` namespace; components import
   `JSX` from `react`.
-- Icons come from `lucide-react` (ISC licence) through the `Icon` wrapper in
+- Icons come from `@tabler/icons-react` (MIT licence) through the `Icon` wrapper in
   `src/renderer/src/ui/icons.tsx`; the UI font is Open Sans bundled via
   `@fontsource/open-sans` (SIL Open Font Licence). Avatars are fetched from Gravatar
   by a SHA-256 hash of the author email, with initials as the fallback; this is the

@@ -346,9 +346,9 @@
      here too: change these from a visible launch (`tools/launch-app.mjs --visible`), never from a
      stealth one. */
   --bg-menu: rgba(38, 38, 38, 0.8);
-  --flyout-blur: blur(24px);
-  /* Behind a **modal**, the same small blur over the scrim: same reason, same answer (GC-220). */
-  --content-blur: blur(16px);
+  --flyout-blur: url(#glass-blur-24); /* a 24px blur that works on a see-through window: see index.html */
+  /* Behind a **modal**: `.modal-backdrop`'s own `backdrop-filter`, over the scrim. */
+  --backdrop-blur: url(#glass-blur-16);
   /* The sticky file-list head, and the **one** exception to "no blur behind data" (GC-213).
      Stated as an exception rather than smuggled in: what is behind this is file rows, which are
      data. Three things make it the right call anyway. It is a 30px strip in a 400px panel, not
@@ -364,7 +364,7 @@
      so the two sticky heads came out visibly more blurred and more saturated than the rows
      between them — a panel in bands rather than a panel behind glass. One blur, one radius, no
      chroma lift, on every surface that has one. */
-  --head-blur: blur(12px);
+  --head-blur: url(#glass-blur-12);
 
   /* What the working surface and the sidebars paint **while the material is on**: a tint over
      `--window-scrim`, not a glass of their own. Defined here as well as in the material block so
@@ -509,38 +509,70 @@
      own add/del tint underneath and this says which of them the button is about to act on. */
   --diff-sel: rgba(122, 179, 255, 0.22);
   --diff-sel-edge: rgba(122, 179, 255, 0.9);
+  /* Syntax colour in the diff view (`diff/highlight.ts`). Our own muted set, soft enough not to
+     compete with the add/remove tints and with the lane colours, which are the window's only
+     saturated colour. Each is 4.5:1 or better on the card and on both line tints. */
+  --syn-keyword: #cf9bf5;
+  --syn-string: #e3c28a;
+  --syn-comment: #9aa3ad;
+  --syn-number: #f0a36b;
+  --syn-function: #7fb7f0;
+  --syn-type: #6fcfc4;
+  --syn-attr: #e59fbb;
+  --syn-tag: #f08c84;
+  --syn-meta: #a3adb8;
+  --syn-regexp: #86d3ae;
+  --syn-variable: #e6d6ae;
 
   /* ---- Graph lanes ---------------------------------------------------------
      Cycled by column index, and the one saturated palette in the window.
 
-     GC-213 softened them and moved no hue. Every value here is the GC-113 palette with its
-     saturation pulled back roughly 12-18% and its lightness lifted a little, which is what lets
-     ten of them sit on a neutral #212121 without being the loudest thing in a window whose whole
-     point is now that it is quiet. The **hues are untouched**, so GC-113's property is untouched
-     with them: the ten are interleaved rather than walked round the wheel in order (`laneColor`
-     is the column index, so the lanes drawn side by side are always *consecutive* indices, and a
-     hue ramp put exactly that pair closest together), and every adjacent pair is still at least
-     100 degrees apart — 0/1, HEAD's column and the first branch beside it, most of all, and 9/0
-     too, since lane 10 recycles colour 0 next to lane 9.
+     Stronger than the GC-113 palette, at Ricardo's request (2026-09-23): GC-213 had softened it,
+     that was reverted, and the reverted set was still not vivid enough. Every lane is the GC-113
+     colour with its **hue held** and its HSL saturation raised by 22 points (capped at 100); the
+     two that then fell under 3:1 against the #212121 ground — lane 3 (purple) and lane 7 (red),
+     which is what GC-213's lift had been fixing — had their lightness raised just far enough to
+     reach it. Measured over the set: every lane **3.07 or better** against #212121, where a 2px
+     stroke wants 3, and lanes 1 and 2 nudged 0.2 degrees apart so that pair — the one the
+     100-degree rule has always rested on — sits at **100.56** rather than on the line.
 
-     The measurements, taken over the whole set: max hue drift from the GC-113 palette **0.57
-     degrees**, worst adjacent pair **100.47** (1/2, which was 100.1 before and is the pair the
-     property has always rested on — a straight desaturation rounded it to 99.9, so lanes 1 and 2
-     each carry a deliberate 0.2-degree nudge apart), and every lane at **3.06 or better** against
-     the new #212121 ground, where a 2px stroke wants 3.
+     The ten are interleaved rather than walked round the wheel in order (`laneColor` is the column
+     index, so the lanes drawn side by side are always *consecutive* indices, and a hue ramp put
+     exactly that pair closest together), and every adjacent pair is at least 100 degrees apart —
+     0/1, HEAD's column and the first branch beside it, most of all, and 9/0 too, since lane 10
+     recycles colour 0 next to lane 9. The checked-out chip (`chipStyle`, 55% over `--lane-shade`)
+     holds white text at 4.6:1 or better on all ten, lane 2 being the floor.
 
      Retuning one of these means moving its saturation or its lightness. Moving a **hue** is a
      different change and has to be checked against every neighbour, 9/0 included. */
-  --lane-0: #2eadc9;
-  --lane-1: #c549b7;
-  --lane-2: #dec35f;
-  --lane-3: #9943c8;
-  --lane-4: #91cc66;
-  --lane-5: #d53e84;
-  --lane-6: #55c6a3;
-  --lane-7: #cc4043;
-  --lane-8: #5184d8;
-  --lane-9: #e07e61;
+  --lane-0: #04aed4;
+  --lane-1: #dd14c5;
+  --lane-2: #fed122;
+  --lane-3: #a51cee;
+  --lane-4: #7be92b;
+  --lane-5: #f10372;
+  --lane-6: #18e5a4;
+  --lane-7: #e10c11;
+  --lane-8: #0f69fb;
+  --lane-9: #ff5623;
+  /* The checked-out branch's chip (`chipStyle`): each lane darkened toward black only as far as
+     white text needs, so every one sits at the brightest fill that still holds white at 4.6:1 —
+     the whole lane on blue, purple and red, about 55% of it on yellow, green and teal, which is as
+     bright as white text allows there. That lands every lane at a relative luminance of 0.15-0.18
+     against 0.03-0.09 for the 30% blend the other chips take, which is what makes the one you are
+     on read first. A lane retuned has to have its chip colour recomputed. `--lane-shade` is what a
+     colour that is not a lane is darkened with instead. */
+  --lane-0-chip: #037f9b;
+  --lane-1-chip: #d213bb;
+  --lane-2-chip: #897112;
+  --lane-3-chip: #a51cee;
+  --lane-4-chip: #458218;
+  --lane-5-chip: #e5036c;
+  --lane-6-chip: #0e855f;
+  --lane-7-chip: #e10c11;
+  --lane-8-chip: #0f69fb;
+  --lane-9-chip: #cf461c;
+  --lane-shade: #000000;
 }
 
 /*

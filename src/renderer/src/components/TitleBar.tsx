@@ -1,5 +1,5 @@
 import { useEffect, useRef, type JSX, type MouseEvent } from 'react';
-import { ChevronDown, FolderOpen, GitBranch, Plus, X } from 'lucide-react';
+import { IconChevronDown as ChevronDown, IconFolderOpen as FolderOpen, IconGitBranch as GitBranch, IconPlus as Plus, IconX as X } from '@tabler/icons-react';
 import { Icon } from '../ui/icons';
 import type { MenuAnchor } from '../ui/UiContext';
 import type { Tab } from '../tabs';

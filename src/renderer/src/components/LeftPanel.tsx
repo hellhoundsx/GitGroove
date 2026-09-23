@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react';
-import { Archive, Check, ChevronRight, Cloud, Eye, EyeOff, Folder, Laptop, PanelLeftClose, Pin, Plus, Tag, type LucideIcon } from 'lucide-react';
+import { IconArchive as Archive, IconCheck as Check, IconChevronRight as ChevronRight, IconCloud as Cloud, IconEye as Eye, IconEyeOff as EyeOff, IconFolder as Folder, IconDeviceLaptop as Laptop, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconPin as Pin, IconPlus as Plus, IconTag as Tag, type TablerIcon } from '@tabler/icons-react';
 import type { GitRef, RepoInfo, Remote, Stash } from '@shared/types';
 import { Icon } from '../ui/icons';
 import { fitSections, useBoundaryDrag, type DragHandleProps } from '../ui/useDragWidth';
@@ -221,7 +221,7 @@ export function folderKeys(refs: GitRef[], remotes: Remote[]): Set<string> {
 
 interface SectionProps {
   title: string;
-  icon: LucideIcon;
+  icon: TablerIcon;
   count: number;
   open: boolean;
   onToggle(): void;
@@ -230,7 +230,7 @@ interface SectionProps {
   /** Reports what its rows would take unsqueezed, so the share never hands it more (GC-153). */
   onNatural(h: number): void;
   /** Optional buttons on the right of the header, e.g. "Show all" and "Add remote". */
-  actions?: { icon: LucideIcon; title: string; onClick(): void }[];
+  actions?: { icon: TablerIcon; title: string; onClick(): void }[];
   children: ReactNode;
 }
 
@@ -632,7 +632,7 @@ export function LeftPanel(p: Props): JSX.Element {
   const stashes = useMemo(() => p.stashes.filter((s) => !f || s.message.toLowerCase().includes(f)), [p.stashes, f]);
 
   if (p.collapsed) {
-    const rail: { icon: LucideIcon; count: number; title: string }[] = [
+    const rail: { icon: TablerIcon; count: number; title: string }[] = [
       { icon: Laptop, count: local.length, title: 'Local branches' },
       { icon: Cloud, count: remoteCount, title: 'Remote branches' },
       { icon: Tag, count: tags.length, title: 'Tags' },

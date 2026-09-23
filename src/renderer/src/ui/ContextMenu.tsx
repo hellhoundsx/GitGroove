@@ -72,6 +72,38 @@ export interface MenuState {
   x: number;
   y: number;
   items: MenuItem[];
+  /** It hangs off a control (a dropdown) rather than opening at the pointer. */
+  anchored?: boolean;
+}
+
+/** The gap every placement keeps from the window's edges. */
+const EDGE = 4;
+/**
+ * The shortest a dropdown may be cut to and still hang below its control: a filter, a caption and
+ * a handful of rows. With less room than that below it, it slides up like a right-click menu.
+ */
+export const DROPDOWN_MIN_H = 160;
+
+/**
+ * Where a menu of this size goes. Pure, so the arithmetic is tested rather than read off a rect.
+ *
+ * A right-click menu is clamped inside the window, so one taller than the room below the pointer
+ * slides up — to `EDGE` once `.ctx-menu`'s cap binds (GC-120). A dropdown cannot do that: sliding
+ * up puts it over the control that opened it, which is what a branch crumb with sixty branches
+ * did — the menu landed at the top of the window, over the tabs and the crumb itself. So a
+ * dropdown too long for the room below keeps its place under the control and is cut to that room
+ * (`maxHeight`), scrolling inside it, unless the control is so near the bottom that the room would
+ * hold almost nothing.
+ */
+export function placeMenu(
+  at: { x: number; y: number; anchored?: boolean },
+  size: { w: number; h: number },
+  view: { w: number; h: number },
+): { x: number; y: number; maxHeight: number | null } {
+  const x = Math.max(EDGE, Math.min(at.x, view.w - size.w - EDGE));
+  const below = view.h - at.y - EDGE;
+  if (at.anchored && size.h > below && below >= DROPDOWN_MIN_H) return { x, y: at.y, maxHeight: below };
+  return { x, y: Math.max(EDGE, Math.min(at.y, view.h - size.h - EDGE)), maxHeight: null };
 }
 
 interface Props {
@@ -85,9 +117,10 @@ interface Props {
  * dialogs, the menu is a layer `App` closes (GC-034, GC-037), so one Escape can only ever close
  * one of them.
  *
- * Taller than the window, it is capped by `.ctx-menu`'s `max-height` and scrolls inside
- * itself (GC-120), at which point the clamp below lands it at `top: 4` — it never flips above
- * the pointer, so a cap costs it nothing.
+ * Taller than the window, it is capped by `.ctx-menu`'s `max-height` and its rows scroll inside
+ * it (GC-120); where it lands is `placeMenu`'s answer, and a dropdown never slides over its own
+ * control. The filter sits above `.ctx-rows` rather than inside it, so scrolling a long list
+ * never takes the field away.
  *
  * The outside click below is also what dismisses the menu when its own dropdown control is
  * clicked a second time; making that click leave the menu shut instead of reopening it needs the
@@ -95,7 +128,7 @@ interface Props {
  */
 export function ContextMenu({ menu, onClose }: Props): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ x: menu.x, y: menu.y });
+  const [pos, setPos] = useState<{ x: number; y: number; maxHeight: number | null }>({ x: menu.x, y: menu.y, maxHeight: null });
   // The filter is the menu's own state (GC-096): the caller hands over one list and never sees it
   // narrow, so nothing reopens the menu — which would move it and take the focus off the field.
   const [query, setQuery] = useState('');
@@ -116,9 +149,7 @@ export function ContextMenu({ menu, onClose }: Props): JSX.Element {
     // here is 4% smaller than the menu about to be drawn, so the clamp would allow a position
     // that puts 17px of a 420px branch menu over the right edge of the window. The layout box
     // ignores transforms, and "how wide is this menu" is what the clamp has always meant.
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    setPos({ x: Math.max(4, Math.min(menu.x, window.innerWidth - w - 4)), y: Math.max(4, Math.min(menu.y, window.innerHeight - h - 4)) });
+    setPos(placeMenu(menu, { w: el.offsetWidth, h: el.offsetHeight }, { w: window.innerWidth, h: window.innerHeight }));
   }, [menu]);
 
   useEffect(() => {
@@ -146,55 +177,64 @@ export function ContextMenu({ menu, onClose }: Props): JSX.Element {
     };
   }, [onClose]);
 
+  const filterItem = items.find((i) => i.filter);
   return (
-    <div className="ctx-menu" ref={ref} style={{ left: pos.x, top: pos.y }} role="menu" onContextMenu={(e) => e.preventDefault()}>
-      {items.map((item, i) =>
-        item.filter ? (
-          <input
-            key={i}
-            ref={filterInput}
-            className="ctx-filter"
-            placeholder={item.placeholder ?? 'Filter'}
-            value={query}
-            spellCheck={false}
-            onChange={(e) => setQuery(e.target.value)}
-            // Enter takes the first row still standing. `dialogConfirm` rather than a key name of
-            // its own: the table is the only place a key is compared (GC-010), and this is the same
-            // "accept what is in front of me" the modal's own input answers to. Escape is not here
-            // either — `App` closes the topmost layer, and this menu is one (GC-034).
-            onKeyDown={(e) => {
-              if (!matches('dialogConfirm', e)) return;
-              const first = items.find((x) => isRow(x) && !x.disabled);
-              if (!first) return;
-              e.preventDefault();
-              onClose();
-              void first.onClick?.();
-            }}
-          />
-        ) : item.separator ? (
-          <div key={i} className="ctx-sep" />
-        ) : item.caption ? (
-          // A heading, not a row: a plain div, so it is neither focusable nor clickable and the
-          // `.ctx-item` selectors every driver and test uses cannot pick it up (GC-067).
-          <div key={i} className="ctx-caption" role="presentation">
-            {item.label}
-          </div>
-        ) : (
-          <button
-            key={i}
-            role="menuitem"
-            className={`ctx-item ${item.danger ? 'danger' : ''}`}
-            disabled={item.disabled}
-            onClick={() => {
-              onClose();
-              void item.onClick?.();
-            }}
-          >
-            <span className="ctx-label">{item.label}</span>
-            {item.hint && <span className={`ctx-hint ${item.hintPath ? 'path' : ''}`}>{item.hint}</span>}
-          </button>
-        ),
+    <div
+      className="ctx-menu"
+      ref={ref}
+      style={{ left: pos.x, top: pos.y, maxHeight: pos.maxHeight ?? undefined }}
+      role="menu"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {filterItem && (
+        <input
+          ref={filterInput}
+          className="ctx-filter"
+          placeholder={filterItem.placeholder ?? 'Filter'}
+          value={query}
+          spellCheck={false}
+          onChange={(e) => setQuery(e.target.value)}
+          // Enter takes the first row still standing. `dialogConfirm` rather than a key name of
+          // its own: the table is the only place a key is compared (GC-010), and this is the same
+          // "accept what is in front of me" the modal's own input answers to. Escape is not here
+          // either — `App` closes the topmost layer, and this menu is one (GC-034).
+          onKeyDown={(e) => {
+            if (!matches('dialogConfirm', e)) return;
+            const first = items.find((x) => isRow(x) && !x.disabled);
+            if (!first) return;
+            e.preventDefault();
+            onClose();
+            void first.onClick?.();
+          }}
+        />
       )}
+      <div className="ctx-rows">
+        {items.map((item, i) =>
+          item.filter ? null : item.separator ? (
+            <div key={i} className="ctx-sep" />
+          ) : item.caption ? (
+            // A heading, not a row: a plain div, so it is neither focusable nor clickable and the
+            // `.ctx-item` selectors every driver and test uses cannot pick it up (GC-067).
+            <div key={i} className="ctx-caption" role="presentation">
+              {item.label}
+            </div>
+          ) : (
+            <button
+              key={i}
+              role="menuitem"
+              className={`ctx-item ${item.danger ? 'danger' : ''}`}
+              disabled={item.disabled}
+              onClick={() => {
+                onClose();
+                void item.onClick?.();
+              }}
+            >
+              <span className="ctx-label">{item.label}</span>
+              {item.hint && <span className={`ctx-hint ${item.hintPath ? 'path' : ''}`}>{item.hint}</span>}
+            </button>
+          ),
+        )}
+      </div>
     </div>
   );
 }

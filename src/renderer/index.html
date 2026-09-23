@@ -15,6 +15,34 @@
     <title>GitGroove</title>
   </head>
   <body>
+    <!-- The blurs behind glass (`--flyout-blur`, `--backdrop-blur`, `--head-blur` in tokens.css).
+         A plain `blur()` fails on this window: it is see-through, so the page under a menu is only
+         about 40% opaque, the blurred copy comes out just as see-through, and it is drawn over the
+         sharp original rather than replacing it — sharp text with a faint halo, which reads as no
+         blur at all (electron/electron#39529; docking DevTools made the page opaque, which is why
+         it looked right then). Each filter makes the captured backdrop fully opaque and blurs
+         that, so the blurred copy replaces what is behind the surface. Measured on a real window:
+         KochiyaOcean's version from that issue boosts the original alpha 1.8x instead, which left
+         a quarter of the sharp text showing wherever the page is at its thinnest (the left panel,
+         the gaps between graph rows). The cost is that the desktop no longer shows faintly through
+         the area under a menu, a dialog's backdrop or the sticky file-list head. Over an opaque
+         backdrop it is exactly a blur. One per radius, because a filter's radius is an attribute. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+      <filter id="glass-blur-12" x="-100%" y="-100%" width="300%" height="300%" color-interpolation-filters="sRGB">
+        <feComponentTransfer in="SourceGraphic" result="solid"><feFuncA type="linear" slope="0" intercept="1" /></feComponentTransfer>
+        <feGaussianBlur in="solid" stdDeviation="12" edgeMode="duplicate" />
+      </filter>
+      <filter id="glass-blur-16" x="-100%" y="-100%" width="300%" height="300%" color-interpolation-filters="sRGB">
+        <feComponentTransfer in="SourceGraphic" result="solid"><feFuncA type="linear" slope="0" intercept="1" /></feComponentTransfer>
+        <feGaussianBlur in="solid" stdDeviation="16" edgeMode="duplicate" />
+      </filter>
+      <filter id="glass-blur-24" x="-100%" y="-100%" width="300%" height="300%" color-interpolation-filters="sRGB">
+        <feComponentTransfer in="SourceGraphic" result="solid"><feFuncA type="linear" slope="0" intercept="1" /></feComponentTransfer>
+        <feGaussianBlur in="solid" stdDeviation="24" edgeMode="duplicate" />
+      </filter>
+      </defs>
+    </svg>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

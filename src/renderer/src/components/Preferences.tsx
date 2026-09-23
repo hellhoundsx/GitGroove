@@ -1,5 +1,5 @@
 import { type ChangeEvent, type JSX, type ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { IconChevronDown as ChevronDown } from '@tabler/icons-react';
 import type { PullMode } from '@shared/types';
 import { setPrefs, usePrefs, type DiffViewMode, type GraphColumns, type Prefs } from '../prefs';
 import { matches } from '../shortcuts';

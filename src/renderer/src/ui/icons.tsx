@@ -1,10 +1,9 @@
 import type { JSX } from 'react';
-import type { LucideIcon } from 'lucide-react';
-import { ArrowRight, Copy, FileType2, Minus, Pencil, Plus, TriangleAlert } from 'lucide-react';
+import { IconArrowRight as ArrowRight, IconCopy as Copy, IconFileSymlink as FileType2, IconMinus as Minus, IconPencil as Pencil, IconPlus as Plus, IconAlertTriangle as TriangleAlert, type TablerIcon } from '@tabler/icons-react';
 import type { FileChangeKind } from '@shared/types';
 
 interface IconProps {
-  of: LucideIcon;
+  of: TablerIcon;
   size?: number;
   className?: string;
   title?: string;
@@ -18,12 +17,12 @@ interface IconProps {
   filled?: boolean;
 }
 
-/** Lucide icon with the app's default stroke weight. */
+/** A Tabler icon with the app's default stroke weight (Tabler calls the weight `stroke`). */
 export function Icon({ of: Component, size = 14, className, title, weight = 1.75, filled }: IconProps): JSX.Element {
-  return <Component size={size} strokeWidth={weight} fill={filled ? 'currentColor' : 'none'} className={className} aria-hidden={title ? undefined : true} aria-label={title} />;
+  return <Component size={size} stroke={weight} fill={filled ? 'currentColor' : 'none'} className={className} aria-hidden={title ? undefined : true} aria-label={title} />;
 }
 
-const kindIcon: Record<FileChangeKind, LucideIcon> = {
+const kindIcon: Record<FileChangeKind, TablerIcon> = {
   added: Plus,
   untracked: Plus,
   modified: Pencil,
@@ -41,7 +40,7 @@ const kindIcon: Record<FileChangeKind, LucideIcon> = {
  *
  * The pencil is the exception, and gets filled instead: its meaning is the silhouette, and a
  * heavier outline of the same shape only makes a fatter outline. Filled is `fill: currentColor`
- * on the lucide glyph, so lucide-react stays the only icon source.
+ * on the Tabler glyph, so @tabler/icons-react stays the only icon source.
  */
 const KIND_WEIGHT = 2.5;
 const FILLED_KINDS: readonly FileChangeKind[] = ['modified'];

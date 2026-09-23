@@ -2354,7 +2354,7 @@ await sleep(400);
 log(await contextMenuOn('.left-panel .ref-row', 'main'));
 const capped = JSON.parse(
   await ev(
-    `(() => { const m = document.querySelector('.ctx-menu'); const r = m.getBoundingClientRect(); return JSON.stringify({ top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height), scrollH: m.scrollHeight, clientH: m.clientHeight, items: m.querySelectorAll('.ctx-item').length, vh: window.innerHeight }); })()`,
+    `(() => { const m = document.querySelector('.ctx-menu'); const rows = m.querySelector('.ctx-rows'); const r = m.getBoundingClientRect(); return JSON.stringify({ top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height), scrollH: rows.scrollHeight, clientH: rows.clientHeight, items: m.querySelectorAll('.ctx-item').length, vh: window.innerHeight }); })()`,
   ),
 );
 check('the branch menu is taller than the window it opens on', capped.scrollH > capped.clientH, JSON.stringify(capped));
@@ -2363,7 +2363,7 @@ check('and is capped inside the window at both ends', capped.top >= 0 && capped.
 // the cap buys: `Copy branch name` is the last item the branch menu builds.
 const lastRow = JSON.parse(
   await ev(
-    `(() => { const m = document.querySelector('.ctx-menu'); m.scrollTop = m.scrollHeight; const items = [...m.querySelectorAll('.ctx-item')]; const last = items[items.length - 1]; const r = last.getBoundingClientRect(); return JSON.stringify({ label: last.querySelector('.ctx-label')?.textContent.trim() ?? null, top: Math.round(r.top), bottom: Math.round(r.bottom), vh: window.innerHeight }); })()`,
+    `(() => { const m = document.querySelector('.ctx-menu .ctx-rows'); m.scrollTop = m.scrollHeight; const items = [...m.querySelectorAll('.ctx-item')]; const last = items[items.length - 1]; const r = last.getBoundingClientRect(); return JSON.stringify({ label: last.querySelector('.ctx-label')?.textContent.trim() ?? null, top: Math.round(r.top), bottom: Math.round(r.bottom), vh: window.innerHeight }); })()`,
   ),
 );
 check('its last row can be scrolled to and is on screen when it is', lastRow.label === 'Copy branch name' && lastRow.top >= 0 && lastRow.bottom <= lastRow.vh, JSON.stringify(lastRow));

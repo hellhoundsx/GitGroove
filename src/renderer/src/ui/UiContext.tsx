@@ -108,7 +108,7 @@ export function UiProvider({ children }: { children: ReactNode }): JSX.Element {
     }
     if (items.length === 0) return;
     ownerRef.current = owner;
-    setMenu({ x: at.clientX, y: at.clientY, items });
+    setMenu({ x: at.clientX, y: at.clientY, items, anchored: owner !== null });
   }, []);
 
   const prompt = useCallback<Ui['prompt']>(

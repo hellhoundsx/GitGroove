@@ -163,7 +163,7 @@ describe("the commit view's change readout (GC-143)", () => {
     const readout = await screen.findByText(/1 added/).then((el) => el.closest('.readout')!);
     // The four states the readout can report, each an icon and a number. Before this they were the
     // characters `+`, `✎`, `−` and `→` — a second, unrelated rendering of the three states the
-    // rows below draw with lucide, which is the half of GC-143 that weight alone could not fix.
+    // rows below draw with the icon set, which is the half of GC-143 that weight alone could not fix.
     expect(readout.querySelectorAll('svg.kind')).toHaveLength(4);
     expect(readout.textContent).not.toMatch(/[✎−→]/);
     // Same mark for the same kind in both places: the class is what carries the colour token and
@@ -178,7 +178,7 @@ describe("the commit view's change readout (GC-143)", () => {
     const readout = await screen.findByText(/1 added/).then((el) => el.closest('.readout')!);
     const pencil = readout.querySelector('svg.kind-modified')!;
     // The pencil's meaning is its silhouette, so it is painted rather than outlined; `fill` is on
-    // the lucide glyph itself, which is what keeps lucide-react the only icon source (rule 1).
+    // the Tabler glyph itself, which is what keeps @tabler/icons-react the only icon source (rule 1).
     expect(pencil.getAttribute('fill')).toBe('currentColor');
     const plus = readout.querySelector('svg.kind-added')!;
     expect(plus.getAttribute('fill')).toBe('none');

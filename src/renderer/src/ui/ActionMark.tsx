@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react';
+import { IconCheck as Check } from '@tabler/icons-react';
 import { useEffect, useState, type JSX } from 'react';
 import { Icon } from './icons';
 

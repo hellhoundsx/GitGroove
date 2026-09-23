@@ -47,9 +47,10 @@ A git repository on branch `main`, remote `https://github.com/hellhoundsx/GitCli
 | @vitejs/plugin-react | 5 | **must stay on 5**: 6.x requires Vite 8 |
 | React | 19 | no global `JSX` namespace, components `import { type JSX } from 'react'` |
 | TypeScript | 7 | no `baseUrl`, tsconfig `paths` are relative; `tsc --noEmit` per target |
-| lucide-react | 1.x | the only icon source; wrap with `Icon` from `ui/icons.tsx` |
+| @tabler/icons-react | 3.x | the only icon source since 2026-09-23 (was lucide-react); wrap with `Icon` from `ui/icons.tsx`, whose `weight` becomes Tabler's `stroke` prop — a direct use passes `stroke={n}` as the width, never a colour. Imported under our own short names (`IconDeviceLaptop as Laptop`), so a `displayName` is Tabler's (`DeviceLaptop`). Stash/Pop in the toolbar are `IconStackPush`/`IconStackPop`; a stash itself stays `IconArchive` |
 | @fontsource-variable/inter | 5 | **the UI font** (GC-213), imported in `main.tsx`; one variable file for the whole weight axis, and it carries the optical-size axis `optical-sizing: auto` drives |
 | @fontsource/open-sans | 5 | the bundled **fallback**, imported in `main.tsx` (400/600/700), behind Inter and Segoe UI Variable |
+| highlight.js | 11 | syntax colour in the diff view (`diff/highlight.ts`): core plus the languages registered there, no `eval` or WASM, which the CSP forbids |
 | vitest | 5 | two projects (node + jsdom) |
 | jsdom | 30 | the `dom` project's environment |
 | @testing-library/react | 16 | needs `@testing-library/dom` 10 alongside it |
@@ -663,6 +664,12 @@ a zero floor, exactly as the collapsed left rail does.
   and last rows reachable on a short window. It clamps rather than flips, so a cap costs it
   nothing. `ContextMenu`'s wheel listener ignores a wheel **inside** the menu, or a capped menu
   could not be scrolled: that wheel is the user reaching its last row, not the page moving.
+  **A dropdown never slides over the control that opened it** (asked for by Ricardo, 2026-09-24):
+  sixty branches made the branch crumb's list clamp up to `top: 4`, over the tabs and the crumb.
+  An `owner`-anchored menu is `MenuState.anchored`, and `placeMenu` — pure, tested — keeps it under
+  its control and cuts it to the room below, unless that room is under `DROPDOWN_MIN_H`. Only
+  `.ctx-rows` scrolls, so a filter above it never scrolls away; a driver reads scroll positions off
+  `.ctx-menu .ctx-rows`, not `.ctx-menu`.
 - **A surface that draws menu items as buttons reads `MenuItem.short`** (GC-213). The menu never
   uses it; it is for the stash view's head, which renders `stashMenuItems`' own items (GC-178) in
   a 400px row beside `stash@{0}: 59ff3b1`. The four long labels came to 390px against 376px of
@@ -782,13 +789,14 @@ but a wrong one, carrying lanes from commits that are no longer there.
 - Colour is the lane index (`--lane-0..9`), stable as lanes recycle. The ten are **interleaved,
   not a hue ramp** (GC-113): `laneColor[i] = i % 10`, so the lanes drawn side by side are always
   consecutive indices, and a ramp put exactly that pair closest together. Every adjacent pair is
-  at least 100 degrees of hue apart, 9/0 included. GC-213 **softened them and moved no hue** —
-  saturation back ~15%, lightness up 6 points, max hue drift **0.57 degrees** over the whole set,
-  worst adjacent pair **100.47** (1/2, which was 100.1 before, so a straight desaturation rounded
-  it to 99.9 and those two carry a deliberate 0.2-degree nudge apart), and every lane at **3.06 or
-  better** against the #212121 ground where a 2px stroke wants 3. Retuning one means moving its
-  saturation or its lightness; moving a **hue** is a different change and has to be re-checked
-  against both its neighbours.
+  at least 100 degrees of hue apart, 9/0 included. They are **stronger than GC-113's**, at
+  Ricardo's request on 2026-09-23: GC-213 had softened that palette, the revert was still not vivid
+  enough, so every lane is GC-113's hue held with its HSL saturation up 22 points, lanes 3 and 7
+  lifted in lightness just far enough to reach 3:1 against #212121 (every lane is 3.07 or better),
+  and lanes 1/2 nudged 0.2 degrees apart to 100.56. The logo's accent (`#C549B7`,
+  `assets/branding/`) is still GC-213's softened lane 1 and was deliberately left alone. Retuning one means moving its saturation or its
+  lightness; moving a **hue** is a different change and has to be re-checked against both its
+  neighbours.
 
 **The dash's period divides the row height, or a long run stutters** (GC-218). A row is its own
 `<svg>` and every dashed line starts its pattern at y = 0, so the pattern tiles down a run only
@@ -947,14 +955,21 @@ come back at a 135px column rather than the 120 one mark needed.
 
 **A line joins the last chip on a row to its node, and a band fills the cell on the other side of
 it** (GC-147, GC-186). They are two separate things, which GC-147 had merged into one on the wrong
-side of the node: `03-graph.md` line 58 makes the chip-to-node stretch a **2px line in the lane
+side of the node: `03-graph.md` line 58 makes the chip-to-node stretch a **line in the lane
 colour and nothing else**, and its line 45 puts a lane-tinted **band right of the node**.
 
 The connector is two halves that meet at the column boundary — `.ref-line`, whose line is drawn
 from `currentColor` with the lane set inline, and a line in the row's SVG so the far end meets the
 node to the pixel — and it is drawn only on a row that has a chip. `.ref-line` stays a normal-flow
 sibling, so the absolutely positioned `.more-list` still paints over it opaquely when the fold
-opens.
+opens. It **starts on the chip's own edge and runs under the graph** (asked for by Ricardo), and
+only the checked-out branch's is drawn in full — 2px and solid — while every other row's is 1px at
+30% (`connectorHead`, from the row's first chip, since HEAD always sorts first). At 2px
+every line was the lanes' own weight and read heavier than the graph it points into, so
+the SVG half is drawn right after the band — every lane and join crossing it paints over it — and
+ends at the node's centre, under the node, so a merge's small dot meets it as a full node does.
+`.ref-line` takes the row's 4px gap back with a negative margin, and while the fold is open the
+hidden `+N` is collapsed too, or the line stopped where that chip still held its place.
 
 The band is `Band` in `GraphCell.tsx`, drawn **first** in every one of the three cell kinds
 (commit, stash, WIP) so every line and node paints over it: 22px, `.col-msg`'s own height, from the
@@ -982,6 +997,20 @@ of them; the stops are `objectBoundingBox` units, so one gradient serves every r
 is in, and the rect keeps the flat lane variable as the SVG `fill` fallback so a band is still
 drawn if the defs are ever absent. Everything GC-186 promised is unchanged and asserted rather than
 assumed: drawn first in all three cell kinds, on every row, with every line and node over it.
+
+**The checked-out branch is the one bright chip, and the others step back only a tenth** (asked
+for by Ricardo, pointing at GitKraken, whose active chip is a vivid fill beside dark ones).
+`chipStyle` in `RefChip.tsx`: every branch chip is a 30% blend of its lane over the panel, and the
+checked-out one is `--lane-N-chip` in `tokens.css` — each lane darkened toward black only as far as
+white text needs, so every lane sits at the brightest fill that holds white at 4.6:1 (the whole lane
+on blue, purple and red; about 55% on yellow, green and teal). That puts it at 2-5x the other chips'
+brightness, with white text like every other chip and no ring. A lane retuned has to have its chip
+colour recomputed. It keeps the fill inside the open `+N` block too, and every other chip
+(branches, tags, `+N`) sits at 0.9 beside it, full again under the pointer, as a drop target and
+inside the open block. Four versions came first the same day and were all rejected: fading every
+other chip to 0.5 made every other ref hard to read, a 50% blend with a ring and a 55%-over-black
+fill were both too close to the others in brightness, and the whole lane colour needed dark text
+on most lanes.
 
 Chip order: HEAD, the pinned branch, tracking locals, other locals, remotes, tags — the pin ranks
 second so its marker survives the fold. With **no branch checked out** a synthetic `HEAD` chip is
@@ -1219,6 +1248,18 @@ so only a removal sitting opposite an addition is marked and **both layouts read
 are `span.word` tinted with `--diff-add-word` / `--diff-del-word` over the line's own tint; the hunk
 buttons are untouched, since they still build from `hunk.raw`.
 
+**Syntax colour, one source for both layouts** (2026-09-23, asked for by Ricardo). `diff/highlight.ts`:
+`languageFor(path)` picks a highlight.js language from the extension or file name, and
+`hunkSyntax(hunk, lang)` highlights each hunk **one side at a time** — the old file's lines, then
+the new file's — so a string or comment that runs across lines is followed correctly on each side,
+and returns tokens keyed by the `DiffLine` object, like `hunkWordSpans`. `splitHighlighted` turns
+highlight.js's markup into one token list per line, reduced to eleven kinds coloured by `--syn-*` in
+`tokens.css`; `mergeMarks` cuts a line where either a token or a changed-word run starts, so a run
+carries both `syn-<kind>` and `.word`. Foreground only, so the line tints and word marks are
+untouched, and a hunk button still builds from `hunk.raw`. A combined diff stays plain, as does a
+hunk over 4000 lines or with a line over 2000 characters. A hunk that starts inside a block comment
+is coloured as code — the diff has no view of the file above the hunk.
+
 **Lines are picked out of one hunk, and the two directions are not the same patch** (GC-121). A
 changed line on the unstaged side takes `.pickable`; clicking takes it, clicking again drops it,
 shift extends the run over the hunk's *changed* lines. The selection is `DiffView` state carrying
@@ -1325,7 +1366,7 @@ draws the file rows *and* the commit view's change readout, which was literal te
 above it. The marks are 12px, where the app's 1.75 stroke is a hairline, so they carry a weight of
 their own; the pencil is filled instead, because its meaning is the silhouette and a heavier
 outline of the same shape is only a fatter outline. Both are props on the one `Icon` — `weight`
-and `filled`, the latter `fill: currentColor` on the lucide glyph — rather than a second icon
+and `filled`, the latter `fill: currentColor` on the icon's own glyph — rather than a second icon
 component: there is one place the app's stroke weight is decided and it stays that way. **The
 graph's WIP row is the third surface and now the same one** (GC-183): its three counts draw
 `FileKindIcon` under the `kind-*` classes the tokens are keyed by, so the one rule colours the row
@@ -1594,17 +1635,24 @@ possibly something about blue". `--head-bar` is green for the checked-out branch
 **Three rules decide translucency, and the first is the one the others are written around: no
 blur behind data, ever.** Not behind a 28px row of 1px lane strokes, not behind a diff, at any
 cost in frames. Then: **what floats is glass** — `--bg-menu` plus `--flyout-blur` on `.ctx-menu`,
-`.popover` and `.modal` and nowhere else. **A modal blurs the window by blurring the window**
-(GC-220): `--content-blur` is a real `filter` on `.app.behind-modal`, not a `backdrop-filter` on the
-layer above it. A backdrop samples what is behind it, and on this window that is not a reliable
-thing to sample — with the acrylic material on, `body` is 74% and the panels are white tints, so
-the filter composites the desktop too, and a sampled blur was measured rendering at neither the
-radius nor the saturation its own computed style reported. A filter on the element blurs the pixels
-the element drew, identically with or without a material, and it screenshots honestly, which the
-sampled one did not. **Every modal is therefore a sibling of `.app`** — the three that were its
-last children (Preferences, Shortcuts, the error details) were being blurred along with the window
-they stand in front of, which made Preferences unreadable. A menu and a popover are not in this:
-they are small and anchored to what opened them, so `modalUp` is the backdrop-carrying layers only. **Both are a small blur and nothing but a blur** (GC-220). Each carried a `saturate()` — 1.8 on
+`.popover` and `.modal` and nowhere else. **Every blur is an SVG filter, not `blur()`**
+(2026-09-23): `--flyout-blur`, `--backdrop-blur` and `--head-blur` are `url(#glass-blur-N)`,
+filters defined once in `src/renderer/index.html`. A plain `blur()` fails on a see-through window:
+the page under a menu is ~40% opaque, the blurred copy is just as see-through and is drawn *over*
+the sharp original, so text shows straight through with a faint halo (electron/electron#39529 —
+docking DevTools makes the page opaque, which is why it looked right with DevTools open). Each
+filter makes the captured backdrop fully opaque and blurs that, so the copy replaces what is
+behind. Verified with window captures of a visible launch, the only place the bug shows — an
+offscreen stealth render has no material. The alpha-boost version from that issue left a quarter
+of the text showing over the left panel. The cost: the desktop no longer shows through under a
+menu, a dialog's backdrop or the sticky head. **A modal's backdrop blurs the window behind it**:
+`--backdrop-blur` is a `backdrop-filter` on `.modal-backdrop` (asked for by Ricardo, 2026-09-23).
+GC-220 had moved it to a real `filter` on `.app.behind-modal`, because a sampled blur measured
+wrong on the Windows acrylic window; that class, `modalUp` and `--content-blur` are gone. If the
+Windows window shows the old symptom again — the blur at neither its radius nor its saturation —
+that is where to look. Every modal is still a sibling of `.app`, which costs nothing and keeps a
+dialog out of anything applied to the window. A menu and a popover put up no backdrop, so they
+blur nothing behind them. **Both are a small blur and nothing but a blur** (GC-220). Each carried a `saturate()` — 1.8 on
 the flyouts, 1.1 on the backdrop — meant to stop a translucent surface going grey as it averages
 what is under it, and what it did instead was bloom: a blur does not dim what it smears, so a 2px
 lane stroke at full chroma comes out as a wash the width of the radius and a filled ref chip as a
@@ -1646,6 +1694,11 @@ visibly, with the lane line running through every circle in the graph. **All thr
 take `--node-fill`**, where they used to take three different values: over a flat ground that
 read as a raised disc and two holes, and over glass as a grey disc and two dark spots, because a
 hole needs something behind it to be a hole in. The dash is what says a node is not a commit.
+
+**No `-webkit-font-smoothing: antialiased` on `body`** (2026-09-23): it does nothing on Windows
+and on macOS it switches off the system's stem thickening, which is what keeps light text on a dark
+ground readable — every label was drawn thin on a Mac. The toolbar labels are 11px in `--text`
+rather than 10px in `--text-muted`, for the same complaint.
 
 **The face is Inter** (GC-213), bundled as `@fontsource-variable/inter` and as close to ChatGPT's
 as Windows can get — SF Pro is macOS-only and ChatGPT Sans is not distributed. One variable file
@@ -2145,8 +2198,8 @@ against the working directory as a third source in the view identity with every 
 the WIP row's field the one commit draft rather than a decoy, a tab answering a right-click with
 several tabs closed through one path so the stored list is written once, and a stash row selecting
 the stash the graph draws a row for (Diff, Main process, App state, Graph);
-the lane band right of the node on every row and the chip connector a 2px line with nothing under
-it, a layout switch reading what is drawn rather than what is preferred, a third dialog button that
+the lane band right of the node on every row and the chip connector a 1px line with nothing under
+it, drawn under the graph, a layout switch reading what is drawn rather than what is preferred, a third dialog button that
 fills the form in never gated on the form being complete, a restore whose direction is read from
 the list the row came from, one scheme check shared by the two places a URL can reach
 `openExternal`, and one `direction` rule for both surfaces that draw the recents (Graph, Diff, UI
@@ -2182,7 +2235,7 @@ rows; and the folded block opened in a run by the class the CSS treats as hover,
 stylesheet is what answers for it (App state, Detail panel, Main process, Graph, Testing);
 
 the chrome painting nothing so the window's material shows through it, no blur ever behind data and
-glass only on what floats, a modal that blurs the window rather than sampling it, with every modal a sibling of the window so none is inside its own blur; a merge commit marked on its node rather than only in the lines; a divergence put as a choice rather than as a sentence; a heading given its own leading, and the first-child reset scoped to the sections whose separator it removes rather than to any card that happens to be first; an accent that may not be a large field beside the lanes so state is a
+glass only on what floats, a modal's backdrop blurring the window behind it, with every modal a sibling of the window; a merge commit marked on its node rather than only in the lines; a divergence put as a choice rather than as a sentence; a heading given its own leading, and the first-child reset scoped to the sections whose separator it removes rather than to any card that happens to be first; an accent that may not be a large field beside the lanes so state is a
 shape and colour is a branch, elevation a set of three rather than one shadow, and a window
 material asked for only where an OS window exists to put it behind (Styling);
 
@@ -2193,8 +2246,8 @@ primary action white because colour in this window means a branch or a state, ne
 the selection bar white for the same reason; the material decided before a renderer exists and
 carried to it on the URL so it is stamped before the first frame rather than a round trip later;
 one variable face with its own optical axis in place of three named cuts kept in step by a list
-of selectors; the lane palette softened with **every hue held** and the one pair that has always
-been on the 100-degree line nudged clear of it; and the sticky file-list head the single surface
+of selectors; the lane palette saturated past GC-113's with **every hue held** (GC-213's
+softening reverted and gone beyond, on request); and the sticky file-list head the single surface
 allowed to stay opaque under the glass, because an occluder that lets the rows through is not one
 (Styling, Graph, Detail panel, Main process);
 

@@ -1,5 +1,5 @@
 import { useState, type JSX } from 'react';
-import { Archive } from 'lucide-react';
+import { IconArchive as Archive } from '@tabler/icons-react';
 import type { RowLayout, Segment, WipDash } from './lanes';
 import { avatarFailed, markAvatarFailed, useGravatar } from '../ui/avatars';
 
@@ -87,6 +87,8 @@ interface Props {
   merge?: boolean;
   /** Draw the branch/tag connector from the left edge into the node (GC-147). */
   connector?: boolean;
+  /** The row's chip is the checked-out branch: its connector is 2px and solid, every other one 1px and faded. */
+  connectorHead?: boolean;
   author?: { name: string; email: string; initials: string };
 }
 
@@ -115,7 +117,7 @@ export const dashTiles = (rowHeight: number = ROW_H, period: number = DASH_PERIO
 /**
  * The row's lane band (GC-186): 22px, the height `.col-msg` uses, filling the graph cell to the
  * **right** of the node. `03-graph.md` line 45 puts it there and GC-147 put it on the other side
- * of the node, where it doubled as the chip connector; the connector is a 2px line and nothing
+ * of the node, where it doubled as the chip connector; the connector is a 1px line and nothing
  * else (line 58), so the two are separate things again.
  *
  * On every row, not only the selected and WIP ones the study observed it on: Ricardo's own
@@ -266,7 +268,7 @@ function NodeAvatar({ x, y, author, color }: { x: number; y: number; author: Pro
  * branch connector and the node itself. Everything is drawn in the row's own 28px coordinate
  * space so adjacent rows line up (node centre at y = 14).
  */
-export function GraphCell({ row, width, wip, stash, stashDash, stashIn, wipDash = null, wipDashLane, runDrawn = true, merge, connector, author }: Props): JSX.Element {
+export function GraphCell({ row, width, wip, stash, stashDash, stashIn, wipDash = null, wipDashLane, runDrawn = true, merge, connector, connectorHead, author }: Props): JSX.Element {
   const mid = ROW_H / 2;
   if (!row && stash) {
     const x = laneX(stash.lane);
@@ -299,10 +301,10 @@ export function GraphCell({ row, width, wip, stash, stashDash, stashIn, wipDash 
         <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} strokeDasharray={DASH} />
         <NodeMask x={x} fill="var(--node-fill)" />
         <circle cx={x} cy={mid} r={r} fill="var(--node-fill)" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
-        {/* The glyph inside the node. A lucide icon is its own `svg`, so it is positioned by a
+        {/* The glyph inside the node. A Tabler icon is its own `svg`, so it is positioned by a
             `g` around it rather than by x/y of its own, and drawn in the lane's colour. */}
         <g transform={`translate(${x - 6}, ${mid - 6})`} color={color}>
-          <Archive width={12} height={12} strokeWidth={2} stroke="currentColor" />
+          <Archive size={12} stroke={2} />
         </g>
       </svg>
     );
@@ -346,15 +348,39 @@ export function GraphCell({ row, width, wip, stash, stashDash, stashIn, wipDash 
   // The dash replaces the solid line in that lane rather than being drawn over it (GC-144): a
   // through segment for the row it passes, the node's own line above it for HEAD's row. Drawn on
   // top, the two together read as a solid line with a dash on it.
-  const through = wipDash === 'through' ? row.through.filter((s) => s.lane !== dashLane) : row.through;
+  const through = wipDash === 'through' || wipDash === 'aboveFork' ? row.through.filter((s) => s.lane !== dashLane) : row.through;
 
   return (
     <svg width={width} height={ROW_H} aria-hidden="true">
       <Band x={x} color={color} width={width} />
+      {/* The graph cell's half of the chip-to-node connector: a line in the lane colour and
+          nothing else, which is what `03-graph.md` line 58 records (GC-186). Inside the row's own
+          SVG so it meets the node exactly, and flush with `.ref-line`'s half at x = 0 — the one
+          part of GC-147 that was right. The checked-out branch's is 2px and solid, on row y 13..15;
+          every other one is 1px at 30%, on row y 14..15 — the same pixel rows the
+          stylesheet's half covers in each case (asked for by Ricardo). Drawn **first**, under every
+          lane and join: it says which node a chip names, and the graph it crosses is the thing
+          being read. It runs to the node's centre and the node paints over the end, so a merge's
+          5px dot meets it as a full node does. */}
+      {connector && (
+        <line
+          x1={0}
+          y1={connectorHead ? mid : mid + 0.5}
+          x2={x}
+          y2={connectorHead ? mid : mid + 0.5}
+          stroke={color}
+          strokeWidth={connectorHead ? 2 : 1}
+          strokeOpacity={connectorHead ? undefined : 0.3}
+          shapeRendering="crispEdges"
+        />
+      )}
       {through.map((s) => (
         <line key={`t${s.lane}`} x1={laneX(s.lane)} y1={0} x2={laneX(s.lane)} y2={ROW_H} stroke={laneColor(s.color)} strokeWidth={2} />
       ))}
       {wipDash === 'through' && runDrawn && <line x1={dashX} y1={0} x2={dashX} y2={ROW_H} stroke={dashColor} strokeWidth={2} strokeDasharray={DASH} />}
+      {/* Where a merge forks into HEAD's lane the run ends at the fork: dashed down to its corner,
+          and the fork's own curve carries the lane on from there as the real line it is. */}
+      {wipDash === 'aboveFork' && runDrawn && <line x1={dashX} y1={0} x2={dashX} y2={mid} stroke={dashColor} strokeWidth={2} strokeDasharray={DASH} />}
       {wipDash === 'toNode' && runDrawn && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} strokeDasharray={DASH} />}
       {row.hasChildAbove && wipDash !== 'toNode' && <line x1={x} y1={0} x2={x} y2={mid} stroke={color} strokeWidth={2} />}
       {row.hasParentBelow && <line x1={x} y1={mid} x2={x} y2={ROW_H} stroke={color} strokeWidth={2} />}
@@ -370,12 +396,6 @@ export function GraphCell({ row, width, wip, stash, stashDash, stashIn, wipDash 
       {stashIn?.map((l) => (
         <path key={`s${l}`} d={curveIn(l)} fill="none" stroke={color} strokeWidth={2} strokeDasharray={DASH} />
       ))}
-      {/* The graph cell's half of the chip-to-node connector: a 2px line in the lane colour and
-          nothing else, which is what `03-graph.md` line 58 records (GC-186). Inside the row's own
-          SVG so it meets the node exactly, and flush with `.ref-line`'s half at x = 0 — the one
-          part of GC-147 that was right. Centred on `mid` at 2px, so it covers the same 13..15 the
-          stylesheet's half does. */}
-      {connector && <line x1={0} y1={mid} x2={x - NODE / 2 + 1} y2={mid} stroke={color} strokeWidth={2} shapeRendering="crispEdges" />}
       {merge ? <MergeNode x={x} y={mid} color={color} /> : <NodeAvatar x={x} y={mid} author={author} color={color} />}
     </svg>
   );

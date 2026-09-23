@@ -1,5 +1,5 @@
 import { useEffect, useRef, type JSX } from 'react';
-import { Archive, ArchiveRestore, ChevronDown, Download, GitBranch, Keyboard, Redo2, RefreshCw, Search, Settings, Undo2, Upload, type LucideIcon } from 'lucide-react';
+import { IconChevronDown as ChevronDown, IconDownload as Download, IconGitBranch as GitBranch, IconKeyboard as Keyboard, IconArrowForwardUp as Redo2, IconRefresh as RefreshCw, IconSearch as Search, IconSettings as Settings, IconStackPop as StackPop, IconStackPush as StackPush, IconArrowBackUp as Undo2, IconUpload as Upload, type TablerIcon } from '@tabler/icons-react';
 import type { PullMode, RepoInfo } from '@shared/types';
 import { ActionMark } from '../ui/ActionMark';
 import { Icon } from '../ui/icons';
@@ -82,7 +82,7 @@ function ToolButton({
   onClick,
 }: {
   label: string;
-  icon: LucideIcon;
+  icon: TablerIcon;
   title?: string;
   disabled?: boolean;
   active?: boolean;
@@ -307,8 +307,8 @@ export function Toolbar(p: Props): JSX.Element {
           )}
         </div>
         <ToolButton label="Branch" icon={GitBranch} title="Create a branch at HEAD" disabled={noRepo || p.busy} {...mark('branch')} onClick={p.onCreateBranch} />
-        <ToolButton label="Stash" icon={Archive} title={p.hasChanges ? 'Stash working changes' : 'No changes to stash'} disabled={noRepo || p.busy || !p.hasChanges} {...mark('stash')} onClick={p.onStash} />
-        <ToolButton label="Pop" icon={ArchiveRestore} title={p.stashCount ? `Pop the latest of ${p.stashCount} stash${p.stashCount === 1 ? '' : 'es'}` : 'No stashes'} disabled={noRepo || p.busy || p.stashCount === 0} {...mark('pop')} onClick={p.onPop} />
+        <ToolButton label="Stash" icon={StackPush} title={p.hasChanges ? 'Stash working changes' : 'No changes to stash'} disabled={noRepo || p.busy || !p.hasChanges} {...mark('stash')} onClick={p.onStash} />
+        <ToolButton label="Pop" icon={StackPop} title={p.stashCount ? `Pop the latest of ${p.stashCount} stash${p.stashCount === 1 ? '' : 'es'}` : 'No stashes'} disabled={noRepo || p.busy || p.stashCount === 0} {...mark('pop')} onClick={p.onPop} />
         <span className="tool-sep" />
         <ToolButton label="Refresh" icon={RefreshCw} disabled={noRepo || p.busy} {...mark('refresh')} onClick={p.onRefresh} />
       </div>
