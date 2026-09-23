@@ -8,7 +8,8 @@ Keep this file current when a convention, a command or an invariant changes — 
 ## What this project is
 
 A desktop Git client built from scratch whose UX is modelled on GitKraken Desktop 11.10.0.
-Owner: Ricardo Gomes (`ricardo.gomes@catenamedia.com`), Windows 11, 3440x1440. Started 2026-09-05.
+Owner: Ricardo Gomes (`ricardo.gomes@catenamedia.com`), Windows 11, 3440x1440, and a MacBook on
+macOS 26 since 2026-09-23 (see "macOS" under Commands). Started 2026-09-05.
 A git repository on branch `main`, remote `https://github.com/hellhoundsx/GitClient.git`.
 
 ### The rules that override everything else
@@ -24,8 +25,9 @@ A git repository on branch `main`, remote `https://github.com/hellhoundsx/GitCli
    happen, often in a full-screen game. Launch the app only through `tools/launch-app.mjs`, and
    never run `tools/gk-recon/*.ps1` (`focus`, `rclick`, `shot`, `cursor`, `esc`) or any other
    OS-level input or screenshot — those are for a hands-on GitKraken session only.
-4. **Never `taskkill //F //IM electron.exe`.** It kills every Electron on the machine, the hourly
-   reviewer's build and any `npm run dev` Ricardo has open included. Stop only what you started.
+4. **Never `taskkill //F //IM electron.exe`** — nor `pkill Electron` / `killall Electron` on macOS.
+   It kills every Electron on the machine, the hourly reviewer's build and any `npm run dev` Ricardo
+   has open included (on the Mac, GitKraken is one too). Stop only what you started.
 5. **Do not commit unasked**, never rewrite published history, never force-push.
 6. **Write a control character as an escape, never as the byte itself.** A literal one makes git
    treat the file as binary, and `git diff`, `git blame` and review then silently skip it. A Node
@@ -89,13 +91,29 @@ It is **stealthy by default**: it spawns `node_modules/electron/dist/electron.ex
 `skipTaskbar`, `focusable: false` and 10fps — no OS window exists at all, and
 `Page.captureScreenshot` still returns a real render. `--visible` drops that variable **and**
 `windowsHide`, which on Windows puts `SW_HIDE` in the child's `STARTUPINFO` and would keep a
-"visible" launch invisible.
+"visible" launch invisible. On macOS the binary is whatever `node_modules/electron/path.txt` names
+(`electronBinary`), and stealth also calls `app.dock.hide()`: an offscreen window alone still puts
+an icon in the Dock and can take the menu bar there.
 
 Every launcher launch runs on **its own Electron profile** — `GITCLIENT_USER_DATA` =
 `<os.tmpdir()>/gitclient-profiles/<port>` (`profileDir(port)`), applied by `app.setPath`. The
 worker (9333), the e2e suite (`GITCLIENT_E2E_PORT`) and the reviewer (9334) each keep a
 `localStorage` that persists between runs on that port and never reaches the one Ricardo sees. An
 explicit `GITCLIENT_USER_DATA` wins; only a start outside the launcher uses the real profile.
+
+**macOS.** The same commands work; four things differ. `npm install` runs `postinstall` →
+`tools/mac-dev-app.mjs`, which downloads the Electron binary if the install skipped it (seen on
+the first install) and patches `node_modules/electron/dist/Electron.app` — its `CFBundleName` /
+`CFBundleDisplayName` and its `.icns` — because in development that bundle *is* the app, and the
+Dock tooltip, the menu-bar name and the launch icon come from it, not from anything the running app
+can set. `app.setName()` is not the fix: it moves the userData folder and every `gitclient.*` key
+with it. The patch breaks the bundle's code-signature seal, which a local launch ignores. The
+window's controls are the traffic lights at the **left**, so `index.ts` passes
+`trafficLightPosition` instead of `titleBarOverlay` and puts `platform=` on the URL beside
+`material=`, and `main.tsx` stamps `data-platform` so `.titlebar` moves its reserve to the left.
+And the material is **vibrancy** (see Styling). The rest of this file's Windows detail — `%TEMP%`,
+`netstat`, `taskkill`, the `.ps1` helpers — is the Windows half; `lsof` and `kill` are the
+launcher's own POSIX branches.
 
 **Stopping the app is automatic** (GC-154): the app a `launchApp` spawns belongs to the process
 that spawned it — `ownChild` registers an `exit` handler plus SIGINT/SIGTERM — and is stopped
@@ -1653,6 +1671,17 @@ went). `backgroundColor` must be transparent whenever the material is on, or the
 paints over it. **A material cannot be tuned without a real on-screen window**: an offscreen
 render has no material at all and a harness backdrop is a guess at one, so every value in that
 block was set from a screenshot of the actual app and should be changed the same way.
+
+**On macOS the material is vibrancy** (`windowMaterial` in `ipc.ts`: `'acrylic'` on Windows 11,
+`'vibrancy'` on macOS, `null` in stealth or anywhere else). `under-window`, forced dark through
+`nativeTheme.themeSource` since there is one look, and `visualEffectState: 'active'` so it stays
+frosted when the window is in the background — which acrylic cannot. Vibrancy is already a *dark*
+material where acrylic is a light one, so `:root[data-material='vibrancy']` drops the scrim from
+0.74 to 0.4; 0.74 stacked on it left almost nothing showing through. Electron can drop vibrancy on
+a focus change and not restore it (electron/electron#46164), so `index.ts` re-applies it and the
+transparent fill on `focus`, `blur`, `show`, `restore` and `leave-full-screen`. The Dock icon is
+`app.dock.setIcon` with `png/gitgroove-icon-macos-1024.png`, cut from `gitgroove-icon-macos.svg`
+— the tile on Apple's icon grid, which the logo generator now writes.
 
 **Every colour lives in `tokens.css`, none in `app.css`** (GC-013), and with one palette that is
 now the whole of the rule: a new colour is a token or it is in the wrong file.

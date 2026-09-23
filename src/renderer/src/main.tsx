@@ -20,9 +20,13 @@ import './styles/app.css';
 // module scope, rather than a round trip later. Absent means no material — an older Windows,
 // another platform, or the offscreen window an unattended run uses — which is the case the
 // stylesheet treats as ordinary.
-if (new URLSearchParams(location.search).get('material') === 'acrylic') {
-  document.documentElement.dataset.material = 'acrylic';
-}
+// `vibrancy` is macOS's material; the stylesheet keys off the attribute being present, not its value.
+const launch = new URLSearchParams(location.search);
+const material = launch.get('material');
+if (material === 'acrylic' || material === 'vibrancy') document.documentElement.dataset.material = material;
+// Which OS draws the window controls, and so which end of the title bar they take (`app.css`).
+const platform = launch.get('platform');
+if (platform) document.documentElement.dataset.platform = platform;
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -2,11 +2,13 @@
 // Location: $GITCLIENT_E2E_ROOT or <tmp>/gitclient-e2e. Existing contents are removed, unless a
 // run is holding the root (see the marker below); --force wipes it anyway.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const root = process.env.GITCLIENT_E2E_ROOT ?? join(tmpdir(), 'gitclient-e2e');
+// The real path of the temp folder: on macOS `tmpdir()` is under `/var`, a link to `/private/var`,
+// and git (so the app) answers the resolved spelling — a path built from the link never equals it.
+const root = process.env.GITCLIENT_E2E_ROOT ?? join(realpathSync(tmpdir()), 'gitclient-e2e');
 const R = join(root, 'testrepo');
 const REMOTE = join(root, 'remote.git');
 // The second remote's own bare repository (GC-056). Step 17 adds it through the UI as `upstream`,

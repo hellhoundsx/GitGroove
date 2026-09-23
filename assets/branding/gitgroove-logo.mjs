@@ -152,6 +152,15 @@ const files = {
   // The tile is kept for the places that do want a ground under it — a store listing, a website,
   // a macOS build — but nothing on Windows uses it.
   'gitgroove-icon-tile.svg': doc(tile(mark({ ink: INK })), { w: 256, h: 256, title: 'GitGroove' }),
+  // The macOS Dock icon: the tile on Apple's icon grid, an 824 body centred in a 1024 canvas, so
+  // it sits at the same size as every other icon in the Dock rather than bleeding to the edge.
+  // png/gitgroove-icon-macos-1024.png is cut from this.
+  'gitgroove-icon-macos.svg': doc(
+    `<g transform="translate(9.765625 9.765625) scale(0.8046875)">
+  ${tile(mark({ ink: INK }))}
+  </g>`,
+    { w: 1024, h: 1024, title: 'GitGroove' },
+  ),
   'gitgroove-lockup-dark.svg': lockup(INK),
   'gitgroove-lockup-light.svg': lockup(INK_LIGHT),
 }

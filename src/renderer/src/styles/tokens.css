@@ -620,6 +620,13 @@
   --border-strong: rgba(255, 255, 255, 0.12);
 }
 
+/* macOS's vibrancy is already a dark, blurred material, where acrylic is a light one: the 0.74
+   acrylic needs stacks on top of it and leaves almost nothing showing through. Set by eye on the
+   real window, like every value above. */
+:root[data-material='vibrancy'] {
+  --window-scrim: rgba(20, 20, 20, 0.4);
+}
+
 /*
  * Reduced motion, in one place (GC-214).
  *

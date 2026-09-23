@@ -64,8 +64,15 @@ const CONTAINMENT: { channel: string; call: (path: string) => unknown }[] = [
   { channel: 'workdir:restoreFile', call: (p) => call('workdir:restoreFile', repo, 'abc1234', p) },
 ];
 
-// A `..`, an absolute path and another Windows drive: the three shapes GC-093's rule names.
-const OUTSIDE = ['../secrets.txt', 'sub/../../secrets.txt', 'C:/Windows/System32/drivers/etc/hosts', 'D:/elsewhere.txt'];
+// A `..`, an absolute path and another Windows drive: the three shapes GC-093's rule names. A drive
+// letter is only a drive on Windows — anywhere else `C:/Windows` is a folder that may well be inside
+// the repository — so those two are asked only there, and the rooted path is asked everywhere.
+const OUTSIDE = [
+  '../secrets.txt',
+  'sub/../../secrets.txt',
+  '/etc/hosts',
+  ...(process.platform === 'win32' ? ['C:/Windows/System32/drivers/etc/hosts', 'D:/elsewhere.txt'] : []),
+];
 
 describe('containment validation', () => {
   for (const h of CONTAINMENT) {

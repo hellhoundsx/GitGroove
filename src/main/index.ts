@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, BrowserWindow, shell } from 'electron';
-import { glassAvailable, registerIpc, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND } from './ipc';
+import { app, BrowserWindow, nativeImage, nativeTheme, shell } from 'electron';
+import { registerIpc, TITLE_BAR_OVERLAY, WINDOW_BACKGROUND, windowMaterial } from './ipc';
 import { isWebUrl } from '@shared/remotes';
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL;
@@ -24,6 +24,10 @@ if (process.env.GITCLIENT_USER_DATA) app.setPath('userData', process.env.GITCLIE
 // `__dirname` is `out/main` at runtime, so two levels up is the checkout root. The kit that
 // produced this file is `assets/branding/` — see its README.
 const APP_ICON = join(__dirname, '../../assets/branding/gitgroove.ico');
+// macOS ignores a window's `icon` and has no use for an .ico: the Dock takes the Apple-grid tile,
+// set on the app rather than on a window. Guarded for the same reason `APP_ICON` is.
+const MAC_ICON = join(__dirname, '../../assets/branding/png/gitgroove-icon-macos-1024.png');
+const isMac = process.platform === 'darwin';
 
 function createWindow(): BrowserWindow {
   // One material, decided here and nowhere else (GC-213). There is no preference to read and
@@ -37,7 +41,8 @@ function createWindow(): BrowserWindow {
   // glass this design is copying off the macOS reference is acrylic, and it is the only material
   // on this platform that actually reads as one. The cost is real and accepted: Windows flattens
   // acrylic to a solid colour whenever the window is **not focused**.
-  const glass = glassAvailable;
+  const material = windowMaterial;
+  const glass = material !== null;
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -57,10 +62,15 @@ function createWindow(): BrowserWindow {
     // With a material on, the window's own fill has to be transparent or it paints straight over
     // it and nothing shows through.
     backgroundColor: glass ? '#00000000' : WINDOW_BACKGROUND,
-    backgroundMaterial: glass ? 'acrylic' : 'none',
-    // Frameless with the OS window controls overlaid, so the renderer draws its own tabs bar.
+    backgroundMaterial: material === 'acrylic' ? 'acrylic' : 'none',
+    // macOS's material. `active` keeps it frosted while the window is in the background, which
+    // Windows' acrylic cannot do.
+    ...(material === 'vibrancy' ? { vibrancy: 'under-window' as const, visualEffectState: 'active' as const } : {}),
+    // Frameless with the OS window controls overlaid, so the renderer draws its own tabs bar. On
+    // macOS those controls are the traffic lights at the **left**, centred in the 34px bar; the
+    // stylesheet moves the tabs clear of them under `data-platform='darwin'`.
     titleBarStyle: 'hidden',
-    titleBarOverlay: TITLE_BAR_OVERLAY,
+    ...(isMac ? { trafficLightPosition: { x: 14, y: 10 } } : { titleBarOverlay: TITLE_BAR_OVERLAY }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -69,6 +79,22 @@ function createWindow(): BrowserWindow {
       ...(isStealth ? { offscreen: true, backgroundThrottling: false } : {}),
     },
   });
+
+  // Electron can drop the macOS vibrancy when the window loses focus and not put it back when it
+  // regains it (electron/electron#46164), leaving the window opaque. Re-applying the material and
+  // the transparent fill whenever the window changes state costs nothing when it was still there.
+  if (material === 'vibrancy') {
+    const reapply = (): void => {
+      if (win.isDestroyed()) return;
+      win.setBackgroundColor('#00000000');
+      win.setVibrancy('under-window');
+    };
+    win.on('focus', reapply);
+    win.on('blur', reapply);
+    win.on('show', reapply);
+    win.on('restore', reapply);
+    win.on('leave-full-screen', reapply);
+  }
 
   if (isStealth) {
     // Nothing is displayed, so keep the offscreen paint loop cheap.
@@ -91,7 +117,10 @@ function createWindow(): BrowserWindow {
   // after a round trip resolves. Absent means no material, which is the case the stylesheet
   // treats as ordinary — and it is the safe direction either way: opaque settling into glass is
   // invisible, where glass collapsing to opaque is a flash of the wrong window.
-  const search = glass ? 'material=acrylic' : '';
+  const params = new URLSearchParams();
+  if (material) params.set('material', material);
+  params.set('platform', process.platform);
+  const search = params.toString();
   if (isDev) {
     const url = new URL(process.env.ELECTRON_RENDERER_URL!);
     if (search) url.search = search;
@@ -103,6 +132,13 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  // One dark look (GC-213), so the macOS material is the dark one whatever the system appearance.
+  nativeTheme.themeSource = 'dark';
+  // A stealth launch on macOS still gets a Dock icon and can take the menu bar, where an offscreen
+  // window alone is enough on Windows; hiding the Dock icon makes it an accessory app that never
+  // activates, which is the macOS half of "never steal focus".
+  if (isMac && isStealth) app.dock?.hide();
+  else if (isMac && existsSync(MAC_ICON)) app.dock?.setIcon(nativeImage.createFromPath(MAC_ICON));
   registerIpc();
   createWindow();
   app.on('activate', () => {

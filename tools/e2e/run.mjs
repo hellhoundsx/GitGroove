@@ -6,14 +6,16 @@
 // hold, then launches through tools/launch-app.mjs, which keeps the run invisible (no window, no
 // focus change). Both the prologue and the epilogue stop one process tree only (GC-035).
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchApp, stopPort } from '../launch-app.mjs';
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const root = process.env.GITCLIENT_E2E_ROOT ?? join(tmpdir(), 'gitclient-e2e');
+// The real path of the temp folder: on macOS `tmpdir()` is under `/var`, a link to `/private/var`,
+// and git (so the app) answers the resolved spelling — a path built from the link never equals it.
+const root = process.env.GITCLIENT_E2E_ROOT ?? join(realpathSync(tmpdir()), 'gitclient-e2e');
 const R = join(root, 'testrepo');
 const REMOTE = join(root, 'remote.git');
 // The second remote's own bare repository, empty in the fixture (GC-056). Step 17 adds it as

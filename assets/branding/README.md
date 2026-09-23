@@ -16,6 +16,7 @@ angle in `gitgroove-logo.mjs`. Nothing here was traced, and nothing here should 
 | `gitgroove-mark-light.svg` | the same, fixed to `#1A1A1A` — for a light ground |
 | `gitgroove-icon.svg` | the app icon: the mark alone, filling 92% of the canvas, **no ground** |
 | `gitgroove-icon-tile.svg` | the same on the `#212121` tile at `rx` 22.5%, for anywhere that wants one |
+| `gitgroove-icon-macos.svg` | the tile on Apple's icon grid (an 824 body in a 1024 canvas), for the macOS Dock; `png/gitgroove-icon-macos-1024.png` is cut from it |
 | `gitgroove-favicon.svg` | the icon at 48px |
 | `gitgroove-lockup-dark.svg` | mark + wordmark, for a dark ground |
 | `gitgroove-lockup-light.svg` | mark + wordmark, for a light ground |

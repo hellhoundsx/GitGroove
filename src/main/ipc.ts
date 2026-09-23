@@ -82,6 +82,17 @@ export const glassAvailable =
   process.env.GITCLIENT_STEALTH !== '1' &&
   Number(release().split('.')[2] ?? 0) >= 22000;
 
+/**
+ * The material this window is built with, or null for none. On macOS it is **vibrancy**, which
+ * every supported macOS has, so only a stealth launch rules it out; `index.ts` builds the window
+ * with it and hands the same word to the renderer on the URL, the way the acrylic answer travels.
+ */
+export const windowMaterial: 'acrylic' | 'vibrancy' | null = glassAvailable
+  ? 'acrylic'
+  : process.platform === 'darwin' && process.env.GITCLIENT_STEALTH !== '1'
+    ? 'vibrancy'
+    : null;
+
 /** The three patterns the row menu can write, validated like every other enum argument (GC-093). */
 const IGNORE_KINDS: readonly IgnoreKind[] = ['file', 'extension', 'folder'];
 const CONFLICT_SIDES: readonly ConflictSide[] = ['ours', 'theirs'];

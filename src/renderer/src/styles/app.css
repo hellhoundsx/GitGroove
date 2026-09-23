@@ -554,6 +554,12 @@ textarea {
   -webkit-app-region: drag;
   padding-right: 140px; /* room for the OS window controls overlay */
 }
+/* macOS draws its traffic lights at the other end: 14px in, three 12px buttons with 8px between,
+   so the tabs start clear of them and the right end needs no reserve. */
+:root[data-platform='darwin'] .titlebar {
+  padding-left: 80px;
+  padding-right: 0;
+}
 /* What happens when there are more tabs than fit (GC-149). The row shrinks below its content and
    scrolls inside itself, rather than letting its children spill to the right: they used to, because
    a tab's padding, icon and close box are `flex: none` and stop it shrinking at about 40px, so past
